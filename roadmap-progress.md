@@ -267,14 +267,36 @@ matching the committed table. But any *single* obligation touching the whole
 table exceeds 2 GB, including `FStar.ImmutableArray` variants, because the
 array is rebuilt per obligation rather than shared.
 
+**Re-measured at 16 GB.** The memory ceiling was real but was masking the
+actual constraint. With headroom, the flat 4096-entry literal elaborates in
+1.4 GB / 7.6 s and the generated `Tessarium.BandTable.fst` in 1.9 GB / 9.5 s,
+so raw size was never the problem. Two sharper findings replace it:
+
+- *Z3 encoding size is the binding constraint.* A module that defines the
+  literals drags them into every SMT query it contains. A trivial index-bound
+  check — `b + 1 < length arr` under `b < bands - 1` — fails at 4096 entries
+  after 35 s, and the byte-identical code over 4 entries verifies in 0.2 s. The
+  fix is `[@@"opaque_to_smt"]`, which removes a definition from the SMT encoding
+  while leaving it reducible by the normaliser. Confirmed: chunked lists with
+  the attribute verify in 271 MB / 2.07 s.
+- *Lists normalise; arrays do not.* The same well-formedness scan takes 2.1 s
+  over chunked lists and does not terminate within 10 minutes via
+  `FStar.ImmutableArray` lookups. `ImmutableArray` earns its place only as the
+  extraction-time O(1) runtime representation, never as the proof vehicle.
+
+A third, smaller trap: an SMT pattern on a closed term (`[SMTPat (length arr)]`
+on a unit lemma) contains no bound variable, so Z3 discards it silently and F\*
+only warns. Length facts belong in the array's refinement type instead.
+
 **Rationale:** the governing rule is that each proof obligation must touch a
 small term — chunking the data is not enough on its own. That pushes the grid
 theorems behind an abstract `Tessarium.Table.fsti` carrying only
 well-formedness, so injectivity, containment and round-trip never see a literal,
 and the concrete table's cost is isolated to one module. That is better
-structure independently of memory, and the existing `Tessarium.Grid.fsti`
-already declares the table abstractly, so it matches the original intent.
+structure independently of the prover's limits, and the existing
+`Tessarium.Grid.fsti` already declares the table abstractly, so it matches the
+original intent.
 
 **Follow-on:** Phase 1 gains the interface split and a chunked re-emit of the
-band table; the current emitter produces one flat literal that cannot be
-elaborated in 2 GB.
+band table; the current emitter produces one flat literal, which now elaborates
+but poisons every SMT query in its module.

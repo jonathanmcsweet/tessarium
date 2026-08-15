@@ -209,9 +209,15 @@ Design and reference done; the F\* work remains.
 
 - [ ] Split the table behind `Tessarium.Table.fsti` so the grid theorems are
       proved against well-formedness alone and never against 4096 literals.
-      Forced by memory: every obligation that touches the whole table at once
-      exceeds 2 GB, while obligations touching one 256-entry chunk cost ~240 MB.
-      See the measurements in `roadmap-progress.md`.
+      Forced by Z3 encoding size, not memory: a module defining the literals
+      drags them into *every* SMT query in that module, which makes even a
+      trivial index-bound check fail, while the identical code over 4 entries
+      verifies in 0.2 s. Mark the data `opaque_to_smt` — it stays reducible by
+      the normaliser but disappears from the SMT encoding.
+- [ ] Prove the table facts by per-chunk `assert_norm` over 256-entry lists,
+      combined by generic data-free lemmas. Chunked lists scan in ~2 s; the same
+      table via `ImmutableArray` lookups did not finish in 10 minutes. Use
+      `ImmutableArray` only for O(1) runtime lookup, never as the proof vehicle.
 - [ ] Implement `point_to_cell` / `cell_to_point` in F\* against
       `fstar/Tessarium.Grid.fsti`
 - [ ] Prove `theorem_containment`, `theorem_injective`, `theorem_roundtrip`
