@@ -229,3 +229,52 @@ client-side and never transmitted).
 the old Phase 5–6. Android is Phase 9. Two new open questions: whether `js/`
 survives now that it is the only independent check on the extracted core, and
 who hosts the basemap extracts the in-app downloader will fetch.
+
+---
+
+### 2026-08-15 — First verified module; band table memory limits measured
+
+**Phase:** 1
+
+**What:** `Tessarium.Spec.fst` verifies — all conditions discharged, 0.4 s,
+no admits. That covers `lemma_factors`, `lemma_bucket_range`,
+`lemma_bucket_monotone`, `lemma_edge_inverse` and `lemma_midpoint_interior`,
+plus three new division lemmas (`lemma_div_char`, `lemma_div_le_iff`,
+`lemma_ceil_le`) that the rest of the development rests on. `lemma_edge_inverse`
+is the one corresponding to the floor/ceiling bug the reference implementation
+shipped first time round. F\* toolchain (2026.08.09, Z3 4.13.3) running from a
+binary release in `$HOME`, needing no root.
+
+**Rationale:** Two corrections came out of running the prover rather than
+reasoning about it.
+
+- *`FStar.Mul` no longer exists.* All four `fstar/*.fsti` files open it, and all
+  four would fail on the first line. It was removed from ulib; `*` on integers
+  now needs no import. The interfaces were written against an older F\* and had
+  never been run.
+- *F\* rejects `_` digit separators.* Every geodetic constant used them.
+
+Both are the same class of problem: the F\* in this repository had never been
+near a compiler, so nothing about it could be assumed.
+
+**Measured (2 GB RAM, no swap):** F\* memory against band-table size is sharply
+super-linear — 256 entries 115 MB, 512 → 166 MB, 1024 → 274 MB, 2048 → 640 MB,
+and 4096 is killed by the OOM killer above 1 GB. Splitting the same 4096 entries
+into 16 chunks of 256 costs 207 MB and succeeds, a 5× reduction. Sixteen
+per-chunk `assert_norm` obligations verify in 241 MB / 2.1 s, and F\*'s
+normaliser independently computed the grand total as 55,692,067,744,000,
+matching the committed table. But any *single* obligation touching the whole
+table exceeds 2 GB, including `FStar.ImmutableArray` variants, because the
+array is rebuilt per obligation rather than shared.
+
+**Rationale:** the governing rule is that each proof obligation must touch a
+small term — chunking the data is not enough on its own. That pushes the grid
+theorems behind an abstract `Tessarium.Table.fsti` carrying only
+well-formedness, so injectivity, containment and round-trip never see a literal,
+and the concrete table's cost is isolated to one module. That is better
+structure independently of memory, and the existing `Tessarium.Grid.fsti`
+already declares the table abstractly, so it matches the original intent.
+
+**Follow-on:** Phase 1 gains the interface split and a chunked re-emit of the
+band table; the current emitter produces one flat literal that cannot be
+elaborated in 2 GB.

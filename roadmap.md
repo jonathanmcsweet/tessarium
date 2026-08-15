@@ -207,16 +207,22 @@ assuming HMAC-SHA256 behaves as a PRF." Do not let the README overstate this.
 
 Design and reference done; the F\* work remains.
 
+- [ ] Split the table behind `Tessarium.Table.fsti` so the grid theorems are
+      proved against well-formedness alone and never against 4096 literals.
+      Forced by memory: every obligation that touches the whole table at once
+      exceeds 2 GB, while obligations touching one 256-entry chunk cost ~240 MB.
+      See the measurements in `roadmap-progress.md`.
 - [ ] Implement `point_to_cell` / `cell_to_point` in F\* against
       `fstar/Tessarium.Grid.fsti`
-- [ ] Prove `lemma_edge_inverse` — the floor/ceiling property the reference
-      got wrong first time
 - [ ] Prove `theorem_containment`, `theorem_injective`, `theorem_roundtrip`
 - [ ] Discharge the band-table well-formedness lemmas against the generated
-      table (contiguity, totals, `lemma_fits`, `lemma_cells_wide`)
+      table (contiguity, totals, `lemma_fits`, `lemma_cells_wide`). Per-chunk
+      `assert_norm` plus structural `append` lemmas, never one whole-table
+      obligation.
 - [ ] Prove `theorem_no_overflow`
-- [ ] Emit the band table as an F\*-consumable constant from
-      `design/grid_design.py`
+- [ ] Re-emit the band table chunked from `design/grid_design.py`. The current
+      emitter produces one flat 4096-entry literal, which F\* cannot elaborate
+      in 2 GB.
 
 ## Phase 2 — Feistel and key derivation
 
