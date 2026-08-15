@@ -161,3 +161,71 @@ than a magic number. Second check added asserting the map is not hierarchical,
 which is the failure the test actually guards against.
 
 **Follow-on:** none. Rename complete, no references remain.
+
+---
+
+### 2026-08-15 — Application architecture settled; repo under version control
+
+**Phase:** 0
+
+**What:** The project gained a target beyond the core: a working app on Linux
+desktop and the web, where a 24-word phrase is entered, the map is generated
+under it, and clicking a tile yields that tile's address. Settled the delivery
+path, the UI stack, the round-function source, the privacy posture, the basemap
+and the desktop shape; all now in `roadmap.md` under *Locked decisions*. Phases
+5–7 rewritten around them, Android split out as Phase 9. `git init` and a
+baseline commit — the repository had never been under version control.
+
+**Rationale:** Six decisions, five of which reverse or narrow something the
+roadmap previously left open.
+
+- *`js_of_ocaml` instead of Low\* → C → WASM for the browser.* The original
+  plan reached clients through a second extraction target, which made a working
+  UI wait on the whole Low\* retarget. `js_of_ocaml` compiles the OCaml already
+  being extracted, so the browser and the server run one extraction rather than
+  two, with no C toolchain and no KaRaMeL in the critical path. Low\* survives
+  in Phase 8 as an optimisation.
+- *Round function from `digestif`'s pure-OCaml backend, not HACL\*.* HACL\* is
+  verified and was the presumed answer, but it reaches OCaml through C stubs,
+  and C stubs do not cross into `js_of_ocaml`. Taking it would have forced a
+  separate browser-side crypto implementation — a second hand-written copy, the
+  precise failure mode this architecture exists to prevent. `digestif`'s pure
+  backend compiles unchanged in both targets, so there is exactly one. The
+  interface already anticipated this: `round_fn` is a parameter and bijectivity
+  never depended on it.
+- *Eio + cohttp-eio, not Dream.* The roadmap carried "Eio or Dream" unresolved.
+  This server serves static assets, three JSON routes and PMTiles range
+  requests; Dream is at `1.0.0~alpha8`, is Lwt-based, and pulls OpenSSL
+  bindings, GraphQL, an HTML parser and a Markdown parser along with it, while
+  still leaving range support to be hand-rolled. Eio is direct-style, actively
+  maintained and effects-native.
+- *OCaml 5.4, not 4.14.* 4.14 was briefly chosen out of caution about Dream's
+  OCaml 5 support. That caution was unfounded — Dream declares `ocaml >= 4.08`
+  with no upper bound — and the pin was actively harmful: `zarith_stubs_js`
+  v0.17.0, which is what makes extracted `Prims.int` arithmetic work in a
+  browser, requires `ocaml >= 5.1.0`. Checking the constraint rather than
+  assuming it reversed the decision.
+- *Vector basemap, not raster.* Offline was a hard requirement, and raster
+  cannot meet it at this resolution: planet coverage to z19 is hundreds of
+  billions of tiles, and z19 is only 0.30 m/px, which puts a 3 m cell at ten
+  pixels with nothing but blur beyond. Vector tiles to z15 cover the planet in
+  roughly 100 GB and render crisply at z22. PMTiles also collapses hosting to a
+  single file behind HTTP range requests, so desktop-offline and self-hosted
+  become one code path.
+- *Plain DOM UI, not React Native.* Expo can build web, so the question was not
+  capability but commitment: Capacitor wraps a finished web build and can be
+  added years later, whereas Expo is a foundational choice that cannot be
+  retrofitted onto a DOM app. With Android deferred, the cheapest way to keep it
+  open is to not choose a mobile framework at all. React Native would also have
+  put `react-native-web` between the app and a DOM/WebGL map library, and made
+  awkward the Web Worker that PBKDF2 needs.
+
+Settled two of the roadmap's open questions outright — the round-function source,
+and whether the server must exist (it does, as static host, tile server and
+desktop shell, but no UI path depends on its encode/decode API; keys are derived
+client-side and never transmitted).
+
+**Follow-on:** Phase 0 reduces to toolchain pinning and CI. Phases 5–7 replace
+the old Phase 5–6. Android is Phase 9. Two new open questions: whether `js/`
+survives now that it is the only independent check on the extracted core, and
+who hosts the basemap extracts the in-app downloader will fetch.

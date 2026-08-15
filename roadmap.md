@@ -110,9 +110,13 @@ halves effective strength; nothing here relies on factoring or discrete log.
 | Layer | Technology | Verified? |
 |---|---|---|
 | Core (grid, Feistel, codec) | F\* | Yes |
-| Server extraction target | OCaml (via F\* extraction) | No — generated artifact |
-| Client extraction target | C / WASM (via Low\*, later) | No — generated artifact |
-| HTTP server | OCaml — Eio or Dream | No |
+| Server / CLI target | OCaml 5.4 (via F\* extraction) | No — generated artifact |
+| Browser target | JS (js_of_ocaml over the *same* extracted OCaml) | No — generated artifact |
+| Round function | `digestif` pure-OCaml SHA-2/HMAC, injected | No — standard primitive, vector-tested |
+| HTTP server | OCaml — Eio + cohttp-eio | No |
+| UI | TypeScript, Vite, React, MapLibre GL | No |
+| Basemap | Protomaps PMTiles, self-hosted or bundled | n/a |
+| Desktop | the server binary, opening the system browser | No |
 
 **Extracted code is never hand-edited.** It is a build artifact, like an object
 file. Any change belongs upstream in the F\* source, or it will be silently
@@ -132,6 +136,45 @@ trusted, not proved. Say so in the README.
 boxing in extracted code, but the gain is invisible behind HTTP, the extensions
 are experimental and not backwards-compatible, and hand-annotating extracted
 code violates the rule above. Revisit only if a profiler points at the core.
+
+### Application and delivery
+
+- **One extraction, two consumers.** F\* extracts to OCaml once. The native
+  build is the server and CLI; `js_of_ocaml` compiles that *same* extracted
+  OCaml to the JavaScript the browser runs. No second extraction target, no
+  hand-written client. Low\* → C → WASM stays available later as a performance
+  refactor, not a prerequisite.
+- **Round function is injected, not proved.** `Tessarium.Feistel` already
+  takes `round_fn` as a parameter, and bijectivity does not depend on it. It is
+  supplied by `digestif`'s *pure-OCaml* backend (SHA-256, SHA-512, HMAC), which
+  compiles unchanged under `js_of_ocaml` — so native and browser run one
+  implementation, not two. PBKDF2 and HKDF are written over that HMAC and
+  tested against the RFC vectors. Deliberately not HACL\*: its C stubs do not
+  cross into `js_of_ocaml`, which would force a second browser-side crypto
+  implementation and reintroduce exactly the drift this architecture forbids.
+- **Keys are derived client-side and never transmitted.** The phrase is entered
+  in the UI, PBKDF2 runs in a Web Worker, and neither phrase nor derived key
+  leaves the device. The server keeps an opt-in session/encode/decode API for
+  scripting and headless use, but no UI path depends on it, and the README must
+  say plainly which mode is in use.
+- **UI is a plain DOM app** — TypeScript, Vite, React, MapLibre GL. Not React
+  Native: `react-native-web` would put an abstraction between the app and a
+  DOM/WebGL map library, complicate the Web Worker the key derivation needs,
+  and fork the grid-overlay code the moment a native target appears. Capacitor
+  can wrap the built output later without touching the UI; Expo could not be
+  retrofitted without rewriting it.
+- **Basemap is vector, not raster.** Protomaps PMTiles read over HTTP range
+  requests. Raster cannot meet the offline requirement at this resolution —
+  planet coverage to z19 is hundreds of billions of tiles, and z19 is only
+  0.30 m/px, so a 3 m cell is ten pixels and everything past it is blur. Vector
+  tiles to z15 cover the planet in ~100 GB and render crisply at z22, where a
+  cell is actually clickable. Style, glyphs and sprites ship locally too, or
+  the map silently phones a CDN for labels.
+- **Desktop is the server binary.** One OCaml executable serves UI, API and
+  basemap on localhost and opens the system browser. No Electron, no Tauri, no
+  webkit2gtk version-matching across distros, and self-hosted and desktop are
+  the same code path rather than two.
+- **Android is deferred**, not cancelled. See Phase 9.
 
 ### What proof does and does not cover
 
@@ -154,17 +197,11 @@ assuming HMAC-SHA256 behaves as a PRF." Do not let the README overstate this.
 
 ## Phase 0 — Foundations
 
-- [ ] Repository, licence (Apache-2.0 or MPL-2.0), README stating scope and
-      non-goals
-- [ ] F\* toolchain pinned and reproducible; CI that runs verification on every
-      push
-- [ ] Clean-room paper trail from day one. Do not read, reference, or vendor
-      what3words' wordlist or grid. They have historically been aggressive with
-      legal threats against reimplementations; the defence is documented
-      independence.
-- [ ] Prior-art note in README: Open Location Code (Plus Codes, Apache-2.0)
-      solves the public case well. The differentiator here is the per-seed
-      private mapping.
+- [ ] F\* toolchain pinned and reproducible: version-locked `fstar.exe` and Z3,
+      an OCaml switch definition, and a setup script that reproduces both from
+      nothing
+- [ ] CI that verifies on every push, and fails if extracted OCaml differs from
+      a fresh extraction
 
 ## Phase 1 — Grid
 
@@ -189,9 +226,10 @@ Reference done and vectors committed; the F\* work remains.
 - [ ] Prove `theorem_roundtrip` — note it holds for ANY round function, so it
       does not depend on HMAC being cryptographic
 - [ ] Prove `theorem_injective` / `theorem_surjective`
-- [ ] Decide whether to take HMAC-SHA256 from HACL\* (verified) or assume it
-      at the interface. HACL\* is the better answer if Low\* lands in Phase 6
-      anyway.
+- [ ] Build the injected round function: `digestif` pure-OCaml HMAC-SHA256, with
+      PBKDF2-HMAC-SHA512 and HKDF-SHA256 written over it and checked against the
+      RFC 6070 / RFC 5869 vectors. Confirm the whole module compiles under
+      `js_of_ocaml` with no C stubs — that is the property the choice rests on.
 
 ## Phase 3 — Codec
 
@@ -221,35 +259,64 @@ Reference done and vectors committed; the F\* work remains.
       architecture is meant to prevent. Removal criteria and interim rules in
       `reference/README.md`.
 
-## Phase 5 — Server
+## Phase 5 — JS core and server
 
-- [ ] OCaml HTTP service (Eio or Dream): encode, decode, health
-- [ ] Session key cache so PBKDF2 runs once, not per request
-- [ ] Decide whether the server ever sees a seed phrase. Strongly prefer not —
-      client-side derivation with the server as a dumb tile helper is the better
-      privacy story and should be evaluated before the API is fixed.
-- [ ] Rate limiting, structured logging that never logs seeds or addresses
+- [ ] `js_of_ocaml` build of the extracted core, exposing encode, decode,
+      `cell_bounds`, `derive_key` and `validate_mnemonic` to JavaScript
+- [ ] The JS artifact must reproduce `vectors/vectors.json` exactly, in CI. This
+      is the check that the browser and the server agree, and it is the whole
+      reason the grid is integer-only.
+- [ ] Eio + cohttp-eio service: static assets, health, and PMTiles served with
+      HTTP range request support
+- [ ] Opt-in session/encode/decode API with an in-memory key cache so PBKDF2
+      runs once per session, never per request. Off by default.
+- [ ] Structured logging that can never emit a phrase, a key or an address
 
-## Phase 6 — Clients
+## Phase 6 — Web UI
 
-- [ ] Retarget the core to the Low\* subset; extract C via KaRaMeL
-- [ ] WASM build from the same source
-- [ ] JS client consuming the WASM artifact
-- [ ] Verify all targets reproduce the Phase 2 test vectors bit-for-bit
-- [ ] Mobile: evaluate the C artifact via FFI
+- [ ] Vite + React + MapLibre GL shell, PMTiles basemap with style, glyphs and
+      sprites served locally
+- [ ] Seed phrase entry: 24-word validation, checksum feedback, a hard warning
+      against reusing a wallet seed, and derivation in a Web Worker so the UI
+      does not stall on PBKDF2
+- [ ] Grid overlay drawn from `cell_bounds` for the visible viewport, appearing
+      only at zooms where a cell is large enough to click
+- [ ] Click a cell → its address, with copy-to-clipboard
+- [ ] Paste an address → validate, decode, fly to the cell, or report clearly
+      that it is one of the ~35% that resolve to nothing
+- [ ] Region downloader: pick an area, fetch the PMTiles extract, work offline
+      afterwards
+- [ ] The phrase never touches `localStorage`, a URL, or a network request
 
-No platform reimplements the Feistel by hand. One proved source, several
-extraction targets — this is the whole defence against silent encode/decode
-mismatch.
+## Phase 7 — Desktop
 
-## Phase 7 — Later, unscheduled
+- [ ] Single OCaml binary with UI assets embedded, serving localhost and opening
+      the system browser
+- [ ] Packaging: tarball, `.deb`, AppImage
+- [ ] Confirm a clean machine needs nothing installed to run it
+
+## Phase 8 — Later, unscheduled
 
 - [ ] Coarse precision modes (two-word block, three-word room)
 - [ ] Seed sharing between parties — needs ML-KEM
 - [ ] Signed location attestations — needs SLH-DSA (hash-based, matches the rest
       of the design)
-- [ ] Map tile rendering / visual grid overlay
+- [ ] Retarget the core to the Low\* subset and extract C via KaRaMeL, if and
+      only if profiling justifies it or a native mobile client needs it. This
+      was Phase 6 in the original plan; `js_of_ocaml` covers the browser from
+      the existing OCaml extraction, so it is now an optimisation, not a
+      prerequisite.
 - [ ] Revisit OxCaml if and only if profiling justifies it
+
+## Phase 9 — Android
+
+Deferred deliberately: web and Linux desktop first, both fully working.
+
+- [ ] Decide webview (Capacitor, wraps the Phase 6 build unchanged) versus
+      native (Expo/React Native, needs a second map integration and a rewritten
+      UI layer). Capacitor is additive and can be added late; Expo cannot.
+- [ ] Offline basemap packs sized for a phone
+- [ ] Reproducible builds and F-Droid packaging
 
 ---
 
@@ -259,17 +326,16 @@ mismatch.
   the outermost bands, cell width falls well below 3 m. This is a design
   judgement no proof will make. Acceptable for now; revisit if polar use cases
   appear.
-- **Round function source.** HACL\* verified HMAC-SHA256, or assume it at the
-  interface? Bears on Phase 2 and Phase 6 sequencing.
-- **Does `js/` survive the WASM port?** Settled for `reference/` — it goes at
-  Phase 4. `js/` is the same category of liability but has a live argument for
-  staying: an independently written implementation is a genuine check on the
-  extracted one, in a way that a second extraction target is not. Decide at
-  Phase 6. If it stays, it needs the same "scaffolding, do not cite as spec"
-  framing as `reference/README.md`.
-- **Does the server need to exist at all** for the core use case, or is it purely
-  a convenience over a client-side library? Affects Phase 5 scope materially.
+- **Does `js/` survive?** Settled for `reference/` — it goes at Phase 4. `js/`
+  is the same category of liability but has a live argument for staying: an
+  independently written implementation is a genuine check on the extracted one,
+  in a way that a second extraction target is not. The argument strengthens now
+  that the browser runs `js_of_ocaml` output rather than a WASM build, since
+  `js/` would be the only thing in the repo that could catch an extraction bug
+  by disagreeing. Decide at Phase 5. If it stays, it needs the same
+  "scaffolding, do not cite as spec" framing as `reference/README.md`.
 - **Altitude / floors.** Out of scope for now; note whether the address format
   should reserve room for it before the format is frozen.
-- **Address space headroom.** Settled: 1.54× (65% fill). Confirmed against the
-  generated table.
+- **Basemap distribution.** Protomaps publishes a planet build, but hosting
+  region extracts for the in-app downloader means either depending on someone
+  else's bucket or paying for one. Decide before Phase 6 ships the downloader.
