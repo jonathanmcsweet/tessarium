@@ -17,9 +17,9 @@ for (const kd of V.key_derivation) {
 
 const fk = Buffer.from("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff", "hex");
 for (const fv of V.feistel_vectors) {
-  const y = w.encrypt(fk, Buffer.from("tessarium-grid-1"), BigInt(fv.x));
+  const y = w.encrypt(fk, Buffer.from("tessarium-grid-2"), BigInt(fv.x));
   check(`feistel ${fv.x}`, y === BigInt(fv.y), `${y} vs ${fv.y}`);
-  check(`feistel inv ${fv.x}`, w.decrypt(fk, Buffer.from("tessarium-grid-1"), y) === BigInt(fv.x));
+  check(`feistel inv ${fv.x}`, w.decrypt(fk, Buffer.from("tessarium-grid-2"), y) === BigInt(fv.x));
 }
 
 for (const g of V.grid_vectors) {

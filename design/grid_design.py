@@ -25,7 +25,7 @@ WORDS, NUM = 2048, 10000
 N = WORDS**3 * NUM
 
 HERE = Path(__file__).parent
-GRID_VERSION = "tessarium-grid-1"
+GRID_VERSION = "tessarium-grid-2"
 
 R_E = 6371008.8
 AREA = 4 * math.pi * R_E**2

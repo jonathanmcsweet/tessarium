@@ -12,7 +12,7 @@ module M = FStar.Math.Lemmas
 
 open Tessarium.Spec
 
-let rounds : pos = 10        // must be even: halves swap domains each round
+let rounds : pos = 16        // must be even: halves swap domains each round
 
 type index = x: nat{x < addr_space}
 

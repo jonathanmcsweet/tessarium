@@ -129,8 +129,8 @@ agree exactly.
 **Permutation.** The cell index is encrypted with an FE1 generalized Feistel
 network over Z_a × Z_b, where a = 2¹⁸·25 and b = 2¹⁹·25. Their product is
 exactly 2048³·10⁴, so the permutation is a bijection on the address space with
-no cycle-walking. Ten rounds, HMAC-SHA256 as the round function, keyed from
-your seed phrase.
+no cycle-walking. Sixteen rounds, HMAC-SHA256 as the round function, keyed
+from your seed phrase.
 
 **Addresses.** Mixed radix (2048, 2048, 2048, 10000) over the permuted index.
 

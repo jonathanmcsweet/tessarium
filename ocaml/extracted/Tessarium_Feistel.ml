@@ -1,5 +1,5 @@
 open Prims
-let rounds : Prims.pos= Prims.of_int 10
+let rounds : Prims.pos= Prims.of_int 16
 type index = Prims.nat
 type ('key, 'tweak) round_fn =
   'key -> 'tweak -> Prims.nat -> Prims.nat -> Prims.pos -> Prims.nat

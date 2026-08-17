@@ -32,8 +32,8 @@ const LON_MIN = -180000000000n, LON_SPAN = 360000000000n;
 const A = 262144n * 25n;         // 2^18 * 25
 const B = 524288n * 25n;         // 2^19 * 25
 const N = A * B;
-const ROUNDS = 10;
-const TWEAK = Buffer.from("tessarium-grid-1");
+const ROUNDS = 16;
+const TWEAK = Buffer.from("tessarium-grid-2");
 
 // ------------------------------------------------------------------- grid
 

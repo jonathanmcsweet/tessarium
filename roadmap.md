@@ -77,12 +77,14 @@ typo detection and is a feature, not waste.
   and no probabilistic termination argument. *Corrected 2026-08-15: the
   earlier pair (2¹⁹, 2¹⁸×625) was a 250:1 split, badly unbalanced for a
   Feistel. This pair is 2:1.*
-- **8–10 rounds**, HMAC-SHA256 as the round function. Four rounds is
-  distinguishable; do not economise here regardless of what has been proved.
+- **16 rounds**, HMAC-SHA256 as the round function. Raised from 10 on
+  2026-08-17. Four rounds is distinguishable; do not economise here regardless
+  of what has been proved. The count must be even — the halves swap domains
+  each round, and the proof fails outright at an odd count.
 - **Key derivation:** mnemonic → BIP-39 seed (PBKDF2-HMAC-SHA512, standard) →
   HKDF-SHA256 → 32-byte Feistel key. Derived once per session and cached;
   PBKDF2 is deliberately slow and must not sit in the hot path.
-- **Tweak = grid version string** (`tessarium-grid-1`), and the HKDF salt
+- **Tweak = grid version string** (`tessarium-grid-2`), and the HKDF salt
   and info strings are `tessarium/v1/salt` and `tessarium/v1/feistel-key`.
   Renamed from `w3wx/*` on 2026-08-15; since no address had been issued, this
   was free. After launch it would invalidate every address anyone had written
@@ -213,6 +215,48 @@ The theorem set is complete and in the ledger. What is left is narrower.
       `requires lat < lat_min + lat_span` and a separate `lemma_pole_clamp`
       covers the pole. Correct, and less tidy than a single statement.
 
+## Phase 4 — Security hardening
+
+- [ ] **The key derivation is the weakest link, and only for weak phrases.**
+      With a properly random 24-word phrase the search space is 2^256 and no
+      key-derivation cost matters. The derivation cost matters in exactly two
+      cases: a phrase a human made up, and the ~2^46 search to find *a* phrase
+      linking one known address to one known place.
+
+      Measured: our browser build takes 241 ms per derivation at BIP-39's 2048
+      iterations. An optimised GPU implementation does about 244,000 per
+      second — roughly 59,000x faster. Raising the iteration count scales both
+      sides equally, so it does not change that ratio; at 600,000 iterations
+      the user waits over a minute and the attacker is still 59,000x ahead.
+
+      The ratio only improves by making *our* implementation fast: WebCrypto's
+      native PBKDF2 in the browser, a C-backed hash natively. That means two
+      implementations of the *hash* — not of the algorithm — both pinned by
+      published vectors and already cross-checked by the differential suite.
+      Argon2id would be better still against GPUs but has no browser-native
+      support.
+
+- [ ] **Generate phrases in the app.** The single highest-value security item.
+      The app tells users to bring a fresh 24-word phrase and gives them no way
+      to make one, which invites made-up phrases — the one case where the key
+      derivation cost above actually decides the outcome. Needs a CSPRNG, the
+      checksum computed for them, and a flow that makes writing it down the
+      obvious next step.
+
+- [ ] **Check the FE1 parameters against the published attack literature.**
+      The construction is the family underlying FF1/FF3, which has a real
+      attack literature (Bellare–Hoang–Tessaro 2016; Durak–Vaudenay 2017 on
+      FF3; Hoang–Miller–Trieu 2019). Those attacks need very large query
+      counts, and this threat model exposes almost none — a user reveals the
+      addresses they choose to share, not millions.
+
+      Two things make that argument load-bearing rather than comfortable, and
+      both should be written down properly: the `--api` mode turns the server
+      into an encryption oracle for whoever can reach it, and the UI itself
+      answers "what is the address of this point" on demand. Neither reaches
+      the query counts the attacks need, but the reasoning should be explicit.
+      Rounds were raised 10 -> 16 as margin in the meantime.
+
 ## Phase 4 — Correctness gaps
 
 - [ ] **Unicode normalisation of the passphrase.** BIP-39 specifies NFKD. The
@@ -281,7 +325,21 @@ the one honest caveat.
 
 ## Phase 8 — Later, unscheduled
 
-- [ ] Coarse precision modes (two-word block, three-word room)
+- [ ] **Coarse precision: selecting larger areas when zoomed out.** Requested
+      2026-08-17 and deferred the same day, because the cheap version is not
+      cheap.
+
+      Dropping the trailing number does *not* name a block. Measured: the
+      10,000 addresses sharing three words are scattered worldwide, median
+      10,173 km apart, with one within 1 km. That is the scattering working as
+      designed — the words encode the permuted index, so consecutive numbers
+      are unrelated places. Making them contiguous would mean a hierarchical
+      map, which is the property the whole privacy argument rejects.
+
+      The workable design is the one already locked: a **separate** coarse grid,
+      independently scrambled, where two words name a ~245 m square and the
+      coarse address is not a prefix of the fine one. That needs its own band
+      table, its own Feistel domain, and its own proofs. Real work, no shortcut.
 - [ ] Seed sharing between parties — needs ML-KEM
 - [ ] Signed location attestations — needs SLH-DSA (hash-based, matches the rest
       of the design)

@@ -12,7 +12,7 @@ module L = FStar.List.Tot
 
 open Tessarium.Scan
 
-let grid_version : string = "tessarium-grid-1"
+let grid_version : string = "tessarium-grid-2"
 
 let rows          : pos = 6553600
 let bands         : pos = 4096

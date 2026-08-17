@@ -719,3 +719,50 @@ with `--check` to report without changing anything.
   your machine, not one this repository should make.
 
 **Follow-on:** Phase 0 is closed.
+
+---
+
+### 2026-08-17 — Rounds raised to 16; grid version bumped to 2
+
+**Phase:** 2 (locked decision revised)
+
+**What:** The Feistel round count went from 10 to 16, and the grid version
+string from `tessarium-grid-1` to `tessarium-grid-2`. Every address
+changed. All nine modules re-verify, all seven suites pass, and the
+independently written implementation agrees on the new addresses.
+
+**Rationale.** The construction is the family underlying FF1/FF3, which has a
+real attack literature. Those attacks need query counts far beyond what this
+threat model exposes, and 10 rounds matched FF1. But the parameters have not
+been checked against the published bounds, addresses are permanent once
+issued, and the cost of margin is linear and small. Buying it was free today
+and impossible later — the same argument that justified the rename.
+
+Measured: 180 µs per encode in the browser build, up from about 112 µs. A
+full grid redraw with labels is roughly 216 ms, which runs in a worker and
+never touches the render thread.
+
+*The version string had to move with it.* The rule was written for
+regenerating the band table, but it exists for a broader reason: an address
+issued under the old parameters must fail loudly rather than quietly resolve
+somewhere new. Changing the round count has exactly that effect, so the string
+bumped too.
+
+**Worth keeping:** the proof is round-count agnostic but not parity-agnostic.
+An earlier negative control set `rounds` to 9 and verification failed, because
+the halves swap domains each round and only an even count returns them. So
+changing this number is checked by the prover rather than by inspection.
+
+**Measured, and it reframes the key-derivation question:** the browser build
+takes 241 ms per derivation at 2048 iterations, while an optimised GPU does
+~244,000 per second — about 59,000x faster. Raising the iteration count scales
+both sides equally and never closes that gap. The gap only closes by making
+our own implementation fast, which means a native hash in each target. Now an
+explicit Phase 4 item rather than an assumption that "PBKDF2 is slow, so we
+are fine".
+
+**Follow-on:** three Phase 4 items — a fast key derivation, in-app phrase
+generation (the highest-value one, since a made-up phrase is the only case
+where derivation cost decides anything), and writing the FE1 parameter
+analysis down properly. Coarse precision moved to Phase 8 with the measurement
+that killed the cheap version.
