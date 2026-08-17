@@ -1,0 +1,31 @@
+{
+  "name": "tessarium-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "sync-core": "cp ../_build/default/ocaml/js/tessarium_js.bc.js public/tessarium.js",
+    "dev": "npm run sync-core && vite",
+    "build": "npm run sync-core && tsc -b --noEmit && vite build",
+    "typecheck": "tsc -b --noEmit",
+    "e2e": "node test/e2e.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@protomaps/basemaps": "5.7.2",
+    "maplibre-gl": "5.24.0",
+    "pmtiles": "4.5.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/geojson": "7946.0.16",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "5.2.0",
+    "playwright": "1.62.1",
+    "typescript": "5.9.3",
+    "vite": "7.3.6"
+  }
+}

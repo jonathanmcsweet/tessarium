@@ -1,0 +1,218 @@
+/* End-to-end check of the built UI against the built server.
+
+   This is the test for the claim the whole project rests on: enter a phrase,
+   click a square, get its address. It runs the real browser against the real
+   binary, because the parts that break here -- Web Worker startup, the
+   Content-Security-Policy, js_of_ocaml's export target in a worker -- are all
+   things that look fine in a unit test and fail in a page.
+
+   The addresses it expects come from `vectors/vectors.json`, so a UI that
+   renders beautifully and computes the wrong answer still fails. */
+
+import { chromium } from "playwright";
+import { readFileSync } from "node:fs";
+
+const base = process.argv[2] ?? "http://127.0.0.1:7373";
+const vectors = JSON.parse(
+  readFileSync(new URL("../../vectors/vectors.json", import.meta.url), "utf8"),
+);
+
+let checks = 0;
+let failures = 0;
+const check = (name, ok) => {
+  checks++;
+  if (!ok) {
+    failures++;
+    console.log(`  FAIL  ${name}`);
+  }
+};
+
+const mnemonic = vectors.key_derivation[0].mnemonic;
+/* A vector whose address we can predict: same phrase, known point. */
+const sample = vectors.addresses.find((a) => a.mnemonic === vectors.key_derivation[0].name)
+  ?? vectors.addresses[0];
+const sampleMnemonic =
+  vectors.key_derivation.find((k) => k.name === sample.mnemonic)?.mnemonic ??
+  mnemonic;
+const sampleLat = sample.lat_ns / 1e9;
+const sampleLon = sample.lon_ns / 1e9;
+
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+
+/* Anything the browser refuses is a real failure here: a CSP violation, a
+   worker that will not start, a script that 404s. Collect them rather than
+   letting the test pass around them. */
+const problems = [];
+
+/* Missing basemap assets are expected until a .pmtiles has been fetched, and
+   the UI reports that itself. Everything else is a real failure. */
+const expected = (url) => url.includes("/basemap/");
+
+page.on("console", (msg) => {
+  /* A failed resource is already recorded from the response, with its URL
+     attached; the console version has none and is pure noise. */
+  if (msg.type() === "error" && !msg.text().includes("Failed to load resource")) {
+    problems.push(`console: ${msg.text()}`);
+  }
+});
+page.on("pageerror", (err) => problems.push(`pageerror: ${err.message}`));
+page.on("requestfailed", (req) => {
+  if (!expected(req.url())) {
+    problems.push(`requestfailed: ${req.url()} ${req.failure()?.errorText}`);
+  }
+});
+page.on("response", (res) => {
+  if (res.status() >= 400 && !expected(res.url())) {
+    problems.push(`http ${res.status()}: ${res.url()}`);
+  }
+});
+
+await page.goto(base, { waitUntil: "networkidle" });
+
+check("gate renders", (await page.locator("h1").textContent()) === "Tessarium");
+
+/* The 4.4 MB core has to load inside the worker before validation replies.
+   If js_of_ocaml exported to the wrong global, this is where it hangs. */
+await page.locator("#phrase").fill("abandon abandon abandon");
+await page.waitForFunction(
+  () => document.querySelector(".phrase-status")?.textContent?.includes("3/24"),
+  { timeout: 30_000 },
+);
+check(
+  "short phrase is rejected",
+  (await page.locator(".phrase-status").textContent()).includes("expected 24 words"),
+);
+
+/* One wrong word must fail the checksum rather than silently producing a
+   different map. This is the check that catches a typo. */
+const words = sampleMnemonic.split(" ");
+const typo = [...words];
+typo[5] = typo[5] === "zoo" ? "zone" : "zoo";
+await page.locator("#phrase").fill(typo.join(" "));
+await page.waitForFunction(
+  () => {
+    const t = document.querySelector(".phrase-status")?.textContent ?? "";
+    return t.includes("24/24");
+  },
+  { timeout: 30_000 },
+);
+check(
+  "checksum catches a single wrong word",
+  (await page.locator(".phrase-status").textContent()).includes("checksum failed"),
+);
+
+await page.locator("#phrase").fill(sampleMnemonic);
+await page.waitForSelector(".valid", { timeout: 30_000 });
+check("valid phrase reports a valid checksum", true);
+
+await page.locator("button[type=submit]").click();
+
+/* PBKDF2 runs here. Generous, because a cold worker on a loaded machine is
+   slower than the number anyone quotes. */
+await page.waitForSelector(".map-wrap", { timeout: 60_000 });
+check("map opens after derivation", true);
+check("phrase is not left in the DOM", !(await page.content()).includes(words[0] + " " + words[1]));
+
+/* Nothing may have been persisted. This is a stated guarantee of the design,
+   so it is asserted rather than assumed. */
+const persisted = await page.evaluate(() => ({
+  local: JSON.stringify(window.localStorage),
+  session: JSON.stringify(window.sessionStorage),
+  cookie: document.cookie,
+  url: window.location.href,
+}));
+check("nothing in localStorage", persisted.local === "{}");
+check("nothing in sessionStorage", persisted.session === "{}");
+check("no cookies", persisted.cookie === "");
+check("phrase not in the URL", !persisted.url.includes(words[0]));
+
+/* The core is reachable only through the worker. Asserting the key is not on
+   the main thread is the point of putting it there. */
+const keyOnMainThread = await page.evaluate(
+  () => typeof globalThis.tessarium !== "undefined",
+);
+check("core is not loaded on the main thread", !keyOnMainThread);
+
+/* A freshly spawned worker has no key. That is what confining the key to one
+   worker actually buys, so it is asserted rather than assumed. */
+const strangerWorker = await page.evaluate(
+  async ([lat, lon]) => {
+    const worker = new Worker("/core.worker.js");
+    return await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("worker timeout")), 60000);
+      worker.onmessage = (e) => {
+        clearTimeout(timer);
+        resolve(e.data);
+      };
+      worker.postMessage({ id: 1, op: "encode", payload: { lat, lon } });
+    });
+  },
+  [sampleLat, sampleLon],
+);
+check("a second worker has no key", strangerWorker?.error === "locked");
+
+/* The round trip the whole project is for, driven entirely through the UI:
+   paste an address, fly to the square it names, click that square, and get
+   the same address back.
+
+   No test hook on the map. Going through the real controls is what makes this
+   evidence that a person can do it. */
+await page.locator(".lookup input").fill(sample.address);
+await page.locator(".lookup button").click();
+await page.waitForTimeout(3000); // decode, then a 1.2 s flight
+
+const lookupFailed = await page.locator(".lookup .invalid").count();
+check(`looking up ${sample.address} succeeds`, lookupFailed === 0);
+
+/* flyTo centres on the decoded point, so the centre pixel is inside the
+   square that address names. Clicking it must name it the same way. */
+const box = await page.locator(".map").boundingBox();
+await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+await page.waitForTimeout(1500);
+
+const clicked = await page.locator(".address").textContent();
+check(
+  `clicking that square yields ${sample.address} (got ${clicked})`,
+  clicked === sample.address,
+);
+
+/* An address from the invalid ~35% must be reported, not silently accepted.
+   `zoo.zoo.zoo.9999` is one of them. Getting this wrong is worse than a
+   crash: the map would fly somewhere and present it as the answer. */
+await page.locator(".lookup input").fill("zoo.zoo.zoo.9999");
+await page.locator(".lookup button").click();
+const rejected = await page
+  .locator(".lookup .invalid")
+  .textContent({ timeout: 10_000 })
+  .catch(() => null);
+check(
+  "a nonexistent address is reported, not silently accepted",
+  (rejected ?? "").includes("does not correspond"),
+);
+
+/* And a word that is not in the list names itself in the error, rather than
+   failing generically -- the core knows which word is wrong.
+
+   "xxxxx" and not something like "notaword": four-letter prefixes resolve, so
+   "nota" would quietly become "notable" and the address would decode. That is
+   the prefix feature working, and it makes most misspellings a poor test of
+   this path. */
+await page.locator(".lookup input").fill("pig.night.xxxxx.7473");
+await page.locator(".lookup button").click();
+const malformed = await page
+  .locator(".lookup .invalid")
+  .textContent({ timeout: 10_000 })
+  .catch(() => null);
+check(
+  `an unknown word is named (got ${malformed})`,
+  (malformed ?? "").includes("xxxxx"),
+);
+
+await browser.close();
+
+for (const p of problems) console.log(`  PAGE  ${p}`);
+check("no console errors, CSP violations or failed requests", problems.length === 0);
+
+console.log(`\n${checks} checks, ${failures} failures`);
+process.exit(failures ? 1 : 0);

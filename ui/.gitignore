@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# The verified core, copied in from the dune build. A build artifact, and the
+# repository already holds the source it comes from.
+public/tessarium.js
+tsconfig.tsbuildinfo
