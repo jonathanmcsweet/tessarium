@@ -1,0 +1,134 @@
+name: CI
+
+# Until this runs, every claim in the README about what is proved rests on one
+# machine having said so once. That is the reason this workflow exists and the
+# reason it verifies from source rather than trusting anything committed.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FSTAR_VERSION: "2026.08.09"
+  Z3_VERSION: "4.13.3"
+  OCAML_VERSION: "5.3.0"
+
+jobs:
+  verify:
+    name: F* verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache the F* release
+        id: fstar-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/toolchain
+          key: fstar-${{ env.FSTAR_VERSION }}-z3-${{ env.Z3_VERSION }}
+
+      - name: Install F* and Z3
+        if: steps.fstar-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/toolchain && cd ~/toolchain
+          curl -fsSL -o fstar.tar.gz \
+            "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
+          tar -xzf fstar.tar.gz && mv fstar* fstar
+
+      - name: Verify every module
+        run: |
+          export PATH="$HOME/toolchain/fstar/bin:$PATH"
+          fstar.exe --version
+          make -C fstar verify
+
+      # An `admit` is a hole in the proof that verifies silently. Nothing in
+      # the build fails on one, so the check has to be explicit -- and it has
+      # to run here rather than be remembered.
+      - name: Refuse admits and assumes
+        run: |
+          if grep -RnE '\b(admit|assume|magic)\b' fstar/*.fst fstar/*.fsti; then
+            echo "::error::a proof hole is present"
+            exit 1
+          fi
+          echo "no admits, assumes or magic"
+
+  build:
+    name: Build, extract and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache the F* release
+        id: fstar-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/toolchain
+          key: fstar-${{ env.FSTAR_VERSION }}-z3-${{ env.Z3_VERSION }}
+
+      - name: Install F* and Z3
+        if: steps.fstar-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/toolchain && cd ~/toolchain
+          curl -fsSL -o fstar.tar.gz \
+            "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
+          tar -xzf fstar.tar.gz && mv fstar* fstar
+
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: ${{ env.OCAML_VERSION }}
+
+      - name: Install dependencies
+        run: opam install . --deps-only --with-test -y
+
+      # F*'s support library ships as precompiled objects built by a
+      # zstd-enabled compiler; OCaml 5.3 compresses .cmi when it can, so those
+      # objects are unreadable to a compiler without it. Building them from the
+      # shipped sources sidesteps the question rather than chasing the flag.
+      - name: Vendor F*'s support modules
+        run: |
+          export PATH="$HOME/toolchain/fstar/bin:$PATH"
+          opam exec -- make -C fstar fstarlib
+
+      # The rule is that extracted OCaml is a build artifact and is never
+      # hand-edited. This is what makes that enforceable instead of merely
+      # stated: regenerate it, and fail if it differs from what was committed.
+      - name: Extracted OCaml matches a fresh extraction
+        run: |
+          export PATH="$HOME/toolchain/fstar/bin:$PATH"
+          opam exec -- make -C fstar extract
+          if ! git diff --exit-code --stat ocaml/extracted; then
+            echo "::error::ocaml/extracted differs from a fresh extraction -- it was hand-edited, or the F* source changed without re-extracting"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Build
+        run: opam exec -- dune build
+
+      # Native vectors, the js_of_ocaml artifact against the same vectors, the
+      # server's pure decisions, and the PMTiles round-trip.
+      - name: Test
+        run: opam exec -- dune build @runtest --force
+
+      - name: Build the UI
+        run: |
+          cd ui
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Browser end-to-end
+        run: |
+          cd ui && npx playwright install chromium
+          cd ..
+          mkdir -p basemap
+          opam exec -- ./_build/default/ocaml/server/bin/main.exe \
+            --port 7373 --ui ui/dist --basemap basemap --no-open &
+          for i in $(seq 40); do
+            curl -sf -o /dev/null http://127.0.0.1:7373/healthz && break
+            sleep 0.25
+          done
+          cd ui && node test/e2e.mjs http://127.0.0.1:7373
