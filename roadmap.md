@@ -220,15 +220,22 @@ The theorem set is complete and in the ledger. What is left is narrower.
       `requires lat < lat_min + lat_span` and a separate `lemma_pole_clamp`
       covers the pole. Correct, and less tidy than a single statement.
 
-## Phase 4 — Measurement and scaffolding removal
+## Phase 4 — Performance
 
-- [ ] **Benchmark the encode/decode path.** Expected 3–6 µs per encode; the
-      extracted core is Zarith throughout, so measure rather than assume. This
-      exists so future performance discussions are empirical.
-- [ ] Differential test: extracted core vs. the JS implementation, millions of
-      random points. Both run in CI today, but only over the 47 committed
-      points; a large randomised sweep is what would actually stress the
-      extraction, which is the trusted part of the pipeline.
+- [ ] **Consider injecting a native round function.** An encode costs 53 µs,
+      of which 51 µs is ten HMAC-SHA256 calls through `digestif`'s pure-OCaml
+      backend, at 5.1 µs each. The grid arithmetic is 0.06 µs, so Zarith is not
+      the cost and the extracted core needs no change.
+
+      The round function is already a parameter and bijectivity holds for any
+      choice, so the native build could inject `digestif.c` while the browser
+      keeps the pure backend — roughly a tenfold improvement for the server,
+      with no second implementation of the *algorithm*. What it does introduce
+      is two implementations of the *hash*, which is a real cost: the RFC
+      vectors would have to pin both, and a disagreement between them would
+      change addresses rather than crash. Not worth doing until a profile says
+      so, and this entry exists so the tradeoff is stated rather than
+      rediscovered.
 
 ## Phase 5 — Server hardening
 

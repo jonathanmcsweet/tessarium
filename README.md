@@ -31,7 +31,7 @@ build and a browser build from that one extraction.
 | Web UI | Done — enter a phrase, click a square, get its address |
 | Offline basemap | Done — PMTiles reader and region extractor in OCaml |
 | Theorems | Done — containment, injectivity, round-trip, end to end |
-| JavaScript cross-check | Independent implementation, 150 checks in CI |
+| JavaScript cross-check | Independent implementation; agrees on 512,298 points |
 
 ### What "verified" means here, exactly
 
@@ -195,9 +195,18 @@ to the Python's, which is the whole reason for doing it in that order.
 `js/` **stays**, and is now the only thing in the tree that could catch a bug
 in the F\* extraction by disagreeing with it — the extraction pipeline is
 trusted, not verified, so an independently written implementation checks
-something no second extraction target could. It runs in CI against the
-F\*-generated vectors, so drift shows up immediately rather than whenever
-someone remembers to look.
+something no second extraction target could.
+
+It has been run against **512,298 points with zero disagreements**, and a
+14,298-point version runs in CI. The corpus is deliberately unbalanced towards
+band seams: uniformly random points essentially never land on one, and seams
+are where two bands could both claim a point or leave a gap. Every run,
+including the small one, straddles all 4096 of them.
+
+```bash
+dune exec ocaml/tools/differential.exe -- --count 500000 --out corpus.txt
+node js/differential.mjs corpus.txt
+```
 
 | Path | Status |
 |---|---|

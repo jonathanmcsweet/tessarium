@@ -7,5 +7,24 @@
 ; See the roadmap's locked decisions. Do not add features here.
 (rule
  (alias runtest)
- (deps tessarium.mjs bands.json %{project_root}/vectors/vectors.json)
+ (deps tessarium.mjs %{project_root}/wordlist/english.txt bands.json
+  %{project_root}/vectors/vectors.json)
  (action (run node %{dep:test_vectors.mjs})))
+
+; The differential sweep. Sized for CI rather than for thoroughness: the
+; corpus is dominated by band seams, of which there are 4096, so even a small
+; --count covers every one of them. Run it with a larger count by hand when
+; changing anything in the grid.
+(rule
+ (alias runtest)
+ (deps
+  tessarium.mjs
+  %{project_root}/wordlist/english.txt
+  bands.json
+  (glob_files %{project_root}/ocaml/tools/*.ml))
+ (action
+  (progn
+   (with-stderr-to
+    corpus.log
+    (run %{exe:../ocaml/tools/differential.exe} --count 2000 --out corpus.txt))
+   (run node %{dep:differential.mjs} corpus.txt))))

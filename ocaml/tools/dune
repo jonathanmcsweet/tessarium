@@ -11,3 +11,11 @@
 (executable
  (name gen_wordlist)
  (modules gen_wordlist))
+
+; Emits a large corpus for js/differential.mjs to check, weighted towards band
+; seams. The extraction pipeline is trusted rather than verified, so an
+; independent implementation disagreeing is the only signal available.
+(executable
+ (name differential)
+ (modules differential)
+ (libraries tessarium tessarium_extracted zarith unix))

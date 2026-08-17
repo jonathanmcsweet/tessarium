@@ -592,3 +592,48 @@ JS, 55 js_of_ocaml, 57 server, 38 PMTiles, plus the vector regeneration check.
 **Follow-on:** Phase 4 keeps the benchmark and a large randomised differential
 sweep; the 47 committed points are a floor, and the extraction is the trusted
 part worth stressing.
+
+---
+
+### 2026-08-17 — Differential sweep against the extraction; encode benchmarked
+
+**Phase:** 4
+
+**What:** The extracted core and the independently written JavaScript
+implementation agree on **512,298 points, with zero disagreements** —
+`point_to_cell`, `cell_to_point`, `encode`, and `decode` landing in the same
+square. A 14,298-point version runs in CI.
+
+**Rationale:** the corpus is deliberately unbalanced. Uniformly random points
+essentially never land on a band seam — there are 4096 of them across
+1.8 × 10¹¹ nanodegrees — and seams are exactly where two bands could both claim
+a point or leave a gap. So the generator straddles every seam explicitly, three
+points each, giving 12,287 seam points in every run including the small CI one.
+That is the case `theorem_injective` rules out in the F\*, and the case where a
+bug introduced *by extraction* would be least visible.
+
+This matters because the extraction pipeline is trusted rather than verified.
+The F\* is proved and nothing proves the OCaml that came out of it says the
+same thing. An independently written implementation disagreeing is the only
+signal available, which is the argument for keeping `js/` and the reason it is
+now pointed at half a million points rather than 47.
+
+**Measured, and the roadmap's estimate was wrong:** an encode costs **53 µs**,
+not the 3–6 µs recorded. The breakdown says why, and it is not what the
+estimate assumed:
+
+| | |
+|---|---|
+| `round_fn`, one HMAC-SHA256 | 5.12 µs |
+| ten rounds | 51.2 µs |
+| `point_to_cell`, whole grid | 0.06 µs |
+
+So 97% of the cost is the hash, and the Zarith arithmetic the estimate worried
+about is negligible. The 3–6 µs figure implicitly assumed a C hash; the pure
+OCaml backend was chosen deliberately, so that the browser and the server run
+one implementation, and roughly a tenfold slowdown is what that costs. The
+grid being 0.06 µs is the useful part: no future performance discussion needs
+to look at the extracted core.
+
+**Follow-on:** Phase 4 becomes a single entry weighing a native round function
+against having two implementations of the hash.
