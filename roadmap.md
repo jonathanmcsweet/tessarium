@@ -379,6 +379,15 @@ the one honest caveat.
          distribution and the phrase gate warns against typing a seed into a
          page you do not control.
 
+      5. *Hosted-web variant, if a hosted deployment ever becomes primary:*
+         the Code Verify pattern (WhatsApp/Cloudflare) — a browser extension,
+         OUTSIDE the page, compares the code the server actually delivered
+         against hashes published to an independent transparency log. It works
+         precisely because the verifier is not part of the thing being
+         verified; an in-page check can never have that property. Requires a
+         third party and an extension this project does not have. Recorded so
+         the option is not re-derived from scratch.
+
       Blocked on: a release key and somewhere to publish it, and the
       double-build reproducibility check landing in CI first.
 
@@ -394,6 +403,31 @@ the one honest caveat.
       than only as a command.
 
 ## Phase 8 — Later, unscheduled
+
+- [ ] **Phishing-resistant unlock: passkeys (WebAuthn PRF).** The typed phrase
+      is the phishing surface: a user can be talked into typing 24 words into
+      any page, and nothing the real page displays prevents it, because a fake
+      page controls its own pixels. Salting the KDF with the origin does NOT
+      fix this — the attacker wants the words, not a working page, and applies
+      the right salt offline after stealing them. The one platform primitive
+      where "works only on the correct domain" is enforced below the page's
+      reach is a passkey: the browser checks the origin before the
+      authenticator answers, and the secret never exists in the page at all.
+
+      The fit: the PRF extension derives 32 stable secret bytes per
+      credential — exactly `entropy_bytes`. A passkey can therefore BE a map:
+      PRF output -> `mnemonic_of_entropy` -> shown once as the 24-word
+      recovery backup (standard BIP-39, works in the phrase gate forever),
+      then daily unlock is a touch of the key, with nothing typed and nothing
+      persisted — the authenticator re-derives per session.
+
+      Design caveats, so they are not rediscovered: RP IDs must be domains,
+      so the app must open as `http://localhost:<port>`, not `127.0.0.1` (an
+      IP cannot anchor a credential); RP ID "localhost" is shared by every
+      local server, so origin binding only bites on a real hosted domain —
+      locally the load-bearing property is "secret never in the page", which
+      still holds; PRF support covers current Chrome/Safari and platform
+      authenticators, not every hardware key.
 
 - [ ] **Coarse precision: selecting larger areas when zoomed out.** Requested
       2026-08-17 and deferred the same day, because the cheap version is not
