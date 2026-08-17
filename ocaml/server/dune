@@ -1,0 +1,15 @@
+; The HTTP server. Pure decisions (Route, Url_path, Http_range) sit alongside
+; the Eio wiring so they can be tested with no socket; see test/.
+(library
+ (name tessarium_server)
+ (libraries
+  tessarium
+  cohttp-eio
+  eio
+  eio_main
+  logs
+  logs.fmt
+  fmt
+  yojson
+  zarith
+  base64))

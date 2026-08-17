@@ -356,3 +356,67 @@ per-project and needs no root.
 **Follow-on:** `Tessarium.Grid.fsti` needs rewriting — it predates the
 cumulative encoding, declaring `col_counts` and `offsets` as separate abstract
 tables with contiguity as a lemma, and it opens the removed `FStar.Mul`.
+
+---
+
+### 2026-08-17 — Core verifies, extracts, and runs in both targets
+
+**Phase:** 1–5
+
+**What:** The whole core is through `fstar.exe` with no admits —
+`Tessarium.Table`, `.Grid`, `.Feistel`, `.Codec` and `.Api` join `.Spec`,
+`.Scan` and `.Table.Data`. It extracts to OCaml, and the extracted OCaml
+reproduces all 199 committed vector checks natively. The *same* extraction,
+compiled by `js_of_ocaml`, reproduces 46 vector checks under Node in 0.84 s —
+so the browser and the server demonstrably run one implementation.
+
+What the refinement types buy, stated precisely: `point_to_cell` returns a
+value provably below `total_cells`, `band_search` provably returns the unique
+band containing a row, `cell_to_point` provably returns coordinates in range,
+and `theorem_no_overflow` discharges the 1.92x int64 headroom. These are
+type-level guarantees, discharged at verification time. The three grid
+*theorems* — containment, injectivity across band seams, round-trip — are still
+unwritten, and remain in `roadmap.md`.
+
+**Rationale:** five findings, each from running the pipeline rather than
+reasoning about it.
+
+- *`--extract` silently skipped the band table.* F\* walks what it calls a
+  "possibly-partial dependency graph": a module that has an interface is loaded
+  from that interface alone, so its implementation is never elaborated and does
+  not come out. `Tessarium.Table.Data` is exactly that shape and is the module
+  holding the table. The build now invokes `--extract_module` once per module.
+  A whole-program flag that silently emits *less* than asked is worth
+  remembering.
+- *F\*'s shipped `.cmi` files read as corrupt against an identical compiler.*
+  Same OCaml 5.3.0, same magic `Caml1999I035`, still rejected. OCaml 5.3
+  compresses `.cmi` with zstd when the compiler has it; F\*'s build did and ours
+  did not. `make -C fstar fstarlib` now vendors the eight support modules from
+  the shipped *sources* and builds them with our switch, which sidesteps the
+  question rather than chasing the flag.
+- *`js_of_ocaml` compiles OCaml's `int` to 32 bits.* Longitude reaches
+  1.8 x 10¹¹ nanodegrees, so this is not a corner case, and it produced three
+  separate failures: the four bound constants silently truncated
+  (`-90000000000` became `194313216`), a module-level `Z.to_int total_cells`
+  raised `Z.Overflow` at load, and every exact value crossing the JS boundary
+  would have wrapped. Bounds are `Z.of_string`, and nanodegrees cross as decimal
+  strings. The degree helpers convert at the edge, which is the one place the
+  no-floating-point rule permits it.
+- *`batteries` drags OCaml threads into the bundle.* F\*'s support modules use a
+  sliver of it; `js_of_ocaml` has no `caml_thread_initialize`, so the bundle
+  loaded and immediately died. A twelve-line `BatList` shim replaces it, and the
+  bundle fell from 5.8 MB to 4.4 MB.
+- *`Prims.int` is `Z.t`, and that is the right default.* Extracted arithmetic is
+  Zarith throughout rather than native int. Slower than necessary — the values
+  all fit in 63 bits — but it is what makes the same extraction correct in a
+  32-bit JS runtime, and correctness before speed here is not a close call. If a
+  profiler ever objects, the answer is Low\* -> C (Phase 8), not hand-editing
+  extracted code.
+
+**Measured:** full verification 12 s; extraction 8 modules; native vectors 199
+checks / 0 failures; JS bundle 4.4 MB, 46 checks / 0 failures / 0.84 s.
+
+**Follow-on:** the three grid theorems and the Feistel/codec round-trip
+theorems stay open in Phases 1–3, now against implementations that exist rather
+than against interfaces. CI is the gating item: until it runs, no verification
+claim in the README is reproducible by anyone else.

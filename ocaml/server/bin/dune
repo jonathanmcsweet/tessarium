@@ -1,0 +1,7 @@
+; One binary for both delivery targets: the self-hosted server and the Linux
+; desktop app, which differ only by whether it opens a browser.
+(executable
+ (name main)
+ (public_name tessarium-server)
+ (package tessarium)
+ (libraries tessarium_server eio_main cmdliner logs logs.cli logs.fmt fmt fmt.tty))
