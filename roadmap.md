@@ -282,6 +282,14 @@ The theorem set is complete and in the ledger. What is left is narrower.
       key stays behind 2^128 post-Grover however many (address, place) pairs
       the attacker holds; the codebook is only the map, which an attacker
       with oracle access could already query point by point.
+
+      One more claim to state precisely: the KDF hardening gates PHRASE-space
+      search only. Searching raw 32-byte keys skips the KDF entirely -- 16
+      HMACs per try instead of 202,048 iterations -- and makes a single-pair
+      match cheap again. It is harmless only because the search yields a key
+      and not a phrase: nothing accepts raw keys, and the KDF cannot be run
+      backwards to find a phrase for one. The write-up must present these two
+      facts together; the hardening claim is false without the second.
       Rounds were raised 10 -> 16 as margin in the meantime.
 
 ## Phase 4 — Correctness gaps
