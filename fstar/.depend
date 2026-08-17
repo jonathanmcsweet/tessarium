@@ -19,6 +19,7 @@ FStar_Attributes.krml: \
 
 Tessarium.Grid.fst.checked: \
 	Tessarium.Grid.fst \
+	/home/dev/toolchain/fstar/lib/fstar/ulib.checked/Prims.fst.checked \
 	/home/dev/toolchain/fstar/lib/fstar/ulib.checked/FStar.Pervasives.Native.fst.checked \
 	/home/dev/toolchain/fstar/lib/fstar/ulib.checked/FStar.Pervasives.fsti.checked \
 	Tessarium.Spec.fst.checked \
