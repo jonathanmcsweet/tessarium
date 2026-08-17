@@ -47,11 +47,21 @@ let setup_log level =
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ())
 
-let serve port ui basemap api connect_src no_open log_level =
+let serve port ui basemap api connect_src basemap_source basemap_assets
+    no_open log_level =
   setup_log log_level;
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
-  let cfg = { Serve.ui_dir = ui; basemap_dir = basemap; api_enabled = api; connect_src } in
+  let cfg =
+    {
+      Serve.ui_dir = ui;
+      basemap_dir = basemap;
+      api_enabled = api;
+      connect_src;
+      basemap_source;
+      basemap_assets;
+    }
+  in
   let url = Printf.sprintf "http://127.0.0.1:%d/" port in
   if api then
     Logs.warn (fun m ->
@@ -95,6 +105,27 @@ let connect_src =
   in
   Arg.(value & opt_all string [] & info [ "allow-origin" ] ~docv:"ORIGIN" ~doc)
 
+(* The in-app downloader's sources. Command-line configuration on purpose:
+   the browser asks for a region of the world, never for a URL, so a page
+   cannot point this server at an attacker's archive. *)
+let basemap_source =
+  let doc =
+    "Where the in-app downloader reads tiles: a PMTiles URL or local path. \
+     The browser never supplies this."
+  in
+  Arg.(
+    value
+    & opt string "https://demo-bucket.protomaps.com/v4.pmtiles"
+    & info [ "basemap-source" ] ~docv:"URL" ~doc)
+
+let basemap_assets =
+  let doc = "The glyph and sprite tarball (.tar.gz) for the map style." in
+  Arg.(
+    value
+    & opt string
+        "https://codeload.github.com/protomaps/basemaps-assets/tar.gz/refs/heads/main"
+    & info [ "basemap-assets" ] ~docv:"URL" ~doc)
+
 let no_open =
   let doc = "Do not open a browser. Implied for self-hosted and headless use." in
   Arg.(value & flag & info [ "no-open" ] ~doc)
@@ -104,7 +135,7 @@ let cmd =
   let info = Cmd.info "tessarium-server" ~version:"0.1.0" ~doc in
   Cmd.v info
     Term.(
-      const serve $ port $ ui $ basemap $ api $ connect_src $ no_open
-      $ Logs_cli.level ())
+      const serve $ port $ ui $ basemap $ api $ connect_src $ basemap_source
+      $ basemap_assets $ no_open $ Logs_cli.level ())
 
 let () = exit (Cmd.eval cmd)

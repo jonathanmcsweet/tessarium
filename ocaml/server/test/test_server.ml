@@ -183,7 +183,6 @@ let () =
   let b3, _ = R.take cfg back ~now:900.0 in
   check "a backwards clock does not mint tokens" (b1 && b2 && not b3);
 
-  Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   (* ------------------------------------------------- basemap download job *)
   let module J = Tessarium_server.Basemap_job in
   check "a download may start from idle" (J.can_start J.Idle);
@@ -250,4 +249,91 @@ let () =
   check "absolute entries are dropped" (find "/abs" = None);
   check "nothing unexpected survives" (List.length files = 3);
 
+  (* -------------------------------------------------- basemap endpoints *)
+  (* The dispatch is tested with fake ops, so what is asserted is exactly the
+     decision layer: which closure runs, with what request, and that a bad
+     body never reaches one at all. The real ops touch the network and are
+     exercised end-to-end instead. *)
+  let module S = Tessarium_server.Serve in
+  let module D = Tessarium_server.Basemap_download in
+  check "basemap endpoints bypass the api gate"
+    (Route.is_basemap_api "basemap-status"
+    && Route.is_basemap_api "basemap-download");
+  check "the key-material endpoints do not"
+    (not (Route.is_basemap_api "session") && not (Route.is_basemap_api "encode"));
+
+  let scfg =
+    {
+      S.ui_dir = "ui";
+      basemap_dir = "basemap";
+      api_enabled = false;
+      connect_src = [];
+      basemap_source = "unused";
+      basemap_assets = "unused";
+    }
+  in
+  let calls = ref [] in
+  let ops =
+    {
+      D.estimate =
+        (fun req ->
+          calls := `Estimate req :: !calls;
+          Ok (`Assoc []));
+      start =
+        (fun req ->
+          calls := `Start req :: !calls;
+          Ok ());
+      cancel =
+        (fun () ->
+          calls := `Cancel :: !calls;
+          true);
+      status =
+        (fun () ->
+          calls := `Status :: !calls;
+          `Assoc []);
+    }
+  in
+  (* The body is a thunk, and forcing it is recorded: a status poll must
+     never read the request body, because a bodyless POST has no body to
+     read and blocks the connection until its timeout. This hung a real
+     curl before the thunk existed. *)
+  let forced = ref false in
+  let run ~endpoint ~body =
+    calls := [];
+    forced := false;
+    ignore
+      (S.handle_basemap scfg ops ~endpoint
+         ~body:(fun () ->
+           forced := true;
+           body));
+    !calls
+  in
+  check "status asks the job and needs no body"
+    (run ~endpoint:"basemap-status" ~body:"" = [ `Status ] && not !forced);
+  check "cancel reaches the job"
+    (run ~endpoint:"basemap-cancel" ~body:"" = [ `Cancel ] && not !forced);
+  let box = {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15}|} in
+  (match run ~endpoint:"basemap-download" ~body:box with
+  | [ `Start (req : Tessarium_server.Basemap_job.request) ] ->
+      check "a good box starts a download with the parsed values"
+        (req.min_lon = -0.25 && req.max_lat = 51.55 && req.max_zoom = 15);
+      (* max_lon arrived as the JSON integer 0 and must still be a number. *)
+      check "integer coordinates are accepted" (req.max_lon = 0.)
+  | _ -> check "a good box starts a download with the parsed values" false);
+  check "estimate goes to the planner"
+    (match run ~endpoint:"basemap-estimate" ~body:box with
+    | [ `Estimate _ ] -> true
+    | _ -> false);
+  check "a malformed body reaches nothing"
+    (run ~endpoint:"basemap-download" ~body:"{not json" = []);
+  check "a reversed box reaches nothing"
+    (run ~endpoint:"basemap-download"
+       ~body:{|{"min_lon":1,"min_lat":0,"max_lon":0,"max_lat":1,"max_zoom":15}|}
+     = []);
+  check "a missing field reaches nothing"
+    (run ~endpoint:"basemap-download"
+       ~body:{|{"min_lon":1,"min_lat":0,"max_lon":2,"max_zoom":15}|}
+     = []);
+
+  Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "server decisions hold"

@@ -29,4 +29,6 @@
   yojson
   zarith
   base64
-  gzip))
+  gzip
+  pmtiles
+  pmtiles_source))

@@ -39,6 +39,12 @@ let of_request ~meth ~target =
               | Some rest -> if readable then Basemap rest else Method_not_allowed
               | None -> if readable then Asset segments else Method_not_allowed)))
 
+(* The basemap endpoints are part of the UI, not the opt-in encode/decode API:
+   they carry a bounding box and no key material, so they stay reachable when
+   --api is off. Decided here so the gate in the effectful layer is one
+   pattern match away from this comment. *)
+let is_basemap_api endpoint = String.starts_with ~prefix:"basemap-" endpoint
+
 (* A path with no extension is a client-side route -- the UI is a single-page
    app, so `/about` must return index.html rather than 404, or a reload of any
    deep link breaks. A missing `.js` is a genuine 404 and must stay one. *)

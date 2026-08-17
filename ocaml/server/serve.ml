@@ -18,6 +18,10 @@ type config = {
   api_enabled : bool;
   connect_src : string list;
       (** extra origins the page may talk to, beyond itself *)
+  basemap_source : string;
+      (** where the in-app downloader reads tiles: URL or local path.
+          Configuration, never client input. *)
+  basemap_assets : string;  (** the glyph+sprite tarball, likewise *)
 }
 
 (* ------------------------------------------------------------- responses *)
@@ -350,11 +354,70 @@ let handle_api cfg sessions limiter random ~endpoint ~body ~now =
                            ])))
       | _ -> error cfg ~status:`Not_found "no such endpoint")
 
+(* ----------------------------------------------------------- basemap API *)
+
+(* Bounding boxes are plain JSON numbers. Floats are fine here: this is the
+   tile-picking side of the codebase, which never touches an address. *)
+let float_field name json =
+  match json_field name json with
+  | Some (`Float f) -> Some f
+  | Some (`Int i) -> Some (float_of_int i)
+  | _ -> None
+
+let int_field name json =
+  match json_field name json with Some (`Int i) -> Some i | _ -> None
+
+let parse_region json =
+  match
+    ( float_field "min_lon" json,
+      float_field "min_lat" json,
+      float_field "max_lon" json,
+      float_field "max_lat" json,
+      int_field "max_zoom" json )
+  with
+  | Some min_lon, Some min_lat, Some max_lon, Some max_lat, Some max_zoom ->
+      Basemap_job.validate ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom
+  | _ -> Error "missing min_lon, min_lat, max_lon, max_lat or max_zoom"
+
+(* [body] is a thunk: status and cancel take no input, and reading a body a
+   bodyless POST never declared blocks the connection until its timeout. Only
+   the endpoints that need one force it. *)
+let handle_basemap cfg (ops : Basemap_download.ops) ~endpoint ~body =
+  let bad = error cfg ~status:`Bad_request in
+  match endpoint with
+  | "basemap-status" -> respond_json cfg ~status:`OK (ops.status ())
+  | "basemap-cancel" ->
+      let stopped = ops.cancel () in
+      respond_json cfg ~status:`OK
+        (`Assoc [ ("ok", `Bool true); ("stopped", `Bool stopped) ])
+  | "basemap-estimate" | "basemap-download" -> (
+      match Yojson.Safe.from_string (body ()) with
+      | exception _ -> bad "body is not valid JSON"
+      | json -> (
+          match parse_region json with
+          | Error e -> bad e
+          | Ok req ->
+              if String.equal endpoint "basemap-estimate" then
+                match ops.estimate req with
+                | Ok payload -> respond_json cfg ~status:`OK payload
+                | Error e ->
+                    (* The failure is upstream of this server -- the tile
+                       source is unreachable or broken -- and the status code
+                       should say so rather than blame the request. *)
+                    error cfg ~status:`Bad_gateway e
+              else
+                match ops.start req with
+                | Ok () ->
+                    respond_json cfg ~status:`OK (`Assoc [ ("ok", `Bool true) ])
+                | Error e -> error cfg ~status:`Conflict e))
+  | _ -> error cfg ~status:`Not_found "no such endpoint"
+
 (* ---------------------------------------------------------------- handler *)
 
 let status_code s = Http.Status.to_int s
 
-let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random =
+let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
+    ~basemap_ops =
   let simple (result, bytes) status = (result, status, bytes, Http_range.Whole) in
   fun _conn (request : Http.Request.t) body ->
     let meth = Http.Request.meth request in
@@ -372,6 +435,12 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random =
                     ("grid", `String Tessarium.grid_version);
                     ("api", `Bool cfg.api_enabled);
                   ]))
+            `OK
+      | Route.Api endpoint when Route.is_basemap_api endpoint ->
+          (* Reachable without --api: see [Route.is_basemap_api]. *)
+          simple
+            (handle_basemap cfg basemap_ops ~endpoint
+               ~body:(fun () -> Eio.Flow.read_all body))
             `OK
       | Route.Api endpoint ->
           if not cfg.api_enabled then
@@ -437,8 +506,15 @@ let run env ~sw ~port cfg =
   let limiter = ref (Rate_limit.create Rate_limit.default) in
   let clock = Eio.Stdenv.clock env in
   let random = Eio.Stdenv.secure_random env in
+  let basemap_ops =
+    Basemap_download.ops
+      (Basemap_download.create ())
+      ~sw ~fs ~net:(Eio.Stdenv.net env) ~source:cfg.basemap_source
+      ~assets:cfg.basemap_assets ~basemap_dir:cfg.basemap_dir
+  in
   let callback =
     handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
+      ~basemap_ops
   in
   let server = Cohttp_eio.Server.make_response_action ~callback () in
   (* Loopback only. This binary is the desktop app as well as the self-hosted

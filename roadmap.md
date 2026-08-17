@@ -322,17 +322,16 @@ not cover.
       progress, server-side bbox/zoom validation, JSON view) and `Untar`
       (pure ustar/pax reader for the glyph+sprite tarball, escape-safe),
       both under the server-decisions suite with mutation-verified tests.
+      The server endpoints (POST /api/basemap-estimate, -download, -status,
+      -cancel; not gated by --api; source URLs from `--basemap-source` /
+      `--basemap-assets`, never the client; fiber runner, .part-then-rename,
+      assets fetch+untar when fonts/sprites are missing) are live and
+      smoke-tested against a local file source. Note for the UI and e2e:
+      status/cancel take no body; the query string on /basemap/map.pmtiles
+      is stripped by routing, so `?v=N` works as a cache-buster after a
+      download replaces the archive.
 
       Remaining, in order:
-      1. Server endpoints, POST /api/: `basemap-estimate` (Extract.plan ->
-         planned_bytes), `basemap-download`, `basemap-status`,
-         `basemap-cancel`. NOT gated by --api (UI feature; loopback-only
-         anyway); source URL comes from `--basemap-source` (default the demo
-         bucket) and `--basemap-assets` (default the GitHub tarball), never
-         from the client. Runner: Eio fiber; write map.pmtiles.part then
-         rename; copy closure updates the job ref; after tiles, fetch+untar
-         glyphs/sprites into the basemap dir if missing (gzip module +
-         Untar.list + get_body in pmtiles_source).
       2. UI: "download this view" flow -- viewport bbox, estimate, confirm,
          progress with cancel (React Query polling ~1s while running),
          banner gains an action button; on done, m.setStyle + re-add
@@ -346,7 +345,20 @@ not cover.
          layer+point, so MapLibre renders without console errors, which the
          e2e treats as failures), plus a tiny fonts/+sprites/ tar.gz for the
          assets path.
-- [ ] **The non-English translations still want a native speaker.** They have
+- [ ] **Satellite imagery overlay, as Google Maps has.** A toggle between the
+      drawn map and aerial photography. Two open questions before it can be
+      built: a source and the privacy story. There is no free planet-scale
+      satellite layer the way Protomaps provides vector tiles — the usable
+      sources (Esri World Imagery, Bing, Sentinel-2 mosaics) each carry
+      licensing terms to check, and most forbid bulk download, which collides
+      with the offline design. And fetching imagery live from a third party
+      tells that party every place the user looks at, which is exactly what
+      this app exists not to leak — the CSP currently allows no remote origin
+      at all, and that is load-bearing. Likely shape: raster tiles in the same
+      PMTiles container (the format supports them), fetched region-by-region
+      through the same downloader, from a source whose licence permits it;
+      shown with proper attribution. Imagery is far heavier than vector data —
+      expect roughly ten times the bytes for the same region and zoom. They have
       been through one adversarial review pass, which found and fixed real
       defects — a French pronoun that attached "your 24 words and this second
       seed phrase", a Spanish null subject that made the wallet warning read as
