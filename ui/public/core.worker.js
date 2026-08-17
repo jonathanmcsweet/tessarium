@@ -153,6 +153,7 @@ const ops = {
     return {
       unlocked: key !== null,
       gridVersion: core.gridVersion,
+      derivationVersion: core.derivationVersion,
       totalCells: core.totalCells,
     };
   },

@@ -37,6 +37,7 @@ const OkOrError = z.object({
 const Status = z.object({
   unlocked: z.boolean(),
   gridVersion: z.string(),
+  derivationVersion: z.string(),
   totalCells: z.string(),
 });
 
@@ -112,8 +113,8 @@ export class Core {
     return this.#call(OkOrError, "validate", { mnemonic });
   }
 
-  /* Slow by design: 2048 rounds of PBKDF2-HMAC-SHA512. Expect hundreds of
-     milliseconds, and show it in the UI rather than appearing to hang. */
+  /* Slow by design: 202,048 iterations of PBKDF2-HMAC-SHA512 via WebCrypto.
+     Expect ~300 ms, and show it in the UI rather than appearing to hang. */
   unlock(mnemonic: string, passphrase: string) {
     return this.#call(OkOrError, "unlock", { mnemonic, passphrase });
   }

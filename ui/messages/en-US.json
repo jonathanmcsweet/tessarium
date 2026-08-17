@@ -50,5 +50,6 @@
   "panel_prefix_hint": "Four-letter prefixes work, and separators are forgiving: {example} resolves the same way.",
   "panel_footer": "Addresses are meaningless to anyone with a different seed phrase. The same square has an entirely unrelated address under every other phrase.",
   "a11y_dismiss_banner": "Dismiss this message",
-  "a11y_language": "Language"
+  "a11y_language": "Language",
+  "panel_mapping_label": "Mapping version:"
 }

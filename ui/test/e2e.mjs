@@ -340,6 +340,20 @@ check(
   clicked === sample.address,
 );
 
+/* The footer names the mapping this tab is on. This is the skew detector:
+   the served worker, the served core and the committed vectors must all agree
+   on both versions, or an upgraded server behind a surviving tab shows stale
+   ones -- which is exactly the situation it exists to make visible. */
+const versionsLine = await page.locator(".versions").textContent();
+check(
+  `the panel names the grid version (${vectors.grid_version})`,
+  versionsLine.includes(vectors.grid_version),
+);
+check(
+  `the panel names the derivation version (${vectors.derivation_version})`,
+  versionsLine.includes(vectors.derivation_version),
+);
+
 const [gotLat, gotLon] = await panelCoords();
 check(
   `the looked-up address decodes to the vector's point (got ${gotLat}, ${gotLon} want ${sampleLat}, ${sampleLon})`,
@@ -395,10 +409,10 @@ check(
    alone -- it is BIP-39 English in every locale -- and, because this
    application persists nothing, must not write a cookie or a storage key to
    remember the choice. */
-const englishFooter = await page.locator(".panel-foot p").textContent();
+const englishFooter = await page.locator(".panel-foot p").first().textContent();
 await page.locator(".language select").selectOption("fr-FR");
 await page.waitForTimeout(400);
-const frenchFooter = await page.locator(".panel-foot p").textContent();
+const frenchFooter = await page.locator(".panel-foot p").first().textContent();
 check(
   "switching to French translates the interface",
   frenchFooter !== englishFooter,

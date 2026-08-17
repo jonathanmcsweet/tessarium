@@ -525,6 +525,17 @@ button:disabled {
   margin-bottom: 10px;
 }
 
+.versions {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.versions code {
+  font-size: 11px;
+  user-select: all;
+}
+
 /* The lock button carries an icon and its own text, so it needs to lay them
    out; it is not an icon-only control. */
 .lock {

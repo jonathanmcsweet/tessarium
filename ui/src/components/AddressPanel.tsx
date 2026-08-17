@@ -8,7 +8,7 @@
 import { Copy, Eye, EyeOff, Lock } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
-import { useDecodeAddress, useLock } from "../core/queries";
+import { useDecodeAddress, useLock, useStatus } from "../core/queries";
 import { formatCoord } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
@@ -31,6 +31,7 @@ export function AddressPanel() {
 
   const lock = useLock();
   const decode = useDecodeAddress();
+  const status = useStatus();
 
   async function copy() {
     if (!selection) return;
@@ -159,6 +160,21 @@ export function AddressPanel() {
       <footer className="panel-foot">
         <LanguagePicker />
         <p>{m.panel_footer()}</p>
+        {
+          /* Which mapping this tab is on. Addresses changed twice in one day
+            during development, and a tab that survives an upgrade keeps the
+            old mapping in memory -- the same address then goes to different
+            places in different tabs, which reads as nondeterminism unless
+            the version is on screen to say otherwise. */
+        }
+        {status.data && (
+          <p className="versions">
+            {m.panel_mapping_label()}{" "}
+            <code>
+              {status.data.gridVersion} · {status.data.derivationVersion}
+            </code>
+          </p>
+        )}
       </footer>
     </aside>
   );
