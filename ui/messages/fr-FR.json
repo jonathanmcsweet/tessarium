@@ -50,6 +50,5 @@
   "panel_prefix_hint": "Les préfixes de quatre lettres fonctionnent, et le séparateur importe peu : {example} donne le même résultat.",
   "panel_footer": "Les adresses n’ont aucun sens pour quiconque possède une phrase de récupération différente. Selon toute autre phrase, le même carré porte une adresse qui n’a aucun rapport avec celle-ci.",
   "a11y_dismiss_banner": "Ignorer ce message",
-  "a11y_language": "Langue",
-  "panel_mapping_label": "Version du codage :"
+  "a11y_language": "Langue"
 }

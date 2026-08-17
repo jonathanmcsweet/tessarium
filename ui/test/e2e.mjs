@@ -340,18 +340,40 @@ check(
   clicked === sample.address,
 );
 
-/* The footer names the mapping this tab is on. This is the skew detector:
-   the served worker, the served core and the committed vectors must all agree
-   on both versions, or an upgraded server behind a surviving tab shows stale
-   ones -- which is exactly the situation it exists to make visible. */
-const versionsLine = await page.locator(".versions").textContent();
+/* Version-skew detection, against the worker rather than the DOM. The served
+   worker, the served core and the committed vectors must agree on the grid
+   and derivation versions; a server upgraded behind a surviving tab, or a
+   worker rebuilt against a different core, breaks exactly this. The versions
+   are deliberately not displayed -- this test is where they live. */
+const versionStatus = await page.evaluate(async () => {
+  const worker = new Worker("/core.worker.js");
+  return await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("worker timeout")), 60000);
+    worker.onmessage = (e) => {
+      clearTimeout(timer);
+      resolve(e.data);
+    };
+    worker.postMessage({ id: 1, op: "status" });
+  });
+});
 check(
-  `the panel names the grid version (${vectors.grid_version})`,
-  versionsLine.includes(vectors.grid_version),
+  `served worker has the vectors' grid version (${vectors.grid_version})`,
+  versionStatus.result?.gridVersion === vectors.grid_version,
 );
 check(
-  `the panel names the derivation version (${vectors.derivation_version})`,
-  versionsLine.includes(vectors.derivation_version),
+  `served worker has the vectors' derivation version (${vectors.derivation_version})`,
+  versionStatus.result?.derivationVersion === vectors.derivation_version,
+);
+
+/* The footer carries the app version, baked in from package.json. */
+const pkgVersion = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+).version;
+check(
+  `the footer shows v${pkgVersion}`,
+  ((await page.locator(".versions").textContent()) ?? "").includes(
+    `v${pkgVersion}`,
+  ),
 );
 
 const [gotLat, gotLon] = await panelCoords();

@@ -46,20 +46,6 @@ export function useValidatePhrase(phrase: string) {
   });
 }
 
-/* The mapping versions, for the panel footer. Cached forever: they are
-   compiled into the worker and cannot change while the tab lives -- which is
-   precisely the property that makes displaying them useful. A tab that
-   survived an upgrade shows its OLD versions, and two tabs that disagree
-   about an address now visibly disagree about why. */
-export function useStatus() {
-  return useQuery({
-    queryKey: ["status"],
-    queryFn: () => core().status(),
-    staleTime: Infinity,
-    gcTime: Infinity,
-  });
-}
-
 export function useUnlock() {
   return useMutation({
     mutationFn: (input: { mnemonic: string; passphrase: string; }) =>

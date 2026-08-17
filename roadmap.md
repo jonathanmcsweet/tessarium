@@ -353,6 +353,35 @@ not cover.
 Single binary and tarball are done. What remains is distribution format and
 the one honest caveat.
 
+- [ ] **Verifiable builds — so a user can tell a legitimate build from an
+      imposter.** The naive version does not work and must not be shipped as
+      if it did: anything the app DISPLAYS, an imposter displays too — a fake
+      simply shows the real build's hash string. Self-reported identity is
+      theater. What actually works is verification from OUTSIDE the app:
+
+      1. *Reproducible builds.* `git checkout <tag> && make build` on any
+         machine yields bit-identical artifacts (toolchain is already pinned;
+         the embedded gzip already uses a fixed timestamp for this reason).
+         Verify with a double-build comparison in CI, then across machines.
+      2. *Published checksums, signed.* Each release publishes SHA-256 of the
+         tarball, the binary and each served asset, signed with a release key
+         (minisign — small, offline, no PKI). The user checks the download
+         once, at install; from then on the binary they run is the binary
+         they verified.
+      3. *Served-asset manifest, as convenience.* The server can expose the
+         hash of its embedded assets so `curl /tessarium.js | sha256sum`
+         can be compared against the signed manifest by an independent tool.
+         Useful for audit; NOT proof, and must be documented as such.
+      4. *The honest limit, stated in the README.* A web page served by
+         someone else's server arrives fresh on every load; if that server is
+         malicious, no in-page indicator helps. Trust anchors at binary
+         install time — which is why the desktop binary is the primary
+         distribution and the phrase gate warns against typing a seed into a
+         page you do not control.
+
+      Blocked on: a release key and somewhere to publish it, and the
+      double-build reproducibility check landing in CI first.
+
 - [ ] **`libgmp` is a real dependency.** Zarith links it dynamically, so the
       tarball is not quite "needs nothing installed" — it needs `libgmp10`.
       Almost always already present, since Python and GnuPG pull it in, but

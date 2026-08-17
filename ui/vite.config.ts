@@ -1,5 +1,6 @@
 import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import react from "@vitejs/plugin-react";
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 
 // The dev server proxies to the OCaml server so that `npm run dev` and the
@@ -8,7 +9,12 @@ import { defineConfig } from "vite";
 // the kind of difference that only shows up after a release.
 const backend = process.env.TESSARIUM_SERVER ?? "http://127.0.0.1:7373";
 
+// Baked in at build time from package.json -- the one version field npm
+// already requires -- so the footer cannot disagree with the package.
+const { version } = JSON.parse(readFileSync("./package.json", "utf8"));
+
 export default defineConfig({
+  define: { __APP_VERSION__: JSON.stringify(version) },
   plugins: [
     react(),
     // Messages are compiled into typed functions rather than looked up from a

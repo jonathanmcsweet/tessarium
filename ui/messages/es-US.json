@@ -50,6 +50,5 @@
   "panel_prefix_hint": "Los prefijos de cuatro letras funcionan y no importa el separador: {example} da el mismo resultado.",
   "panel_footer": "Las direcciones no significan nada para quien tenga una frase semilla distinta. El mismo cuadrado tiene una dirección completamente distinta, sin ninguna relación, bajo cualquier otra frase.",
   "a11y_dismiss_banner": "Cerrar este mensaje",
-  "a11y_language": "Idioma",
-  "panel_mapping_label": "Versión de codificación:"
+  "a11y_language": "Idioma"
 }

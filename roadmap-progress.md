@@ -926,3 +926,18 @@ replacing HKDF. The browser derives with WebCrypto instead of the bundled core.
 
 **Follow-on:** Argon2id stays open, now with the measurements that rejected it.
 
+### 2026-08-17 — Version-skew detection moved out of the UI
+
+**Phase:** 6
+
+**What:** The mapping-version line lasted one commit. The panel now shows only
+`Tessarium v0.1.0` (baked from package.json at build time); the grid and
+derivation versions are checked by the end-to-end suite against the vectors —
+a direct worker probe, no DOM. Verifiable build identity went to the roadmap
+as a Phase 7 item with the design constraint recorded: self-reported hashes
+are theater, verification must happen outside the app.
+
+**Rationale:** The skew that motivated the display was a development-phase
+event (two mapping bumps in one day). A test catches it wherever it recurs;
+a footer line taxes every user forever for it. Reversed on user direction.
+
