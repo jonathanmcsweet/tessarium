@@ -685,3 +685,37 @@ binary, 13 MB tarball. The served core is byte-identical to the built bundle.
 
 **Follow-on:** Phase 7 keeps `.deb`, AppImage, a desktop entry, and the libgmp
 question.
+
+---
+
+### 2026-08-17 — Server hardening and a toolchain setup script
+
+**Phase:** 0, 5
+
+**What:** Sessions expire (1 hour TTL, 1024 ceiling, swept on write) and
+`/api/session` is rate limited (token bucket, 10 burst, 1/s, `429` with
+`retry_after`). `tools/setup.sh` installs the pinned toolchain from nothing,
+with `--check` to report without changing anything.
+
+**Rationale:**
+
+- *Only one endpoint is rate limited, deliberately.* PBKDF2 is the only
+  expensive thing the server does — that slowness is the point of it — and
+  that is exactly what makes an unauthenticated route calling it a lever for
+  exhausting the host. Limiting cheap routes would cost latency for no
+  security.
+- *The limiter is a pure function of state and time,* with the clock injected.
+  That makes refill, exhaustion, the burst ceiling and a backwards clock
+  testable directly rather than by sleeping through them. The backwards-clock
+  case is the one worth having: a naive elapsed-time refill mints tokens when
+  the clock steps back.
+- *Sessions are swept on write, not on a timer.* There is nothing to tidy when
+  nothing is happening, and an idle server should not wake up to do it. A TTL
+  alone still admits unbounded growth inside one window, hence the ceiling too.
+- *`setup.sh` compares its versions against `ci.yml` and refuses to run if they
+  disagree.* Two copies of a pinned version drift; this makes the drift a hard
+  error rather than a contributor proving something CI does not. It will not
+  install opam itself — how you get the package manager is a decision about
+  your machine, not one this repository should make.
+
+**Follow-on:** Phase 0 is closed.
