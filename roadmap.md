@@ -255,6 +255,18 @@ The theorem set is complete and in the ledger. What is left is narrower.
       sides equally, so it does not change that ratio; at 600,000 iterations
       the user waits over a minute and the attacker is still 59,000x ahead.
 
+      **The offline scenario, concretely — the code is public, so an attacker
+      runs it locally and no rate limiter is in the loop; the search splits
+      across machines perfectly.** At today's cost, one GPU ~ 244k
+      guesses/s, a 100-GPU farm ~ 24M/s: a million guesses is seconds, a
+      made-up ~40-bit phrase ~ 12 hours, and the ~10^14 single-pair forgery
+      search ~ 7 weeks. What forgery buys is one fake claim, not the map:
+      ~2^210 keys agree on any one pair, matching two at once is 2^92, and
+      recovering the actual phrase is 2^256 — ~10^52 ages of the universe on
+      that farm. Entropy is the only defence offline, which is why generation
+      shipped first; derivation cost decides only the weak-phrase and forgery
+      numbers. The rate limiter defends the live oracle and nothing else.
+
       The ratio only improves by making *our* implementation fast: WebCrypto's
       native PBKDF2 in the browser, a C-backed hash natively. That means two
       implementations of the *hash* — not of the algorithm — both pinned by
