@@ -1,0 +1,14 @@
+; Byte sources for PMTiles archives: a local file, or a remote archive over
+; HTTP range requests. Split from the CLI so the server's in-app region
+; downloader reads a planet build with exactly the code the CLI uses.
+(library
+ (name pmtiles_source)
+ (libraries
+  pmtiles
+  eio
+  cohttp-eio
+  tls-eio
+  mirage-crypto-rng.unix
+  ca-certs-nss
+  domain-name
+  uri))

@@ -315,11 +315,37 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
-- [ ] **In-app region downloader.** `tools/fetch-basemap.sh` and
-      `tessarium-basemap` do this from a terminal; the app cannot. Needs a
-      map UI for picking a box, a size estimate before committing, progress,
-      and cancellation. The extractor itself is done and is a library, so this
-      is UI work over an existing API.
+- [ ] **In-app region downloader.** IN PROGRESS. Landed so far:
+      `pmtiles_source` (the CLI's HTTP-range/file byte sources, now a shared
+      library so the server reads a planet build with the CLI's exact code);
+      `Basemap_job` (pure download state machine: one job at a time, clamped
+      progress, server-side bbox/zoom validation, JSON view) and `Untar`
+      (pure ustar/pax reader for the glyph+sprite tarball, escape-safe),
+      both under the server-decisions suite with mutation-verified tests.
+
+      Remaining, in order:
+      1. Server endpoints, POST /api/: `basemap-estimate` (Extract.plan ->
+         planned_bytes), `basemap-download`, `basemap-status`,
+         `basemap-cancel`. NOT gated by --api (UI feature; loopback-only
+         anyway); source URL comes from `--basemap-source` (default the demo
+         bucket) and `--basemap-assets` (default the GitHub tarball), never
+         from the client. Runner: Eio fiber; write map.pmtiles.part then
+         rename; copy closure updates the job ref; after tiles, fetch+untar
+         glyphs/sprites into the basemap dir if missing (gzip module +
+         Untar.list + get_body in pmtiles_source).
+      2. UI: "download this view" flow -- viewport bbox, estimate, confirm,
+         progress with cancel (React Query polling ~1s while running),
+         banner gains an action button; on done, m.setStyle + re-add
+         grid/selection layers WITHOUT reloading the page (a reload would
+         drop the key). New message keys x 6 locales.
+      3. e2e with no external network: a second server instance serves a
+         fixture archive via --basemap (our own http_range.ml answers the
+         range requests -- which also tests it); first instance points
+         --basemap-source at it. Fixture: a generator emitting a tiny valid
+         pmtiles whose tile bytes are a hand-encoded minimal MVT (a real
+         layer+point, so MapLibre renders without console errors, which the
+         e2e treats as failures), plus a tiny fonts/+sprites/ tar.gz for the
+         assets path.
 - [ ] **The non-English translations still want a native speaker.** They have
       been through one adversarial review pass, which found and fixed real
       defects — a French pronoun that attached "your 24 words and this second

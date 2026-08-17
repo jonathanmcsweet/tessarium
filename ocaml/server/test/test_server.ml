@@ -184,4 +184,70 @@ let () =
   check "a backwards clock does not mint tokens" (b1 && b2 && not b3);
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
+  (* ------------------------------------------------- basemap download job *)
+  let module J = Tessarium_server.Basemap_job in
+  check "a download may start from idle" (J.can_start J.Idle);
+  check "a download may restart after done" (J.can_start (J.Done { total_bytes = 9 }));
+  check "a download may retry after failure" (J.can_start (J.Failed "x"));
+  check "a download may restart after cancel" (J.can_start J.Cancelled);
+  check "no second download while planning" (not (J.can_start J.Planning));
+  check "no second download while fetching"
+    (not (J.can_start (J.Fetching { done_bytes = 0; total_bytes = 9 })));
+  check "no second download while assets fetch" (not (J.can_start J.Assets));
+  check "progress is clamped to the total"
+    (J.progress ~done_bytes:120 ~total_bytes:100
+     = J.Fetching { done_bytes = 100; total_bytes = 100 });
+  check "progress cannot be negative"
+    (J.progress ~done_bytes:(-5) ~total_bytes:100
+     = J.Fetching { done_bytes = 0; total_bytes = 100 });
+  check "a reversed box is refused"
+    (Result.is_error (J.validate ~min_lon:1. ~min_lat:0. ~max_lon:0. ~max_lat:1. ~max_zoom:15));
+  check "an out-of-range box is refused"
+    (Result.is_error (J.validate ~min_lon:(-181.) ~min_lat:0. ~max_lon:0. ~max_lat:1. ~max_zoom:15));
+  check "a NaN is refused"
+    (Result.is_error (J.validate ~min_lon:Float.nan ~min_lat:0. ~max_lon:1. ~max_lat:1. ~max_zoom:15));
+  check "zoom 16 is refused"
+    (Result.is_error (J.validate ~min_lon:0. ~min_lat:0. ~max_lon:1. ~max_lat:1. ~max_zoom:16));
+  check "an honest box is accepted"
+    (Result.is_ok (J.validate ~min_lon:(-0.25) ~min_lat:51.45 ~max_lon:0. ~max_lat:51.55 ~max_zoom:15));
+
+  (* ------------------------------------------------------------------ untar *)
+  (* A ustar archive built by hand, because the reader must be tested against
+     bytes this test controls, not against whatever tar(1) emits today. *)
+  let tar_entry ?(typeflag = '0') ?(prefix = "") name content =
+    let b = Bytes.make 512 '\000' in
+    Bytes.blit_string name 0 b 0 (String.length name);
+    Bytes.blit_string (Printf.sprintf "%011o" (String.length content)) 0 b 124 11;
+    Bytes.set b 156 typeflag;
+    Bytes.blit_string "ustar\000" 0 b 257 6;
+    Bytes.blit_string prefix 0 b 345 (String.length prefix);
+    (* Checksum field is not verified by the reader; fill with spaces. *)
+    Bytes.blit_string "        " 0 b 148 8;
+    let pad = (512 - String.length content mod 512) mod 512 in
+    Bytes.to_string b ^ content ^ String.make pad '\000'
+  in
+  let archive =
+    tar_entry ~typeflag:'5' "fonts/" ""
+    ^ tar_entry "fonts/a.pbf" "glyphs"
+    ^ tar_entry ~prefix:"sprites/deep/path" "light.png" "pixels"
+    ^ tar_entry ~typeflag:'x' "pax"
+        (let r = "path=fonts/renamed.pbf\n" in
+         Printf.sprintf "%d %s" (String.length r + 3) r)
+    ^ tar_entry "ignored-short-name" "renamed-body"
+    ^ tar_entry "../escape" "evil"
+    ^ tar_entry "/abs" "evil"
+    ^ String.make 1024 '\000'
+  in
+  let files = Tessarium_server.Untar.list archive in
+  let find n = List.assoc_opt n files in
+  check "a plain file is read" (find "fonts/a.pbf" = Some "glyphs");
+  check "the prefix field joins long paths"
+    (find "sprites/deep/path/light.png" = Some "pixels");
+  check "a pax path record renames the next entry"
+    (find "fonts/renamed.pbf" = Some "renamed-body");
+  check "directories are not files" (find "fonts/" = None);
+  check "dotdot entries are dropped" (find "../escape" = None);
+  check "absolute entries are dropped" (find "/abs" = None);
+  check "nothing unexpected survives" (List.length files = 3);
+
   if !failures > 0 then exit 1 else print_endline "server decisions hold"

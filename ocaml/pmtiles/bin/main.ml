@@ -6,53 +6,6 @@
 
 let ( let* ) = Result.bind
 
-(* ------------------------------------------------------------ byte sources *)
-
-let file_source path =
-  {
-    Pmtiles.Archive.read =
-      (fun ~offset ~length ->
-        let buf = Cstruct.create length in
-        let got =
-          Eio.File.pread path ~file_offset:(Optint.Int63.of_int offset) [ buf ]
-        in
-        Cstruct.to_string (Cstruct.sub buf 0 got));
-  }
-
-(* Range requests, with a small amount of coalescing left to the caller: this
-   issues exactly the reads it is asked for, and the extract planner is what
-   keeps that number sane by resolving directories before tiles. *)
-let http_source ~client ~sw ~uri =
-  let fetch ~offset ~length =
-    let headers =
-      Http.Header.of_list
-        [
-          ("range", Printf.sprintf "bytes=%d-%d" offset (offset + length - 1));
-          ("user-agent", "tessarium-basemap/0.1");
-        ]
-    in
-    let response, body = Cohttp_eio.Client.get ~headers ~sw client uri in
-    let status = Http.Response.status response in
-    match status with
-    | `Partial_content | `OK ->
-        let data = Eio.Flow.read_all body in
-        (* A server that ignores Range hands back the whole archive. Truncating
-           silently would produce a corrupt extract; this is a hundred
-           gigabytes arriving where sixteen kilobytes were asked for. *)
-        if String.length data > length then
-          failwith
-            (Printf.sprintf
-               "server ignored Range: asked for %d bytes, got %d. It must \
-                support byte ranges."
-               length (String.length data))
-        else data
-    | s ->
-        failwith
-          (Printf.sprintf "HTTP %d fetching bytes %d-%d"
-             (Http.Status.to_int s) offset (offset + length - 1))
-  in
-  { Pmtiles.Archive.read = (fun ~offset ~length -> fetch ~offset ~length) }
-
 (* ------------------------------------------------------------------ output *)
 
 let human bytes =
@@ -81,41 +34,7 @@ let run source_desc url output bbox max_zoom min_zoom =
   let fs = Eio.Stdenv.fs env in
 
   let src =
-    if String.length url > 4 && String.sub url 0 4 = "http" then begin
-      (* TLS needs a seeded RNG, and nothing else in this binary does, so it is
-         set up here rather than at startup. *)
-      Mirage_crypto_rng_unix.use_default ();
-      let https =
-        (* Trust anchors from Mozilla's NSS bundle, compiled in rather than
-           read from the host: the desktop build is one binary and cannot
-           assume a system certificate store exists where it lands. *)
-        let authenticator = Result.get_ok (Ca_certs_nss.authenticator ()) in
-        Some
-          (fun uri raw ->
-            let host =
-              Uri.host uri
-              |> Option.map (fun h ->
-                     Domain_name.of_string_exn h |> Domain_name.host_exn)
-            in
-            Tls_eio.client_of_flow
-              (Result.get_ok (Tls.Config.client ~authenticator ()))
-              ?host raw)
-      in
-      let client = Cohttp_eio.Client.make ~https (Eio.Stdenv.net env) in
-      (* Eio resolves a portless URI by service name, which needs an
-         /etc/services entry that a minimal container image does not
-         necessarily have. Naming the port avoids depending on one. *)
-      let uri = Uri.of_string url in
-      let uri =
-        match Uri.port uri with
-        | Some _ -> uri
-        | None ->
-            Uri.with_port uri
-              (Some (if Uri.scheme uri = Some "https" then 443 else 80))
-      in
-      http_source ~client ~sw ~uri
-    end
-    else file_source (Eio.Path.open_in ~sw Eio.Path.(fs / url))
+    Pmtiles_source.open_url ~sw ~fs ~net:(Eio.Stdenv.net env) url
   in
 
   Printf.printf "reading %s\n%!" source_desc;
