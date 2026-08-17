@@ -17,7 +17,7 @@ import { dirname, join } from "node:path";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BANDS = JSON.parse(readFileSync(join(HERE, "bands.json"), "utf8"));
 export const WORDLIST = readFileSync(
-  join(HERE, "..", "reference", "tessarium", "wordlist.txt"), "utf8").trim().split("\n");
+  join(HERE, "..", "wordlist", "english.txt"), "utf8").trim().split("\n");
 
 const ROWS = BigInt(BANDS.rows);
 const NBANDS = BANDS.bands;

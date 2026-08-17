@@ -101,8 +101,10 @@ jobs:
       - name: Build
         run: opam exec -- dune build
 
-      # Native vectors, the js_of_ocaml artifact against the same vectors, the
-      # server's pure decisions, and the PMTiles round-trip.
+      # Six suites: native vectors, the js_of_ocaml artifact against the same
+      # vectors, the independently written JS implementation, the server's pure
+      # decisions, the PMTiles round-trip, and a check that the verified core
+      # still reproduces vectors.json from inputs.json.
       - name: Test
         run: opam exec -- dune build @runtest --force
 

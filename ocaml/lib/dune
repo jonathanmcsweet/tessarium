@@ -1,3 +1,12 @@
+; wordlist.ml is generated from wordlist/english.txt at build time rather than
+; committed, so the module cannot drift from the list it encodes.
+(rule
+ (target wordlist.ml)
+ (deps %{project_root}/wordlist/english.txt)
+ (action
+  (with-stdout-to wordlist.ml
+   (run %{exe:../tools/gen_wordlist.exe} %{project_root}/wordlist/english.txt))))
+
 ; digestif.ocaml, not digestif.c: the same module has to compile under
 ; js_of_ocaml, and C stubs do not cross into the browser.
 (library

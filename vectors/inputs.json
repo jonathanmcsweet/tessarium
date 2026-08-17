@@ -1,0 +1,218 @@
+{
+ "comment": "Inputs to the test vectors: the questions, not the answers. vectors.json is generated from this file by the verified core (ocaml/tools/gen_vectors.ml). Committed so the point set is stable across regenerations.",
+ "mnemonics": [
+  {
+   "name": "zero",
+   "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art"
+  },
+  {
+   "name": "ones",
+   "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote"
+  },
+  {
+   "name": "hash",
+   "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon"
+  }
+ ],
+ "feistel_key": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+ "feistel_x": [
+  0,
+  1,
+  12345,
+  85899345919999,
+  55692067743999,
+  987654321012
+ ],
+ "points": [
+  {
+   "lat_ns": 0,
+   "lon_ns": 0
+  },
+  {
+   "lat_ns": 51508000000,
+   "lon_ns": -128100000
+  },
+  {
+   "lat_ns": -33856800000,
+   "lon_ns": 151215300000
+  },
+  {
+   "lat_ns": 90000000000,
+   "lon_ns": 0
+  },
+  {
+   "lat_ns": -90000000000,
+   "lon_ns": 0
+  },
+  {
+   "lat_ns": 0,
+   "lon_ns": -180000000000
+  },
+  {
+   "lat_ns": 12345600000,
+   "lon_ns": 179999999999
+  },
+  {
+   "lat_ns": 65195912693,
+   "lon_ns": -142359874620
+  },
+  {
+   "lat_ns": -58839715780,
+   "lon_ns": 79628587171
+  },
+  {
+   "lat_ns": 15877785627,
+   "lon_ns": -64943309290
+  },
+  {
+   "lat_ns": 43547110028,
+   "lon_ns": 34042981298
+  },
+  {
+   "lat_ns": 75067477638,
+   "lon_ns": -32058188499
+  },
+  {
+   "lat_ns": 69896316209,
+   "lon_ns": -120105518430
+  },
+  {
+   "lat_ns": -229052615,
+   "lon_ns": -171278682404
+  },
+  {
+   "lat_ns": 86202948281,
+   "lon_ns": -173379683810
+  },
+  {
+   "lat_ns": 51858649991,
+   "lon_ns": 122777208084
+  },
+  {
+   "lat_ns": 5490370617,
+   "lon_ns": 47725564277
+  },
+  {
+   "lat_ns": -61471562925,
+   "lon_ns": 164395844999
+  },
+  {
+   "lat_ns": -8997146435,
+   "lon_ns": 97932452343
+  },
+  {
+   "lat_ns": 49251889241,
+   "lon_ns": -74041844406
+  },
+  {
+   "lat_ns": -11387630819,
+   "lon_ns": 94373158084
+  },
+  {
+   "lat_ns": 19544359877,
+   "lon_ns": 82141292375
+  },
+  {
+   "lat_ns": 20799007576,
+   "lon_ns": 18311556760
+  },
+  {
+   "lat_ns": -66915826289,
+   "lon_ns": -121981749995
+  },
+  {
+   "lat_ns": -43706941469,
+   "lon_ns": 23552480697
+  },
+  {
+   "lat_ns": 38976042374,
+   "lon_ns": -12309498964
+  },
+  {
+   "lat_ns": 81726483643,
+   "lon_ns": 140375284621
+  },
+  {
+   "lat_ns": 87784156899,
+   "lon_ns": -89074042546
+  },
+  {
+   "lat_ns": -27713359660,
+   "lon_ns": -171487045637
+  },
+  {
+   "lat_ns": -35151020739,
+   "lon_ns": 124342627172
+  },
+  {
+   "lat_ns": 18371371271,
+   "lon_ns": 11185193513
+  },
+  {
+   "lat_ns": 6970890318,
+   "lon_ns": 153066108008
+  },
+  {
+   "lat_ns": 13103735617,
+   "lon_ns": 102353312183
+  },
+  {
+   "lat_ns": -52165032216,
+   "lon_ns": -65919836628
+  },
+  {
+   "lat_ns": 39090066618,
+   "lon_ns": 21305160780
+  },
+  {
+   "lat_ns": 62771983866,
+   "lon_ns": 45506057299
+  },
+  {
+   "lat_ns": 23201550915,
+   "lon_ns": -178513606648
+  },
+  {
+   "lat_ns": 58341636866,
+   "lon_ns": 3019089742
+  },
+  {
+   "lat_ns": 75176482755,
+   "lon_ns": 168878497068
+  },
+  {
+   "lat_ns": 61084971931,
+   "lon_ns": -78705511855
+  },
+  {
+   "lat_ns": -64827158613,
+   "lon_ns": 124076979863
+  },
+  {
+   "lat_ns": -80313585855,
+   "lon_ns": -138454293759
+  },
+  {
+   "lat_ns": 30330770006,
+   "lon_ns": -26430924156
+  },
+  {
+   "lat_ns": -15913707261,
+   "lon_ns": -78532247665
+  },
+  {
+   "lat_ns": -11211303735,
+   "lon_ns": -89507120504
+  },
+  {
+   "lat_ns": -20594936853,
+   "lon_ns": 173359476861
+  },
+  {
+   "lat_ns": -9634333186,
+   "lon_ns": 91965926691
+  }
+ ],
+ "address_mnemonic": "zero",
+ "address_points": 20
+}

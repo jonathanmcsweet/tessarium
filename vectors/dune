@@ -1,1 +1,12 @@
-; Exposed so the differential test can depend on the committed vectors.
+; Exposed so the differential tests can depend on the committed vectors.
+
+; The verified core must reproduce vectors.json from inputs.json exactly.
+; This is what keeps F* the source of truth: if the core's behaviour ever
+; drifts from its own committed answers, this fails rather than the vectors
+; being quietly regenerated to match.
+(rule
+ (alias runtest)
+ (deps inputs.json vectors.json)
+ (action
+  (run %{exe:../ocaml/tools/gen_vectors.exe} --check
+   %{dep:inputs.json} %{dep:vectors.json})))

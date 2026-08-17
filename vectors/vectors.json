@@ -1,506 +1,484 @@
 {
- "grid_version": "tessarium-grid-1",
- "total_cells": 55692067744000,
- "address_space": 85899345920000,
- "feistel": {
-  "a": 6553600,
-  "b": 13107200,
-  "rounds": 10
- },
- "key_derivation": [
-  {
-   "name": "zero",
-   "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
-   "key": "cc03697da345b1fd2f3b40bc01bef5618aa10d807544b551e5ad200ad3892f6e"
-  },
-  {
-   "name": "ones",
-   "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
-   "key": "e8a6aba75accc0b9a0cddabe9f67bc645735192483a401bdd713d34727b657f9"
-  },
-  {
-   "name": "hash",
-   "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
-   "key": "9b913bbcd3d41266387222ec7902e4062aa4f5036e7d9e18169e6af707afec45"
-  }
- ],
- "feistel_vectors": [
-  {
-   "x": 0,
-   "y": 17134234923314
-  },
-  {
-   "x": 1,
-   "y": 75320369144071
-  },
-  {
-   "x": 12345,
-   "y": 56265300518522
-  },
-  {
-   "x": 85899345919999,
-   "y": 34173107359618
-  },
-  {
-   "x": 55692067743999,
-   "y": 48377493785350
-  },
-  {
-   "x": 987654321012,
-   "y": 69992743837609
-  }
- ],
- "grid_vectors": [
-  {
-   "lat_ns": 0,
-   "lon_ns": 0,
-   "cell": 27846040543704,
-   "centre_lat_ns": 13732,
-   "centre_lon_ns": 0
-  },
-  {
-   "lat_ns": 51508000000,
-   "lon_ns": -128100000,
-   "cell": 49636666493017,
-   "centre_lat_ns": 51508012390,
-   "centre_lon_ns": -128079868
-  },
-  {
-   "lat_ns": -33856800000,
-   "lon_ns": 151215300000,
-   "cell": 12336617686258,
-   "centre_lat_ns": -33856800843,
-   "centre_lon_ns": 151215292909
-  },
-  {
-   "lat_ns": 90000000000,
-   "lon_ns": 0,
-   "cell": 55692067738883,
-   "centre_lat_ns": 89999986267,
-   "centre_lon_ns": 17588430
-  },
-  {
-   "lat_ns": -90000000000,
-   "lon_ns": 0,
-   "cell": 5117,
-   "centre_lat_ns": -89999986268,
-   "centre_lon_ns": 17588430
-  },
-  {
-   "lat_ns": 0,
-   "lon_ns": -180000000000,
-   "cell": 27846033872000,
-   "centre_lat_ns": 13732,
-   "centre_lon_ns": -179999986511
-  },
-  {
-   "lat_ns": 12345600000,
-   "lon_ns": 179999999999,
-   "cell": 33797706460939,
-   "centre_lat_ns": 12345597839,
-   "centre_lon_ns": 179999986193
-  },
-  {
-   "lat_ns": 65195912693,
-   "lon_ns": -142359874620,
-   "cell": 53119704469354,
-   "centre_lat_ns": 65195906066,
-   "centre_lon_ns": -142359859021
-  },
-  {
-   "lat_ns": -58839715780,
-   "lon_ns": 79628587171,
-   "cell": 4021524627295,
-   "centre_lat_ns": -58839710999,
-   "centre_lon_ns": 79628610860
-  },
-  {
-   "lat_ns": 15877785627,
-   "lon_ns": -64943309290,
-   "cell": 35461811490462,
-   "centre_lat_ns": 15877784729,
-   "centre_lon_ns": -64943297277
-  },
-  {
-   "lat_ns": 43547110028,
-   "lon_ns": 34042981298,
-   "cell": 47026160578233,
-   "centre_lat_ns": 43547099304,
-   "centre_lon_ns": 34042982723
-  },
-  {
-   "lat_ns": 75067477638,
-   "lon_ns": -32058188499,
-   "cell": 54749314938366,
-   "centre_lat_ns": 75067478942,
-   "centre_lon_ns": -32058176707
-  },
-  {
-   "lat_ns": 69896316209,
-   "lon_ns": -120105518430,
-   "cell": 53992448330143,
-   "centre_lat_ns": 69896324157,
-   "centre_lon_ns": -120105547529
-  },
-  {
-   "lat_ns": -229052615,
-   "lon_ns": -171278682404,
-   "cell": 27734750386313,
-   "centre_lat_ns": -229051209,
-   "centre_lon_ns": -171278681881
-  },
-  {
-   "lat_ns": 86202948281,
-   "lon_ns": -173379683810,
-   "cell": 55630256425121,
-   "centre_lat_ns": 86202946472,
-   "centre_lon_ns": -173379782404
-  },
-  {
-   "lat_ns": 51858649991,
-   "lon_ns": 122777208084,
-   "cell": 49742333772028,
-   "centre_lat_ns": 51858641052,
-   "centre_lon_ns": 122777225223
-  },
-  {
-   "lat_ns": 5490370617,
-   "lon_ns": 47725564277,
-   "cell": 30509331663194,
-   "centre_lat_ns": 5490376281,
-   "centre_lon_ns": 47725566014
-  },
-  {
-   "lat_ns": -61471562925,
-   "lon_ns": 164395844999,
-   "cell": 3384864863822,
-   "centre_lat_ns": -61471568299,
-   "centre_lon_ns": 164395825653
-  },
-  {
-   "lat_ns": -8997146435,
-   "lon_ns": 97932452343,
-   "cell": 23492860808314,
-   "centre_lat_ns": -8997157288,
-   "centre_lon_ns": 97932441848
-  },
-  {
-   "lat_ns": 49251889241,
-   "lon_ns": -74041844406,
-   "cell": 48937430229744,
-   "centre_lat_ns": 49251887512,
-   "centre_lon_ns": -74041857590
-  },
-  {
-   "lat_ns": -11387630819,
-   "lon_ns": 94373158084,
-   "cell": 22349861271704,
-   "centre_lat_ns": -11387617493,
-   "centre_lon_ns": 94373151277
-  },
-  {
-   "lat_ns": 19544359877,
-   "lon_ns": 82141292375,
-   "cell": 37158598125419,
-   "centre_lat_ns": 19544361877,
-   "centre_lon_ns": 82141299214
-  },
-  {
-   "lat_ns": 20799007576,
-   "lon_ns": 18311556760,
-   "cell": 37730805680939,
-   "centre_lat_ns": 20799000549,
-   "centre_lon_ns": 18311553079
-  },
-  {
-   "lat_ns": -66915826289,
-   "lon_ns": -121981749995,
-   "cell": 2232968702708,
-   "centre_lat_ns": -66915815735,
-   "centre_lon_ns": -121981747022
-  },
-  {
-   "lat_ns": -43706941469,
-   "lon_ns": 23552480697,
-   "cell": 8609676305424,
-   "centre_lat_ns": -43706950379,
-   "centre_lon_ns": 23552490207
-  },
-  {
-   "lat_ns": 38976042374,
-   "lon_ns": -12309498964,
-   "cell": 45356722971894,
-   "centre_lat_ns": 38976045227,
-   "centre_lon_ns": -12309513551
-  },
-  {
-   "lat_ns": 81726483643,
-   "lon_ns": 140375284621,
-   "cell": 55400831993680,
-   "centre_lat_ns": 81726484680,
-   "centre_lon_ns": 140375251166
-  },
-  {
-   "lat_ns": 87784156899,
-   "lon_ns": -89074042546,
-   "cell": 55670839354917,
-   "centre_lat_ns": 87784153747,
-   "centre_lon_ns": -89074152860
-  },
-  {
-   "lat_ns": -27713359660,
-   "lon_ns": -171487045637,
-   "cell": 14900014422465,
-   "centre_lat_ns": -27713356019,
-   "centre_lon_ns": -171487054465
-  },
-  {
-   "lat_ns": -35151020739,
-   "lon_ns": 124342627172,
-   "cell": 11818341653137,
-   "centre_lat_ns": -35151017762,
-   "centre_lon_ns": 124342627540
-  },
-  {
-   "lat_ns": 18371371271,
-   "lon_ns": 11185193513,
-   "cell": 36619587867675,
-   "centre_lat_ns": 18371379089,
-   "centre_lon_ns": 11185195380
-  },
-  {
-   "lat_ns": 6970890318,
-   "lon_ns": 153066108008,
-   "cell": 31224359849266,
-   "centre_lat_ns": 6970893859,
-   "centre_lon_ns": 153066119564
-  },
-  {
-   "lat_ns": 13103735617,
-   "lon_ns": 102353312183,
-   "cell": 34157004104662,
-   "centre_lat_ns": 13103736877,
-   "centre_lon_ns": 102353323273
-  },
-  {
-   "lat_ns": -52165032216,
-   "lon_ns": -65919836628,
-   "cell": 5858075894498,
-   "centre_lat_ns": -52165022278,
-   "centre_lon_ns": -65919827100
-  },
-  {
-   "lat_ns": 39090066618,
-   "lon_ns": 21305160780,
-   "cell": 45399761219205,
-   "centre_lat_ns": 39090055847,
-   "centre_lon_ns": 21305146558
-  },
-  {
-   "lat_ns": 62771983866,
-   "lon_ns": 45506057299,
-   "cell": 52602825591200,
-   "centre_lat_ns": 62771992492,
-   "centre_lon_ns": 45506029835
-  },
-  {
-   "lat_ns": 23201550915,
-   "lon_ns": -178513606648,
-   "cell": 38813095957675,
-   "centre_lat_ns": 23201545715,
-   "centre_lon_ns": -178513608542
-  },
-  {
-   "lat_ns": 58341636866,
-   "lon_ns": 3019089742,
-   "cell": 51544362715088,
-   "centre_lat_ns": 58341645812,
-   "centre_lon_ns": 3019088895
-  },
-  {
-   "lat_ns": 75176482755,
-   "lon_ns": 168878497068,
-   "cell": 54762934147873,
-   "centre_lat_ns": 75176490783,
-   "centre_lon_ns": 168878521530
-  },
-  {
-   "lat_ns": 61084971931,
-   "lon_ns": -78705511855,
-   "cell": 52216883356658,
-   "centre_lat_ns": 61084959411,
-   "centre_lon_ns": -78705534604
-  },
-  {
-   "lat_ns": -64827158613,
-   "lon_ns": 124076979863,
-   "cell": 2648103216034,
-   "centre_lat_ns": -64827149964,
-   "centre_lon_ns": 124076961611
-  },
-  {
-   "lat_ns": -80313585855,
-   "lon_ns": -138454293759,
-   "cell": 398634621518,
-   "centre_lat_ns": -80313587952,
-   "centre_lon_ns": -138454230801
-  },
-  {
-   "lat_ns": 30330770006,
-   "lon_ns": -26430924156,
-   "cell": 41904104376074,
-   "centre_lat_ns": 30330766296,
-   "centre_lon_ns": -26430910930
-  },
-  {
-   "lat_ns": -15913707261,
-   "lon_ns": -78532247665,
-   "cell": 20213463277285,
-   "centre_lat_ns": -15913710022,
-   "centre_lon_ns": -78532258698
-  },
-  {
-   "lat_ns": -11211303735,
-   "lon_ns": -89507120504,
-   "cell": 22433852089469,
-   "centre_lat_ns": -11211314393,
-   "centre_lon_ns": -89507114823
-  },
-  {
-   "lat_ns": -20594936853,
-   "lon_ns": 173359476861,
-   "cell": 18054025359667,
-   "centre_lat_ns": -20594929505,
-   "centre_lon_ns": 173359466951
-  },
-  {
-   "lat_ns": -9634333186,
-   "lon_ns": 91965926691,
-   "cell": 23187371827688,
-   "centre_lat_ns": -9634336854,
-   "centre_lon_ns": 91965937887
-  }
- ],
- "addresses": [
-  {
-   "mnemonic": "zero",
-   "lat_ns": 0,
-   "lon_ns": 0,
-   "address": "pig.night.survey.7473"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": 51508000000,
-   "lon_ns": -128100000,
-   "address": "fortune.razor.differ.8280"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": -33856800000,
-   "lon_ns": 151215300000,
-   "address": "step.off.crime.2442"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": 90000000000,
-   "lon_ns": 0,
-   "address": "medal.staff.coral.4944"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": -90000000000,
-   "lon_ns": 0,
-   "address": "damage.permit.fresh.4352"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": 0,
-   "lon_ns": -180000000000,
-   "address": "few.pencil.radar.0148"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": 12345600000,
-   "lon_ns": 179999999999,
-   "address": "nothing.upgrade.believe.2721"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": 65195912693,
-   "lon_ns": -142359874620,
-   "address": "galaxy.reduce.sponsor.9652"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": -58839715780,
-   "lon_ns": 79628587171,
-   "address": "into.vague.flash.7130"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": 15877785627,
-   "lon_ns": -64943309290,
-   "address": "tent.sauce.refuse.9320"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": 43547110028,
-   "lon_ns": 34042981298,
-   "address": "kangaroo.buffalo.clip.5793"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": 75067477638,
-   "lon_ns": -32058188499,
-   "address": "finger.valve.trial.0946"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": 69896316209,
-   "lon_ns": -120105518430,
-   "address": "group.grow.cute.8694"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": -229052615,
-   "lon_ns": -171278682404,
-   "address": "success.motor.oyster.5378"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": 86202948281,
-   "lon_ns": -173379683810,
-   "address": "risk.gorilla.clinic.7947"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": 51858649991,
-   "lon_ns": 122777208084,
-   "address": "clerk.hello.pepper.3700"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": 5490370617,
-   "lon_ns": 47725564277,
-   "address": "since.wise.absorb.4631"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": -61471562925,
-   "lon_ns": 164395844999,
-   "address": "nerve.charge.jelly.4783"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": -8997146435,
-   "lon_ns": 97932452343,
-   "address": "dynamic.party.proof.6645"
-  },
-  {
-   "mnemonic": "zero",
-   "lat_ns": 49251889241,
-   "lon_ns": -74041844406,
-   "address": "minor.glare.hedgehog.7840"
-  }
- ]
+  "grid_version": "tessarium-grid-1",
+  "total_cells": 55692067744000,
+  "address_space": 85899345920000,
+  "feistel": { "a": 6553600, "b": 13107200, "rounds": 10 },
+  "key_derivation": [
+    {
+      "name": "zero",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+      "key": "cc03697da345b1fd2f3b40bc01bef5618aa10d807544b551e5ad200ad3892f6e"
+    },
+    {
+      "name": "ones",
+      "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
+      "key": "e8a6aba75accc0b9a0cddabe9f67bc645735192483a401bdd713d34727b657f9"
+    },
+    {
+      "name": "hash",
+      "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+      "key": "9b913bbcd3d41266387222ec7902e4062aa4f5036e7d9e18169e6af707afec45"
+    }
+  ],
+  "feistel_vectors": [
+    { "x": 0, "y": 17134234923314 },
+    { "x": 1, "y": 75320369144071 },
+    { "x": 12345, "y": 56265300518522 },
+    { "x": 85899345919999, "y": 34173107359618 },
+    { "x": 55692067743999, "y": 48377493785350 },
+    { "x": 987654321012, "y": 69992743837609 }
+  ],
+  "grid_vectors": [
+    {
+      "lat_ns": 0,
+      "lon_ns": 0,
+      "cell": 27846040543704,
+      "centre_lat_ns": 13732,
+      "centre_lon_ns": 0
+    },
+    {
+      "lat_ns": 51508000000,
+      "lon_ns": -128100000,
+      "cell": 49636666493017,
+      "centre_lat_ns": 51508012390,
+      "centre_lon_ns": -128079868
+    },
+    {
+      "lat_ns": -33856800000,
+      "lon_ns": 151215300000,
+      "cell": 12336617686258,
+      "centre_lat_ns": -33856800843,
+      "centre_lon_ns": 151215292909
+    },
+    {
+      "lat_ns": 90000000000,
+      "lon_ns": 0,
+      "cell": 55692067738883,
+      "centre_lat_ns": 89999986267,
+      "centre_lon_ns": 17588430
+    },
+    {
+      "lat_ns": -90000000000,
+      "lon_ns": 0,
+      "cell": 5117,
+      "centre_lat_ns": -89999986268,
+      "centre_lon_ns": 17588430
+    },
+    {
+      "lat_ns": 0,
+      "lon_ns": -180000000000,
+      "cell": 27846033872000,
+      "centre_lat_ns": 13732,
+      "centre_lon_ns": -179999986511
+    },
+    {
+      "lat_ns": 12345600000,
+      "lon_ns": 179999999999,
+      "cell": 33797706460939,
+      "centre_lat_ns": 12345597839,
+      "centre_lon_ns": 179999986193
+    },
+    {
+      "lat_ns": 65195912693,
+      "lon_ns": -142359874620,
+      "cell": 53119704469354,
+      "centre_lat_ns": 65195906066,
+      "centre_lon_ns": -142359859021
+    },
+    {
+      "lat_ns": -58839715780,
+      "lon_ns": 79628587171,
+      "cell": 4021524627295,
+      "centre_lat_ns": -58839710999,
+      "centre_lon_ns": 79628610860
+    },
+    {
+      "lat_ns": 15877785627,
+      "lon_ns": -64943309290,
+      "cell": 35461811490462,
+      "centre_lat_ns": 15877784729,
+      "centre_lon_ns": -64943297277
+    },
+    {
+      "lat_ns": 43547110028,
+      "lon_ns": 34042981298,
+      "cell": 47026160578233,
+      "centre_lat_ns": 43547099304,
+      "centre_lon_ns": 34042982723
+    },
+    {
+      "lat_ns": 75067477638,
+      "lon_ns": -32058188499,
+      "cell": 54749314938366,
+      "centre_lat_ns": 75067478942,
+      "centre_lon_ns": -32058176707
+    },
+    {
+      "lat_ns": 69896316209,
+      "lon_ns": -120105518430,
+      "cell": 53992448330143,
+      "centre_lat_ns": 69896324157,
+      "centre_lon_ns": -120105547529
+    },
+    {
+      "lat_ns": -229052615,
+      "lon_ns": -171278682404,
+      "cell": 27734750386313,
+      "centre_lat_ns": -229051209,
+      "centre_lon_ns": -171278681881
+    },
+    {
+      "lat_ns": 86202948281,
+      "lon_ns": -173379683810,
+      "cell": 55630256425121,
+      "centre_lat_ns": 86202946472,
+      "centre_lon_ns": -173379782404
+    },
+    {
+      "lat_ns": 51858649991,
+      "lon_ns": 122777208084,
+      "cell": 49742333772028,
+      "centre_lat_ns": 51858641052,
+      "centre_lon_ns": 122777225223
+    },
+    {
+      "lat_ns": 5490370617,
+      "lon_ns": 47725564277,
+      "cell": 30509331663194,
+      "centre_lat_ns": 5490376281,
+      "centre_lon_ns": 47725566014
+    },
+    {
+      "lat_ns": -61471562925,
+      "lon_ns": 164395844999,
+      "cell": 3384864863822,
+      "centre_lat_ns": -61471568299,
+      "centre_lon_ns": 164395825653
+    },
+    {
+      "lat_ns": -8997146435,
+      "lon_ns": 97932452343,
+      "cell": 23492860808314,
+      "centre_lat_ns": -8997157288,
+      "centre_lon_ns": 97932441848
+    },
+    {
+      "lat_ns": 49251889241,
+      "lon_ns": -74041844406,
+      "cell": 48937430229744,
+      "centre_lat_ns": 49251887512,
+      "centre_lon_ns": -74041857590
+    },
+    {
+      "lat_ns": -11387630819,
+      "lon_ns": 94373158084,
+      "cell": 22349861271704,
+      "centre_lat_ns": -11387617493,
+      "centre_lon_ns": 94373151277
+    },
+    {
+      "lat_ns": 19544359877,
+      "lon_ns": 82141292375,
+      "cell": 37158598125419,
+      "centre_lat_ns": 19544361877,
+      "centre_lon_ns": 82141299214
+    },
+    {
+      "lat_ns": 20799007576,
+      "lon_ns": 18311556760,
+      "cell": 37730805680939,
+      "centre_lat_ns": 20799000549,
+      "centre_lon_ns": 18311553079
+    },
+    {
+      "lat_ns": -66915826289,
+      "lon_ns": -121981749995,
+      "cell": 2232968702708,
+      "centre_lat_ns": -66915815735,
+      "centre_lon_ns": -121981747022
+    },
+    {
+      "lat_ns": -43706941469,
+      "lon_ns": 23552480697,
+      "cell": 8609676305424,
+      "centre_lat_ns": -43706950379,
+      "centre_lon_ns": 23552490207
+    },
+    {
+      "lat_ns": 38976042374,
+      "lon_ns": -12309498964,
+      "cell": 45356722971894,
+      "centre_lat_ns": 38976045227,
+      "centre_lon_ns": -12309513551
+    },
+    {
+      "lat_ns": 81726483643,
+      "lon_ns": 140375284621,
+      "cell": 55400831993680,
+      "centre_lat_ns": 81726484680,
+      "centre_lon_ns": 140375251166
+    },
+    {
+      "lat_ns": 87784156899,
+      "lon_ns": -89074042546,
+      "cell": 55670839354917,
+      "centre_lat_ns": 87784153747,
+      "centre_lon_ns": -89074152860
+    },
+    {
+      "lat_ns": -27713359660,
+      "lon_ns": -171487045637,
+      "cell": 14900014422465,
+      "centre_lat_ns": -27713356019,
+      "centre_lon_ns": -171487054465
+    },
+    {
+      "lat_ns": -35151020739,
+      "lon_ns": 124342627172,
+      "cell": 11818341653137,
+      "centre_lat_ns": -35151017762,
+      "centre_lon_ns": 124342627540
+    },
+    {
+      "lat_ns": 18371371271,
+      "lon_ns": 11185193513,
+      "cell": 36619587867675,
+      "centre_lat_ns": 18371379089,
+      "centre_lon_ns": 11185195380
+    },
+    {
+      "lat_ns": 6970890318,
+      "lon_ns": 153066108008,
+      "cell": 31224359849266,
+      "centre_lat_ns": 6970893859,
+      "centre_lon_ns": 153066119564
+    },
+    {
+      "lat_ns": 13103735617,
+      "lon_ns": 102353312183,
+      "cell": 34157004104662,
+      "centre_lat_ns": 13103736877,
+      "centre_lon_ns": 102353323273
+    },
+    {
+      "lat_ns": -52165032216,
+      "lon_ns": -65919836628,
+      "cell": 5858075894498,
+      "centre_lat_ns": -52165022278,
+      "centre_lon_ns": -65919827100
+    },
+    {
+      "lat_ns": 39090066618,
+      "lon_ns": 21305160780,
+      "cell": 45399761219205,
+      "centre_lat_ns": 39090055847,
+      "centre_lon_ns": 21305146558
+    },
+    {
+      "lat_ns": 62771983866,
+      "lon_ns": 45506057299,
+      "cell": 52602825591200,
+      "centre_lat_ns": 62771992492,
+      "centre_lon_ns": 45506029835
+    },
+    {
+      "lat_ns": 23201550915,
+      "lon_ns": -178513606648,
+      "cell": 38813095957675,
+      "centre_lat_ns": 23201545715,
+      "centre_lon_ns": -178513608542
+    },
+    {
+      "lat_ns": 58341636866,
+      "lon_ns": 3019089742,
+      "cell": 51544362715088,
+      "centre_lat_ns": 58341645812,
+      "centre_lon_ns": 3019088895
+    },
+    {
+      "lat_ns": 75176482755,
+      "lon_ns": 168878497068,
+      "cell": 54762934147873,
+      "centre_lat_ns": 75176490783,
+      "centre_lon_ns": 168878521530
+    },
+    {
+      "lat_ns": 61084971931,
+      "lon_ns": -78705511855,
+      "cell": 52216883356658,
+      "centre_lat_ns": 61084959411,
+      "centre_lon_ns": -78705534604
+    },
+    {
+      "lat_ns": -64827158613,
+      "lon_ns": 124076979863,
+      "cell": 2648103216034,
+      "centre_lat_ns": -64827149964,
+      "centre_lon_ns": 124076961611
+    },
+    {
+      "lat_ns": -80313585855,
+      "lon_ns": -138454293759,
+      "cell": 398634621518,
+      "centre_lat_ns": -80313587952,
+      "centre_lon_ns": -138454230801
+    },
+    {
+      "lat_ns": 30330770006,
+      "lon_ns": -26430924156,
+      "cell": 41904104376074,
+      "centre_lat_ns": 30330766296,
+      "centre_lon_ns": -26430910930
+    },
+    {
+      "lat_ns": -15913707261,
+      "lon_ns": -78532247665,
+      "cell": 20213463277285,
+      "centre_lat_ns": -15913710022,
+      "centre_lon_ns": -78532258698
+    },
+    {
+      "lat_ns": -11211303735,
+      "lon_ns": -89507120504,
+      "cell": 22433852089469,
+      "centre_lat_ns": -11211314393,
+      "centre_lon_ns": -89507114823
+    },
+    {
+      "lat_ns": -20594936853,
+      "lon_ns": 173359476861,
+      "cell": 18054025359667,
+      "centre_lat_ns": -20594929505,
+      "centre_lon_ns": 173359466951
+    },
+    {
+      "lat_ns": -9634333186,
+      "lon_ns": 91965926691,
+      "cell": 23187371827688,
+      "centre_lat_ns": -9634336854,
+      "centre_lon_ns": 91965937887
+    }
+  ],
+  "addresses": [
+    {
+      "mnemonic": "zero",
+      "lat_ns": 0,
+      "lon_ns": 0,
+      "address": "pig.night.survey.7473"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": 51508000000,
+      "lon_ns": -128100000,
+      "address": "fortune.razor.differ.8280"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": -33856800000,
+      "lon_ns": 151215300000,
+      "address": "step.off.crime.2442"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": 90000000000,
+      "lon_ns": 0,
+      "address": "medal.staff.coral.4944"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": -90000000000,
+      "lon_ns": 0,
+      "address": "damage.permit.fresh.4352"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": 0,
+      "lon_ns": -180000000000,
+      "address": "few.pencil.radar.0148"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": 12345600000,
+      "lon_ns": 179999999999,
+      "address": "nothing.upgrade.believe.2721"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": 65195912693,
+      "lon_ns": -142359874620,
+      "address": "galaxy.reduce.sponsor.9652"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": -58839715780,
+      "lon_ns": 79628587171,
+      "address": "into.vague.flash.7130"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": 15877785627,
+      "lon_ns": -64943309290,
+      "address": "tent.sauce.refuse.9320"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": 43547110028,
+      "lon_ns": 34042981298,
+      "address": "kangaroo.buffalo.clip.5793"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": 75067477638,
+      "lon_ns": -32058188499,
+      "address": "finger.valve.trial.0946"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": 69896316209,
+      "lon_ns": -120105518430,
+      "address": "group.grow.cute.8694"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": -229052615,
+      "lon_ns": -171278682404,
+      "address": "success.motor.oyster.5378"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": 86202948281,
+      "lon_ns": -173379683810,
+      "address": "risk.gorilla.clinic.7947"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": 51858649991,
+      "lon_ns": 122777208084,
+      "address": "clerk.hello.pepper.3700"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": 5490370617,
+      "lon_ns": 47725564277,
+      "address": "since.wise.absorb.4631"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": -61471562925,
+      "lon_ns": 164395844999,
+      "address": "nerve.charge.jelly.4783"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": -8997146435,
+      "lon_ns": 97932452343,
+      "address": "dynamic.party.proof.6645"
+    },
+    {
+      "mnemonic": "zero",
+      "lat_ns": 49251889241,
+      "lon_ns": -74041844406,
+      "address": "minor.glare.hedgehog.7840"
+    }
+  ]
 }

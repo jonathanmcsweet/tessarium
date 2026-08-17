@@ -1,0 +1,11 @@
+; An independently written implementation of the algorithm, kept as a
+; cross-check rather than as architecture: it is the only thing in the tree
+; that could catch a bug in the F* extraction by disagreeing with it. Run under
+; `dune test` so that any drift shows up immediately instead of at the next
+; time someone remembers to run it by hand.
+;
+; See the roadmap's locked decisions. Do not add features here.
+(rule
+ (alias runtest)
+ (deps tessarium.mjs bands.json %{project_root}/vectors/vectors.json)
+ (action (run node %{dep:test_vectors.mjs})))

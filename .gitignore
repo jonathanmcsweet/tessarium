@@ -15,3 +15,4 @@ ocaml/fstarlib/*.ml
 # Basemap tiles: large binaries fetched by tools/fetch-basemap.sh
 basemap/
 .server.pid
+ocaml/lib/wordlist.ml

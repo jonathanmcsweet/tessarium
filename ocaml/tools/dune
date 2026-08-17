@@ -1,0 +1,13 @@
+; Regenerates vectors/vectors.json from vectors/inputs.json using the verified
+; core. This is what makes F* the source of truth for the vectors rather than
+; the Python reference.
+(executable
+ (name gen_vectors)
+ (modules gen_vectors)
+ (libraries tessarium tessarium_extracted zarith yojson))
+
+; Emits ocaml/lib/wordlist.ml. Kept as a build step rather than a committed
+; file so the module cannot drift from wordlist/english.txt.
+(executable
+ (name gen_wordlist)
+ (modules gen_wordlist))
