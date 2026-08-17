@@ -104,8 +104,11 @@ halves effective strength; nothing here relies on factoring or discrete log.
 - Kuwakado–Morii quantum attacks on Feistel require superposition queries to the
   encoder and do not apply to software the attacker does not control. Expect to
   see it cited; it is not a threat to this design.
-- ML-KEM and SLH-DSA are only relevant if seed-sharing or location attestation
-  ships later. Not needed for the core.
+- **A post-quantum library would have nothing to replace.** ML-KEM, ML-DSA and
+  SLH-DSA are public-key primitives, and public-key crypto is what Shor breaks.
+  This design contains none: no key exchange, no signatures, no shared secrets.
+  Everything is hashes and a keyed permutation. They become relevant only if
+  seed-sharing or location attestation ships later.
 
 ### Implementation stack
 
@@ -235,8 +238,29 @@ The theorem set is complete and in the ledger. What is left is narrower.
       native PBKDF2 in the browser, a C-backed hash natively. That means two
       implementations of the *hash* — not of the algorithm — both pinned by
       published vectors and already cross-checked by the differential suite.
-      Argon2id would be better still against GPUs but has no browser-native
-      support.
+
+      **The stronger answer is a memory-hard function, and it fits without
+      breaking BIP-39.** More PBKDF2 iterations lose because a GPU parallelises
+      them perfectly: thousands of cores, each running its own guess, all
+      cheap. Argon2id denies that by demanding memory per guess. At 64 MB, a
+      16 GB card runs ~250 guesses at once instead of ~10,000, and it is memory
+      bandwidth rather than arithmetic that caps it — the one resource an
+      attacker cannot buy their way around cheaply.
+
+      It fits because the BIP-39 seed is an intermediate value here, not the
+      output: mnemonic → PBKDF2(2048) → 64-byte seed → HKDF → Feistel key.
+      Replacing the HKDF step with Argon2id leaves the phrase a standard BIP-39
+      phrase that any other tool still accepts, and makes only *our* key cost
+      what we choose.
+
+      The obstacle is implementation, not design. There is no browser-native
+      Argon2, and the opam `argon2` package is C bindings that do not cross
+      into js_of_ocaml — the same wall that ruled out HACL\*. Argon2 is built on
+      BLAKE2b, which `digestif` already provides in pure OCaml, so writing it
+      over that is the one route that keeps a single implementation for both
+      targets. RFC 9106 publishes test vectors, so it would be pinned rather
+      than trusted. Cost: a hand-written implementation of a cryptographic
+      primitive, which is exactly what this project has otherwise avoided.
 
 - [ ] **Check the FE1 parameters against the published attack literature.**
       The construction is the family underlying FF1/FF3, which has a real
