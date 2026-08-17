@@ -82,6 +82,29 @@ Design is settled and validated. The verified implementation is not written.
 - `ocaml/` — core interface (`lib/tessarium_core.mli`) and Dream server. Never
   compiled; there is no toolchain in the environment where it was written.
 
+## Branches and Commit messages — use Conventional Commits
+
+- Follow the spec: <https://www.conventionalcommits.org/en/v1.0.0/#specification>
+
+```
+<type>[optional scope][!]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+- **Allowed types:** `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
+  `build`, `ci`, `chore`, `revert`.
+- **description:** imperative mood, lowercase, no trailing period.
+- **Breaking changes:** add `!` after the type/scope (e.g. `feat(create)!:`) and/or
+  a `BREAKING CHANGE:` footer.
+- **Examples:**
+  - `feat(security): add container fingerprint hardening`
+  - `fix(create): bind sshd to loopback only`
+  - `chore: adopt test/ and lib/ layout`
+- End messages with the `Co-Authored-By:` trailer naming the AI model used.
+
 ## Running things
 
 ```bash
