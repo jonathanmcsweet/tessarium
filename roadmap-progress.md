@@ -824,3 +824,31 @@ Biome for linting and dprint for formatting.
 **Follow-on:** The translations are unreviewed; Paraglide fetches its plugin
 from a CDN at build time, which conflicts with shipping offline. Both are in
 `roadmap.md`.
+
+### 2026-08-17 — Privacy mode on by default; Paraglide builds offline
+
+**Phase:** 4 and 6
+
+**What:** A newly selected square shows a masked address; the eye reveals it.
+Paraglide's message-format plugin is now a pinned npm dependency referenced by
+path instead of a CDN URL, so a clean checkout builds with no network after
+`npm ci`.
+
+**Rationale:**
+
+- *Concealed by default.* The two states do not cost the same. Revealing an
+  address the user did not ask to reveal hands it to whoever is behind them;
+  hiding one they wanted costs a click. Copy still works while concealed, so
+  the common case — get the address, send it to someone — needs no reveal at
+  all.
+- *Plugin from npm, not a CDN.* Closes the open question. The alternatives were
+  committing 120 KB of compiled third-party JavaScript that nobody had read, or
+  keeping a build-time network dependency in a project that otherwise ships
+  offline. The npm package is the same artifact, pinned in the lockfile and
+  installed by a step the build already runs.
+
+**Bug found and fixed, with a test that fails without the fix:** Paraglide
+treats a plugin it cannot import as a warning and then reports success, having
+compiled nothing at all. The message test now checks the compiled output
+against the catalogue, so that becomes a failure instead of an empty UI.
+

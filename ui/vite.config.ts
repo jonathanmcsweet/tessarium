@@ -14,6 +14,11 @@ export default defineConfig({
     // Messages are compiled into typed functions rather than looked up from a
     // dictionary at runtime, so a key that does not exist is a build error and
     // an unused message is tree-shaken out.
+    // The message-format plugin is a normal pinned npm dependency, referenced
+    // by path in project.inlang/settings.json rather than fetched from a CDN,
+    // so a clean checkout builds with no network after `npm ci`. That path is
+    // resolved from the working directory, which is this directory for every
+    // way the UI is built (`make ui`, `npm run build`, `npm run paraglide`).
     paraglideVitePlugin({
       project: "./project.inlang",
       outdir: "./src/paraglide",

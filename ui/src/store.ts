@@ -31,8 +31,12 @@ type AppState = {
   unlocked: boolean;
   selection: Selection | null;
   flyTo: FlyTo | null;
-  /* Privacy mode. Survives changing squares, because someone who turned it on
-     for a screen share does not want it off again on the next click. */
+  /* Privacy mode, ON by default. An address is a secret, and the cost of the
+     two states is not symmetric: revealing one the user did not ask to reveal
+     hands it to whoever is behind them, while hiding one they did want costs a
+     click. Survives changing squares in both directions -- someone who
+     revealed it is not asked again on the next square, and someone who hid it
+     for a screen share does not get it back. */
   concealed: boolean;
   basemapFailed: boolean;
   /* Mirrors Paraglide's in-memory locale. Kept here so that changing language
@@ -53,7 +57,7 @@ export const useAppStore = create<AppState>()((set) => ({
   unlocked: false,
   selection: null,
   flyTo: null,
-  concealed: false,
+  concealed: true,
   basemapFailed: false,
   locale: getLocale() as Locale,
 
@@ -63,7 +67,7 @@ export const useAppStore = create<AppState>()((set) => ({
   },
   setUnlocked: () => set({ unlocked: true }),
   setLocked: () =>
-    set({ unlocked: false, selection: null, flyTo: null, concealed: false }),
+    set({ unlocked: false, selection: null, flyTo: null, concealed: true }),
   select: (selection) => set({ selection }),
   /* A counter, not a timestamp: looking up the same address twice has to fly
      there twice, and a monotonic counter says that without reaching for a

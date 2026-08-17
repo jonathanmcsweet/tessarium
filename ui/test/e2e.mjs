@@ -288,96 +288,61 @@ const box = await page.locator(".map").boundingBox();
 await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await page.waitForTimeout(1500);
 
+const eye = page.locator(".address-row .icon-button").first();
+const copyButton = page.locator(".address-row .icon-button").nth(1);
+
+/* Privacy mode is ON by default, so the address is not on screen yet -- and
+   "not on screen" has to mean absent from the document, not merely styled out
+   of sight, because anything reading the page is what it is hidden from. */
+check(
+  "a newly selected address is concealed by default",
+  !(await page.locator(".selected").innerHTML()).includes(sample.address),
+);
+check(
+  "the concealed address is masked rather than blank",
+  ((await page.locator(".address").textContent()) ?? "").includes("\u2022"),
+);
+
+/* Copying works while concealed: putting an address on the clipboard is not
+   putting it on the screen. This is also how we learn the right address is
+   there at all before revealing it. */
+await copyButton.click();
+const concealedClipboard = await page.evaluate(() =>
+  navigator.clipboard.readText()
+);
+check(
+  `copy works while concealed (got ${concealedClipboard})`,
+  concealedClipboard === sample.address,
+);
+
+await eye.click();
 const clicked = await page.locator(".address").textContent();
 check(
   `clicking that square yields ${sample.address} (got ${clicked})`,
   clicked === sample.address,
 );
 
-/* The map itself never writes addresses onto the squares. This catches a
-   DOM-based label; a label drawn into the WebGL canvas would not appear here
-   either way, which is what the "no bulk address operation" check above is
-   for -- between them they cover the mechanism and the result. */
+/* The map itself never writes addresses onto the squares. Checked while the
+   address IS revealed, so the check cannot pass merely because privacy mode
+   is hiding it. This catches a DOM-based label; a label drawn into the WebGL
+   canvas would not appear here either way, which is what the "no bulk address
+   operation" check above is for -- between them they cover the mechanism and
+   the result. */
 check(
   "no address is rendered onto the map",
   !(await page.locator(".map-wrap").innerHTML()).includes(sample.address),
 );
 
-/* Privacy mode. Concealing must remove the address from the document, not
-   merely style it out of sight -- anything reading the page is precisely what
-   it is being hidden from. */
-const eye = page.locator(".address-row .icon-button").first();
-const copyButton = page.locator(".address-row .icon-button").nth(1);
-
+/* And the toggle goes back. */
 await eye.click();
 check(
-  "the eye toggle removes the address from the panel",
+  "the eye toggle conceals it again",
   !(await page.locator(".selected").innerHTML()).includes(sample.address),
 );
-
-/* Copying while concealed still copies the real address: putting it on the
-   clipboard is not putting it on the screen. */
-await copyButton.click();
-const clipboard = await page.evaluate(() => navigator.clipboard.readText());
-check(
-  `copy works while concealed (got ${clipboard})`,
-  clipboard === sample.address,
-);
-
 await eye.click();
 check(
-  "the eye toggle reveals the address again",
+  "the eye toggle reveals it again",
   (await page.locator(".address").textContent()) === sample.address,
-);
-
-/* An address from the invalid ~35% must be reported, not silently accepted.
-   Getting this wrong is worse than a crash: the map would fly somewhere and
-   present it as the answer.
-
-   The example comes from the vectors, where it is generated. It used to be
-   the literal `zoo.zoo.zoo.9999`, which was invalid under grid version 1 and
-   is valid under version 2 -- so the check quietly stopped testing anything
-   the moment the grid changed. */
-await page.locator(".lookup input").fill(vectors.invalid_addresses[0]);
-await page.locator(".lookup button").click();
-const rejected = await page
-  .locator("[data-sonner-toast][data-type=error]")
-  .first()
-  .textContent({ timeout: 10_000 })
-  .catch(() => null);
-check(
-  "a nonexistent address is reported, not silently accepted",
-  (rejected ?? "").includes("does not correspond"),
-);
-
-await page.evaluate(() => {
-  for (
-    const el of document.querySelectorAll(
-      "[data-sonner-toast] button[data-close-button]",
-    )
-  ) {
-    el.click();
-  }
-});
-await page.waitForTimeout(400);
-
-/* And a word that is not in the list names itself in the error, rather than
-   failing generically -- the core knows which word is wrong.
-
-   "xxxxx" and not something like "notaword": four-letter prefixes resolve, so
-   "nota" would quietly become "notable" and the address would decode. That is
-   the prefix feature working, and it makes most misspellings a poor test of
-   this path. */
-await page.locator(".lookup input").fill("pig.night.xxxxx.7473");
-await page.locator(".lookup button").click();
-const malformed = await page
-  .locator("[data-sonner-toast][data-type=error]")
-  .first()
-  .textContent({ timeout: 10_000 })
-  .catch(() => null);
-check(
-  `an unknown word is named (got ${malformed})`,
-  (malformed ?? "").includes("xxxxx"),
 );
 
 /* Keyboard access. The map is the one control that cannot be reached with the

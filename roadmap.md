@@ -375,13 +375,6 @@ Deferred deliberately: web and Linux desktop first, both fully working.
   appear.
 - **Altitude / floors.** Out of scope for now; note whether the address format
   should reserve room for it before the format is frozen.
-- **Paraglide's compiler fetches its message-format plugin from a CDN at build
-  time,** and caches it in `project.inlang/cache`, which inlang's own
-  `.gitignore` excludes. So a clean checkout needs network access to build the
-  UI, which sits badly with a project that otherwise ships offline and pins
-  everything. The options are to commit the cache (120 KB of compiled
-  third-party JavaScript, reviewed by nobody), to vendor the plugin
-  deliberately, or to accept the build-time dependency and say so. Not settled.
 - **Basemap distribution.** Settled enough to ship: the extractor reads the
   Protomaps planet build directly over HTTP range requests, so no one has to
   host region extracts — a client pulls exactly the region it wants out of

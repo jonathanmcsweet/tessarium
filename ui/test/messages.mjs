@@ -11,7 +11,7 @@
    translation of it would show every French reader an address that cannot be
    typed in. */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -93,6 +93,27 @@ for (const file of files) {
       );
     }
   }
+}
+
+/* And the catalogue has to have reached the compiler.
+
+   Paraglide treats a plugin it cannot import as a WARNING and then reports
+   success, having compiled nothing. The path to the message-format plugin is
+   resolved from the working directory, so it is exactly the kind of thing that
+   breaks quietly when something else moves. Checking the compiled output
+   against the catalogue turns that back into a failure. */
+const compiled = join(root, "src", "paraglide", "messages", "_index.js");
+if (!existsSync(compiled)) {
+  check("compiled messages exist (run: npm run paraglide)", false);
+} else {
+  const index = readFileSync(compiled, "utf8");
+  const absent = referenceKeys.filter((k) => !index.includes(k));
+  check(
+    `every message reached the compiler (absent: ${
+      absent.slice(0, 5).join(", ") || "none"
+    })`,
+    absent.length === 0,
+  );
 }
 
 console.log(`\nmessage catalogues: ${checks} checks, ${failures} failures`);
