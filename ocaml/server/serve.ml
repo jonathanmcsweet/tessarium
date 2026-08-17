@@ -470,9 +470,11 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
             ~immutable:false
       | Route.Asset segments -> (
           let headers = Http.Request.headers request in
-          (* Embedded first, then the directory. A --ui directory therefore
-             overrides the built-in copy, which is what makes `npm run dev`
-             against this server work without rebuilding the binary. *)
+          (* Embedded first, then the directory -- so when the binary carries
+             a UI, that UI is what ships, and --ui only fills the gap in a
+             binary built without one. The trap: after `npm run build`, a
+             stale ocaml/server/ui_dist keeps serving the OLD interface no
+             matter what --ui says. Refresh it (make ui) and rebuild. *)
           let from_disk () =
             let served =
               serve_file cfg ~root:ui_root ~segments ~meth ~range_header
