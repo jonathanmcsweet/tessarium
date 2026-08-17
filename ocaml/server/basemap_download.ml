@@ -12,6 +12,11 @@
 type t = {
   mutex : Eio.Mutex.t;
   mutable job : Basemap_job.t;
+  (* Counts starts. In the status JSON so a poller can tell "this download
+     finished" from "some earlier download had finished": a fast job can run
+     idle-to-done entirely between two polls, and without an identity the
+     second poll is indistinguishable from stale news. *)
+  mutable generation : int;
   mutable cancel_requested : bool;
 }
 
@@ -25,11 +30,21 @@ type ops = {
 }
 
 let create () =
-  { mutex = Eio.Mutex.create (); job = Basemap_job.Idle; cancel_requested = false }
+  {
+    mutex = Eio.Mutex.create ();
+    job = Basemap_job.Idle;
+    generation = 0;
+    cancel_requested = false;
+  }
 
 let set t job = Eio.Mutex.use_rw ~protect:true t.mutex (fun () -> t.job <- job)
 
-let status t = Basemap_job.to_json (Eio.Mutex.use_ro t.mutex (fun () -> t.job))
+let status t =
+  let generation, job =
+    Eio.Mutex.use_ro t.mutex (fun () -> (t.generation, t.job))
+  in
+  `Assoc
+    [ ("generation", `Int generation); ("job", Basemap_job.to_json job) ]
 
 (* Cancellation is a flag the download polls, not a fiber kill. Killing the
    fiber mid-write leaves a half-written .part with nothing responsible for
@@ -170,6 +185,7 @@ let start t ~sw ~fs ~net ~source ~assets ~basemap_dir req =
     Eio.Mutex.use_rw ~protect:true t.mutex (fun () ->
         if Basemap_job.can_start t.job then begin
           t.job <- Basemap_job.Planning;
+          t.generation <- t.generation + 1;
           t.cancel_requested <- false;
           true
         end

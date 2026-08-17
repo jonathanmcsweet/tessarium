@@ -315,36 +315,15 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
-- [ ] **In-app region downloader.** IN PROGRESS. Landed so far:
-      `pmtiles_source` (the CLI's HTTP-range/file byte sources, now a shared
-      library so the server reads a planet build with the CLI's exact code);
-      `Basemap_job` (pure download state machine: one job at a time, clamped
-      progress, server-side bbox/zoom validation, JSON view) and `Untar`
-      (pure ustar/pax reader for the glyph+sprite tarball, escape-safe),
-      both under the server-decisions suite with mutation-verified tests.
-      The server endpoints (POST /api/basemap-estimate, -download, -status,
-      -cancel; not gated by --api; source URLs from `--basemap-source` /
-      `--basemap-assets`, never the client; fiber runner, .part-then-rename,
-      assets fetch+untar when fonts/sprites are missing) are live and
-      smoke-tested against a local file source. Note for the UI and e2e:
-      status/cancel take no body; the query string on /basemap/map.pmtiles
-      is stripped by routing, so `?v=N` works as a cache-buster after a
-      download replaces the archive.
-
-      Remaining, in order:
-      2. UI: "download this view" flow -- viewport bbox, estimate, confirm,
-         progress with cancel (React Query polling ~1s while running),
-         banner gains an action button; on done, m.setStyle + re-add
-         grid/selection layers WITHOUT reloading the page (a reload would
-         drop the key). New message keys x 6 locales.
-      3. e2e with no external network: a second server instance serves a
-         fixture archive via --basemap (our own http_range.ml answers the
-         range requests -- which also tests it); first instance points
-         --basemap-source at it. Fixture: a generator emitting a tiny valid
-         pmtiles whose tile bytes are a hand-encoded minimal MVT (a real
-         layer+point, so MapLibre renders without console errors, which the
-         e2e treats as failures), plus a tiny fonts/+sprites/ tar.gz for the
-         assets path.
+- [ ] **One downloaded region at a time.** The in-app downloader replaces
+      map.pmtiles wholesale, so fetching Paris discards London's street-level
+      tiles (the low-zoom world context survives, because every download
+      includes zooms 0 and up for its box). Someone with two cities in their
+      life has to choose, or draw one box around both and pay for everything
+      between. The honest fix is merging: extract the new region, union the
+      tile sets, rebuild the directories — the extract writer has all the
+      pieces. Deferred because it needs a policy for eviction too; a merge
+      that only ever grows eats the disk quietly.
 - [ ] **Satellite imagery overlay, as Google Maps has.** A toggle between the
       drawn map and aerial photography. Two open questions before it can be
       built: a source and the privacy story. There is no free planet-scale
@@ -358,7 +337,8 @@ not cover.
       PMTiles container (the format supports them), fetched region-by-region
       through the same downloader, from a source whose licence permits it;
       shown with proper attribution. Imagery is far heavier than vector data —
-      expect roughly ten times the bytes for the same region and zoom. They have
+      expect roughly ten times the bytes for the same region and zoom.
+- [ ] **The non-English translations still want a native speaker.** They have
       been through one adversarial review pass, which found and fixed real
       defects — a French pronoun that attached "your 24 words and this second
       seed phrase", a Spanish null subject that made the wallet warning read as

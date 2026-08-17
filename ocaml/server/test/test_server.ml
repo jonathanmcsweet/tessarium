@@ -293,25 +293,29 @@ let () =
           `Assoc []);
     }
   in
-  (* The body is a thunk, and forcing it is recorded: a status poll must
-     never read the request body, because a bodyless POST has no body to
-     read and blocks the connection until its timeout. This hung a real
-     curl before the thunk existed. *)
-  let forced = ref false in
+  (* Reading a request body must follow what the request declared. Both
+     directions of getting this wrong shipped here briefly: reading an
+     undeclared body hung a bodyless curl until timeout, and skipping a
+     declared one left its bytes in the keep-alive connection, where they
+     were parsed as the start of the next request and turned every later
+     poll on that connection into a 405. *)
+  let h ps = Http.Header.of_list ps in
+  check "a declared content-length means a body to drain"
+    (S.declares_body (h [ ("content-length", "2") ]));
+  check "a chunked body is a body to drain"
+    (S.declares_body (h [ ("transfer-encoding", "chunked") ]));
+  check "no declaration means nothing to read -- reading would hang"
+    (not (S.declares_body (h [ ("accept", "*/*") ])));
+
   let run ~endpoint ~body =
     calls := [];
-    forced := false;
-    ignore
-      (S.handle_basemap scfg ops ~endpoint
-         ~body:(fun () ->
-           forced := true;
-           body));
+    ignore (S.handle_basemap scfg ops ~endpoint ~body);
     !calls
   in
   check "status asks the job and needs no body"
-    (run ~endpoint:"basemap-status" ~body:"" = [ `Status ] && not !forced);
+    (run ~endpoint:"basemap-status" ~body:"" = [ `Status ]);
   check "cancel reaches the job"
-    (run ~endpoint:"basemap-cancel" ~body:"" = [ `Cancel ] && not !forced);
+    (run ~endpoint:"basemap-cancel" ~body:"" = [ `Cancel ]);
   let box = {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15}|} in
   (match run ~endpoint:"basemap-download" ~body:box with
   | [ `Start (req : Tessarium_server.Basemap_job.request) ] ->
@@ -334,6 +338,22 @@ let () =
     (run ~endpoint:"basemap-download"
        ~body:{|{"min_lon":1,"min_lat":0,"max_lon":2,"max_zoom":15}|}
      = []);
+
+  (* The status envelope carries a generation alongside the job: a fast
+     download can run idle-to-done between two polls, and only an identity
+     lets a poller tell fresh news from stale. Under Eio_main because the
+     runner's mutex needs a fiber context, not because anything here does
+     IO. *)
+  Eio_main.run @@ fun _env ->
+  let runner = D.create () in
+  check "a fresh runner reports generation zero and an idle job"
+    (D.status runner
+    = `Assoc
+        [
+          ("generation", `Int 0);
+          ("job", `Assoc [ ("state", `String "idle") ]);
+        ]);
+  check "cancel with nothing running cancels nothing" (not (D.cancel runner));
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "server decisions hold"

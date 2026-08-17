@@ -56,14 +56,23 @@ const problems = [];
    the UI reports that itself. Everything else is a real failure. */
 const expected = (url) => url.includes("/basemap/");
 
+/* Flipped once the in-app download completes. Before that, MapLibre reports
+   the missing archive and sprites through its own console errors; after it,
+   the same messages would mean the downloaded tiles are bad, which is
+   exactly what this suite must fail on. */
+let basemapReady = false;
+
 page.on("console", (msg) => {
+  if (msg.type() !== "error") return;
+  const text = msg.text();
   /* A failed resource is already recorded from the response, with its URL
      attached; the console version has none and is pure noise. */
+  if (text.includes("Failed to load resource")) return;
   if (
-    msg.type() === "error" && !msg.text().includes("Failed to load resource")
-  ) {
-    problems.push(`console: ${msg.text()}`);
-  }
+    !basemapReady
+    && (text.includes("/basemap/") || text.includes("Bad response code"))
+  ) return;
+  problems.push(`console: ${text}`);
 });
 page.on("pageerror", (err) => problems.push(`pageerror: ${err.message}`));
 page.on("requestfailed", (req) => {
@@ -267,6 +276,114 @@ check(
   "there is no bulk address operation",
   typeof bulk?.error === "string" && bulk.error.includes("unknown op"),
 );
+
+/* ---------------------- the in-app region downloader ----------------------
+
+   The server under test was started with an EMPTY basemap directory and its
+   download source pointed at a second instance of this same server, which
+   serves a generated fixture archive. So this one flow drives the whole
+   pipeline with no external network: the missing-basemap banner, the
+   estimate, our Range client against our own Range server, the extract, the
+   assets tarball, and the style swap -- which must happen without a page
+   reload, because a reload drops the key.
+
+   The repeated status polls over one keep-alive connection are also the
+   regression test for a real bug: a poll whose declared body was not drained
+   left its bytes in the connection, and every later request on it failed. */
+
+check(
+  "the missing basemap is reported in a banner",
+  (await page.locator(".banner").count()) === 1,
+);
+const bannerAction = page.locator(".banner-action");
+check(
+  "the banner offers a download action",
+  (await bannerAction.count()) === 1,
+);
+
+const postJson = async (endpoint, body) =>
+  await fetch(`${base}/api/${endpoint}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+
+const idleStatus = await (await postJson("basemap-status")).json();
+check(
+  "the download job starts idle at generation zero",
+  idleStatus.generation === 0 && idleStatus.job?.state === "idle",
+);
+const reversed = await postJson("basemap-estimate", {
+  min_lon: 1,
+  min_lat: 0,
+  max_lon: 0,
+  max_lat: 1,
+  max_zoom: 15,
+});
+check("a reversed box is refused with a 400", reversed.status === 400);
+
+await bannerAction.click();
+await page.waitForSelector(".download-card", { timeout: 10_000 });
+check("the download card opens from the banner", true);
+await page.waitForFunction(
+  () =>
+    !document.querySelector(".download-card .download-actions button")
+      ?.disabled,
+  { timeout: 30_000 },
+);
+check("the estimate arrives and enables the download", true);
+await page.locator(".download-card .download-actions button").click();
+
+/* The fixture is tiny, so the job can run start-to-done entirely between two
+   polls. The generation in the status envelope is what makes the completion
+   visible anyway, and this wait is the check that it does. */
+await page.waitForFunction(
+  () =>
+    [...document.querySelectorAll("[data-sonner-toast]")].some((t) =>
+      (t.textContent ?? "").includes("Maps downloaded")
+    ),
+  { timeout: 60_000 },
+);
+check("the download completes with a toast", true);
+await page.waitForFunction(() => !document.querySelector(".banner"), {
+  timeout: 10_000,
+});
+check("the banner clears once maps exist", true);
+await page.waitForFunction(() => !document.querySelector(".download-card"), {
+  timeout: 10_000,
+});
+check("the card closes itself", true);
+
+/* From here on, basemap errors are real: the tiles on disk came from the
+   fixture and MapLibre must parse every one of them cleanly. */
+basemapReady = true;
+
+check(
+  "the downloaded archive is served",
+  (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
+    === 200,
+);
+check(
+  "the sprite sheet arrived via the assets tarball",
+  (await fetch(`${base}/basemap/sprites/v4/light.json`)).status === 200,
+);
+const doneStatus = await (await postJson("basemap-status")).json();
+check(
+  "the job reports done at generation one",
+  doneStatus.generation === 1 && doneStatus.job?.state === "done",
+);
+check(
+  "still unlocked after the style swap -- no reload happened",
+  (await page.locator(".panel").count()) === 1,
+);
+check(
+  "the map carries its own download button",
+  (await page.locator(".map-actions .icon-button").count()) === 1,
+);
+
+/* Let the swapped style fetch and render its tiles; anything it logs from
+   here on fails the final console check. */
+await page.waitForTimeout(2500);
 
 /* The round trip the whole project is for, driven entirely through the UI:
    paste an address, fly to the square it names, click that square, and get

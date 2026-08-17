@@ -941,3 +941,49 @@ are theater, verification must happen outside the app.
 event (two mapping bumps in one day). A test catches it wherever it recurs;
 a footer line taxes every user forever for it. Reversed on user direction.
 
+
+### 2026-08-17 — In-app region downloader
+
+**Phase:** 6
+
+**What:** "Download maps for this view", end to end. Server: POST
+/api/basemap-{estimate,download,status,cancel}, reachable without --api (they
+carry a bounding box, never key material); tile and asset sources are the
+`--basemap-source` / `--basemap-assets` flags, never the client; an Eio fiber
+writes map.pmtiles.part and renames on completion; glyphs and sprites are
+fetched and untarred once, if missing. Shared plumbing landed first as
+`pmtiles_source` (the CLI's byte sources as a library), `Basemap_job` (pure
+state machine) and `Untar` (pure, escape-safe). UI: a download button on the
+map and an action on the missing-basemap banner open a non-modal card —
+estimate, confirm, progress, cancel — all network state in React Query,
+15 new message keys in all six locales. On completion the style is swapped
+with a cache-busting query string and the grid/selection overlay re-added,
+with no page reload, because a reload drops the key. The e2e now boots TWO
+server instances: the one under test starts with an empty basemap directory
+and downloads from the second, which serves a generated fixture (tiny valid
+PMTiles of hand-encoded MVT tiles + sprite/glyph tarball, from
+`gen_basemap_fixture`), so the suite drives our Range client against our own
+Range server with no external network. 59 e2e checks, 100 server checks.
+
+**Bugs found while building it, each now pinned by a test:**
+- A POST whose declared body was never drained left its bytes in the
+  keep-alive connection, where they were parsed as the start of the next
+  request — every later status poll on that connection returned 405. The
+  reverse mistake (reading a body that was never declared) hangs a bodyless
+  curl until timeout. `Serve.declares_body` decides from the headers; unit
+  tests cover both directions, and the e2e's polling loop is the integration
+  regression.
+- A small download can run idle-to-done entirely between two 1 s status
+  polls, so "did my download finish?" was unanswerable from states alone.
+  The status envelope now carries a generation counter that increments per
+  start; the e2e's fixture download completes near-instantly on purpose.
+- The missing-basemap banner never fired: it sniffed MapLibre error messages
+  for "pmtiles", and the real messages name nothing. The UI now asks the
+  server directly (HEAD /basemap/map.pmtiles); the e2e starts with an empty
+  basemap directory, so the banner path runs every time.
+- `make test-ui`'s cleanup trap ran after `cd ui`, so its `kill $(cat
+  .server.pid)` found no file and the test server leaked. The e2e now runs
+  in a subshell.
+
+**Follow-on:** one region at a time — a new download replaces the archive —
+recorded as an open roadmap item, with region merging as the likely shape.

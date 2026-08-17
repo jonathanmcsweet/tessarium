@@ -2,14 +2,23 @@
 
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import { useQueryClient } from "@tanstack/react-query";
+import { Download } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import { Protocol } from "pmtiles";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+  type Job,
+  type Region,
+  useBasemapPresent,
+  useBasemapStatus,
+} from "../core/basemap";
 import { fetchAddress, fetchGrid } from "../core/queries";
 import { getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
+import { DownloadCard } from "./DownloadCard";
+import { IconButton } from "./IconButton";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 /* Below this the squares are smaller than a fingertip and the overlay is
@@ -33,6 +42,91 @@ const CELL_LIMIT = 12000;
 const emptyGeoJson = {
   type: "FeatureCollection" as const,
   features: [] as GeoJSON.Feature[],
+};
+
+/* The style, rebuilt whenever the archive on disk is replaced. The version
+   number lands in the source URL as a query string -- the server strips it,
+   but the pmtiles protocol caches per URL, and without a new URL it would
+   keep reading the old archive's directories over the new bytes. */
+const buildStyle = (version: number): maplibregl.StyleSpecification => ({
+  version: 8,
+  /* Everything the style needs is served from this origin. A style that
+     reaches a CDN for glyphs looks fine online and renders unlabelled the
+     first time someone opens it offline. */
+  glyphs: "/basemap/fonts/{fontstack}/{range}.pbf",
+  /* MapLibre appends .json and .png, so this names the flavour rather
+     than the directory: sprites/v4/light.json and light.png. */
+  sprite: `${window.location.origin}/basemap/sprites/v4/light`,
+  sources: {
+    protomaps: {
+      type: "vector",
+      url: `pmtiles:///basemap/map.pmtiles?v=${version}`,
+      attribution:
+        '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
+    },
+  },
+  /* Place names follow the interface language, so switching to French does
+     not leave an English map under translated controls. Protomaps wants a
+     bare language subtag, not the full locale. */
+  layers: layers("protomaps", namedFlavor("light"), {
+    lang: getLocale().split("-")[0] ?? "en",
+  }),
+});
+
+/* The grid and selection overlay, added on load and re-added after every
+   style swap -- setStyle discards custom sources and layers. */
+const addOverlay = (map: maplibregl.Map) => {
+  map.addSource("grid", { type: "geojson", data: emptyGeoJson });
+  map.addSource("selection", { type: "geojson", data: emptyGeoJson });
+
+  map.addLayer({
+    id: "grid-lines",
+    type: "line",
+    source: "grid",
+    paint: {
+      "line-color": "#1b3a5c",
+      "line-width": 0.6,
+      /* Fades in as the squares become large enough to aim at, rather
+         than appearing abruptly at a threshold. */
+      "line-opacity": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        GRID_MIN_ZOOM,
+        0,
+        GRID_MIN_ZOOM + 1,
+        0.35,
+      ],
+    },
+  });
+
+  map.addLayer({
+    id: "selection-fill",
+    type: "fill",
+    source: "selection",
+    paint: { "fill-color": "#e8452c", "fill-opacity": 0.35 },
+  });
+  map.addLayer({
+    id: "selection-outline",
+    type: "line",
+    source: "selection",
+    paint: { "line-color": "#e8452c", "line-width": 2 },
+  });
+};
+
+/* The viewport as a download request. Clamped: a wrapped world view reports
+   longitudes past ±180, and the server (rightly) refuses them. Zoom 15 is
+   the source's deepest level; vector tiles overzoom crisply past it. */
+const MERCATOR_MAX_LAT = 85.0511;
+const regionOf = (map: maplibregl.Map): Region => {
+  const b = map.getBounds();
+  return {
+    min_lon: Math.max(-180, b.getWest()),
+    min_lat: Math.max(-MERCATOR_MAX_LAT, b.getSouth()),
+    max_lon: Math.min(180, b.getEast()),
+    max_lat: Math.min(MERCATOR_MAX_LAT, b.getNorth()),
+    max_zoom: 15,
+  };
 };
 
 const cellPolygon = (cell: {
@@ -64,6 +158,10 @@ export function MapView() {
   const [ready, setReady] = useState(false);
   const [truncated, setTruncated] = useState(false);
   const [zoom, setZoom] = useState(0);
+  /* Bumped after every style swap so the effects that draw onto the style
+     (grid, selection) know their sources were just recreated empty. */
+  const [styleEpoch, setStyleEpoch] = useState(0);
+  const styleVersion = useRef(0);
 
   const client = useQueryClient();
   const selection = useAppStore((s) => s.selection);
@@ -74,6 +172,10 @@ export function MapView() {
   useAppStore((s) => s.locale);
   const mapLabel = m.map_label();
   const setBasemapFailed = useAppStore((s) => s.setBasemapFailed);
+  const clearBasemapFailed = useAppStore((s) => s.clearBasemapFailed);
+  const downloadOpen = useAppStore((s) => s.downloadOpen);
+  const openDownload = useAppStore((s) => s.openDownload);
+  const closeDownload = useAppStore((s) => s.closeDownload);
 
   /* ------------------------------------------------------------- setup */
   useEffect(() => {
@@ -82,34 +184,9 @@ export function MapView() {
     const protocol = new Protocol();
     maplibregl.addProtocol("pmtiles", protocol.tile);
 
-    const style: maplibregl.StyleSpecification = {
-      version: 8,
-      /* Everything the style needs is served from this origin. A style that
-         reaches a CDN for glyphs looks fine online and renders unlabelled the
-         first time someone opens it offline. */
-      glyphs: "/basemap/fonts/{fontstack}/{range}.pbf",
-      /* MapLibre appends .json and .png, so this names the flavour rather
-         than the directory: sprites/v4/light.json and light.png. */
-      sprite: `${window.location.origin}/basemap/sprites/v4/light`,
-      sources: {
-        protomaps: {
-          type: "vector",
-          url: "pmtiles:///basemap/map.pmtiles",
-          attribution:
-            '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
-        },
-      },
-      /* Place names follow the interface language, so switching to French does
-         not leave an English map under translated controls. Protomaps wants a
-         bare language subtag, not the full locale. */
-      layers: layers("protomaps", namedFlavor("light"), {
-        lang: getLocale().split("-")[0] ?? "en",
-      }),
-    };
-
     const map = new maplibregl.Map({
       container: container.current,
-      style,
+      style: buildStyle(styleVersion.current),
       center: [-0.1278, 51.5074],
       zoom: 19,
       maxZoom: 23,
@@ -132,54 +209,8 @@ export function MapView() {
       new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }),
     );
 
-    /* A missing basemap must not look like a broken application. The grid and
-       the addressing still work over blank space, so say what is missing
-       instead of showing an empty screen. */
-    map.on("error", (e) => {
-      const message = String(e.error?.message ?? "");
-      if (message.includes("pmtiles") || message.includes("map.pmtiles")) {
-        setBasemapFailed();
-      }
-    });
-
     map.on("load", () => {
-      map.addSource("grid", { type: "geojson", data: emptyGeoJson });
-      map.addSource("selection", { type: "geojson", data: emptyGeoJson });
-
-      map.addLayer({
-        id: "grid-lines",
-        type: "line",
-        source: "grid",
-        paint: {
-          "line-color": "#1b3a5c",
-          "line-width": 0.6,
-          /* Fades in as the squares become large enough to aim at, rather
-             than appearing abruptly at a threshold. */
-          "line-opacity": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            GRID_MIN_ZOOM,
-            0,
-            GRID_MIN_ZOOM + 1,
-            0.35,
-          ],
-        },
-      });
-
-      map.addLayer({
-        id: "selection-fill",
-        type: "fill",
-        source: "selection",
-        paint: { "fill-color": "#e8452c", "fill-opacity": 0.35 },
-      });
-      map.addLayer({
-        id: "selection-outline",
-        type: "line",
-        source: "selection",
-        paint: { "line-color": "#e8452c", "line-width": 2 },
-      });
-
+      addOverlay(map);
       setZoom(map.getZoom());
       setReady(true);
     });
@@ -189,7 +220,17 @@ export function MapView() {
       mapRef.current = null;
       maplibregl.removeProtocol("pmtiles");
     };
-  }, [setBasemapFailed]);
+  }, []);
+
+  /* A missing basemap must not look like a broken application. The grid and
+     the addressing still work over blank space, so say what is missing
+     instead of showing an empty screen. Asked of the server directly with a
+     HEAD request: MapLibre's error events describe a failed fetch without
+     naming what failed, and sniffing their messages misses. */
+  const basemapPresent = useBasemapPresent();
+  useEffect(() => {
+    if (basemapPresent.data === false) setBasemapFailed();
+  }, [basemapPresent.data, setBasemapFailed]);
 
   /* -------------------------------------------------------- grid refresh */
   const refreshGrid = useCallback(async () => {
@@ -238,6 +279,7 @@ export function MapView() {
     source?.setData({ type: "FeatureCollection", features });
   }, [client]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: styleEpoch is deliberate -- a style swap recreates the grid source empty, so the effect must re-run to refill it
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
@@ -248,7 +290,84 @@ export function MapView() {
       map.off("moveend", refreshGrid);
       map.off("zoomend", refreshGrid);
     };
-  }, [ready, refreshGrid]);
+  }, [ready, refreshGrid, styleEpoch]);
+
+  /* -------------------------------------------------- offline downloads */
+
+  /* Swap in the freshly downloaded archive without reloading the page -- a
+     reload would drop the key and send the user back to the phrase gate. */
+  const rebuildBasemap = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    styleVersion.current += 1;
+    map.setStyle(buildStyle(styleVersion.current));
+    map.once("style.load", () => {
+      addOverlay(map);
+      setStyleEpoch((epoch) => epoch + 1);
+    });
+  }, []);
+
+  /* The region is frozen when the card opens. Panning while it is open
+     changes the next download, not the one being confirmed. */
+  const [region, setRegion] = useState<Region | null>(null);
+  useEffect(() => {
+    if (!downloadOpen) {
+      setRegion(null);
+      return;
+    }
+    const map = mapRef.current;
+    if (map) setRegion(regionOf(map));
+  }, [downloadOpen]);
+
+  /* Watched here rather than in the card so a download the user closed the
+     card on still finishes loudly: the toast fires and the map refreshes
+     whether or not the card is mounted.
+
+     Transitions are detected by (generation, state) changing, not by having
+     seen a running state first: a small region from a fast source goes
+     idle-to-done entirely between two polls, and only the generation says
+     the news is new. The first poll after mount is never news. */
+  const basemapJob = useBasemapStatus();
+  const prevJob = useRef<{ generation: number; state: Job["state"]; } | null>(
+    null,
+  );
+  useEffect(() => {
+    const current = basemapJob.data;
+    if (!current) return;
+    const previous = prevJob.current;
+    prevJob.current = {
+      generation: current.generation,
+      state: current.job.state,
+    };
+    if (!previous) return;
+    if (
+      previous.generation === current.generation
+      && previous.state === current.job.state
+    ) {
+      return;
+    }
+    const job = current.job;
+    if (job.state === "done") {
+      toast.success(m.map_download_done());
+      /* The archive exists now; the cached "absent" answer must not outlive
+         it and resurrect the banner. */
+      client.setQueryData(["basemap-present"], true);
+      clearBasemapFailed();
+      closeDownload();
+      rebuildBasemap();
+    } else if (job.state === "failed") {
+      toast.error(m.map_download_failed({ reason: job.reason }));
+    } else if (job.state === "cancelled") {
+      toast(m.map_download_cancelled());
+      closeDownload();
+    }
+  }, [
+    basemapJob.data,
+    client,
+    clearBasemapFailed,
+    closeDownload,
+    rebuildBasemap,
+  ]);
 
   /* --------------------------------------------------------- selecting */
   const selectAt = useCallback(
@@ -308,6 +427,7 @@ export function MapView() {
   }, [ready, mapLabel]);
 
   /* ---------------------------------------------------- selection drawing */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: styleEpoch is deliberate -- a style swap recreates the selection source empty, so the current selection must be drawn again
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
@@ -319,7 +439,7 @@ export function MapView() {
         ? { type: "FeatureCollection", features: [cellPolygon(selection.cell)] }
         : emptyGeoJson,
     );
-  }, [selection, ready]);
+  }, [selection, ready, styleEpoch]);
 
   /* ------------------------------------------------------------- fly to */
   useEffect(() => {
@@ -345,6 +465,17 @@ export function MapView() {
           "which one am I about to pick" feedback the pointer gets. */
       }
       <div className="reticle" aria-hidden />
+      <div className="map-actions">
+        <IconButton
+          label={m.map_download_open()}
+          icon={<Download size={18} aria-hidden />}
+          pressed={downloadOpen}
+          onClick={() => (downloadOpen ? closeDownload() : openDownload())}
+        />
+      </div>
+      {downloadOpen && region && (
+        <DownloadCard region={region} job={basemapJob.data?.job} />
+      )}
       {zoom < GRID_MIN_ZOOM && (
         <div className="map-note" role="status">
           {m.map_zoom_for_grid()}

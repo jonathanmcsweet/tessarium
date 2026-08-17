@@ -26,3 +26,11 @@
  (name gen_assets)
  (modules gen_assets)
  (libraries gzip))
+
+; The basemap fixture the end-to-end test downloads from: a tiny valid
+; PMTiles archive plus the sprite/glyph tarball. Lets the e2e exercise the
+; whole in-app downloader against this project's own server, offline.
+(executable
+ (name gen_basemap_fixture)
+ (modules gen_basemap_fixture)
+ (libraries pmtiles gzip))

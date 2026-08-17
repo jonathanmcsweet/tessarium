@@ -379,9 +379,6 @@ let parse_region json =
       Basemap_job.validate ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom
   | _ -> Error "missing min_lon, min_lat, max_lon, max_lat or max_zoom"
 
-(* [body] is a thunk: status and cancel take no input, and reading a body a
-   bodyless POST never declared blocks the connection until its timeout. Only
-   the endpoints that need one force it. *)
 let handle_basemap cfg (ops : Basemap_download.ops) ~endpoint ~body =
   let bad = error cfg ~status:`Bad_request in
   match endpoint with
@@ -391,7 +388,7 @@ let handle_basemap cfg (ops : Basemap_download.ops) ~endpoint ~body =
       respond_json cfg ~status:`OK
         (`Assoc [ ("ok", `Bool true); ("stopped", `Bool stopped) ])
   | "basemap-estimate" | "basemap-download" -> (
-      match Yojson.Safe.from_string (body ()) with
+      match Yojson.Safe.from_string body with
       | exception _ -> bad "body is not valid JSON"
       | json -> (
           match parse_region json with
@@ -411,6 +408,16 @@ let handle_basemap cfg (ops : Basemap_download.ops) ~endpoint ~body =
                     respond_json cfg ~status:`OK (`Assoc [ ("ok", `Bool true) ])
                 | Error e -> error cfg ~status:`Conflict e))
   | _ -> error cfg ~status:`Not_found "no such endpoint"
+
+(* Whether a request declared a body. Both mistakes around this are real and
+   were both made here: reading a body that was never declared waits on a
+   keep-alive connection for bytes that never come, and NOT draining one that
+   was declared leaves its bytes in the connection to be parsed as the start
+   of the next request -- every later request on that connection then fails.
+   The headers decide; nothing else can. *)
+let declares_body headers =
+  Http.Header.get headers "content-length" <> None
+  || Http.Header.get headers "transfer-encoding" <> None
 
 (* ---------------------------------------------------------------- handler *)
 
@@ -438,10 +445,12 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
             `OK
       | Route.Api endpoint when Route.is_basemap_api endpoint ->
           (* Reachable without --api: see [Route.is_basemap_api]. *)
-          simple
-            (handle_basemap cfg basemap_ops ~endpoint
-               ~body:(fun () -> Eio.Flow.read_all body))
-            `OK
+          let body =
+            if declares_body (Http.Request.headers request) then
+              Eio.Flow.read_all body
+            else ""
+          in
+          simple (handle_basemap cfg basemap_ops ~endpoint ~body) `OK
       | Route.Api endpoint ->
           if not cfg.api_enabled then
             simple
@@ -449,7 +458,11 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
                  "the encode/decode API is disabled; start with --api to enable it")
               `Not_found
           else
-            let body = Eio.Flow.read_all body in
+            let body =
+              if declares_body (Http.Request.headers request) then
+                Eio.Flow.read_all body
+              else ""
+            in
             let now = Eio.Time.now clock in
             simple (handle_api cfg sessions limiter random ~endpoint ~body ~now) `OK
       | Route.Basemap segments ->

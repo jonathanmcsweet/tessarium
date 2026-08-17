@@ -11,6 +11,8 @@
 FSTAR_BIN := $(HOME)/toolchain/fstar/bin
 SWITCH    := tessarium
 PORT      ?= 7373
+# A second server instance the e2e downloads its basemap from.
+FIXTURE_PORT ?= 7374
 
 .PHONY: all env verify extract build ui test test-core test-static test-ui run package clean
 
@@ -60,16 +62,36 @@ test-static:
 # The browser test needs both halves running, so it starts the server it is
 # about to drive rather than assuming one is up. No --ui: this exercises the
 # UI compiled into the binary, which is what actually ships.
+#
+# Two instances. The one under test starts with an EMPTY basemap directory
+# and downloads its tiles, in-app, from the second, which serves a generated
+# fixture archive -- so the e2e drives the whole region downloader against
+# this project's own Range implementation, with no external network.
+#
+# The e2e runs in a subshell: the EXIT trap reads the .pid files relative to
+# the repo root, and a bare `cd ui` would leave the trap there -- its kills
+# would fail and the leaked servers would outlive the test, holding any pipe
+# on our output open forever.
 test-ui:
-	@dune build ocaml/server/bin/main.exe
+	@dune build ocaml/server/bin/main.exe ocaml/tools/gen_basemap_fixture.exe
+	@rm -rf _build/e2e-fixture _build/e2e-basemap && mkdir -p _build/e2e-basemap
+	@./_build/default/ocaml/tools/gen_basemap_fixture.exe _build/e2e-fixture
 	@./_build/default/ocaml/server/bin/main.exe \
-	  --port $(PORT) --basemap basemap --no-open & \
+	  --port $(FIXTURE_PORT) --basemap _build/e2e-fixture --no-open & \
+	  echo $$! > .fixture.pid; \
+	  ./_build/default/ocaml/server/bin/main.exe \
+	  --port $(PORT) --basemap _build/e2e-basemap --no-open \
+	  --basemap-source http://127.0.0.1:$(FIXTURE_PORT)/basemap/map.pmtiles \
+	  --basemap-assets http://127.0.0.1:$(FIXTURE_PORT)/basemap/assets.tar.gz & \
 	  echo $$! > .server.pid; \
-	  trap 'kill $$(cat .server.pid) 2>/dev/null; rm -f .server.pid' EXIT; \
+	  trap 'kill $$(cat .server.pid) $$(cat .fixture.pid) 2>/dev/null; \
+	    rm -f .server.pid .fixture.pid' EXIT; \
 	  for i in $$(seq 40); do \
-	    curl -sf -o /dev/null http://127.0.0.1:$(PORT)/healthz && break; sleep 0.25; \
+	    curl -sf -o /dev/null http://127.0.0.1:$(PORT)/healthz \
+	    && curl -sf -o /dev/null http://127.0.0.1:$(FIXTURE_PORT)/healthz \
+	    && break; sleep 0.25; \
 	  done; \
-	  cd ui && node test/e2e.mjs http://127.0.0.1:$(PORT)
+	  ( cd ui && node test/e2e.mjs http://127.0.0.1:$(PORT) )
 
 # No --ui: the binary serves the UI it was built with. Pass --ui to override
 # with a directory, which is what `npm run dev` wants.

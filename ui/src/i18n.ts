@@ -51,3 +51,21 @@ export const formatCoord = (value: number): string =>
     minimumFractionDigits: 7,
     maximumFractionDigits: 7,
   }).format(value);
+
+/* Download sizes, in the reader's locale ("38 MB", "1.2 Go"). Decimal
+   megabytes, which is how transfer sizes are conventionally quoted. */
+export const formatBytes = (bytes: number): string => {
+  const gigabytes = bytes / 1e9;
+  if (gigabytes >= 1) {
+    return new Intl.NumberFormat(getLocale(), {
+      style: "unit",
+      unit: "gigabyte",
+      maximumFractionDigits: 1,
+    }).format(gigabytes);
+  }
+  return new Intl.NumberFormat(getLocale(), {
+    style: "unit",
+    unit: "megabyte",
+    maximumFractionDigits: bytes < 10e6 ? 1 : 0,
+  }).format(bytes / 1e6);
+};

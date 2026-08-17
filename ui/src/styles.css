@@ -545,6 +545,76 @@ button:disabled {
   min-height: 44px;
 }
 
+/* The offline-maps entry point and its card, over the map's top-left corner.
+   MapLibre's own controls keep the right edge. */
+.map-actions {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.map-actions .icon-button {
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.download-card {
+  position: absolute;
+  top: 62px;
+  left: 10px;
+  width: min(320px, calc(100% - 20px));
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 12px 14px 14px;
+}
+
+.download-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.download-card h2 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.download-card progress {
+  width: 100%;
+  height: 8px;
+  margin: 8px 0 2px;
+  accent-color: var(--accent);
+}
+
+.download-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.download-actions button {
+  font-size: 13px;
+  padding: 8px 14px;
+  min-height: 44px;
+}
+
+.banner-action {
+  flex: none;
+  font-size: 13px;
+  padding: 6px 12px;
+  min-height: 40px;
+  background: var(--warn);
+  color: white;
+}
+
 /* Small screens: the panel becomes a sheet under the map rather than a column
    beside it, and nothing is allowed to overflow sideways. */
 @media (max-width: 560px) {

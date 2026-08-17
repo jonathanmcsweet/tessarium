@@ -39,6 +39,9 @@ type AppState = {
      for a screen share does not get it back. */
   concealed: boolean;
   basemapFailed: boolean;
+  /* Whether the offline-maps card is open. In the store rather than local to
+     the map because the missing-basemap banner opens it from outside. */
+  downloadOpen: boolean;
   /* Mirrors Paraglide's in-memory locale. Kept here so that changing language
      re-renders the tree: the message functions read the locale when they are
      called, and nothing would call them again otherwise. */
@@ -51,6 +54,9 @@ type AppState = {
   requestFlyTo: (lat: number, lon: number) => void;
   toggleConcealed: () => void;
   setBasemapFailed: () => void;
+  clearBasemapFailed: () => void;
+  openDownload: () => void;
+  closeDownload: () => void;
 };
 
 export const useAppStore = create<AppState>()((set) => ({
@@ -59,6 +65,7 @@ export const useAppStore = create<AppState>()((set) => ({
   flyTo: null,
   concealed: true,
   basemapFailed: false,
+  downloadOpen: false,
   locale: getLocale() as Locale,
 
   setLocale: (locale) => {
@@ -67,7 +74,13 @@ export const useAppStore = create<AppState>()((set) => ({
   },
   setUnlocked: () => set({ unlocked: true }),
   setLocked: () =>
-    set({ unlocked: false, selection: null, flyTo: null, concealed: true }),
+    set({
+      unlocked: false,
+      selection: null,
+      flyTo: null,
+      concealed: true,
+      downloadOpen: false,
+    }),
   select: (selection) => set({ selection }),
   /* A counter, not a timestamp: looking up the same address twice has to fly
      there twice, and a monotonic counter says that without reaching for a
@@ -78,4 +91,7 @@ export const useAppStore = create<AppState>()((set) => ({
     })),
   toggleConcealed: () => set((state) => ({ concealed: !state.concealed })),
   setBasemapFailed: () => set({ basemapFailed: true }),
+  clearBasemapFailed: () => set({ basemapFailed: false }),
+  openDownload: () => set({ downloadOpen: true }),
+  closeDownload: () => set({ downloadOpen: false }),
 }));

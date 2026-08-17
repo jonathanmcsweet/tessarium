@@ -1,0 +1,161 @@
+(* Emits the basemap fixture the end-to-end test downloads from, so the e2e
+   exercises the whole downloader -- range requests, extraction, the assets
+   tarball -- against this project's own server, touching no external network.
+
+   Two files land in the directory named by argv(1):
+
+   - map.pmtiles: a small but valid archive covering central London at zooms
+     0-15. Every tile is the same hand-encoded MVT -- one layer, one point --
+     which MapLibre must parse without a console error, and console errors
+     fail the e2e. The layer matches nothing in the style, so nothing is
+     drawn and no glyphs are requested; validity is the point, not scenery.
+
+   - assets.tar.gz: the sprite sheets the style asks for on load, plus one
+     glyph file so the fonts/ directory exists, wrapped in a top-level
+     directory the way GitHub's tarballs are, because the server's untar
+     strips exactly that shape. *)
+
+(* --------------------------------------------------------------- protobuf *)
+
+let varint n =
+  let buf = Buffer.create 4 in
+  let rec go n =
+    if n < 0x80 then Buffer.add_char buf (Char.chr n)
+    else begin
+      Buffer.add_char buf (Char.chr (0x80 lor (n land 0x7f)));
+      go (n lsr 7)
+    end
+  in
+  go n;
+  Buffer.contents buf
+
+let key field wire = varint ((field lsl 3) lor wire)
+let varint_field field v = key field 0 ^ varint v
+let bytes_field field s = key field 2 ^ varint (String.length s) ^ s
+
+(* Mapbox Vector Tile: layer version 2, extent 4096, one POINT feature at
+   (25, 25) -- MoveTo command 9, then the coordinates zigzag-encoded. *)
+let mvt_tile =
+  let geometry = varint 9 ^ varint 50 ^ varint 50 in
+  let feature = varint_field 3 1 ^ bytes_field 4 geometry in
+  let layer =
+    varint_field 15 2
+    ^ bytes_field 1 "fixture"
+    ^ bytes_field 2 feature
+    ^ varint_field 5 4096
+  in
+  bytes_field 3 layer
+
+(* ---------------------------------------------------------------- pmtiles *)
+
+let e7 v = int_of_float (Float.round (v *. 1e7))
+
+let pmtiles ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom =
+  let ids =
+    Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom ~min_lon ~min_lat ~max_lon
+      ~max_lat
+  in
+  let tile = mvt_tile in
+  (* Every id points at the one blob at data offset 0. *)
+  let entries =
+    List.map
+      (fun id ->
+        {
+          Pmtiles.Directory.tile_id = id;
+          offset = 0;
+          length = String.length tile;
+          run_length = 1;
+        })
+      ids
+    |> Array.of_list
+  in
+  let root = Pmtiles.Directory.serialize entries in
+  let metadata = "{}" in
+  let root_offset = Pmtiles.Header.size in
+  let metadata_offset = root_offset + String.length root in
+  let data_offset = metadata_offset + String.length metadata in
+  let header =
+    {
+      Pmtiles.Header.root_offset;
+      root_length = String.length root;
+      metadata_offset;
+      metadata_length = String.length metadata;
+      leaf_offset = data_offset;
+      leaf_length = 0;
+      data_offset;
+      data_length = String.length tile;
+      addressed_tiles = Array.length entries;
+      tile_entries = Array.length entries;
+      tile_contents = 1;
+      clustered = true;
+      internal_compression = Pmtiles.Header.None_;
+      tile_compression = Pmtiles.Header.None_;
+      tile_type = Pmtiles.Header.Mvt;
+      min_zoom = 0;
+      max_zoom;
+      min_lon_e7 = e7 min_lon;
+      min_lat_e7 = e7 min_lat;
+      max_lon_e7 = e7 max_lon;
+      max_lat_e7 = e7 max_lat;
+      center_zoom = 10;
+      center_lon_e7 = e7 ((min_lon +. max_lon) /. 2.);
+      center_lat_e7 = e7 ((min_lat +. max_lat) /. 2.);
+    }
+  in
+  Pmtiles.Header.serialize header ^ root ^ metadata ^ tile
+
+(* -------------------------------------------------------------------- tar *)
+
+let tar_entry name content =
+  let b = Bytes.make 512 '\000' in
+  Bytes.blit_string name 0 b 0 (String.length name);
+  Bytes.blit_string "0000644" 0 b 100 7;
+  Bytes.blit_string "0000000" 0 b 108 7;
+  Bytes.blit_string "0000000" 0 b 116 7;
+  Bytes.blit_string (Printf.sprintf "%011o" (String.length content)) 0 b 124 11;
+  Bytes.blit_string "00000000000" 0 b 136 11;
+  Bytes.set b 156 '0';
+  Bytes.blit_string "ustar\000" 0 b 257 6;
+  Bytes.blit_string "00" 0 b 263 2;
+  (* The checksum is the byte sum of the header with this field as spaces. *)
+  Bytes.blit_string "        " 0 b 148 8;
+  let sum = ref 0 in
+  Bytes.iter (fun c -> sum := !sum + Char.code c) b;
+  Bytes.blit_string (Printf.sprintf "%06o\000 " !sum) 0 b 148 8;
+  let pad = (512 - (String.length content mod 512)) mod 512 in
+  Bytes.to_string b ^ content ^ String.make pad '\000'
+
+(* A 1x1 transparent PNG. MapLibre decodes the sprite sheet on load, so the
+   bytes must be a real image; the e2e's console-error check is what proves
+   they are. *)
+let png =
+  "\x89PNG\r\n\x1a\n"
+  ^ "\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+  ^ "\x00\x00\x00\x0aIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\x0d\x0a\x2d\xb4"
+  ^ "\x00\x00\x00\x00IEND\xaeB`\x82"
+
+let assets_tarball () =
+  let w = "basemaps-assets-fixture/" in
+  tar_entry (w ^ "sprites/v4/light.json") "{}"
+  ^ tar_entry (w ^ "sprites/v4/light.png") png
+  ^ tar_entry (w ^ "sprites/v4/light@2x.json") "{}"
+  ^ tar_entry (w ^ "sprites/v4/light@2x.png") png
+  ^ tar_entry (w ^ "fonts/Noto Sans Regular/0-255.pbf") ""
+  ^ String.make 1024 '\000'
+
+(* ------------------------------------------------------------------- main *)
+
+let write path content =
+  let oc = open_out_bin path in
+  output_string oc content;
+  close_out oc
+
+let () =
+  let dir = Sys.argv.(1) in
+  if not (Sys.file_exists dir) then Sys.mkdir dir 0o755;
+  write
+    (Filename.concat dir "map.pmtiles")
+    (pmtiles ~min_lon:(-0.20) ~min_lat:51.46 ~max_lon:(-0.05) ~max_lat:51.56
+       ~max_zoom:15);
+  write (Filename.concat dir "assets.tar.gz") (Gzip.compress (assets_tarball ()));
+  Printf.printf "basemap fixture written to %s\n" dir

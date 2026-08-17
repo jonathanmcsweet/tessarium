@@ -15,13 +15,25 @@ import { IconButton } from "./IconButton";
 
 type Props = {
   message: string;
+  /* An optional way out of the condition the banner reports -- "no basemap"
+     gains a download button. A plain labelled button, not an icon. */
+  action?: { label: string; onClick: () => void; };
   onDismiss?: () => void;
 };
 
-export function Banner({ message, onDismiss }: Props) {
+export function Banner({ message, action, onDismiss }: Props) {
   return (
     <div className="banner" role="status">
       <p>{message}</p>
+      {action && (
+        <button
+          type="button"
+          className="banner-action"
+          onClick={action.onClick}
+        >
+          {action.label}
+        </button>
+      )}
       {onDismiss && (
         <IconButton
           label={m.a11y_dismiss_banner()}
