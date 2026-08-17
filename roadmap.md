@@ -241,66 +241,20 @@ The theorem set is complete and in the ledger. What is left is narrower.
 
 ## Phase 4 — Security hardening
 
-- [ ] **The key derivation is the weakest link, and only for weak phrases.**
-      With a properly random 24-word phrase the search space is 2^256 and no
-      key-derivation cost matters. The derivation cost matters in exactly two
-      cases: a phrase a human made up, and the ~2^46 search to find *a* phrase
-      linking one known address to one known place. In-app generation (shipped)
-      removes the first case for anyone who uses it; this item is what remains
-      for anyone who brings their own.
+- [ ] **Argon2id remains the better answer and is still open.** The hardened
+      PBKDF2 shipped (see the ledger) buys 98.7x against an offline attacker,
+      but it buys it from an adversary who parallelises perfectly; a
+      memory-hard function denies that instead of pricing it. Measured and
+      rejected for now, with numbers: pure-OCaml Argon2id at 64 MiB / t=3
+      costs **21 s in a browser** and 2.6 s natively, because BLAKE2b through
+      js_of_ocaml runs at 9.2 MiB/s against 72.6 MiB/s native. Usable browser
+      parameters would be about 8 MiB / t=1, which is too little memory to be
+      worth the primitive.
 
-      Measured: our browser build takes 241 ms per derivation at BIP-39's 2048
-      iterations. An optimised GPU implementation does about 244,000 per
-      second — roughly 59,000x faster. Raising the iteration count scales both
-      sides equally, so it does not change that ratio; at 600,000 iterations
-      the user waits over a minute and the attacker is still 59,000x ahead.
-
-      **The offline scenario, concretely — the code is public, so an attacker
-      runs it locally and no rate limiter is in the loop; the search splits
-      across machines perfectly.** At today's cost, one GPU ~ 244k
-      guesses/s, a 100-GPU farm ~ 24M/s: a million guesses is seconds, a
-      made-up ~40-bit phrase ~ 12 hours, and the ~10^14 single-pair forgery
-      search ~ 7 weeks. What forgery buys is one fake claim, not the map:
-      ~2^210 keys agree on any one pair, matching two at once is 2^92, and
-      recovering the actual phrase is 2^256 — ~10^52 ages of the universe on
-      that farm. Entropy is the only defence offline, which is why generation
-      shipped first; derivation cost decides only the weak-phrase and forgery
-      numbers. The rate limiter defends the live oracle and nothing else.
-
-      The ratio only improves by making *our* implementation fast: WebCrypto's
-      native PBKDF2 in the browser, a C-backed hash natively. That means two
-      implementations of the *hash* — not of the algorithm — both pinned by
-      published vectors and already cross-checked by the differential suite.
-
-      **The stronger answer is a memory-hard function, and it fits without
-      breaking BIP-39.** More PBKDF2 iterations lose because a GPU parallelises
-      them perfectly: thousands of cores, each running its own guess, all
-      cheap. Argon2id denies that by demanding memory per guess. At 64 MB, a
-      16 GB card runs ~250 guesses at once instead of ~10,000, and it is memory
-      bandwidth rather than arithmetic that caps it — the one resource an
-      attacker cannot buy their way around cheaply.
-
-      It fits because the BIP-39 seed is an intermediate value here, not the
-      output: mnemonic → PBKDF2(2048) → 64-byte seed → HKDF → Feistel key.
-      Replacing the HKDF step with Argon2id leaves the phrase a standard BIP-39
-      phrase that any other tool still accepts, and makes only *our* key cost
-      what we choose.
-
-      The obstacle is implementation, not design. There is no browser-native
-      Argon2, and the opam `argon2` package is C bindings that do not cross
-      into js_of_ocaml — the same wall that ruled out HACL\*. Argon2 is built on
-      BLAKE2b, which `digestif` already provides in pure OCaml, so writing it
-      over that is the one route that keeps a single implementation for both
-      targets. RFC 9106 publishes test vectors, so it would be pinned rather
-      than trusted. Cost: a hand-written implementation of a cryptographic
-      primitive, which is exactly what this project has otherwise avoided.
-
-      **Adopting it is a breaking change with the blast radius of a grid
-      bump:** every derived key changes, so every address anyone has written
-      down changes. Land it before real users exist, and land it TOGETHER with
-      the NFKD passphrase fix below — that also changes keys (for non-ASCII
-      passphrases), and two separate derivation bumps is one more than
-      needed.
+      The routes that could work, neither taken: a WASM Argon2id in the
+      browser with a C build natively — two implementations of a primitive,
+      against this project's grain — or waiting for a browser-native
+      memory-hard KDF, which does not exist. Revisit if one appears.
 
 - [ ] **Check the FE1 parameters against the published attack literature.**
       The construction is the family underlying FF1/FF3, which has a real
@@ -331,14 +285,6 @@ The theorem set is complete and in the ledger. What is left is narrower.
       Rounds were raised 10 -> 16 as margin in the meantime.
 
 ## Phase 4 — Correctness gaps
-
-- [ ] **Unicode normalisation of the passphrase.** BIP-39 specifies NFKD. The
-      independent JS implementation applies it; the OCaml core does not, so a
-      passphrase containing accented characters can derive two different keys
-      depending on how the text was composed — and the user gets no
-      indication. ASCII passphrases are unaffected, which is why the
-      differential tests do not catch it. Fixing it means a Unicode dependency
-      (`uunf`) that must also compile under js_of_ocaml.
 
       Key-changing for non-ASCII passphrases, so if Argon2id (Phase 4,
       security) is adopted, ship both in one derivation-version bump.

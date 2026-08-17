@@ -30,6 +30,21 @@
    "name": "pass-spaced",
    "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
    "passphrase": " mysecret "
+  },
+  {
+   "name": "pass-nfc",
+   "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+   "passphrase": "café"
+  },
+  {
+   "name": "pass-nfd",
+   "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+   "passphrase": "café"
+  },
+  {
+   "name": "pass-cjk",
+   "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+   "passphrase": "ﾊﾟ"
   }
  ],
  "feistel_key": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",

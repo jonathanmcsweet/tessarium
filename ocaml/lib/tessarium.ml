@@ -36,8 +36,32 @@ let lon_max = Z.of_string "180000000000"
 (* ------------------------------------------------------- key derivation *)
 
 let required_words = 24
-let hkdf_salt = "tessarium/v1/salt"
-let hkdf_info = "tessarium/v1/feistel-key"
+
+(* The second derivation stage, and the reason it exists.
+
+   BIP-39 fixes the first stage at 2048 iterations of PBKDF2-HMAC-SHA512. That
+   number was chosen in 2013 and cannot be changed without ceasing to be
+   BIP-39. But the BIP-39 seed is an intermediate value here, not the output --
+   the Feistel key is derived from it -- so stretching it again costs an
+   attacker linearly while leaving the phrase a standard BIP-39 phrase that any
+   other tool still accepts.
+
+   200,000 was picked by measurement, not by feel. Attacker cost rises from
+   2048 to 202,048 iterations per guess, a factor of 98.7: the roughly 10^14
+   search to forge one (address, place) pair goes from about 47 days on a
+   100-GPU farm to about thirteen years. Our own cost is 49 ms in a browser via
+   WebCrypto -- faster than the 241 ms the old 2048-iteration derivation took
+   in js_of_ocaml -- and 1.2 s natively, which only the opt-in `--api` mode and
+   the build ever pay.
+
+   Argon2id would be better still, and was measured and rejected: pure-OCaml
+   Argon2id at 64 MiB costs 21 s in a browser. See roadmap.md. *)
+(* Re-exported so tests can exercise it directly. The library's own module
+   shares its name, so sibling modules are otherwise unreachable from outside. *)
+let nfkd = Normalize.nfkd
+
+let derivation_version = "tessarium-kdf-2"
+let hardening_iterations = 200_000
 
 (* For the mnemonic only. BIP-39's English words are lowercase, so folding case
    and trimming here is safe and forgiving of how a phrase was pasted.
@@ -118,12 +142,17 @@ let derive_key ~mnemonic ~passphrase =
       let words = split_words (normalize_mnemonic mnemonic) in
       let seed =
         Crypto.pbkdf2_sha512
-          ~password:(String.concat " " words)
-          (* Verbatim, per BIP-39. Not normalised: see normalize_mnemonic. *)
-          ~salt:("mnemonic" ^ passphrase)
+          ~password:(Normalize.nfkd (String.concat " " words))
+          (* Case and whitespace verbatim, per BIP-39 -- see
+             normalize_mnemonic -- but NFKD-normalised, which BIP-39 also
+             requires and which is a different thing. *)
+          ~salt:(Normalize.nfkd ("mnemonic" ^ passphrase))
           ~count:2048 ~dklen:64
       in
-      Crypto.hkdf_sha256 ~ikm:seed ~salt:hkdf_salt ~info:hkdf_info ~len:32
+      (* Second stage. The salt carries the version, so a future change to
+         these parameters cannot silently collide with keys derived today. *)
+      Crypto.pbkdf2_sha512 ~password:seed ~salt:derivation_version
+        ~count:hardening_iterations ~dklen:32
 
 (* ------------------------------------------------------------- addresses *)
 

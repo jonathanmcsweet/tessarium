@@ -38,22 +38,6 @@ let pbkdf2_sha512 ~password ~salt ~count ~dklen =
   done;
   String.sub (Buffer.contents buf) 0 dklen
 
-(* RFC 5869. Only one expand block is ever needed at 32 bytes. *)
-let hkdf_sha256 ~ikm ~salt ~info ~len =
-  let prk = hmac_sha256 ~key:salt ikm in
-  let buf = Buffer.create len in
-  let prev = ref "" in
-  let counter = ref 1 in
-  while Buffer.length buf < len do
-    let block =
-      hmac_sha256 ~key:prk (!prev ^ info ^ String.make 1 (Char.chr !counter))
-    in
-    Buffer.add_string buf block;
-    prev := block;
-    incr counter
-  done;
-  String.sub (Buffer.contents buf) 0 len
-
 (* ------------------------------------------------------- integer plumbing *)
 
 let z_of_be_bytes s =

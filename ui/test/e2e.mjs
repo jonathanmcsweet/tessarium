@@ -288,6 +288,24 @@ const box = await page.locator(".map").boundingBox();
 await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await page.waitForTimeout(1500);
 
+/* Reads the panel's latitude and longitude back as numbers.
+
+   This is what pins the browser's KEY to the vectors, and nothing else in the
+   suite does. Looking up an address and clicking the square it lands on is a
+   round trip through decode-then-encode, which returns the address you started
+   with under ANY key -- a wrong key simply decodes it to a different place on
+   Earth and re-encodes that place back to the same words. The coordinates are
+   the only output that differs. */
+const panelCoords = async () => {
+  const cells = await page.locator(".coords dd").allTextContents();
+  return cells.map((t) => Number.parseFloat(t.replace(/[^0-9.-]/g, "")));
+};
+
+/* A decoded point lands somewhere in the ~3 m cell, so this is generous
+   against rounding and merciless against a wrong key, which would put the
+   point on another continent. */
+const nearly = (a, b) => Math.abs(a - b) < 0.0001;
+
 const eye = page.locator(".address-row .icon-button").first();
 const copyButton = page.locator(".address-row .icon-button").nth(1);
 
@@ -320,6 +338,12 @@ const clicked = await page.locator(".address").textContent();
 check(
   `clicking that square yields ${sample.address} (got ${clicked})`,
   clicked === sample.address,
+);
+
+const [gotLat, gotLon] = await panelCoords();
+check(
+  `the looked-up address decodes to the vector's point (got ${gotLat}, ${gotLon} want ${sampleLat}, ${sampleLon})`,
+  nearly(gotLat, sampleLat) && nearly(gotLon, sampleLon),
 );
 
 /* The map itself never writes addresses onto the squares. Checked while the
@@ -409,6 +433,58 @@ check(
 );
 await page.locator(".language select").selectOption("en-US");
 await page.waitForTimeout(400);
+
+/* NFKD across the whole stack.
+
+   The browser derives keys with WebCrypto and normalises with JavaScript's
+   String.normalize; the vectors were produced by OCaml and uunf. Nothing else
+   in the suite compares those two. So: lock, then unlock with the DECOMPOSED
+   form of a passphrase whose addresses were generated from the PRECOMPOSED
+   form, and require the same address out. "café" typed on one keyboard and
+   pasted from another are these two byte sequences; before NFKD they were two
+   different maps and the user was told nothing. */
+const nfkdSample = vectors.nfkd_addresses[0];
+/* PRECOMPOSED here, deliberately. NFKD's *output* is the decomposed form, so
+   unlocking with the decomposed passphrase yields the right key even when
+   normalisation is skipped entirely — a test written that way passes whether
+   or not the code under it works, which is how the first version of this
+   check was written. Feeding the precomposed form is the direction that can
+   actually fail: without NFKD those bytes go into PBKDF2 unchanged and derive
+   a different key. */
+const nfkdEntry = vectors.key_derivation.find((k) => k.name === "pass-nfc");
+const nfdEntry = vectors.key_derivation.find((k) => k.name === "pass-nfd");
+check(
+  "the two passphrase vectors really are different byte sequences",
+  nfkdEntry.passphrase !== nfdEntry.passphrase,
+);
+
+await page.locator(".panel-head .lock").click();
+await page.waitForSelector("#phrase", { timeout: 30_000 });
+await page.locator("#phrase").fill(nfkdEntry.mnemonic);
+await page.waitForSelector(".valid", { timeout: 30_000 });
+await page.locator(".passphrase summary").click();
+await page.locator("#passphrase").fill(nfkdEntry.passphrase);
+await page.locator("button[type=submit]").click();
+await page.waitForSelector(".map-wrap", { timeout: 60_000 });
+
+await page.locator(".lookup input").fill(nfkdSample.address);
+await page.locator(".lookup button").click();
+await page.waitForTimeout(3000);
+const nfkdBox = await page.locator(".map").boundingBox();
+await page.mouse.click(
+  nfkdBox.x + nfkdBox.width / 2,
+  nfkdBox.y + nfkdBox.height / 2,
+);
+await page.waitForTimeout(1500);
+await page.locator(".address-row .icon-button").first().click();
+const [nfkdLat, nfkdLon] = await panelCoords();
+check(
+  `a precomposed passphrase is normalised before derivation (got ${nfkdLat}, ${nfkdLon} want ${
+    nfkdSample.lat_ns / 1e9
+  }, ${nfkdSample.lon_ns / 1e9})`,
+  nearly(nfkdLat, nfkdSample.lat_ns / 1e9)
+    && nearly(nfkdLon, nfkdSample.lon_ns / 1e9),
+);
 
 await browser.close();
 

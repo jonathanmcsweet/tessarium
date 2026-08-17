@@ -126,6 +126,32 @@ let generate inputs =
              ])
   in
 
+  (* Addresses under a non-ASCII passphrase, for the end-to-end test.
+
+     These are generated with the PRECOMPOSED form of the passphrase. The
+     browser test unlocks with the DECOMPOSED form and expects the same
+     addresses, which it can only get if the NFKD in the browser agrees with
+     the NFKD here -- JavaScript's String.normalize against uunf. That is the
+     one cross-implementation claim the vectors cannot pin on their own, since
+     the browser derives keys with WebCrypto rather than with this code. *)
+  let nfkd_key = List.assoc "pass-nfc" keys in
+  let nfkd_addresses =
+    (* Ordinary mid-latitude points, chosen on purpose. Not (0, 0), which is
+       also what a failed parse looks like, and not the poles, where latitude
+       clamps -- a test wants an expected value that cannot be arrived at by
+       accident or by a degenerate path. *)
+    List.filteri (fun i _ -> i >= 7 && i < 9) points
+    |> List.map (fun (lat, lon) ->
+           `Assoc
+             [
+               ("mnemonic", `String "pass-nfc");
+               ("lat_ns", `Int lat);
+               ("lon_ns", `Int lon);
+               ( "address",
+                 `String (Tessarium.encode ~key:nfkd_key ~lat_ns:lat ~lon_ns:lon) );
+             ])
+  in
+
   (* Addresses that name no location. The address space is larger than the
      number of cells, so about 35% of word combinations decode to nothing --
      which ones is decided entirely by the permutation, and changes completely
@@ -160,6 +186,8 @@ let generate inputs =
   `Assoc
     [
       ("grid_version", `String Tessarium.grid_version);
+      ("derivation_version", `String Tessarium.derivation_version);
+      ("hardening_iterations", `Int Tessarium.hardening_iterations);
       ("total_cells", `Int (Z.to_int Tessarium.total_cells));
       ("address_space", `Int (Z.to_int Tessarium.address_space));
       ( "feistel",
@@ -173,6 +201,7 @@ let generate inputs =
       ("feistel_vectors", `List feistel_vectors);
       ("grid_vectors", `List grid_vectors);
       ("addresses", `List addresses);
+      ("nfkd_addresses", `List nfkd_addresses);
       ("invalid_addresses", `List (List.map (fun a -> `String a) invalid_addresses));
     ]
 

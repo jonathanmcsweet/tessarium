@@ -134,10 +134,10 @@ export function deriveKey(mnemonic, passphrase = "") {
   const seed = pbkdf2Sync(words.join(" "),
                           "mnemonic" + passphrase.normalize("NFKD"),
                           2048, 64, "sha512");
-  const prk = createHmac("sha256", Buffer.from("tessarium/v1/salt")).update(seed).digest();
-  return createHmac("sha256", prk)
-    .update(Buffer.concat([Buffer.from("tessarium/v1/feistel-key"), Buffer.from([1])]))
-    .digest();
+  // Second stage. BIP-39 fixes the first at 2048 iterations and cannot be
+  // changed; the seed is an intermediate here, so stretching it again costs an
+  // attacker ~99x per guess and leaves the phrase standard BIP-39.
+  return pbkdf2Sync(seed, "tessarium-kdf-2", 200000, 32, "sha512");
 }
 
 export function indexToAddress(y) {

@@ -12,10 +12,6 @@
 
 open Js_of_ocaml
 
-let hex_of_string s =
-  String.concat ""
-    (List.init (String.length s) (fun i -> Printf.sprintf "%02x" (Char.code s.[i])))
-
 let string_of_hex h =
   String.init (String.length h / 2) (fun i ->
       Char.chr (int_of_string ("0x" ^ String.sub h (2 * i) 2)))
@@ -32,24 +28,13 @@ let () =
        val gridVersion = jstr Tessarium.grid_version
        val totalCells = jstr (Z.to_string Tessarium_Table.total_cells)
 
-       (* Slow by design: PBKDF2 with 2048 iterations. Call once per session,
-          off the UI thread. *)
-       (* Returns {key, error}; one is always null. Avoids exception interop. *)
-       method deriveKey mnemonic passphrase =
-         try
-           let k =
-             Tessarium.derive_key ~mnemonic:(ostr mnemonic)
-               ~passphrase:(ostr passphrase)
-           in
-           object%js
-             val key = Js.some (jstr (hex_of_string k))
-             val error = Js.null
-           end
-         with Tessarium.Bad_mnemonic e ->
-           object%js
-             val key = Js.null
-             val error = Js.some (jstr e)
-           end
+       (* The browser derives keys with WebCrypto, not with this bundle: our
+          PBKDF2 compiled to JavaScript runs at ~8,500 iterations/second
+          against WebCrypto's 4.1 million, and the hardened derivation is
+          202,048 iterations. These two constants are what the worker must
+          feed it, exported here so there is one source of truth for them. *)
+       val derivationVersion = jstr Tessarium.derivation_version
+       val hardeningIterations = Tessarium.hardening_iterations
 
        (* Entropy in, 24 words out. The caller supplies the bytes -- in the
           browser that is `crypto.getRandomValues` -- so the randomness stays

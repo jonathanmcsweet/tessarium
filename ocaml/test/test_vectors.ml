@@ -156,6 +156,42 @@ let () =
         (match Tessarium.decode ~key:addr_key addr with Error _ -> true | Ok _ -> false))
     (to_list (member "invalid_addresses" json));
 
+  (* ------------------------------------------------ unicode passphrases *)
+
+  (* BIP-39 requires NFKD before hashing. Two passphrases that are identical on
+     screen can be different byte sequences -- a precomposed "é" versus an "e"
+     followed by a combining accent -- and which one a user gets depends on
+     their keyboard and their clipboard, not on any choice they made. Without
+     normalisation they derive different keys and the user is told nothing:
+     they just get a map they do not recognise.
+
+     Every earlier passphrase vector was ASCII, where NFKD is the identity,
+     which is precisely why this survived so long. *)
+  check "NFKD makes a precomposed and a decomposed accent one string"
+    (String.equal (Tessarium.nfkd "caf\xc3\xa9") (Tessarium.nfkd "cafe\xcc\x81"));
+  check "NFKD leaves ASCII alone"
+    (String.equal (Tessarium.nfkd "mnemonic") "mnemonic");
+  (* NFKD, not NFD: compatibility characters fold too. Half-width katakana is
+     the case BIP-39's own Japanese vectors exercise. *)
+  check "NFKD folds compatibility characters"
+    (not (String.equal (Tessarium.nfkd "\xef\xbd\xb1") "\xef\xbd\xb1"));
+
+  let key_named name =
+    List.find (fun v -> String.equal (to_str (member "name" v)) name)
+      (to_list (member "key_derivation" json))
+  in
+  let derived name =
+    let v = key_named name in
+    hex
+      (Tessarium.derive_key
+         ~mnemonic:(to_str (member "mnemonic" v))
+         ~passphrase:(to_str (member "passphrase" v)))
+  in
+  check "the same passphrase in two encodings gives one key"
+    (String.equal (derived "pass-nfc") (derived "pass-nfd"));
+  check "a non-ASCII passphrase still changes the key"
+    (not (String.equal (derived "pass-nfc") (derived "zero")));
+
   (* ------------------------------------------------- phrase generation *)
 
   (* BIP-39's own published 256-bit vectors. This is the one function here

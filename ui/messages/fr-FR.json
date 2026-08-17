@@ -18,7 +18,7 @@
   "gate_passphrase_label": "Phrase secrète",
   "gate_submit": "Ouvrir ma carte",
   "gate_submit_busy": "Dérivation de la clé…",
-  "gate_deriving_hint": "2048 itérations de PBKDF2. Volontairement lent, et une seule fois par session.",
+  "gate_deriving_hint": "202 048 itérations de PBKDF2. Volontairement lent, et une seule fois par session.",
   "gate_unlock_failed": "Impossible d’ouvrir la carte.",
   "gate_wallet_warning_title": "Utilisez une phrase neuve, pas celle d’un portefeuille existant.",
   "gate_wallet_warning_body": "Quiconque apprend quelques-unes de vos adresses et les lieux réels correspondants est en train de faire de la cryptanalyse sur cette clé. Si cette même phrase protège aussi des fonds, vous avez combiné deux risques sans rapport, sans rien y gagner.",

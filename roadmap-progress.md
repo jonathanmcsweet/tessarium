@@ -877,3 +877,52 @@ UI rules require touch parity and the source string did not have it.
 **Follow-on:** A native speaker should still read all three. Recorded in
 `roadmap.md`.
 
+### 2026-08-17 — Hardened key derivation and NFKD passphrases
+
+**Phase:** 4
+
+**What:** One key-derivation version bump carrying two changes. Passphrases are
+NFKD-normalised before hashing, as BIP-39 requires. A second PBKDF2-SHA512
+stage of 200,000 iterations now derives the Feistel key from the BIP-39 seed,
+replacing HKDF. The browser derives with WebCrypto instead of the bundled core.
+`derivation_version` is `tessarium-kdf-2`; every address changed.
+
+**Rationale:**
+
+- *Argon2id was the plan and was rejected on measurement.* Pure-OCaml Argon2id
+  at 64 MiB costs 21 s in a browser (BLAKE2b through js_of_ocaml: 9.2 MiB/s
+  against 72.6 MiB/s native). Browser-viable parameters would be ~8 MiB, too
+  little memory to justify the primitive. Kept on the roadmap with the numbers.
+- *Hardened PBKDF2 instead.* BIP-39 fixes its own stage at 2048 iterations
+  forever, but the seed is an intermediate here, so a second stage costs an
+  attacker linearly and leaves the phrase standard BIP-39. 2048 -> 202,048 is
+  98.7x: the ~10^14 single-pair forgery search goes from ~47 days on a 100-GPU
+  farm to ~13 years.
+- *WebCrypto in the browser.* Measured: our PBKDF2 through js_of_ocaml does
+  ~8,500 iterations/s, WebCrypto 4.1 million — about 480x. That is what makes
+  the new cost affordable: unlock measured at **289 ms**, against 241 ms for
+  the old 2048-iteration derivation. The browser now runs different code from
+  the server for this one step, which the coordinate checks below pin.
+- *Iteration count by measurement.* 200,000 costs 1.2 s natively, paid only by
+  the opt-in `--api` mode and the build. Higher counts are browser-cheap and
+  natively expensive; this is where the two meet.
+
+**Bugs found and fixed, each with a test that fails without the fix:**
+
+- **The end-to-end suite never verified the browser's key.** Looking up an
+  address, flying to it and clicking the square is a decode-then-encode round
+  trip, which returns the address you started with under ANY key — a wrong key
+  decodes it to a different place and re-encodes that place to the same words.
+  The suite would have passed with the derivation completely wrong. It now
+  reads the panel's coordinates back and compares them to the vector's point,
+  which is the only output a wrong key changes.
+- **The first NFKD test was hollow.** It unlocked with the decomposed
+  passphrase, but NFKD's *output* is the decomposed form, so it passed with
+  normalisation removed entirely. Reversed: it now feeds the precomposed form,
+  which is the direction that can fail.
+- Test points were (0, 0), which is also what a failed coordinate parse
+  produces. Both the main sample and the NFKD vectors now use ordinary
+  mid-latitude points.
+
+**Follow-on:** Argon2id stays open, now with the measurements that rejected it.
+

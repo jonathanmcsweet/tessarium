@@ -18,7 +18,7 @@
   "gate_passphrase_label": "Passphrase",
   "gate_submit": "Open my map",
   "gate_submit_busy": "Deriving key…",
-  "gate_deriving_hint": "2048 rounds of PBKDF2. Slow on purpose, and only once per session.",
+  "gate_deriving_hint": "202,048 iterations of PBKDF2. Slow on purpose, and only once per session.",
   "gate_unlock_failed": "Could not open the map.",
   "gate_wallet_warning_title": "Use a fresh phrase, not a wallet seed.",
   "gate_wallet_warning_body": "Anyone who learns a few of your addresses and where they actually are is doing cryptanalysis against this key. If it also holds funds, you have combined two unrelated risks for nothing.",

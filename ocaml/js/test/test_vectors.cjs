@@ -25,13 +25,16 @@ const check = (name, ok) => { checks++; if (!ok) { fails++; console.log("  FAIL 
 check("gridVersion", C.gridVersion === v.grid_version);
 check("totalCells", C.totalCells === String(v.total_cells));
 
+/* Keys come from the vectors rather than from this bundle. The browser
+   derives with WebCrypto now -- our PBKDF2 compiled to JavaScript would need
+   24 seconds for the hardened count -- so there is no deriveKey here to test.
+   What the bundle still owes us is that it ENCODES identically, which is what
+   the loop below checks against keys the OCaml produced. */
 const keys = {};
-for (const kv of v.key_derivation) {
-  const r = C.deriveKey(kv.mnemonic, kv.passphrase ?? "");
-  if (r.error) { check("derive " + kv.name + ": " + r.error, false); continue; }
-  keys[kv.name] = r.key;
-  check("deriveKey[" + kv.name + "]", r.key === kv.key);
-}
+for (const kv of v.key_derivation) keys[kv.name] = kv.key;
+check("no key derivation is exposed by the bundle", C.deriveKey === undefined);
+check("the derivation parameters are exposed for the worker",
+  C.derivationVersion === v.derivation_version && C.hardeningIterations > 0);
 for (const a of v.addresses) {
   const got = C.encodeNs(keys[a.mnemonic], String(a.lat_ns), String(a.lon_ns));
   check(`encodeNs(${a.lat_ns},${a.lon_ns}) got ${got} want ${a.address}`, got === a.address);

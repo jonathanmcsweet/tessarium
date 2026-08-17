@@ -18,7 +18,7 @@
   "gate_passphrase_label": "Frase de contraseña",
   "gate_submit": "Abrir mi mapa",
   "gate_submit_busy": "Derivando la clave…",
-  "gate_deriving_hint": "2048 iteraciones de PBKDF2. Es lento a propósito, y solo ocurre una vez por sesión.",
+  "gate_deriving_hint": "202,048 iteraciones de PBKDF2. Es lento a propósito, y solo ocurre una vez por sesión.",
   "gate_unlock_failed": "No se pudo abrir el mapa.",
   "gate_wallet_warning_title": "Usa una frase recién generada, no la semilla de una billetera.",
   "gate_wallet_warning_body": "Cualquiera que conozca algunas de tus direcciones y dónde están en realidad está haciendo criptoanálisis contra esta clave. Si esa misma frase además controla fondos, juntaste dos riesgos que no tienen nada que ver, y no ganaste nada a cambio.",

@@ -11,4 +11,4 @@
 ; js_of_ocaml, and C stubs do not cross into the browser.
 (library
  (name tessarium)
- (libraries tessarium_extracted zarith digestif.ocaml))
+ (libraries tessarium_extracted zarith digestif.ocaml uunf))

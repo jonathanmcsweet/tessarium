@@ -1,5 +1,7 @@
 {
   "grid_version": "tessarium-grid-2",
+  "derivation_version": "tessarium-kdf-2",
+  "hardening_iterations": 200000,
   "total_cells": 55692067744000,
   "address_space": 85899345920000,
   "feistel": { "a": 6553600, "b": 13107200, "rounds": 16 },
@@ -8,37 +10,55 @@
       "name": "zero",
       "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
       "passphrase": "",
-      "key": "cc03697da345b1fd2f3b40bc01bef5618aa10d807544b551e5ad200ad3892f6e"
+      "key": "69e149794094fe0f9af91ebf751882e6514cb8e5f9463f399c97bc3758d43b30"
     },
     {
       "name": "ones",
       "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
       "passphrase": "",
-      "key": "e8a6aba75accc0b9a0cddabe9f67bc645735192483a401bdd713d34727b657f9"
+      "key": "fa47cd3c9d2624780b21675171c155036836a849555bc0f0ee675d8fea7e9ce5"
     },
     {
       "name": "hash",
       "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
       "passphrase": "",
-      "key": "9b913bbcd3d41266387222ec7902e4062aa4f5036e7d9e18169e6af707afec45"
+      "key": "09260d7562cb436f478ed58c8758372b27565d02d3ab5807abd36526d2de2b6f"
     },
     {
       "name": "pass-mixed",
       "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
       "passphrase": "MySecret",
-      "key": "a1d28f9c6419f3826fec20e4aa9fee936406d29d5a331353f4c1677b1e632548"
+      "key": "668e7e2c700f5268978fd5ae03c5705e83f99ef213aba715fb8ccea0dcb76b03"
     },
     {
       "name": "pass-lower",
       "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
       "passphrase": "mysecret",
-      "key": "87075310938c0638be99bba417e4d2c3b4c2ee0afecaf0f3ea99afa99dabcd08"
+      "key": "521da2b3e2a6e243bb5b13c134368772956e6f672ccb2b98d9b25e777004ee7d"
     },
     {
       "name": "pass-spaced",
       "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
       "passphrase": " mysecret ",
-      "key": "e868d4c6068537c881d27b61fa1ecf553a76e43bd8044700b92d21a30182fd8b"
+      "key": "9bddd77792b161bba6a2a0b22e513544dd65c7a23f989603cc1664a796e0381f"
+    },
+    {
+      "name": "pass-nfc",
+      "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+      "passphrase": "café",
+      "key": "67daa7c27a078d0fa34c0cefc34e6bdcbb6ef05d9fefe09b56a40c3b35e11561"
+    },
+    {
+      "name": "pass-nfd",
+      "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+      "passphrase": "café",
+      "key": "67daa7c27a078d0fa34c0cefc34e6bdcbb6ef05d9fefe09b56a40c3b35e11561"
+    },
+    {
+      "name": "pass-cjk",
+      "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+      "passphrase": "ﾊﾟ",
+      "key": "22bcd87ff05b235342d4e3d2abf305a71aef0f2e533fadd4f8d96b2b3ba5016e"
     }
   ],
   "feistel_vectors": [
@@ -385,125 +405,139 @@
       "mnemonic": "zero",
       "lat_ns": 0,
       "lon_ns": 0,
-      "address": "produce.sorry.deputy.0930"
+      "address": "matrix.toast.flat.7777"
     },
     {
       "mnemonic": "zero",
       "lat_ns": 51508000000,
       "lon_ns": -128100000,
-      "address": "pledge.bone.long.7693"
+      "address": "false.senior.tray.0573"
     },
     {
       "mnemonic": "zero",
       "lat_ns": -33856800000,
       "lon_ns": 151215300000,
-      "address": "vivid.drive.trial.6157"
+      "address": "crunch.meat.finger.5578"
     },
     {
       "mnemonic": "zero",
       "lat_ns": 90000000000,
       "lon_ns": 0,
-      "address": "ozone.movie.pony.0744"
+      "address": "outdoor.tissue.action.1368"
     },
     {
       "mnemonic": "zero",
       "lat_ns": -90000000000,
       "lon_ns": 0,
-      "address": "lunar.autumn.wet.4081"
+      "address": "garden.few.pulp.1224"
     },
     {
       "mnemonic": "zero",
       "lat_ns": 0,
       "lon_ns": -180000000000,
-      "address": "position.entry.easily.0253"
+      "address": "wide.weekend.lazy.7752"
     },
     {
       "mnemonic": "zero",
       "lat_ns": 12345600000,
       "lon_ns": 179999999999,
-      "address": "surprise.monkey.promote.4244"
+      "address": "caught.enroll.control.0637"
     },
     {
       "mnemonic": "zero",
       "lat_ns": 65195912693,
       "lon_ns": -142359874620,
-      "address": "sound.screen.soda.7494"
+      "address": "claw.year.traffic.4644"
     },
     {
       "mnemonic": "zero",
       "lat_ns": -58839715780,
       "lon_ns": 79628587171,
-      "address": "stick.deposit.glide.8386"
+      "address": "elite.morning.catalog.2984"
     },
     {
       "mnemonic": "zero",
       "lat_ns": 15877785627,
       "lon_ns": -64943309290,
-      "address": "battle.cover.apple.7919"
+      "address": "vivid.icon.pool.5107"
     },
     {
       "mnemonic": "zero",
       "lat_ns": 43547110028,
       "lon_ns": 34042981298,
-      "address": "stuff.change.health.9137"
+      "address": "flash.swamp.student.8753"
     },
     {
       "mnemonic": "zero",
       "lat_ns": 75067477638,
       "lon_ns": -32058188499,
-      "address": "tiny.link.business.0899"
+      "address": "fan.donkey.amazing.0381"
     },
     {
       "mnemonic": "zero",
       "lat_ns": 69896316209,
       "lon_ns": -120105518430,
-      "address": "ugly.pilot.pony.3115"
+      "address": "ladder.shoulder.arrive.8268"
     },
     {
       "mnemonic": "zero",
       "lat_ns": -229052615,
       "lon_ns": -171278682404,
-      "address": "absurd.remain.spoon.7224"
+      "address": "nose.foam.desk.6875"
     },
     {
       "mnemonic": "zero",
       "lat_ns": 86202948281,
       "lon_ns": -173379683810,
-      "address": "dawn.used.rescue.1682"
+      "address": "blue.nuclear.electric.6943"
     },
     {
       "mnemonic": "zero",
       "lat_ns": 51858649991,
       "lon_ns": 122777208084,
-      "address": "omit.cook.tuition.5498"
+      "address": "gospel.icon.sausage.4594"
     },
     {
       "mnemonic": "zero",
       "lat_ns": 5490370617,
       "lon_ns": 47725564277,
-      "address": "spot.veteran.mouse.6357"
+      "address": "stuff.charge.paper.4669"
     },
     {
       "mnemonic": "zero",
       "lat_ns": -61471562925,
       "lon_ns": 164395844999,
-      "address": "kidney.year.asset.6382"
+      "address": "flee.jealous.clown.0541"
     },
     {
       "mnemonic": "zero",
       "lat_ns": -8997146435,
       "lon_ns": 97932452343,
-      "address": "all.seed.addict.7248"
+      "address": "learn.swallow.company.9711"
     },
     {
       "mnemonic": "zero",
       "lat_ns": 49251889241,
       "lon_ns": -74041844406,
-      "address": "attack.loud.trade.2213"
+      "address": "sponsor.boat.argue.1672"
+    }
+  ],
+  "nfkd_addresses": [
+    {
+      "mnemonic": "pass-nfc",
+      "lat_ns": 65195912693,
+      "lon_ns": -142359874620,
+      "address": "snow.tattoo.quarter.8511"
+    },
+    {
+      "mnemonic": "pass-nfc",
+      "lat_ns": -58839715780,
+      "lon_ns": 79628587171,
+      "address": "number.unusual.shrug.8391"
     }
   ],
   "invalid_addresses": [
-    "ability.abstract.accuse.0003", "able.achieve.addict.0006",
-    "abstract.alert.arena.0021", "absurd.alpha.artist.0024"
+    "ability.abstract.accuse.0003", "about.actor.agent.0009",
+    "absent.afford.amused.0015", "abstract.alert.arena.0021"
   ]
 }
