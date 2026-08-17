@@ -11,4 +11,3 @@ obj/
 .fstar-hints/
 _build/
 ocaml/fstarlib/*.ml
-ocaml/extracted/*.ml

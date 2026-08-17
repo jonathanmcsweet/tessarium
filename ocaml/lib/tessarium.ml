@@ -12,8 +12,11 @@ exception Invalid_address of string
 exception Bad_mnemonic of string
 
 let grid_version = Table.grid_version
-let total_cells = Z.to_int Table.total_cells
-let address_space = Z.to_int Tessarium_Spec.addr_space
+(* Left as Zarith. Both exceed 2^31, and this module is also compiled to
+   JavaScript, where Z.to_int targets a 32-bit int and raises Z.Overflow at
+   load time. *)
+let total_cells = Table.total_cells
+let address_space = Tessarium_Spec.addr_space
 
 (* Bound the mapping to a specific grid. Regenerating the band table changes
    every address rather than silently reinterpreting old ones. *)
@@ -22,10 +25,13 @@ let tweak = grid_version
 (* The injected round function, exposed so tests can drive the core directly. *)
 let round_fn = Crypto.round_fn
 
-let lat_min = -90_000_000_000
-let lat_max = 90_000_000_000
-let lon_min = -180_000_000_000
-let lon_max = 180_000_000_000
+(* Zarith, not int literals. This module is also compiled to JavaScript, where
+   OCaml's native int is 32 bits: written as literals these four constants are
+   silently truncated, and js_of_ocaml says so. *)
+let lat_min = Z.of_string "-90000000000"
+let lat_max = Z.of_string "90000000000"
+let lon_min = Z.of_string "-180000000000"
+let lon_max = Z.of_string "180000000000"
 
 (* ------------------------------------------------------- key derivation *)
 
@@ -134,16 +140,18 @@ let address_of_string s =
 
 (* ------------------------------------------------------------ public API *)
 
-let check_range lat_ns lon_ns =
-  if lat_ns < lat_min || lat_ns > lat_max then
-    invalid_arg (Printf.sprintf "latitude %d out of range" lat_ns);
-  if lon_ns < lon_min || lon_ns > lon_max then
-    invalid_arg (Printf.sprintf "longitude %d out of range" lon_ns)
+let check_range lat lon =
+  if Z.lt lat lat_min || Z.gt lat lat_max then
+    invalid_arg (Printf.sprintf "latitude %s out of range" (Z.to_string lat));
+  if Z.lt lon lon_min || Z.gt lon lon_max then
+    invalid_arg (Printf.sprintf "longitude %s out of range" (Z.to_string lon))
+
+let encode_z ~key ~lat ~lon =
+  check_range lat lon;
+  address_to_string (Api.encode Crypto.round_fn key tweak lat lon)
 
 let encode ~key ~lat_ns ~lon_ns =
-  check_range lat_ns lon_ns;
-  address_to_string
-    (Api.encode Crypto.round_fn key tweak (Z.of_int lat_ns) (Z.of_int lon_ns))
+  encode_z ~key ~lat:(Z.of_int lat_ns) ~lon:(Z.of_int lon_ns)
 
 let decode ~key addr =
   match Api.decode Crypto.round_fn key tweak (address_of_string addr) with
@@ -155,7 +163,10 @@ let decode ~key addr =
 
 (* Cell corners for the grid overlay: (lat_lo, lat_hi, lon_lo, lon_hi),
    half-open at the high edge. *)
+let cell_bounds_z ~lat ~lon =
+  check_range lat lon;
+  Api.bounds_of_point lat lon
+
 let cell_bounds ~lat_ns ~lon_ns =
-  check_range lat_ns lon_ns;
-  let a, b, c, d = Api.bounds_of_point (Z.of_int lat_ns) (Z.of_int lon_ns) in
+  let a, b, c, d = cell_bounds_z ~lat:(Z.of_int lat_ns) ~lon:(Z.of_int lon_ns) in
   (Z.to_int a, Z.to_int b, Z.to_int c, Z.to_int d)

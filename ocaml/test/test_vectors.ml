@@ -41,8 +41,10 @@ let () =
 
   (* constants agree with the extracted table *)
   check_eq "grid_version" Tessarium.grid_version (to_str (member "grid_version" json));
-  check "total_cells" (Tessarium.total_cells = to_int (member "total_cells" json));
-  check "address_space" (Tessarium.address_space = to_int (member "address_space" json));
+  check "total_cells"
+    (Z.equal Tessarium.total_cells (Z.of_int (to_int (member "total_cells" json))));
+  check "address_space"
+    (Z.equal Tessarium.address_space (Z.of_int (to_int (member "address_space" json))));
 
   (* key derivation *)
   let keys = Hashtbl.create 8 in

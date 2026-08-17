@@ -1,0 +1,10 @@
+; The browser artifact. Same extracted core as the native build, compiled to
+; JavaScript, so there is one implementation rather than two.
+;
+; zarith_stubs_js supplies pure-JS implementations of Zarith's C primitives;
+; without it the extracted core's bignum arithmetic has no backing in a browser.
+(executable
+ (name tessarium_js)
+ (modes js)
+ (libraries tessarium tessarium_extracted zarith zarith_stubs_js js_of_ocaml)
+ (preprocess (pps js_of_ocaml-ppx)))

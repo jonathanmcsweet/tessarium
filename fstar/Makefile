@@ -14,7 +14,7 @@ ROOT  := Tessarium.Api.fst
 # ulib.checked/ rather than beside the sources. It is cosmetic.
 FSTAR_FLAGS := --warn_error -321
 
-.PHONY: all verify extract clean
+.PHONY: all verify extract fstarlib clean
 
 all: verify
 
@@ -46,6 +46,38 @@ extract: verify
 	  $(FSTAR) $(FSTAR_FLAGS) --codegen OCaml --odir $(OUT) \
 	    --extract_module $$m $$m.fst > /dev/null || exit 1; \
 	done
+
+# F*'s own OCaml support modules, built from source with our switch rather than
+# linked from its shipped objects. OCaml 5.3 compresses .cmi with zstd when the
+# compiler has it; F*'s binaries were built with a zstd-enabled compiler and
+# ours is not, so its .cmi files read as corrupt despite identical versions.
+# Vendored into the build rather than the repository: they are upstream's, and
+# reproducible from the pinned F* release.
+FSTAR_ROOT   := $(dir $(shell command -v $(FSTAR)))..
+SUPPORT_MODS := Prims FStar_Pervasives_Native FStar_Pervasives FStar_List_Tot_Base \
+                FStar_Seq_Base FStar_Seq_Properties FStar_ImmutableArray_Base FStar_UInt8
+
+fstarlib:
+	@mkdir -p ../ocaml/fstarlib
+	@for m in $(SUPPORT_MODS); do \
+	  f=$$(find $(FSTAR_ROOT)/lib/fstar/ulib/ml $(FSTAR_ROOT)/lib/fstar/lib -name "$$m.ml" | head -1); \
+	  test -n "$$f" || { echo "missing support module $$m"; exit 1; }; \
+	  cp "$$f" ../ocaml/fstarlib/; \
+	done
+	@printf '%s\n' \
+	  '(* Shim for the sliver of Batteries that F*'"'"'s support modules use.' \
+	  '   Depending on batteries proper drags OCaml threads into the' \
+	  '   js_of_ocaml bundle, where caml_thread_initialize does not exist. *)' \
+	  'include List' \
+	  'let split_at n l =' \
+	  '  let rec go i acc = function' \
+	  '    | rest when i = 0 -> (List.rev acc, rest)' \
+	  '    | x :: tl -> go (i - 1) (x :: acc) tl' \
+	  '    | [] -> invalid_arg "split_at"' \
+	  '  in go n [] l' \
+	  'let subset cmp a b = List.for_all (fun x -> List.exists (fun y -> cmp x y = 0) b) a' \
+	  > ../ocaml/fstarlib/batList.ml
+	@echo "  vendored $(words $(SUPPORT_MODS)) F* support modules + BatList shim"
 
 clean:
 	rm -f *.checked .depend

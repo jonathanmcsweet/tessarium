@@ -9,4 +9,4 @@
  (wrapped false)
  (flags (:standard -w -a))
  (preprocess (pps ppx_deriving.show ppx_deriving_yojson))
- (libraries zarith yojson batteries stdint))
+ (libraries zarith yojson stdint))
