@@ -85,6 +85,21 @@ program is correct".
 reads as coverage. Before adding one, check it can fail: state a false variant
 and confirm the solver rejects it.
 
+**Every bug outside the proof's reach gets a test.** The theorems cover the
+grid, the permutation and the codec. They cover nothing in the server, the UI,
+the PMTiles code, key derivation, or the build. When a bug is found in any of
+those, land a unit or end-to-end test that fails without the fix — in the same
+commit, not later. Two from this project, both of which passed every existing
+test at the time they shipped:
+
+- the BIP-39 passphrase was case-folded, so `MySecret` and `mysecret` gave the
+  same map. Every committed vector used an empty passphrase, so nothing looked
+  at it.
+- worker errors were returned nested inside a success value, so an address
+  that decodes to nothing reported success. The valid path was perfect.
+
+A new test must be shown to fail before the fix, or it is decoration.
+
 **Clean room.** Do not consult, reference or vendor what3words' wordlist,
 grid or algorithm.
 

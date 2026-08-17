@@ -45,8 +45,11 @@ ui:
 
 test: test-core test-ui
 
+# Via check-suites.sh, not `dune test` directly: dune reports failures but
+# cannot tell you a suite produced no output at all, which is how the
+# differential check once stopped running for several commits.
 test-core:
-	dune build @runtest --force
+	tools/check-suites.sh
 
 # The browser test needs both halves running, so it starts the server it is
 # about to drive rather than assuming one is up. No --ui: this exercises the

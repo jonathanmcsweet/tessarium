@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Assert that every test suite actually ran.
+#
+# This exists because of a real failure: the differential check redirected its
+# output to a file, which made it a build target, and the build system caches
+# targets — so it stopped running and everything stayed green. A suite that
+# quietly stops running is worse than one that fails, because nothing says so.
+#
+# Grepping the output for each suite's own report line is crude and catches
+# exactly that: if a suite did not run, its line is absent.
+
+set -uo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+
+# name : the pattern its report line must match
+suites=(
+  "native vectors|all vectors reproduce"
+  "js_of_ocaml bundle|gridForBounds|^55 checks|^58 checks"
+  "independent js implementation|checks passed, 0 failed"
+  "server decisions|server decisions hold"
+  "pmtiles round-trip|pmtiles round-trips"
+  "vector regeneration|vectors reproduce exactly from the verified core"
+  "differential sweep|points checked"
+)
+
+out="$(dune build @runtest --force 2>&1)"
+status=$?
+echo "$out"
+
+echo
+echo "==> suite presence"
+missing=0
+for entry in "${suites[@]}"; do
+  name="${entry%%|*}"
+  pattern="${entry#*|}"
+  if printf '%s' "$out" | grep -qE "$pattern"; then
+    printf '    ok   %s\n' "$name"
+  else
+    printf '    MISSING  %s\n' "$name"
+    missing=$((missing + 1))
+  fi
+done
+
+# A suite reporting failures is caught by dune's exit status; this only adds
+# the case dune cannot see, which is a suite that produced no output at all.
+if [ "$missing" -gt 0 ]; then
+  echo
+  echo "error: $missing suite(s) produced no output — they did not run." >&2
+  echo "       Check for a dune rule that declares a target: those are cached" >&2
+  echo "       and will not re-run under --force." >&2
+  exit 1
+fi
+
+if [ "$status" -ne 0 ]; then
+  echo "error: a suite reported failures" >&2
+  exit "$status"
+fi
+
+echo "    all $((${#suites[@]})) suites ran"

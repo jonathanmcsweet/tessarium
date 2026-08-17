@@ -105,8 +105,10 @@ jobs:
       # vectors, the independently written JS implementation, the server's pure
       # decisions, the PMTiles round-trip, and a check that the verified core
       # still reproduces vectors.json from inputs.json.
+      # check-suites.sh rather than dune directly: dune reports a suite that
+      # fails, but not one that produced no output because its rule got cached.
       - name: Test
-        run: opam exec -- dune build @runtest --force
+        run: opam exec -- tools/check-suites.sh
 
       # Copies ui/dist to ocaml/server/ui_dist, which the next build compiles
       # into the server binary.
