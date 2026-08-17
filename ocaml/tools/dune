@@ -19,3 +19,10 @@
  (name differential)
  (modules differential)
  (libraries tessarium tessarium_extracted zarith unix))
+
+; Embeds the built UI into the server binary. See gen_assets.ml for why the
+; assets are stored gzipped rather than raw.
+(executable
+ (name gen_assets)
+ (modules gen_assets)
+ (libraries gzip))

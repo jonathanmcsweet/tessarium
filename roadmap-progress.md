@@ -637,3 +637,51 @@ to look at the extracted core.
 
 **Follow-on:** Phase 4 becomes a single entry weighing a native round function
 against having two implementations of the hash.
+
+---
+
+### 2026-08-17 — Single binary and release tarball
+
+**Phase:** 7
+
+**What:** The UI is compiled into the server binary, so the desktop target is
+genuinely one file. Extracted from the tarball into an empty directory, it
+serves the app with no `--ui` flag and no asset directory anywhere; the browser
+suite passes against it. `tools/package.sh` produces a 13 MB tarball holding
+two executables, a licence and a README.
+
+**Rationale:** three choices.
+
+- *Assets are stored gzipped and served with `Content-Encoding: gzip`.* The
+  js_of_ocaml core is 4.4 MB, and an OCaml source file containing a 4.4 MB
+  escaped string literal is slow to compile and large in the binary. Gzipped it
+  is 990 KB, which is also what a browser wants over the wire, so nothing is
+  decompressed at startup and the common path does no work. A client that will
+  not accept gzip gets it decompressed rather than a 406 — browsers all accept
+  it, but curl and scripts should still work.
+- *`make ui` copies `ui/dist` to `ocaml/server/ui_dist` rather than dune
+  depending on `ui/dist` directly.* The direct route would put
+  `ui/node_modules` in dune's view, and scanning ten thousand files on every
+  build to reach four is a poor trade.
+- *Embedded assets are checked before the directory, not after.* That way a
+  `--ui` directory overrides the built-in copy, so `npm run dev` against this
+  server works without rebuilding the binary; and a fresh clone that has never
+  built the UI still compiles, because the generated module comes out empty and
+  everything falls through to disk.
+
+**Also:** gzip had appeared in three places — PMTiles directories, the asset
+embedder, and the server decompressing for non-gzip clients — so it moved to
+one `ocaml/gzip` library. The compressor uses a fixed timestamp, or an embedded
+asset would make the binary irreproducible for no reason.
+
+**Caveat, stated rather than hidden:** the binary dynamically links `libgmp`
+through Zarith, so "a clean machine needs nothing installed" is not quite true.
+It needs `libgmp10`, which Python and GnuPG already pull in nearly everywhere.
+Recorded in the tarball's README and left open in Phase 7 rather than quietly
+dropped.
+
+**Measured:** 6 assets embedded, 5.4 s to compile them in, 15.2 MB server
+binary, 13 MB tarball. The served core is byte-identical to the built bundle.
+
+**Follow-on:** Phase 7 keeps `.deb`, AppImage, a desktop entry, and the libgmp
+question.

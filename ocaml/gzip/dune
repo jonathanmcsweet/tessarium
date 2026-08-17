@@ -1,0 +1,4 @@
+; gzip in one place, used by pmtiles, the asset embedder, and the server.
+(library
+ (name gzip)
+ (libraries decompress.de decompress.gz bigstringaf))

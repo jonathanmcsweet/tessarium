@@ -6,4 +6,4 @@
 ; one over HTTP range requests.
 (library
  (name pmtiles)
- (libraries decompress.de decompress.gz bigstringaf))
+ (libraries gzip))

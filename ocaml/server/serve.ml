@@ -78,6 +78,51 @@ let respond_json cfg ~status json =
 let error cfg ~status message =
   respond_json cfg ~status (`Assoc [ ("error", `String message) ])
 
+(* ------------------------------------------------------- embedded assets *)
+
+(* The built UI, compiled into the binary. This is what makes the desktop
+   target one file rather than a file plus a directory that has to travel with
+   it. Empty when the UI has not been built, in which case everything falls
+   through to the directory named by --ui.
+
+   Stored gzipped and normally served that way. A client that will not accept
+   gzip gets it decompressed rather than a 406: browsers all accept it, and the
+   exceptions are curl and scripts, which should still work. *)
+let accepts_gzip headers =
+  match Http.Header.get headers "accept-encoding" with
+  | None -> false
+  | Some v ->
+      let v = String.lowercase_ascii v in
+      let rec contains i =
+        i + 4 <= String.length v
+        && (String.sub v i 4 = "gzip" || contains (i + 1))
+      in
+      contains 0
+
+let serve_embedded cfg ~segments ~meth ~headers =
+  match Embedded_assets.find (String.concat "/" segments) with
+  | None -> None
+  | Some packed ->
+      let gzipped = accepts_gzip headers in
+      let body = if gzipped then packed else Gzip.decompress packed in
+      let name = match List.rev segments with [] -> "" | n :: _ -> n in
+      let extra =
+        if gzipped then [ ("content-encoding", "gzip") ] else []
+      in
+      let headers_out =
+        Http.Header.of_list
+          (("content-type", Url_path.content_type name)
+          :: ("content-length", string_of_int (String.length body))
+          :: ("cache-control", Url_path.cache_control segments)
+          (* Cached responses vary by whether the client took the gzip, so a
+             shared cache must not hand one client the other's bytes. *)
+          :: ("vary", "accept-encoding")
+          :: (extra @ security_headers cfg))
+      in
+      let response = Http.Response.make ~status:`OK ~headers:headers_out () in
+      let write _ic oc = if meth <> `HEAD then Write.string oc body in
+      Some (`Expert (response, write), `OK, String.length body, Http_range.Whole)
+
 (* ----------------------------------------------------------- file serving *)
 
 (* A window onto an open file, so a range response never materialises in
@@ -291,18 +336,33 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~random =
       | Route.Basemap segments ->
           serve_file cfg ~root:basemap_root ~segments ~meth ~range_header
             ~immutable:false
-      | Route.Asset segments ->
-          let served =
-            serve_file cfg ~root:ui_root ~segments ~meth ~range_header
-              ~immutable:true
+      | Route.Asset segments -> (
+          let headers = Http.Request.headers request in
+          (* Embedded first, then the directory. A --ui directory therefore
+             overrides the built-in copy, which is what makes `npm run dev`
+             against this server work without rebuilding the binary. *)
+          let from_disk () =
+            let served =
+              serve_file cfg ~root:ui_root ~segments ~meth ~range_header
+                ~immutable:true
+            in
+            let _, status, _, _ = served in
+            (* A single-page app owns its own routes: /somewhere must return
+               the shell so a deep link survives a reload. A missing .js must
+               not. *)
+            if status = `Not_found && Route.is_spa_fallback segments then
+              match
+                serve_embedded cfg ~segments:[ "index.html" ] ~meth ~headers
+              with
+              | Some shell -> shell
+              | None ->
+                  serve_file cfg ~root:ui_root ~segments:[ "index.html" ] ~meth
+                    ~range_header:None ~immutable:false
+            else served
           in
-          let _, status, _, _ = served in
-          (* A single-page app owns its own routes: /somewhere must return the
-             shell so a deep link survives a reload. A missing .js must not. *)
-          if status = `Not_found && Route.is_spa_fallback segments then
-            serve_file cfg ~root:ui_root ~segments:[ "index.html" ] ~meth
-              ~range_header:None ~immutable:false
-          else served
+          match serve_embedded cfg ~segments ~meth ~headers with
+          | Some served -> served
+          | None -> from_disk ())
       | Route.Not_found ->
           simple (error cfg ~status:`Not_found "not found") `Not_found
       | Route.Method_not_allowed ->

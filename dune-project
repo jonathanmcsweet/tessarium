@@ -1,4 +1,4 @@
-(lang dune 3.0)
+(lang dune 3.6)
 (name tessarium)
 
 (generate_opam_files true)

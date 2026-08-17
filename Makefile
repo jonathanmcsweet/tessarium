@@ -12,7 +12,7 @@ FSTAR_BIN := $(HOME)/toolchain/fstar/bin
 SWITCH    := tessarium
 PORT      ?= 7373
 
-.PHONY: all env verify extract build ui test test-core test-ui run clean
+.PHONY: all env verify extract build ui test test-core test-ui run package clean
 
 all: build ui
 
@@ -34,8 +34,14 @@ extract:
 build:
 	dune build
 
+# The built UI is copied where dune can see it, so the next `make build`
+# compiles it into the server binary. ui/dist itself is not depended on
+# directly: that would put ui/node_modules in dune's view.
 ui:
 	cd ui && npm ci --no-audit --no-fund && npm run build
+	rm -rf ocaml/server/ui_dist
+	cp -r ui/dist ocaml/server/ui_dist
+	@echo "  UI copied to ocaml/server/ui_dist; run 'make build' to embed it"
 
 test: test-core test-ui
 
@@ -43,11 +49,12 @@ test-core:
 	dune build @runtest --force
 
 # The browser test needs both halves running, so it starts the server it is
-# about to drive rather than assuming one is up.
+# about to drive rather than assuming one is up. No --ui: this exercises the
+# UI compiled into the binary, which is what actually ships.
 test-ui:
 	@dune build ocaml/server/bin/main.exe
 	@./_build/default/ocaml/server/bin/main.exe \
-	  --port $(PORT) --ui ui/dist --basemap basemap --no-open & \
+	  --port $(PORT) --basemap basemap --no-open & \
 	  echo $$! > .server.pid; \
 	  trap 'kill $$(cat .server.pid) 2>/dev/null; rm -f .server.pid' EXIT; \
 	  for i in $$(seq 40); do \
@@ -55,10 +62,15 @@ test-ui:
 	  done; \
 	  cd ui && node test/e2e.mjs http://127.0.0.1:$(PORT)
 
+# No --ui: the binary serves the UI it was built with. Pass --ui to override
+# with a directory, which is what `npm run dev` wants.
 run: build
-	./_build/default/ocaml/server/bin/main.exe --port $(PORT) --ui ui/dist --basemap basemap
+	./_build/default/ocaml/server/bin/main.exe --port $(PORT) --basemap basemap
+
+package: build
+	tools/package.sh
 
 clean:
 	dune clean
 	$(MAKE) -C fstar clean
-	rm -rf ui/dist ui/node_modules
+	rm -rf ui/dist ui/node_modules ocaml/server/ui_dist dist

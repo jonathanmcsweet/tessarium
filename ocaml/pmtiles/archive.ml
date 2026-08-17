@@ -18,26 +18,10 @@ type t = {
   leaves : (int * int, Directory.entry array) Hashtbl.t;
 }
 
-let gunzip data =
-  let i = De.bigstring_create De.io_buffer_size in
-  let o = De.bigstring_create De.io_buffer_size in
-  let out = Buffer.create (String.length data * 4) in
-  let pos = ref 0 in
-  let refill buf =
-    let len = min (String.length data - !pos) De.io_buffer_size in
-    Bigstringaf.blit_from_string data ~src_off:!pos buf ~dst_off:0 ~len;
-    pos := !pos + len;
-    len
-  in
-  let flush buf len = Buffer.add_string out (Bigstringaf.substring buf ~off:0 ~len) in
-  match Gz.Higher.uncompress ~refill ~flush i o with
-  | Ok _ -> Buffer.contents out
-  | Error (`Msg m) -> invalid_arg ("pmtiles: gzip: " ^ m)
-
 let inflate (compression : Header.compression) data =
   match compression with
   | Header.None_ | Header.Unknown -> data
-  | Header.Gzip -> gunzip data
+  | Header.Gzip -> Gzip.decompress data
   (* Both are legal in the format and neither appears in a Protomaps build.
      Refusing loudly beats returning bytes that are not a directory. *)
   | Header.Brotli -> invalid_arg "pmtiles: brotli directories are not supported"

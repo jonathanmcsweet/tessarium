@@ -30,6 +30,7 @@ build and a browser build from that one extraction.
 | HTTP server | Done — Eio, range requests, opt-in API |
 | Web UI | Done — enter a phrase, click a square, get its address |
 | Offline basemap | Done — PMTiles reader and region extractor in OCaml |
+| Desktop | Done — single binary with the UI embedded; tarball |
 | Theorems | Done — containment, injectivity, round-trip, end to end |
 | JavaScript cross-check | Independent implementation; agrees on 512,298 points |
 
@@ -81,11 +82,16 @@ runs all six test suites and the browser end-to-end test.
 
 ```bash
 eval "$(make env)"           # F*, opam switch, nvm onto PATH
-make build                   # verify is separate; this just compiles
 make ui                      # build the web UI
+make build                   # compile it into the server binary
 tools/fetch-basemap.sh       # ~30 MB of central London, tiles and glyphs
 make run                     # serves http://127.0.0.1:7373 and opens a browser
 ```
+
+`make verify` proves the core and is deliberately separate from `make build`.
+`make package` produces a release tarball: two executables, no asset directory,
+no runtime to install — the UI is compiled into the binary. It does link
+`libgmp` through Zarith, which is the one thing a target machine needs.
 
 `tools/fetch-basemap.sh -b min_lon,min_lat,max_lon,max_lat -z 15` fetches
 anywhere else. Tiles come out of the Protomaps planet build over HTTP range

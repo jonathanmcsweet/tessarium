@@ -108,21 +108,33 @@ jobs:
       - name: Test
         run: opam exec -- dune build @runtest --force
 
+      # Copies ui/dist to ocaml/server/ui_dist, which the next build compiles
+      # into the server binary.
       - name: Build the UI
-        run: |
-          cd ui
-          npm ci --no-audit --no-fund
-          npm run build
+        run: opam exec -- make ui
 
+      - name: Embed the UI in the binary
+        run: opam exec -- dune build
+
+      # No --ui, so this drives the UI compiled into the binary rather than a
+      # directory beside it. That is what ships, so that is what is tested.
       - name: Browser end-to-end
         run: |
           cd ui && npx playwright install chromium
           cd ..
           mkdir -p basemap
           opam exec -- ./_build/default/ocaml/server/bin/main.exe \
-            --port 7373 --ui ui/dist --basemap basemap --no-open &
+            --port 7373 --basemap basemap --no-open &
           for i in $(seq 40); do
             curl -sf -o /dev/null http://127.0.0.1:7373/healthz && break
             sleep 0.25
           done
           cd ui && node test/e2e.mjs http://127.0.0.1:7373
+
+      - name: Package
+        run: opam exec -- tools/package.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tessarium-linux-x86_64
+          path: dist/*.tar.gz

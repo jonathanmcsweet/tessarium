@@ -269,16 +269,21 @@ not cover.
       addressing work everywhere, but the basemap is blank, and the app
       currently gives no indication of where coverage ends.
 
-## Phase 7 — Desktop
+## Phase 7 — Desktop packaging
 
-The binary already serves localhost and opens a browser, which is the whole
-runtime behaviour. What is missing is shipping it as one file.
+Single binary and tarball are done. What remains is distribution format and
+the one honest caveat.
 
-- [ ] Embed the UI assets in the binary. They are read from `ui/dist` at
-      runtime today, so the "single binary" claim is not yet true — it is a
-      binary plus a directory.
-- [ ] Packaging: tarball, `.deb`, AppImage
-- [ ] Confirm a clean machine needs nothing installed to run it
+- [ ] **`libgmp` is a real dependency.** Zarith links it dynamically, so the
+      tarball is not quite "needs nothing installed" — it needs `libgmp10`.
+      Almost always already present, since Python and GnuPG pull it in, but
+      the claim should be either fixed by static linking or stated. Currently
+      stated, in the tarball's README.
+- [ ] `.deb` and AppImage. The tarball covers the technically-minded; neither
+      of the others is hard once the binary is genuinely self-contained, which
+      it now is apart from libgmp.
+- [ ] A desktop entry and icon, so it appears in an application menu rather
+      than only as a command.
 
 ## Phase 8 — Later, unscheduled
 

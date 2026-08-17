@@ -16,3 +16,9 @@ ocaml/fstarlib/*.ml
 basemap/
 .server.pid
 ocaml/lib/wordlist.ml
+
+# UI assets copied in by `make ui` for embedding, plus the module generated
+# from them.
+ocaml/server/ui_dist/
+ocaml/server/embedded_assets.ml
+dist/

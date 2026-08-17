@@ -1,3 +1,19 @@
+; The UI, embedded. `make ui` copies ui/dist here as ui_dist/, which is
+; gitignored; if it is absent the module comes out empty and the server falls
+; back to serving from a directory. That keeps a fresh clone buildable without
+; having run the UI build first.
+;
+; ui/dist is not depended on directly because that would put ui/node_modules in
+; dune's view, and scanning ten thousand files on every build to reach four is
+; a poor trade.
+(rule
+ (target embedded_assets.ml)
+ (deps (glob_files_rec ui_dist/*))
+ (action
+  (with-stdout-to
+   embedded_assets.ml
+   (run %{exe:../tools/gen_assets.exe} ui_dist))))
+
 ; The HTTP server. Pure decisions (Route, Url_path, Http_range) sit alongside
 ; the Eio wiring so they can be tested with no socket; see test/.
 (library
@@ -12,4 +28,5 @@
   fmt
   yojson
   zarith
-  base64))
+  base64
+  gzip))
