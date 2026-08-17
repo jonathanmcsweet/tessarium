@@ -1,0 +1,12 @@
+; F* support modules, copied from the pinned F* installation by
+; `make -C ../../fstar fstarlib`. Built from source with this switch's compiler
+; rather than linking F*'s shipped objects: OCaml 5.3 compresses .cmi files with
+; zstd when the compiler has it, and F*'s binaries were built with a
+; zstd-enabled compiler that ours is not. Same version and same magic number,
+; still unreadable. Building from source sidesteps the question entirely.
+(library
+ (name fstarlib)
+ (wrapped false)
+ (flags (:standard -w -a))
+ (preprocess (pps ppx_deriving.show ppx_deriving_yojson))
+ (libraries zarith yojson batteries stdint))

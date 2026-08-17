@@ -9,3 +9,6 @@ node_modules/
 obj/
 *.checked.lax
 .fstar-hints/
+_build/
+ocaml/fstarlib/*.ml
+ocaml/extracted/*.ml

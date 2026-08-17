@@ -1,0 +1,10 @@
+; GENERATED CODE. The .ml files here are produced by `make -C ../../fstar
+; extract` and are build artifacts; never hand-edit them.
+;
+; Unwrapped because the extracted modules refer to each other, and to F*'s
+; Prims and FStar_* support modules, by flat name.
+(library
+ (name tessarium_extracted)
+ (wrapped false)
+ (flags (:standard -w -a))
+ (libraries fstarlib))

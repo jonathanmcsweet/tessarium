@@ -1,0 +1,161 @@
+(* Public API: seed phrase in, addresses out.
+
+   Everything numeric below crosses into the F*-extracted core, which works in
+   Zarith integers. OCaml's native int is 63-bit and would hold every value
+   here, but the conversion is kept explicit at the boundary rather than
+   assumed. *)
+
+module Api = Tessarium_Api
+module Table = Tessarium_Table
+
+exception Invalid_address of string
+exception Bad_mnemonic of string
+
+let grid_version = Table.grid_version
+let total_cells = Z.to_int Table.total_cells
+let address_space = Z.to_int Tessarium_Spec.addr_space
+
+(* Bound the mapping to a specific grid. Regenerating the band table changes
+   every address rather than silently reinterpreting old ones. *)
+let tweak = grid_version
+
+(* The injected round function, exposed so tests can drive the core directly. *)
+let round_fn = Crypto.round_fn
+
+let lat_min = -90_000_000_000
+let lat_max = 90_000_000_000
+let lon_min = -180_000_000_000
+let lon_max = 180_000_000_000
+
+(* ------------------------------------------------------- key derivation *)
+
+let required_words = 24
+let hkdf_salt = "tessarium/v1/salt"
+let hkdf_info = "tessarium/v1/feistel-key"
+
+let normalize s = String.trim (String.lowercase_ascii s)
+
+let split_words s =
+  String.split_on_char ' ' (String.map (function '\t' | '\n' | '\r' -> ' ' | c -> c) s)
+  |> List.filter (fun w -> w <> "")
+
+(* 24 words only. A 12-word phrase carries 128 bits of entropy, which Grover
+   reduces to an effective 64. 24 words leaves 128 standing. *)
+let validate_mnemonic m =
+  let words = split_words (normalize m) in
+  let n = List.length words in
+  if n <> required_words then
+    Error
+      (Printf.sprintf
+         "expected %d words, got %d. 12-word phrases are not accepted: 128 bits \
+          of entropy is only 64 against a quantum adversary."
+         required_words n)
+  else
+    match List.find_opt (fun w -> not (Hashtbl.mem Wordlist.index w)) words with
+    | Some bad -> Error (Printf.sprintf "'%s' is not a BIP-39 word" bad)
+    | None ->
+        (* 24 words = 264 bits = 256 entropy + 8 checksum *)
+        let bits =
+          List.fold_left
+            (fun acc w -> Z.add (Z.shift_left acc 11) (Z.of_int (Hashtbl.find Wordlist.index w)))
+            Z.zero words
+        in
+        let checksum = Z.to_int (Z.logand bits (Z.of_int 0xff)) in
+        let entropy = Crypto.be_bytes_of_z (Z.shift_right bits 8) 32 in
+        if Char.code (Crypto.sha256 entropy).[0] <> checksum then
+          Error "checksum failed -- likely a typo in one word"
+        else Ok ()
+
+(* PBKDF2 is deliberately slow. Derive once per session and cache the result;
+   it must never sit in the per-request path. *)
+let derive_key ~mnemonic ~passphrase =
+  match validate_mnemonic mnemonic with
+  | Error e -> raise (Bad_mnemonic e)
+  | Ok () ->
+      let words = split_words (normalize mnemonic) in
+      let seed =
+        Crypto.pbkdf2_sha512
+          ~password:(String.concat " " words)
+          ~salt:("mnemonic" ^ normalize passphrase)
+          ~count:2048 ~dklen:64
+      in
+      Crypto.hkdf_sha256 ~ikm:seed ~salt:hkdf_salt ~info:hkdf_info ~len:32
+
+(* ------------------------------------------------------------- addresses *)
+
+let address_to_string (w1, w2, w3, n) =
+  Printf.sprintf "%s.%s.%s.%04d" Wordlist.words.(Z.to_int w1)
+    Wordlist.words.(Z.to_int w2) Wordlist.words.(Z.to_int w3) (Z.to_int n)
+
+(* Exact match, else unique four-letter prefix. BIP-39 guarantees the first
+   four letters identify a word, so 'slic' resolves to 'slice'. *)
+let resolve_word w =
+  match Hashtbl.find_opt Wordlist.index w with
+  | Some i -> Some i
+  | None ->
+      if String.length w < 4 then None
+      else
+        let p = String.sub w 0 4 in
+        let hits =
+          Array.to_list Wordlist.words
+          |> List.filteri (fun _ _ -> true)
+          |> List.mapi (fun i x -> (i, x))
+          |> List.filter (fun (_, x) ->
+                 String.length x >= 4 && String.sub x 0 4 = p)
+        in
+        (match hits with [ (i, _) ] -> Some i | _ -> None)
+
+let split_address s =
+  let norm =
+    String.map (function ',' | '/' | ' ' | '-' | '_' -> '.' | c -> c)
+      (String.trim (String.lowercase_ascii s))
+  in
+  String.split_on_char '.' norm |> List.filter (fun p -> p <> "")
+
+let address_of_string s =
+  match split_address s with
+  | [ a; b; c; num ] ->
+      let is_digits t =
+        String.length t = 4 && String.for_all (fun ch -> ch >= '0' && ch <= '9') t
+      in
+      if not (is_digits num) then
+        raise (Invalid_address (Printf.sprintf "'%s' is not a four-digit number" num));
+      let idx w =
+        match resolve_word w with
+        | Some i -> Z.of_int i
+        | None -> raise (Invalid_address (Printf.sprintf "'%s' is not a BIP-39 word" w))
+      in
+      (idx a, idx b, idx c, Z.of_int (int_of_string num))
+  | parts ->
+      raise
+        (Invalid_address
+           (Printf.sprintf "expected 3 words and a number, got %d parts"
+              (List.length parts)))
+
+(* ------------------------------------------------------------ public API *)
+
+let check_range lat_ns lon_ns =
+  if lat_ns < lat_min || lat_ns > lat_max then
+    invalid_arg (Printf.sprintf "latitude %d out of range" lat_ns);
+  if lon_ns < lon_min || lon_ns > lon_max then
+    invalid_arg (Printf.sprintf "longitude %d out of range" lon_ns)
+
+let encode ~key ~lat_ns ~lon_ns =
+  check_range lat_ns lon_ns;
+  address_to_string
+    (Api.encode Crypto.round_fn key tweak (Z.of_int lat_ns) (Z.of_int lon_ns))
+
+let decode ~key addr =
+  match Api.decode Crypto.round_fn key tweak (address_of_string addr) with
+  | None ->
+      Error
+        "address does not correspond to any location (about 35% of word \
+         combinations do not; check for a typo)"
+  | Some (lat, lon) -> Ok (Z.to_int lat, Z.to_int lon)
+
+(* Cell corners for the grid overlay: (lat_lo, lat_hi, lon_lo, lon_hi),
+   half-open at the high edge. *)
+let cell_bounds ~lat_ns ~lon_ns =
+  check_range lat_ns lon_ns;
+  let a, b, c, d = Api.bounds_of_point (Z.of_int lat_ns) (Z.of_int lon_ns) in
+  (Z.to_int a, Z.to_int b, Z.to_int c, Z.to_int d)

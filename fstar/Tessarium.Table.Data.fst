@@ -780,6 +780,10 @@ let lemma_diffs () =
   lemma_diffs_append c0 t1 max_col_count;
   ()
 
+let lemma_base () =
+  lemma_hd_append c0 t1;
+  assert_norm (L.hd c0 == 0)
+
 let lemma_total () =
   L.lemma_unsnoc_is_last cumcols_list;
   L.lemma_append_last c0 t1;

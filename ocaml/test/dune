@@ -1,0 +1,4 @@
+(test
+ (name test_vectors)
+ (deps %{project_root}/vectors/vectors.json)
+ (libraries tessarium tessarium_extracted zarith yojson))

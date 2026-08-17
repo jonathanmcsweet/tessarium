@@ -1,0 +1,3 @@
+; Only these directories hold dune targets. reference/ and js/ are scaffolding
+; and design/ is offline Python; none of them should be built.
+(dirs ocaml vectors)

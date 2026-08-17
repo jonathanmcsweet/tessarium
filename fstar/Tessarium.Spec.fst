@@ -62,6 +62,14 @@ let lemma_ceil_le p k d =
   lemma_div_le_iff (p + k - 1) k d;
   assert ((d + 1) * k == d * k + k)
 
+/// A quotient stays under any bound its dividend respects. Used to place a row
+/// in a band and a remainder in a row.
+val lemma_div_bound (a: nat) (k n: pos)
+  : Lemma (requires a < n * k) (ensures a / k < n)
+let lemma_div_bound a k n =
+  M.division_propriety a k;
+  M.multiplication_order_lemma (a / k) n k
+
 (* ------------------------------------------------------- bucketing core *)
 
 /// Uniform bucketing of [v_min, v_min + span) onto [0, k).

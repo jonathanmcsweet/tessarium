@@ -34,5 +34,8 @@ val cumcols_list : l: list nat{Cons? l /\ L.length l == bands + 1}
 /// band a positive column count; the bound gives the per-band width limit.
 val lemma_diffs : unit -> Lemma (diffs_ok cumcols_list max_col_count)
 
+/// The table starts at zero, so band 0 begins at cell 0.
+val lemma_base : unit -> Lemma (L.index cumcols_list 0 == 0)
+
 /// The grand total, which is what makes the grid fit the address space.
 val lemma_total : unit -> Lemma (L.index cumcols_list bands * rows_per_band == total_cells)

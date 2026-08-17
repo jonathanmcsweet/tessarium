@@ -1,3 +1,5 @@
+; digestif.ocaml, not digestif.c: the same module has to compile under
+; js_of_ocaml, and C stubs do not cross into the browser.
 (library
  (name tessarium)
- (libraries digestif))
+ (libraries tessarium_extracted zarith digestif.ocaml))
