@@ -78,7 +78,9 @@ export function MapView({ core, selection, onSelect, flyTo }: Props) {
          reaches a CDN for glyphs looks fine online and renders unlabelled the
          first time someone opens it offline. */
       glyphs: "/basemap/fonts/{fontstack}/{range}.pbf",
-      sprite: `${window.location.origin}/basemap/sprites/v4`,
+      /* MapLibre appends .json and .png, so this names the flavour rather
+         than the directory: sprites/v4/light.json and light.png. */
+      sprite: `${window.location.origin}/basemap/sprites/v4/light`,
       sources: {
         protomaps: {
           type: "vector",

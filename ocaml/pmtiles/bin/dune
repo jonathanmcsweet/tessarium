@@ -1,0 +1,14 @@
+(executable
+ (name main)
+ (public_name tessarium-basemap)
+ (package tessarium)
+ (libraries
+  pmtiles
+  eio_main
+  cohttp-eio
+  tls-eio
+  mirage-crypto-rng.unix
+  ca-certs-nss
+  domain-name
+  uri
+  cmdliner))

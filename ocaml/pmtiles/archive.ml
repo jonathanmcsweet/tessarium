@@ -1,0 +1,95 @@
+(* Reading a PMTiles archive through an injected byte source.
+
+   The source is a function, not a file handle, so the same code reads a local
+   archive and a remote one over HTTP range requests. That is the whole
+   interface an archive needs: it is a format designed to be read by asking
+   for byte ranges and nothing else.
+
+   Directories are cached. A tile lookup walks root then leaf, and without a
+   cache every tile in a region would re-fetch and re-decompress the same leaf
+   directory. *)
+
+type source = { read : offset:int -> length:int -> string }
+
+type t = {
+  src : source;
+  header : Header.t;
+  root : Directory.entry array;
+  leaves : (int * int, Directory.entry array) Hashtbl.t;
+}
+
+let gunzip data =
+  let i = De.bigstring_create De.io_buffer_size in
+  let o = De.bigstring_create De.io_buffer_size in
+  let out = Buffer.create (String.length data * 4) in
+  let pos = ref 0 in
+  let refill buf =
+    let len = min (String.length data - !pos) De.io_buffer_size in
+    Bigstringaf.blit_from_string data ~src_off:!pos buf ~dst_off:0 ~len;
+    pos := !pos + len;
+    len
+  in
+  let flush buf len = Buffer.add_string out (Bigstringaf.substring buf ~off:0 ~len) in
+  match Gz.Higher.uncompress ~refill ~flush i o with
+  | Ok _ -> Buffer.contents out
+  | Error (`Msg m) -> invalid_arg ("pmtiles: gzip: " ^ m)
+
+let inflate (compression : Header.compression) data =
+  match compression with
+  | Header.None_ | Header.Unknown -> data
+  | Header.Gzip -> gunzip data
+  (* Both are legal in the format and neither appears in a Protomaps build.
+     Refusing loudly beats returning bytes that are not a directory. *)
+  | Header.Brotli -> invalid_arg "pmtiles: brotli directories are not supported"
+  | Header.Zstd -> invalid_arg "pmtiles: zstd directories are not supported"
+
+let read_directory src header ~offset ~length =
+  Directory.deserialize (inflate header.Header.internal_compression (src.read ~offset ~length))
+
+let open_ src =
+  let header = Header.parse (src.read ~offset:0 ~length:Header.size) in
+  let root =
+    read_directory src header ~offset:header.Header.root_offset
+      ~length:header.Header.root_length
+  in
+  { src; header; root; leaves = Hashtbl.create 16 }
+
+let metadata t =
+  inflate t.header.Header.internal_compression
+    (t.src.read ~offset:t.header.Header.metadata_offset
+       ~length:t.header.Header.metadata_length)
+
+let leaf t ~offset ~length =
+  match Hashtbl.find_opt t.leaves (offset, length) with
+  | Some d -> d
+  | None ->
+      let d =
+        read_directory t.src t.header
+          ~offset:(t.header.Header.leaf_offset + offset)
+          ~length
+      in
+      Hashtbl.replace t.leaves (offset, length) d;
+      d
+
+(* Where a tile's bytes live, without fetching them. Separated from [tile] so
+   an extract can plan its reads -- and deduplicate them -- before doing any.
+
+   The spec allows leaf directories to nest, so this follows rather than
+   assuming one level. *)
+let locate t tile_id =
+  let rec walk entries depth =
+    if depth > 4 then None (* a cycle in a malformed archive *)
+    else
+      match Directory.find entries tile_id with
+      | None -> None
+      | Some e when Directory.is_leaf_pointer e ->
+          walk (leaf t ~offset:e.Directory.offset ~length:e.Directory.length) (depth + 1)
+      | Some e -> Some (e.Directory.offset, e.Directory.length)
+  in
+  walk t.root 0
+
+let tile t tile_id =
+  match locate t tile_id with
+  | None -> None
+  | Some (offset, length) ->
+      Some (t.src.read ~offset:(t.header.Header.data_offset + offset) ~length)

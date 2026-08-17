@@ -1,0 +1,9 @@
+; PMTiles v3, read and extract. Written here rather than taken from the Go
+; tool because the desktop build ships as one static binary, and the Phase 6
+; region downloader has to run inside it.
+;
+; Byte reads are injected, so the same code reads a local archive and a remote
+; one over HTTP range requests.
+(library
+ (name pmtiles)
+ (libraries decompress.de decompress.gz bigstringaf))
