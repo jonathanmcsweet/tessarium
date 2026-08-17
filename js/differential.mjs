@@ -16,9 +16,12 @@
 import { readFileSync } from "node:fs";
 import * as w from "./tessarium.mjs";
 
+/* "-" reads stdin, which is how dune runs it: the corpus is piped straight
+   from the generator and never touches disk, so the rule has no target and
+   therefore actually re-runs rather than being cached as a build artifact. */
 const path = process.argv[2];
 if (!path) {
-  console.error("usage: node js/differential.mjs <corpus>");
+  console.error("usage: node js/differential.mjs <corpus|->");
   process.exit(2);
 }
 
@@ -36,7 +39,7 @@ const failures = [];
    bury the first one, which is the only one worth reading. */
 const MAX_REPORTED = 10;
 
-const lines = readFileSync(path, "utf8").split("\n");
+const lines = readFileSync(path === "-" ? 0 : path, "utf8").split("\n");
 for (const line of lines) {
   if (line === "" || line.startsWith("#")) {
     const m = /(\d+) at band seams/.exec(line);

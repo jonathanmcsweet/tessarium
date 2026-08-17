@@ -22,9 +22,10 @@
   %{project_root}/wordlist/english.txt
   bands.json
   (glob_files %{project_root}/ocaml/tools/*.ml))
+ ; Piped rather than written to a file: an action with a target is cached as a
+ ; build artifact and will not re-run under `dune test --force`, which makes a
+ ; test that quietly stops running.
  (action
-  (progn
-   (with-stderr-to
-    corpus.log
-    (run %{exe:../ocaml/tools/differential.exe} --count 2000 --out corpus.txt))
-   (run node %{dep:differential.mjs} corpus.txt))))
+  (pipe-stdout
+   (run %{exe:../ocaml/tools/differential.exe} --count 2000)
+   (run node %{dep:differential.mjs} -))))
