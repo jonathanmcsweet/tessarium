@@ -36,22 +36,14 @@ jobs:
             "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
           tar -xzf fstar.tar.gz && mv fstar* fstar
 
-      - name: Verify every module
+      # `make verify` passes --report_assumes error, so every escape hatch --
+      # admit, assume, magic -- is an error rather than something to remember to
+      # look for. An admit otherwise verifies silently and nothing fails on it.
+      - name: Verify every module, refusing proof holes
         run: |
           export PATH="$HOME/toolchain/fstar/bin:$PATH"
           fstar.exe --version
           make -C fstar verify
-
-      # An `admit` is a hole in the proof that verifies silently. Nothing in
-      # the build fails on one, so the check has to be explicit -- and it has
-      # to run here rather than be remembered.
-      - name: Refuse admits and assumes
-        run: |
-          if grep -RnE '\b(admit|assume|magic)\b' fstar/*.fst fstar/*.fsti; then
-            echo "::error::a proof hole is present"
-            exit 1
-          fi
-          echo "no admits, assumes or magic"
 
   build:
     name: Build, extract and test

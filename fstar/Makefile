@@ -12,7 +12,14 @@ ROOT  := Tessarium.Api.fst
 
 # Warning 321 fires because the binary release keeps ulib's checked files in
 # ulib.checked/ rather than beside the sources. It is cosmetic.
-FSTAR_FLAGS := --warn_error -321
+#
+# --report_assumes error is the zero-admits rule, enforced by F* itself. An
+# `admit` verifies silently and nothing else in the build fails on one, so the
+# absence of proof holes has to be checked rather than assumed. Grepping the
+# source for the word was the obvious alternative and is wrong: it fires on the
+# word "assume" in a comment, and misses an escape hatch reached through an
+# abbreviation.
+FSTAR_FLAGS := --warn_error -321 --report_assumes error
 
 .PHONY: all verify extract fstarlib clean
 

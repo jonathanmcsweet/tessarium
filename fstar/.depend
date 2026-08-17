@@ -2,7 +2,7 @@
 # Executable: "/home/dev/toolchain/fstar/bin/fstar.exe"
 # Hash: 6881155405467afa5deac27ef54dacccaf53a84b
 # Running in directory "/home/dev/workspace/tessarium/fstar"
-# Command line arguments: "["fstar.exe", "--warn_error", "-321", "--dep", "full", "Tessarium.Api.fst", "--output_deps_to", ".depend"]"
+# Command line arguments: "["fstar.exe", "--warn_error", "-321", "--report_assumes", "error", "--dep", "full", "Tessarium.Api.fst", "--output_deps_to", ".depend"]"
 
 /home/dev/toolchain/fstar/lib/fstar/ulib.checked/FStar.Math.Lemmas.fsti.checked: \
 	/home/dev/toolchain/fstar/lib/fstar/ulib/FStar.Math.Lemmas.fsti \
@@ -289,6 +289,7 @@ FStar_ImmutableArray_Base.krml: \
 
 Tessarium.Feistel.fst.checked: \
 	Tessarium.Feistel.fst \
+	/home/dev/toolchain/fstar/lib/fstar/ulib.checked/Prims.fst.checked \
 	/home/dev/toolchain/fstar/lib/fstar/ulib.checked/FStar.Pervasives.Native.fst.checked \
 	Tessarium.Spec.fst.checked \
 	/home/dev/toolchain/fstar/lib/fstar/ulib.checked/FStar.Math.Lemmas.fsti.checked \
