@@ -12,7 +12,7 @@ FSTAR_BIN := $(HOME)/toolchain/fstar/bin
 SWITCH    := tessarium
 PORT      ?= 7373
 
-.PHONY: all env verify extract build ui test test-core test-ui run package clean
+.PHONY: all env verify extract build ui test test-core test-static test-ui run package clean
 
 all: build ui
 
@@ -43,13 +43,19 @@ ui:
 	cp -r ui/dist ocaml/server/ui_dist
 	@echo "  UI copied to ocaml/server/ui_dist; run 'make build' to embed it"
 
-test: test-core test-ui
+test: test-core test-static test-ui
 
 # Via check-suites.sh, not `dune test` directly: dune reports failures but
 # cannot tell you a suite produced no output at all, which is how the
 # differential check once stopped running for several commits.
 test-core:
 	tools/check-suites.sh
+
+# Lint, types and message catalogues. Fast, needs nothing running, and catches
+# the class of mistake the browser test cannot see: a message a locale is
+# missing, a placeholder a translator dropped, an accessibility rule broken.
+test-static:
+	@cd ui && npm run check
 
 # The browser test needs both halves running, so it starts the server it is
 # about to drive rather than assuming one is up. No --ui: this exercises the

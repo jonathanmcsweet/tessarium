@@ -15,7 +15,14 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
-    "types": ["node", "geojson"]
+    "types": ["node", "geojson"],
+    // Paraglide compiles messages to JavaScript carrying JSDoc types. Reading
+    // them is what makes a message call type-checked -- a key that does not
+    // exist fails the build instead of printing itself on screen.
+    "allowJs": true
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts"],
+  // Generated on every build from messages/*.json. Type-checking the generated
+  // code itself would only report on the generator.
+  "exclude": ["src/paraglide"]
 }

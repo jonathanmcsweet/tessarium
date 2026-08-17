@@ -40,6 +40,26 @@ const ops = {
     return { ok: error === null, error };
   },
 
+  /* A phrase the user did not invent.
+
+     This is the highest-value security control in the application, and it is
+     three lines long. A phrase a person makes up -- favourite words, a
+     sentence rewritten into wordlist words -- is worth perhaps 40 bits of
+     guessing effort and passes every check the app makes. These 32 bytes are
+     worth 256. The round count and the cost of key derivation only decide
+     anything in the case where this step was skipped.
+
+     `crypto.getRandomValues` is the platform CSPRNG. The core does the BIP-39
+     encoding and nothing else: it never generates the bytes, which keeps the
+     one decision that matters at this edge, in sight. */
+  generate() {
+    const entropy = new Uint8Array(core.entropyBytes);
+    crypto.getRandomValues(entropy);
+    const hex = Array.from(entropy, (b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    return { mnemonic: core.mnemonicOfEntropy(hex) };
+  },
+
   unlock({ mnemonic, passphrase }) {
     const r = core.deriveKey(mnemonic, passphrase ?? "");
     if (r.error) return { ok: false, error: r.error };
@@ -78,8 +98,8 @@ const ops = {
     }
     if (point === null) {
       throw new Refused(
-        "That address does not correspond to any location. About 35% of " +
-          "word combinations do not, which is what makes a typo obvious.",
+        "That address does not correspond to any location. About 35% of "
+          + "word combinations do not, which is what makes a typo obvious.",
       );
     }
     return { lat: point.lat, lon: point.lon };
@@ -93,21 +113,16 @@ const ops = {
     const g = core.gridForBounds(latLo, lonLo, latHi, lonHi, limit);
     return { cells: g.cells, count: g.count, truncated: g.truncated };
   },
+  /* There is deliberately no bulk-address operation here.
 
-  /* The address for every cell in view, so a hover or a click needs no round
-     trip. Encoding is fast -- ten HMACs -- but thousands of individual
-     postMessage round trips would not be. */
-  gridWithAddresses({ latLo, lonLo, latHi, lonHi, limit }) {
-    if (key === null) throw new Refused("locked");
-    const g = core.gridForBounds(latLo, lonLo, latHi, lonHi, limit);
-    const addresses = new Array(g.count);
-    for (let i = 0; i < g.count; i++) {
-      const latMid = (g.cells[i * 4] + g.cells[i * 4 + 1]) / 2;
-      const lonMid = (g.cells[i * 4 + 2] + g.cells[i * 4 + 3]) / 2;
-      addresses[i] = core.encodeDeg(key, latMid, lonMid);
-    }
-    return { cells: g.cells, count: g.count, truncated: g.truncated, addresses };
-  },
+     One existed: it encoded every cell in the viewport at once, to draw an
+     address inside each square. It is gone, and the absence is the feature.
+     An attacker's problem is finding a phrase that maps a known address to a
+     known place, and every (address, place) pair they hold is material for
+     that search. A screenshot of a labelled grid hands over fifty pairs in
+     one image, from a user who thought they were sharing a picture of a
+     street. Addresses are now produced one at a time, for the square the user
+     actually asked about. */
 };
 
 self.onmessage = (event) => {

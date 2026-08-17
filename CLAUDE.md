@@ -26,19 +26,12 @@ Read `README.md` for what this project is, `roadmap.md` for what's next.
 
 ## Core coding principles
 
-These hold in all three languages — F\* in `fstar/`, OCaml in `ocaml/`,
-TypeScript in `ui/`.
-
+These hold in all languages
 - Always use a function-first immutability-first coding style unless the developer approves of you not doing so
 - Use pure functional programming style unless the developer approves of you not doing so. A function is pure when:
   1. the function return values are identical for identical arguments (no variation with local static variables, non-local variables, mutable reference arguments or input streams, i.e., referential transparency), and
   2. the function has no side effects (no mutation of non-local variables, mutable reference arguments or input/output streams).
-- Effects that cannot be avoided belong at the edges. The core injects them:
-  `Tessarium.Feistel` takes the round function as a parameter,
-  `Pmtiles.Archive` takes a byte-reading function, `Pmtiles.Extract` takes the
-  copy. The decision itself goes somewhere it can be unit-tested with no
-  socket, no filesystem and no clock — `ocaml/server/route.ml`,
-  `http_range.ml` and `url_path.ml` are the pattern to copy.
+- Effects that cannot be avoided belong at the edges. The core injects them
 - Use the DRY principle (reducing redundancy by ensuring that every piece of knowledge has a single, authoritative representation in a system) unless the excess abstraction complicates the code by creating unnecessary layers that make it harder to understand, modify, test. 
 
 ## Hard rules
@@ -196,3 +189,24 @@ in the browser; the opt-in API exists for scripting), and HMAC-SHA256 comes
 from `digestif`'s pure-OCaml backend rather than HACL\*, because HACL\*'s C
 stubs do not cross into js_of_ocaml and taking it would force a second
 browser-side crypto implementation.
+
+## UI / UX
+- All network state management needs to be in React Query
+- All non-network app state management needs to be managed by Zustand
+- For anything with behavior (focus traps, popovers, keyboard handling), take an
+  accessible primitive from a vetted library rather than hand-rolling
+- All success and failure messages for atomic behaviors like submitting to an API should use Toast messages
+- Site-wide notifications for issues that affect the global app should show as banners at the top of the screen
+- WCAG compliance is required
+  - If a feature can't be WCAG compliant, propose an alternative for users that need it. I.e. a table for those who can't see a graph
+- i18n compatability is a must
+- **Everything must work on both mobile and desktop.** 
+  - Every view and control must be usable with touch and with a mouse/keyboard. 
+  - Use responsive layout (relative units, flex/grid) so nothing overflows the viewport on a small screen
+  - give touch targets enough size.
+- **An icon is never enough on its own.** 
+  - Every button or navigation element must have accomanying text, either in the button or as a tooltip
+  - Use the shared `IconButton` component (hover, keyboard-focus, and long-press tooltip)
+  - Always provide an `aria-label` on an icon-only control, in addition to the
+  visible tooltip, so assistive technology announces it.
+- Use a shared icon set. Do not hand-roll SVG glyphs for UI icons unless there isn't a sufficient icon available

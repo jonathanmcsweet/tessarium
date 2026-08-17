@@ -9,77 +9,97 @@
    phrase goes straight to the worker, which keeps the derived key and returns
    only whether it worked. */
 
-import { useState, useEffect, useRef } from "react";
-import type { Core } from "../core/client";
+import { Dices } from "lucide-react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import {
+  useGeneratePhrase,
+  useUnlock,
+  useValidatePhrase,
+} from "../core/queries";
+import { m } from "../paraglide/messages";
+import { useAppStore } from "../store";
+import { LanguagePicker } from "./LanguagePicker";
 
-type Props = {
-  core: Core;
-  onUnlocked: () => void;
-};
+const wordsIn = (phrase: string) => phrase.trim().split(/\s+/).filter(Boolean);
 
-export function PhraseEntry({ core, onUnlocked }: Props) {
+export function PhraseEntry() {
   const [phrase, setPhrase] = useState("");
   const [passphrase, setPassphrase] = useState("");
-  const [validation, setValidation] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
+  /* Held so the "write this down" notice disappears once the user edits the
+     words, rather than lingering over a phrase we did not generate. */
+  const [generated, setGenerated] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+
+  const setUnlocked = useAppStore((s) => s.setUnlocked);
+  const generate = useGeneratePhrase();
+  const unlock = useUnlock();
+
+  /* Checksum feedback as you type: wordlist and checksum only, so it is
+     instant. The expensive derivation happens on submit. A phrase that fails
+     its checksum is almost always one mistyped word, and saying so before a
+     400 ms derivation is worth the round trip. */
+  const validation = useValidatePhrase(phrase);
+  const validationError = validation.data?.error ?? null;
 
   useEffect(() => {
     input.current?.focus();
   }, []);
 
-  /* Checksum feedback as you type. This is wordlist and checksum only, so it
-     is instant -- the expensive derivation happens on submit. A phrase that
-     fails its checksum is almost always one mistyped word, and saying so
-     before a 400 ms derivation is worth the round trip. */
-  useEffect(() => {
-    const words = phrase.trim().split(/\s+/).filter(Boolean);
-    if (words.length === 0) {
-      setValidation(null);
-      return;
-    }
-    let cancelled = false;
-    core.validate(phrase).then((r) => {
-      if (!cancelled) setValidation(r.error);
+  const wordCount = wordsIn(phrase).length;
+  const ready = wordCount === 24 && validationError === null
+    && validation.isSuccess;
+
+  /* The bytes are drawn in the worker, by the platform CSPRNG, and only the
+     words come back. Offered prominently because the alternative -- a person
+     choosing 24 words that mean something to them -- produces a phrase that
+     passes every check this app makes and is worth a tiny fraction of the
+     guessing effort. It is the one weakness a user can introduce that no
+     amount of work elsewhere repairs. */
+  function onGenerate() {
+    generate.mutate(undefined, {
+      onSuccess: ({ mnemonic }) => {
+        setPhrase(mnemonic);
+        setGenerated(mnemonic);
+        input.current?.focus();
+      },
+      onError: () => toast.error(m.gate_generate_failed()),
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [phrase, core]);
-
-  const wordCount = phrase.trim().split(/\s+/).filter(Boolean).length;
-  const ready = validation === null && wordCount === 24;
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!ready || busy) return;
-    setBusy(true);
-    setFailure(null);
-    const result = await core.unlock(phrase, passphrase);
-    if (result.ok) {
-      /* Drop the phrase from component state the moment it is no longer
-         needed. React state is reachable from the page; the worker's copy is
-         not. */
-      setPhrase("");
-      setPassphrase("");
-      onUnlocked();
-    } else {
-      setFailure(result.error);
-    }
-    setBusy(false);
   }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!ready || unlock.isPending) return;
+    unlock.mutate(
+      { mnemonic: phrase, passphrase },
+      {
+        onSuccess: (result) => {
+          if (!result.ok) {
+            toast.error(result.error ?? m.gate_unlock_failed());
+            return;
+          }
+          /* Drop the phrase from component state the moment it is no longer
+             needed. React state is reachable from the page; the worker's copy
+             is not. */
+          setPhrase("");
+          setPassphrase("");
+          setGenerated(null);
+          setUnlocked();
+        },
+        onError: () => toast.error(m.gate_unlock_failed()),
+      },
+    );
+  }
+
+  const showWriteDown = generated !== null && phrase === generated;
 
   return (
     <div className="gate">
       <form className="gate-card" onSubmit={submit}>
-        <h1>Tessarium</h1>
-        <p className="lede">
-          Three words and a number address every ~3 m square on Earth, under a
-          map that belongs to your seed phrase alone.
-        </p>
+        <h1>{m.app_name()}</h1>
+        <p className="lede">{m.gate_lede()}</p>
 
-        <label htmlFor="phrase">Your 24-word seed phrase</label>
+        <label htmlFor="phrase">{m.gate_phrase_label()}</label>
         <textarea
           id="phrase"
           ref={input}
@@ -88,28 +108,60 @@ export function PhraseEntry({ core, onUnlocked }: Props) {
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
-          placeholder="abandon ability able about above absent…"
+          /* A generated phrase arrives a moment after the click and replaces
+             whatever is in this field. Read-only for that moment, so it can
+             never replace something the user typed in the meantime.
+             Read-only rather than disabled: focus and selection survive. */
+          readOnly={generate.isPending}
+          aria-invalid={wordCount > 0 && validationError !== null}
+          aria-describedby="phrase-status"
+          placeholder={m.gate_phrase_placeholder()}
           value={phrase}
           onChange={(e) => setPhrase(e.target.value)}
         />
 
-        <div className="phrase-status">
+        {
+          /* Inline and beside the field, not a toast: this is live validation
+            of what is being typed, and it has to stay on screen while the user
+            fixes it. Toasts are for the submit. */
+        }
+        <div className="phrase-status" id="phrase-status" role="status">
           <span className={wordCount === 24 ? "count ok" : "count"}>
-            {wordCount}/24 words
+            {m.gate_word_count({ count: wordCount })}
           </span>
-          {validation && wordCount > 0 && (
-            <span className="invalid">{validation}</span>
+          {validationError && wordCount > 0 && (
+            <span className="invalid">{validationError}</span>
           )}
-          {ready && <span className="valid">checksum valid</span>}
+          {ready && <span className="valid">{m.gate_checksum_valid()}</span>}
         </div>
 
+        <div className="generate">
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={generate.isPending}
+          >
+            <Dices size={17} aria-hidden />
+            {m.gate_generate()}
+          </button>
+          <span className="hint">{m.gate_generate_hint()}</span>
+        </div>
+
+        {showWriteDown && (
+          <div className="warning" role="status">
+            <strong>{m.gate_write_down_title()}</strong>{" "}
+            {m.gate_write_down_body()}
+          </div>
+        )}
+
         <details className="passphrase">
-          <summary>Optional passphrase</summary>
-          <p className="hint">
-            A BIP-39 passphrase. A different passphrase over the same words is
-            a completely different map, not a variation on this one.
-          </p>
+          <summary>{m.gate_passphrase_summary()}</summary>
+          <p className="hint">{m.gate_passphrase_what()}</p>
+          <p className="hint">{m.gate_passphrase_exact()}</p>
+          <p className="hint">{m.gate_passphrase_empty()}</p>
+          <label htmlFor="passphrase">{m.gate_passphrase_label()}</label>
           <input
+            id="passphrase"
             type="password"
             autoComplete="off"
             value={passphrase}
@@ -117,29 +169,25 @@ export function PhraseEntry({ core, onUnlocked }: Props) {
           />
         </details>
 
-        <button type="submit" disabled={!ready || busy}>
-          {busy ? "Deriving key…" : "Open my map"}
+        <button type="submit" disabled={!ready || unlock.isPending}>
+          {unlock.isPending ? m.gate_submit_busy() : m.gate_submit()}
         </button>
-        {busy && (
-          <p className="hint">
-            2048 rounds of PBKDF2. Slow on purpose, and only once per session.
-          </p>
-        )}
-        {failure && <p className="invalid">{failure}</p>}
+        {unlock.isPending && <p className="hint">{m.gate_deriving_hint()}</p>}
 
         <div className="warning">
-          <strong>Use a fresh phrase, not a wallet seed.</strong> Anyone who
-          learns a few of your addresses and where they actually are is doing
-          cryptanalysis against this key. If it also holds funds, you have
-          combined two unrelated risks for nothing.
+          <strong>{m.gate_wallet_warning_title()}</strong>{" "}
+          {m.gate_wallet_warning_body()}
         </div>
 
-        <p className="fineprint">
-          24 words only. A 12-word phrase carries 128 bits of entropy, which
-          Grover's algorithm reduces to an effective 64. Your phrase is never
-          stored, never put in the URL, and never sent anywhere — the key is
-          derived here, in a worker, on this device.
-        </p>
+        {
+          /* The wordlist is English BIP-39 in every language: a French reader
+            still types English words, and being told that up front is kinder
+            than discovering it against a validation error. */
+        }
+        <p className="fineprint">{m.gate_wordlist_note()}</p>
+        <p className="fineprint">{m.gate_fineprint()}</p>
+
+        <LanguagePicker className="gate-language" />
       </form>
     </div>
   );

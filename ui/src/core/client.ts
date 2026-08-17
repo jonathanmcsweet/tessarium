@@ -3,7 +3,17 @@
    The worker holds the key; this is the only way to reach it, and it is
    deliberately narrow. Note what is absent: there is no `getKey`. The key
    cannot be read back out, so no amount of misuse from a component can put it
-   somewhere it should not be. */
+   somewhere it should not be.
+
+   Everything crossing back from the worker is parsed rather than asserted.
+   `postMessage` delivers whatever the other side sent, and TypeScript has no
+   opinion about it at runtime -- a cast would only be a promise we made to
+   ourselves. Zod checks it. The costly bug this guards against is real and has
+   happened here before: the worker once returned failures nested inside a
+   success value, and the main thread, having cast rather than checked, flew
+   the map to NaN. */
+
+import { z } from "zod";
 
 export type Cell = {
   latLo: number;
@@ -12,19 +22,38 @@ export type Cell = {
   lonHi: number;
 };
 
-export type Grid = {
-  cells: Float64Array;
-  count: number;
-  truncated: boolean;
-  addresses?: string[];
-};
-
 export type Bounds = {
   latLo: number;
   lonLo: number;
   latHi: number;
   lonHi: number;
 };
+
+const OkOrError = z.object({
+  ok: z.boolean(),
+  error: z.string().nullable(),
+});
+
+const Status = z.object({
+  unlocked: z.boolean(),
+  gridVersion: z.string(),
+  totalCells: z.string(),
+});
+
+const Address = z.object({ address: z.string() });
+const Point = z.object({ lat: z.number(), lon: z.number() });
+const Mnemonic = z.object({ mnemonic: z.string() });
+
+/* The cells arrive as a transferred Float64Array, not a plain array: a z20
+   viewport is a few thousand cells and copying that on every map movement is
+   a frame budget spent on nothing. */
+const GridSchema = z.object({
+  cells: z.instanceof(Float64Array),
+  count: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+});
+
+export type Grid = z.infer<typeof GridSchema>;
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -49,7 +78,7 @@ export class Core {
       const pending = this.#pending.get(id);
       if (!pending) return;
       this.#pending.delete(id);
-      if (error) pending.reject(new CoreError(error));
+      if (error) pending.reject(new CoreError(String(error)));
       else pending.resolve(result);
     };
     this.#worker.onerror = (event) => {
@@ -61,58 +90,58 @@ export class Core {
     };
   }
 
-  #call<T>(op: string, payload?: unknown): Promise<T> {
+  #call<T>(schema: z.ZodType<T>, op: string, payload?: unknown): Promise<T> {
     const id = this.#nextId++;
-    return new Promise<T>((resolve, reject) => {
-      this.#pending.set(id, {
-        resolve: resolve as (value: unknown) => void,
-        reject,
-      });
+    return new Promise<unknown>((resolve, reject) => {
+      this.#pending.set(id, { resolve, reject });
       this.#worker.postMessage({ id, op, payload });
+    }).then((raw) => {
+      const parsed = schema.safeParse(raw);
+      if (!parsed.success) {
+        throw new CoreError(
+          `core returned an unexpected shape for "${op}": ${parsed.error.message}`,
+        );
+      }
+      return parsed.data;
     });
   }
 
   /* Checksum and wordlist only -- no derivation, so this is instant and safe
      to call on every keystroke. */
-  validate(mnemonic: string): Promise<{ ok: boolean; error: string | null }> {
-    return this.#call("validate", { mnemonic });
+  validate(mnemonic: string) {
+    return this.#call(OkOrError, "validate", { mnemonic });
   }
 
   /* Slow by design: 2048 rounds of PBKDF2-HMAC-SHA512. Expect hundreds of
      milliseconds, and show it in the UI rather than appearing to hang. */
-  unlock(
-    mnemonic: string,
-    passphrase: string,
-  ): Promise<{ ok: boolean; error: string | null }> {
-    return this.#call("unlock", { mnemonic, passphrase });
+  unlock(mnemonic: string, passphrase: string) {
+    return this.#call(OkOrError, "unlock", { mnemonic, passphrase });
   }
 
-  lock(): Promise<{ ok: boolean }> {
-    return this.#call("lock");
+  /* A fresh 24-word phrase from the platform CSPRNG. The bytes are drawn in
+     the worker and never reach this thread; only the words come back. */
+  generate() {
+    return this.#call(Mnemonic, "generate");
   }
 
-  status(): Promise<{
-    unlocked: boolean;
-    gridVersion: string;
-    totalCells: string;
-  }> {
-    return this.#call("status");
+  lock() {
+    return this.#call(z.object({ ok: z.boolean() }), "lock");
   }
 
-  encode(lat: number, lon: number): Promise<{ address: string }> {
-    return this.#call("encode", { lat, lon });
+  status() {
+    return this.#call(Status, "status");
   }
 
-  decode(address: string): Promise<{ lat: number; lon: number }> {
-    return this.#call("decode", { address });
+  encode(lat: number, lon: number) {
+    return this.#call(Address, "encode", { lat, lon });
   }
 
-  grid(bounds: Bounds, limit: number): Promise<Grid> {
-    return this.#call("grid", { ...bounds, limit });
+  decode(address: string) {
+    return this.#call(Point, "decode", { address });
   }
 
-  gridWithAddresses(bounds: Bounds, limit: number): Promise<Grid> {
-    return this.#call("gridWithAddresses", { ...bounds, limit });
+  grid(bounds: Bounds, limit: number) {
+    return this.#call(GridSchema, "grid", { ...bounds, limit });
   }
 }
 
@@ -122,9 +151,3 @@ export const cellAt = (grid: Grid, index: number): Cell => ({
   lonLo: grid.cells[index * 4 + 2]!,
   lonHi: grid.cells[index * 4 + 3]!,
 });
-
-export const cellContains = (cell: Cell, lat: number, lon: number): boolean =>
-  /* Half-open at the high edge, matching the core exactly. A point on a shared
-     edge belongs to one cell, not to both. */
-  lat >= cell.latLo && lat < cell.latHi &&
-  lon >= cell.lonLo && lon < cell.lonHi;

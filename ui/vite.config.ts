@@ -1,5 +1,6 @@
-import { defineConfig } from "vite";
+import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
 
 // The dev server proxies to the OCaml server so that `npm run dev` and the
 // built app see the same origin layout. Without this the basemap would be
@@ -8,7 +9,23 @@ import react from "@vitejs/plugin-react";
 const backend = process.env.TESSARIUM_SERVER ?? "http://127.0.0.1:7373";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Messages are compiled into typed functions rather than looked up from a
+    // dictionary at runtime, so a key that does not exist is a build error and
+    // an unused message is tree-shaken out.
+    paraglideVitePlugin({
+      project: "./project.inlang",
+      outdir: "./src/paraglide",
+      // No cookie and no localStorage. This application persists nothing about
+      // the user -- the end-to-end test asserts empty storage and no cookies --
+      // and a language preference is not worth being the exception that makes
+      // that sentence untrue. `globalVariable` is the in-memory switch the
+      // language menu sets; `preferredLanguage` reads the browser's own
+      // Accept-Language, which is where the answer already lives.
+      strategy: ["globalVariable", "preferredLanguage", "baseLocale"],
+    }),
+  ],
   build: {
     target: "es2022",
     sourcemap: true,

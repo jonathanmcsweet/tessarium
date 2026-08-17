@@ -1,0 +1,70 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "src/**",
+      "test/**",
+      "public/core.worker.js",
+      "!src/paraglide/**",
+      "!public/tessarium.js"
+    ]
+  },
+  "formatter": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "a11y": {
+        "recommended": true
+      },
+      "correctness": {
+        "recommended": true,
+        "useExhaustiveDependencies": "warn"
+      },
+      "suspicious": {
+        "recommended": true,
+        "noExplicitAny": "error",
+        "noConsole": {
+          "level": "warn",
+          "options": {
+            "allow": [
+              "error"
+            ]
+          }
+        }
+      },
+      "style": {
+        "recommended": true,
+        "noNonNullAssertion": "off"
+      }
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "off"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "test/**"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    }
+  ]
+}

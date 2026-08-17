@@ -149,6 +149,39 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* Secondary weight: this sits above "Open my map", which is the primary
+   action, but it must still read as an offer rather than as fine print. */
+.generate {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.generate button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--line);
+  padding: 8px 14px;
+}
+
+.generate button:hover:not(:disabled) {
+  background: #eef1f4;
+}
+
+.generate button:disabled {
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.generate .hint {
+  margin: 0;
+}
+
 .warning {
   border-left: 3px solid var(--accent);
   background: #fff5f3;
@@ -247,27 +280,63 @@ button:disabled {
   color: var(--ink-soft);
 }
 
+.address-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
 .address {
   display: block;
+  flex: 1;
+  min-width: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 19px;
   font-weight: 600;
   line-height: 1.35;
   word-break: break-word;
-  margin-bottom: 12px;
   color: var(--accent);
 }
 
-.copy {
-  width: 100%;
-  margin-bottom: 12px;
+/* Muted rather than accented: concealed is a resting state, not an alert. */
+.address.concealed {
+  color: var(--ink-soft);
+  letter-spacing: 0.02em;
+}
+
+/* Icon buttons, against the panel rather than on a filled pill -- these sit
+   beside the one thing on screen that should draw the eye. */
+.icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.icon:hover {
+  color: var(--ink);
+  background: #eef1f4;
+}
+
+.copied {
+  margin: 6px 0 0;
+  min-height: 18px;
+  font-size: 12px;
+  color: var(--ok);
 }
 
 .coords {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 2px 12px;
-  margin: 0;
+  margin: 12px 0 0;
   font-size: 13px;
 }
 
@@ -311,5 +380,195 @@ button:disabled {
     border-left: none;
     border-top: 1px solid var(--line);
     max-height: 45vh;
+  }
+}
+
+/* --------------------------------------------------- shared components */
+
+/* Visible to a screen reader, not to the eye. Used for labels that would be
+   redundant next to an icon but are the only name assistive technology gets. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 44px, which is the smallest target most touch guidance accepts. The icon
+   inside is 18px; the rest is the part a thumb needs and a mouse does not
+   notice. */
+.icon-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.icon-button:hover:not(:disabled) {
+  color: var(--ink);
+  background: #eef1f4;
+}
+
+.icon-button[aria-pressed="true"] {
+  color: var(--ink);
+  border-color: var(--ink-soft);
+}
+
+.tooltip {
+  max-width: 260px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: white;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: var(--shadow);
+  z-index: 40;
+}
+
+.tooltip-arrow {
+  fill: var(--ink);
+}
+
+/* Site-wide notices. Full width, above everything, and part of the layout
+   rather than floating over it -- the map resizes around it instead of hiding
+   underneath. */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #fff8e6;
+  border-bottom: 1px solid #e8d9a8;
+  color: var(--warn);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.banner p {
+  margin: 0;
+  flex: 1;
+}
+
+.language {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+}
+
+.language select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  /* 44px so it is a comfortable touch target, not a 22px native select. */
+  min-height: 44px;
+  padding: 0 8px;
+  max-width: 100%;
+}
+
+.gate-language {
+  margin-top: 4px;
+}
+
+/* Marks the square Enter will take. Small, low-contrast, and pointer-events
+   off: it is a keyboard aid, not a control. */
+.reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 1.5px solid rgba(18, 33, 47, 0.55);
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.concealed-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------------- layout */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.shell .app {
+  flex: 1;
+  min-height: 0;
+}
+
+.panel-foot .language {
+  margin-bottom: 10px;
+}
+
+/* The lock button carries an icon and its own text, so it needs to lay them
+   out; it is not an icon-only control. */
+.lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
+
+/* Small screens: the panel becomes a sheet under the map rather than a column
+   beside it, and nothing is allowed to overflow sideways. */
+@media (max-width: 560px) {
+  .gate {
+    padding: 12px;
+  }
+  .panel {
+    max-height: 55vh;
+  }
+  .address {
+    font-size: 17px;
+  }
+  .generate {
+    width: 100%;
+  }
+  .generate button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Respect a stated preference for less motion: flyTo is a 1.2 s camera move,
+   which is exactly the kind of thing that setting is about. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: the point of this block
+       is to override animation declared anywhere else, including inside
+       MapLibre's and Sonner's own stylesheets. Without !important it loses to
+       the very rules it exists to disable. */
+    animation-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: as above */
+    animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: as above */
+    transition-duration: 0.01ms !important;
   }
 }

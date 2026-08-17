@@ -766,3 +766,61 @@ generation (the highest-value one, since a made-up phrase is the only case
 where derivation cost decides anything), and writing the FE1 parameter
 analysis down properly. Coarse precision moved to Phase 8 with the measurement
 that killed the cheap version.
+
+### 2026-08-17 — In-app phrase generation, privacy mode, and a UI/UX baseline
+
+**Phase:** 4 and 6
+
+**What:** `Tessarium.mnemonic_of_entropy` turns 32 bytes into 24 BIP-39
+words, pinned to BIP-39's own published 256-bit vectors. The worker draws the
+bytes from `crypto.getRandomValues` and the UI offers "Generate one for me".
+Cell addresses are no longer drawn on the map at any zoom, and the bulk
+address operation that fed them is gone. The panel gained an eye toggle that
+removes the address from the DOM and a copy button that still works while it
+is hidden. The passphrase explanation was rewritten for a non-technical
+reader. The map is keyboard-operable: Enter takes the centre square.
+
+The UI was rebuilt against the standards added to `CLAUDE.md` mid-task:
+React Query for everything crossing into the worker, Zustand for app state,
+Paraglide for messages in six locales (en-US/GB/CA, fr-FR/CA, es-US), Sonner
+toasts for action outcomes, a banner for site-wide conditions, a shared
+`IconButton` over Radix Tooltip, lucide icons, zod at the worker boundary,
+Biome for linting and dprint for formatting.
+
+**Rationale:**
+
+- *Addresses come off the map entirely.* The item on the roadmap was about
+  label placement above z20.5. Removing them is better than placing them: an
+  attacker's search needs (address, real place) pairs, and a screenshot of a
+  labelled grid is fifty pairs in one image from a user who thought they were
+  sharing a picture of a street. One square at a time, in the panel, and the
+  eye toggle takes that to none.
+- *Generation stays pure.* `mnemonic_of_entropy` takes entropy rather than
+  producing it. Where the bytes come from is the only thing that decides
+  whether a phrase is worth 2^256 guesses or 2^40, and it is the one thing
+  that cannot be judged from the output — a phrase from a counter is
+  indistinguishable from one from a hardware RNG. Keeping randomness at the
+  edge leaves it visible and leaves the encoding testable against BIP-39.
+- *Paraglide, not a runtime dictionary.* Messages compile to typed functions,
+  so a key that does not exist fails the build. Configured with
+  `globalVariable` + `preferredLanguage` and no cookie or localStorage,
+  because this application persists nothing and the end-to-end test asserts
+  it. A language choice therefore lasts for the session only.
+
+**Bugs found and fixed, each with a test that fails without the fix:**
+
+- `zoo.zoo.zoo.9999` was invalid under grid version 1 and is valid under
+  version 2, so the end-to-end check that it is refused had silently stopped
+  testing anything. Invalid addresses are now generated into `vectors.json`
+  by the core and track the grid.
+- `check-suites.sh` identified the js_of_ocaml suite by its check count, so
+  adding a test was indistinguishable from a suite that had stopped running —
+  the exact failure that script exists to catch. It matches a name now.
+- A generated phrase landed ~200 ms after the click and overwrote anything
+  typed in the meantime. The field is read-only while the request is out.
+- Two end-to-end waits were satisfied by state that predated the action they
+  were waiting on, which left requests in flight to land later and race.
+
+**Follow-on:** The translations are unreviewed; Paraglide fetches its plugin
+from a CDN at build time, which conflicts with shipping offline. Both are in
+`roadmap.md`.

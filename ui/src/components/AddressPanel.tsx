@@ -1,110 +1,164 @@
 /* The side panel: the address of the selected square, and a box to look one
-   up. */
+   up.
 
-import { useState } from "react";
-import type { Core } from "../core/client";
-import type { Selection } from "./MapView";
+   This is the only place an address is ever displayed. The map draws bare
+   squares, so a screenshot or a shared screen gives away one address at most
+   -- and the eye toggle here takes that to none. */
 
-type Props = {
-  core: Core;
-  selection: Selection | null;
-  onFound: (lat: number, lon: number) => void;
-  onLock: () => void;
-};
+import { Copy, Eye, EyeOff, Lock } from "lucide-react";
+import { type FormEvent, useState } from "react";
+import { toast } from "sonner";
+import { useDecodeAddress, useLock } from "../core/queries";
+import { formatCoord } from "../i18n";
+import { m } from "../paraglide/messages";
+import { useAppStore } from "../store";
+import { IconButton } from "./IconButton";
+import { LanguagePicker } from "./LanguagePicker";
 
-export function AddressPanel({ core, selection, onFound, onLock }: Props) {
+/* Same shape as an address, so the panel does not change width when it is
+   concealed and the layout does not jump on every toggle. */
+const MASK = "••••••.••••••.••••••.••••";
+
+export function AddressPanel() {
   const [query, setQuery] = useState("");
-  const [lookupError, setLookupError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [invalid, setInvalid] = useState(false);
+
+  const selection = useAppStore((s) => s.selection);
+  const concealed = useAppStore((s) => s.concealed);
+  const toggleConcealed = useAppStore((s) => s.toggleConcealed);
+  const requestFlyTo = useAppStore((s) => s.requestFlyTo);
+  const setLocked = useAppStore((s) => s.setLocked);
+
+  const lock = useLock();
+  const decode = useDecodeAddress();
 
   async function copy() {
     if (!selection) return;
     try {
       await navigator.clipboard.writeText(selection.address);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
+      toast.success(m.panel_copied());
     } catch {
       /* Clipboard access is refused in some contexts. The address is on
-         screen and selectable, so this is a missing convenience rather than a
-         failure worth an alert. */
-      setCopied(false);
+         screen and selectable, so say so rather than failing silently. */
+      toast.error(m.panel_copy_failed());
     }
   }
 
-  async function lookup(event: React.FormEvent) {
+  function lookup(event: FormEvent) {
     event.preventDefault();
-    setLookupError(null);
-    try {
-      const { lat, lon } = await core.decode(query);
-      onFound(lat, lon);
-    } catch (e) {
-      setLookupError(e instanceof Error ? e.message : String(e));
-    }
+    setInvalid(false);
+    decode.mutate(query, {
+      onSuccess: ({ lat, lon }) => {
+        requestFlyTo(lat, lon);
+        toast.success(m.panel_found());
+      },
+      onError: (error) => {
+        setInvalid(true);
+        toast.error(error instanceof Error ? error.message : String(error));
+      },
+    });
   }
 
   return (
     <aside className="panel">
       <header className="panel-head">
-        <span className="brand">Tessarium</span>
-        <button className="lock" onClick={onLock} title="Forget the key">
-          Lock
+        <span className="brand">{m.app_name()}</span>
+        <button
+          type="button"
+          className="lock"
+          onClick={() => {
+            lock.mutate();
+            setLocked();
+          }}
+          title={m.panel_lock_hint()}
+        >
+          <Lock size={15} aria-hidden />
+          {m.panel_lock()}
         </button>
       </header>
 
       <section className="selected">
-        <h2>This square</h2>
-        {selection ? (
-          <>
-            <output className="address">{selection.address}</output>
-            <button className="copy" onClick={copy}>
-              {copied ? "Copied" : "Copy address"}
-            </button>
-            <dl className="coords">
-              <dt>Latitude</dt>
-              <dd>{selection.cell.latLo.toFixed(7)}</dd>
-              <dt>Longitude</dt>
-              <dd>{selection.cell.lonLo.toFixed(7)}</dd>
-            </dl>
-          </>
-        ) : (
-          <p className="hint">
-            Click any square on the map to see its address.
-          </p>
-        )}
+        <h2>{m.panel_this_square()}</h2>
+        {selection
+          ? (
+            <>
+              <div className="address-row">
+                {
+                  /* Concealed means not rendered, not merely styled out of
+                  sight. An address hidden with CSS is still in the page for
+                  anything reading the DOM. */
+                }
+                <output className={concealed ? "address concealed" : "address"}>
+                  {concealed ? MASK : selection.address}
+                </output>
+                <IconButton
+                  label={concealed ? m.panel_reveal() : m.panel_conceal()}
+                  pressed={concealed}
+                  onClick={toggleConcealed}
+                  icon={concealed
+                    ? <EyeOff size={18} aria-hidden />
+                    : <Eye size={18} aria-hidden />}
+                />
+                {
+                  /* Copying works while concealed: putting an address on the
+                  clipboard is not putting it on the screen. */
+                }
+                <IconButton
+                  label={m.panel_copy()}
+                  onClick={copy}
+                  icon={<Copy size={18} aria-hidden />}
+                />
+              </div>
+              {concealed && (
+                <p className="concealed-note">{m.panel_concealed()}</p>
+              )}
+              <dl className="coords">
+                <dt>{m.panel_latitude()}</dt>
+                <dd>{formatCoord(selection.cell.latLo)}</dd>
+                <dt>{m.panel_longitude()}</dt>
+                <dd>{formatCoord(selection.cell.lonLo)}</dd>
+              </dl>
+            </>
+          )
+          : <p className="hint">{m.panel_no_selection()}</p>}
       </section>
 
       <section className="lookup">
-        <h2>Find an address</h2>
+        <h2 id="lookup-heading">{m.panel_find_title()}</h2>
         <form onSubmit={lookup}>
+          <label className="sr-only" htmlFor="lookup-input">
+            {m.panel_find_label()}
+          </label>
           <input
+            id="lookup-input"
             type="text"
             spellCheck={false}
             autoComplete="off"
             autoCapitalize="off"
-            placeholder="dream.tourist.creek.2703"
+            aria-invalid={invalid}
+            aria-describedby="lookup-hint"
+            placeholder={m.panel_find_placeholder()}
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
-              setLookupError(null);
+              setInvalid(false);
             }}
           />
-          <button type="submit" disabled={query.trim() === ""}>
-            Go
+          <button
+            type="submit"
+            disabled={query.trim() === "" || decode.isPending}
+          >
+            {m.panel_go()}
           </button>
         </form>
-        {lookupError && <p className="invalid">{lookupError}</p>}
-        <p className="hint">
-          Four-letter prefixes work, and separators are forgiving:
-          <code> drea tour cree 2703</code> resolves the same way.
+        <p className="hint" id="lookup-hint">
+          {m.panel_prefix_hint({ example: m.panel_prefix_example() })}
         </p>
       </section>
 
       <footer className="panel-foot">
-        <p>
-          Addresses are meaningless to anyone with a different seed phrase. The
-          same square has an entirely unrelated address under every other
-          phrase.
-        </p>
+        <LanguagePicker />
+        <p>{m.panel_footer()}</p>
       </footer>
     </aside>
   );

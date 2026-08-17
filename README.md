@@ -171,7 +171,7 @@ ocaml/lib/        key derivation, crypto, public API
 ocaml/js/         js_of_ocaml bindings for the browser
 ocaml/server/     Eio HTTP server; also the desktop binary
 ocaml/pmtiles/    PMTiles reader and region extractor
-ui/               Vite + React + MapLibre GL web app
+ui/               Vite + React + MapLibre GL web app, in six locales
 tools/            basemap fetcher
 vectors/          inputs.json (committed) and vectors.json (generated)
 js/               independent implementation, kept as a cross-check

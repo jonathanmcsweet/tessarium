@@ -1,8 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-US">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <!-- No maximum-scale and no user-scalable=no: blocking pinch zoom fails
+         WCAG 1.4.4, and a map application is exactly where someone who needs
+         to magnify will try to. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
     <title>Tessarium</title>
   </head>

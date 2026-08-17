@@ -9,8 +9,8 @@
    The addresses it expects come from `vectors/vectors.json`, so a UI that
    renders beautifully and computes the wrong answer still fails. */
 
-import { chromium } from "playwright";
 import { readFileSync } from "node:fs";
+import { chromium } from "playwright";
 
 const base = process.argv[2] ?? "http://127.0.0.1:7373";
 const vectors = JSON.parse(
@@ -29,16 +29,23 @@ const check = (name, ok) => {
 
 const mnemonic = vectors.key_derivation[0].mnemonic;
 /* A vector whose address we can predict: same phrase, known point. */
-const sample = vectors.addresses.find((a) => a.mnemonic === vectors.key_derivation[0].name)
-  ?? vectors.addresses[0];
+const sample =
+  vectors.addresses.find((a) => a.mnemonic === vectors.key_derivation[0].name)
+    ?? vectors.addresses[0];
 const sampleMnemonic =
-  vectors.key_derivation.find((k) => k.name === sample.mnemonic)?.mnemonic ??
-  mnemonic;
+  vectors.key_derivation.find((k) => k.name === sample.mnemonic)?.mnemonic
+    ?? mnemonic;
 const sampleLat = sample.lat_ns / 1e9;
 const sampleLon = sample.lon_ns / 1e9;
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+const context = await browser.newContext({
+  viewport: { width: 1280, height: 900 },
+  /* The copy button is checked by reading the clipboard back, which Chromium
+     gates behind both permissions. */
+  permissions: ["clipboard-read", "clipboard-write"],
+});
+const page = await context.newPage();
 
 /* Anything the browser refuses is a real failure here: a CSP violation, a
    worker that will not start, a script that 404s. Collect them rather than
@@ -52,7 +59,9 @@ const expected = (url) => url.includes("/basemap/");
 page.on("console", (msg) => {
   /* A failed resource is already recorded from the response, with its URL
      attached; the console version has none and is pure noise. */
-  if (msg.type() === "error" && !msg.text().includes("Failed to load resource")) {
+  if (
+    msg.type() === "error" && !msg.text().includes("Failed to load resource")
+  ) {
     problems.push(`console: ${msg.text()}`);
   }
 });
@@ -70,18 +79,26 @@ page.on("response", (res) => {
 
 await page.goto(base, { waitUntil: "networkidle" });
 
-check("gate renders", (await page.locator("h1").textContent()) === "Tessarium");
+check(
+  "gate renders",
+  (await page.locator("h1").textContent()) === "Tessarium",
+);
 
 /* The 4.4 MB core has to load inside the worker before validation replies.
    If js_of_ocaml exported to the wrong global, this is where it hangs. */
 await page.locator("#phrase").fill("abandon abandon abandon");
 await page.waitForFunction(
-  () => document.querySelector(".phrase-status")?.textContent?.includes("3/24"),
+  () =>
+    document.querySelector(".phrase-status")?.textContent?.includes(
+      "expected 24 words",
+    ),
   { timeout: 30_000 },
 );
 check(
   "short phrase is rejected",
-  (await page.locator(".phrase-status").textContent()).includes("expected 24 words"),
+  (await page.locator(".phrase-status").textContent()).includes(
+    "expected 24 words",
+  ),
 );
 
 /* One wrong word must fail the checksum rather than silently producing a
@@ -93,18 +110,80 @@ await page.locator("#phrase").fill(typo.join(" "));
 await page.waitForFunction(
   () => {
     const t = document.querySelector(".phrase-status")?.textContent ?? "";
-    return t.includes("24/24");
+    return t.includes("24/24")
+      && (t.includes("checksum failed") || t.includes("checksum valid"));
   },
   { timeout: 30_000 },
 );
 check(
   "checksum catches a single wrong word",
-  (await page.locator(".phrase-status").textContent()).includes("checksum failed"),
+  (await page.locator(".phrase-status").textContent()).includes(
+    "checksum failed",
+  ),
+);
+
+/* "Generate one for me" must produce a phrase this same application accepts.
+   A generator whose output fails its own checksum would strand a user who had
+   already written 24 words down. Two presses must also differ -- a generator
+   wired to a constant would pass every other check here. */
+/* Wait for the value to CHANGE, not merely to be 24 words: the typo phrase
+   above is already 24 words, so a length check is satisfied before the click
+   has done anything and leaves a request in flight to land later and
+   overwrite whatever the test does next. */
+const beforeGenerate = await page.locator("#phrase").inputValue();
+await page.locator(".generate button").click();
+await page.waitForFunction(
+  (previous) => document.querySelector("#phrase")?.value !== previous,
+  beforeGenerate,
+  { timeout: 30_000 },
+);
+const firstGenerated = await page.locator("#phrase").inputValue();
+check(
+  "a generated phrase is 24 words",
+  firstGenerated.split(/\s+/).filter(Boolean).length === 24,
+);
+await page.waitForSelector(".valid", { timeout: 30_000 });
+check("a generated phrase is 24 words and passes its checksum", true);
+check(
+  "a generated phrase is all real BIP-39 words",
+  (await page.locator(".phrase-status").count()) > 0
+    && (await page.locator(".phrase-status").textContent()).includes("24/24"),
+);
+check(
+  "the write-it-down warning appears",
+  (await page.locator(".warning").allTextContents()).some((t) =>
+    t.includes("Write these 24 words down")
+  ),
+);
+await page.locator(".generate button").click();
+await page.waitForFunction(
+  (previous) => document.querySelector("#phrase")?.value !== previous,
+  firstGenerated,
+  { timeout: 30_000 },
+);
+check(
+  "generating twice gives two different phrases",
+  (await page.locator("#phrase").inputValue()) !== firstGenerated,
 );
 
 await page.locator("#phrase").fill(sampleMnemonic);
+/* Waiting on `.valid` alone would return at once: the generated phrase was
+   valid too, so the marker never went away. Wait for the field to hold what
+   this test just put in it -- the render that does that is the same render
+   that drops the write-it-down notice. */
+await page.waitForFunction(
+  (want) => document.querySelector("#phrase")?.value === want,
+  sampleMnemonic,
+  { timeout: 30_000 },
+);
 await page.waitForSelector(".valid", { timeout: 30_000 });
 check("valid phrase reports a valid checksum", true);
+check(
+  "editing the phrase drops the write-it-down warning",
+  !(await page.locator(".warning").allTextContents()).some((t) =>
+    t.includes("Write these 24 words down")
+  ),
+);
 
 await page.locator("button[type=submit]").click();
 
@@ -112,7 +191,10 @@ await page.locator("button[type=submit]").click();
    slower than the number anyone quotes. */
 await page.waitForSelector(".map-wrap", { timeout: 60_000 });
 check("map opens after derivation", true);
-check("phrase is not left in the DOM", !(await page.content()).includes(words[0] + " " + words[1]));
+check(
+  "phrase is not left in the DOM",
+  !(await page.content()).includes(`${words[0]} ${words[1]}`),
+);
 
 /* Nothing may have been persisted. This is a stated guarantee of the design,
    so it is asserted rather than assumed. */
@@ -140,7 +222,10 @@ const strangerWorker = await page.evaluate(
   async ([lat, lon]) => {
     const worker = new Worker("/core.worker.js");
     return await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("worker timeout")), 60000);
+      const timer = setTimeout(
+        () => reject(new Error("worker timeout")),
+        60000,
+      );
       worker.onmessage = (e) => {
         clearTimeout(timer);
         resolve(e.data);
@@ -152,6 +237,37 @@ const strangerWorker = await page.evaluate(
 );
 check("a second worker has no key", strangerWorker?.error === "locked");
 
+/* There must be no way to ask for every address in a viewport at once. One
+   existed, to write an address inside each square; it was removed because a
+   screenshot of a labelled grid hands over fifty (address, real place) pairs
+   from a user who thought they were sharing a picture of a street, and each
+   such pair is material for searching out their phrase. */
+const bulk = await page.evaluate(async () => {
+  const worker = new Worker("/core.worker.js");
+  return await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("worker timeout")), 60000);
+    worker.onmessage = (e) => {
+      clearTimeout(timer);
+      resolve(e.data);
+    };
+    worker.postMessage({
+      id: 1,
+      op: "gridWithAddresses",
+      payload: {
+        latLo: 51.5,
+        lonLo: -0.13,
+        latHi: 51.501,
+        lonHi: -0.129,
+        limit: 100,
+      },
+    });
+  });
+});
+check(
+  "there is no bulk address operation",
+  typeof bulk?.error === "string" && bulk.error.includes("unknown op"),
+);
+
 /* The round trip the whole project is for, driven entirely through the UI:
    paste an address, fly to the square it names, click that square, and get
    the same address back.
@@ -162,7 +278,8 @@ await page.locator(".lookup input").fill(sample.address);
 await page.locator(".lookup button").click();
 await page.waitForTimeout(3000); // decode, then a 1.2 s flight
 
-const lookupFailed = await page.locator(".lookup .invalid").count();
+const lookupFailed = await page.locator("[data-sonner-toast][data-type=error]")
+  .count();
 check(`looking up ${sample.address} succeeds`, lookupFailed === 0);
 
 /* flyTo centres on the decoded point, so the centre pixel is inside the
@@ -177,19 +294,72 @@ check(
   clicked === sample.address,
 );
 
+/* The map itself never writes addresses onto the squares. This catches a
+   DOM-based label; a label drawn into the WebGL canvas would not appear here
+   either way, which is what the "no bulk address operation" check above is
+   for -- between them they cover the mechanism and the result. */
+check(
+  "no address is rendered onto the map",
+  !(await page.locator(".map-wrap").innerHTML()).includes(sample.address),
+);
+
+/* Privacy mode. Concealing must remove the address from the document, not
+   merely style it out of sight -- anything reading the page is precisely what
+   it is being hidden from. */
+const eye = page.locator(".address-row .icon-button").first();
+const copyButton = page.locator(".address-row .icon-button").nth(1);
+
+await eye.click();
+check(
+  "the eye toggle removes the address from the panel",
+  !(await page.locator(".selected").innerHTML()).includes(sample.address),
+);
+
+/* Copying while concealed still copies the real address: putting it on the
+   clipboard is not putting it on the screen. */
+await copyButton.click();
+const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+check(
+  `copy works while concealed (got ${clipboard})`,
+  clipboard === sample.address,
+);
+
+await eye.click();
+check(
+  "the eye toggle reveals the address again",
+  (await page.locator(".address").textContent()) === sample.address,
+);
+
 /* An address from the invalid ~35% must be reported, not silently accepted.
-   `zoo.zoo.zoo.9999` is one of them. Getting this wrong is worse than a
-   crash: the map would fly somewhere and present it as the answer. */
-await page.locator(".lookup input").fill("zoo.zoo.zoo.9999");
+   Getting this wrong is worse than a crash: the map would fly somewhere and
+   present it as the answer.
+
+   The example comes from the vectors, where it is generated. It used to be
+   the literal `zoo.zoo.zoo.9999`, which was invalid under grid version 1 and
+   is valid under version 2 -- so the check quietly stopped testing anything
+   the moment the grid changed. */
+await page.locator(".lookup input").fill(vectors.invalid_addresses[0]);
 await page.locator(".lookup button").click();
 const rejected = await page
-  .locator(".lookup .invalid")
+  .locator("[data-sonner-toast][data-type=error]")
+  .first()
   .textContent({ timeout: 10_000 })
   .catch(() => null);
 check(
   "a nonexistent address is reported, not silently accepted",
   (rejected ?? "").includes("does not correspond"),
 );
+
+await page.evaluate(() => {
+  for (
+    const el of document.querySelectorAll(
+      "[data-sonner-toast] button[data-close-button]",
+    )
+  ) {
+    el.click();
+  }
+});
+await page.waitForTimeout(400);
 
 /* And a word that is not in the list names itself in the error, rather than
    failing generically -- the core knows which word is wrong.
@@ -201,7 +371,8 @@ check(
 await page.locator(".lookup input").fill("pig.night.xxxxx.7473");
 await page.locator(".lookup button").click();
 const malformed = await page
-  .locator(".lookup .invalid")
+  .locator("[data-sonner-toast][data-type=error]")
+  .first()
   .textContent({ timeout: 10_000 })
   .catch(() => null);
 check(
@@ -209,10 +380,78 @@ check(
   (malformed ?? "").includes("xxxxx"),
 );
 
+/* Keyboard access. The map is the one control that cannot be reached with the
+   lookup box, so Enter on the focused canvas must select the centre square --
+   the same square flyTo just centred, and the same address as the click. */
+await page.locator(".lookup input").fill(sample.address);
+await page.locator(".lookup button").click();
+await page.waitForTimeout(3000);
+await page.evaluate(() => document.querySelector(".map canvas")?.focus());
+check(
+  "the map canvas is focusable",
+  await page.evaluate(() => document.activeElement?.tagName === "CANVAS"),
+);
+check(
+  "the map canvas has an accessible name",
+  ((await page.getAttribute(".map canvas", "aria-label")) ?? "").length > 10,
+);
+await page.keyboard.press("Enter");
+await page.waitForTimeout(1500);
+check(
+  "Enter on the map selects the centre square",
+  (await page.locator(".address").textContent()) === sample.address,
+);
+
+/* Language. Switching must translate the interface, leave the address itself
+   alone -- it is BIP-39 English in every locale -- and, because this
+   application persists nothing, must not write a cookie or a storage key to
+   remember the choice. */
+const englishFooter = await page.locator(".panel-foot p").textContent();
+await page.locator(".language select").selectOption("fr-FR");
+await page.waitForTimeout(400);
+const frenchFooter = await page.locator(".panel-foot p").textContent();
+check(
+  "switching to French translates the interface",
+  frenchFooter !== englishFooter,
+);
+check(
+  "French interface is actually French",
+  (frenchFooter ?? "").includes("adresses"),
+);
+check(
+  "the address is unchanged by the language",
+  (await page.locator(".address").textContent()) === sample.address,
+);
+check(
+  "the lookup example is not translated",
+  (await page.getAttribute(".lookup input", "placeholder"))
+    === "dream.tourist.creek.2703",
+);
+check(
+  "the document language follows the choice",
+  (await page.getAttribute("html", "lang")) === "fr-FR",
+);
+const afterSwitch = await page.evaluate(() => ({
+  local: JSON.stringify(window.localStorage),
+  session: JSON.stringify(window.sessionStorage),
+  cookie: document.cookie,
+}));
+check("choosing a language writes no cookie", afterSwitch.cookie === "");
+check("choosing a language writes no localStorage", afterSwitch.local === "{}");
+check(
+  "choosing a language writes no sessionStorage",
+  afterSwitch.session === "{}",
+);
+await page.locator(".language select").selectOption("en-US");
+await page.waitForTimeout(400);
+
 await browser.close();
 
 for (const p of problems) console.log(`  PAGE  ${p}`);
-check("no console errors, CSP violations or failed requests", problems.length === 0);
+check(
+  "no console errors, CSP violations or failed requests",
+  problems.length === 0,
+);
 
 console.log(`\n${checks} checks, ${failures} failures`);
 process.exit(failures ? 1 : 0);

@@ -221,7 +221,9 @@ The theorem set is complete and in the ledger. What is left is narrower.
       With a properly random 24-word phrase the search space is 2^256 and no
       key-derivation cost matters. The derivation cost matters in exactly two
       cases: a phrase a human made up, and the ~2^46 search to find *a* phrase
-      linking one known address to one known place.
+      linking one known address to one known place. In-app generation (shipped)
+      removes the first case for anyone who uses it; this item is what remains
+      for anyone who brings their own.
 
       Measured: our browser build takes 241 ms per derivation at BIP-39's 2048
       iterations. An optimised GPU implementation does about 244,000 per
@@ -235,13 +237,6 @@ The theorem set is complete and in the ledger. What is left is narrower.
       published vectors and already cross-checked by the differential suite.
       Argon2id would be better still against GPUs but has no browser-native
       support.
-
-- [ ] **Generate phrases in the app.** The single highest-value security item.
-      The app tells users to bring a fresh 24-word phrase and gives them no way
-      to make one, which invites made-up phrases — the one case where the key
-      derivation cost above actually decides the outcome. Needs a CSPRNG, the
-      checksum computed for them, and a flow that makes writing it down the
-      obvious next step.
 
 - [ ] **Check the FE1 parameters against the published attack literature.**
       The construction is the family underlying FF1/FF3, which has a real
@@ -298,11 +293,21 @@ not cover.
       map UI for picking a box, a size estimate before committing, progress,
       and cancellation. The extractor itself is done and is a library, so this
       is UI work over an existing API.
-- [ ] **Cell address labels are drawn only above zoom 20.5.** Below that they
-      collide illegibly. what3words draws one label per screen region instead
-      of one per cell; that is the better answer and is not implemented.
-- [ ] Keyboard access: the map is mouse-only, so a square cannot be selected
-      without a pointer.
+- [ ] **The non-English translations have not been reviewed by a native
+      speaker.** French (France and Canada) and Spanish (US) were written
+      wholesale and are unverified. They are security-relevant copy: the
+      wallet-reuse warning and the "write these words down" notice have to land
+      exactly, and a translation that softens either is worse than no
+      translation. `fr-CA` currently differs from `fr-FR` in one term
+      (`phrase de passe`) and otherwise mirrors it, which a Quebec reviewer
+      should correct.
+- [ ] **A colour-contrast audit has not been done.** The palette was checked by
+      eye against WCAG AA for the text that changed, not measured across every
+      state. `--accent` on white is about 3.9:1, which passes for the address
+      only because it is large and bold.
+- [ ] **Toast timing is not tuned for screen readers.** Sonner announces via a
+      live region and the toasts auto-dismiss after five seconds, which is
+      short for a long error message read aloud.
 - [ ] Decide what happens outside the downloaded region. The grid and
       addressing work everywhere, but the basemap is blank, and the app
       currently gives no indication of where coverage ends.
@@ -370,6 +375,13 @@ Deferred deliberately: web and Linux desktop first, both fully working.
   appear.
 - **Altitude / floors.** Out of scope for now; note whether the address format
   should reserve room for it before the format is frozen.
+- **Paraglide's compiler fetches its message-format plugin from a CDN at build
+  time,** and caches it in `project.inlang/cache`, which inlang's own
+  `.gitignore` excludes. So a clean checkout needs network access to build the
+  UI, which sits badly with a project that otherwise ships offline and pins
+  everything. The options are to commit the cache (120 KB of compiled
+  third-party JavaScript, reviewed by nobody), to vendor the plugin
+  deliberately, or to accept the build-time dependency and say so. Not settled.
 - **Basemap distribution.** Settled enough to ship: the extractor reads the
   Protomaps planet build directly over HTTP range requests, so no one has to
   host region extracts — a client pulls exactly the region it wants out of
