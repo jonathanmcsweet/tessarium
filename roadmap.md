@@ -198,13 +198,6 @@ assuming HMAC-SHA256 behaves as a PRF." Do not let the README overstate this.
 
 ---
 
-## Phase 0 — Foundations
-
-- [ ] A setup script that reproduces the toolchain from nothing: the pinned
-      `fstar.exe` and Z3 into `$HOME`, the opam switch, and nvm. The versions
-      are pinned and recorded, and CI installs them; what is missing is one
-      command a contributor can run locally.
-
 ## Phase 1–3 — Remaining proof work
 
 The theorem set is complete and in the ledger. What is left is narrower.

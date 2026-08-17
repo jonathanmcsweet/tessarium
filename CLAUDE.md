@@ -128,10 +128,9 @@ square and get its address; paste an address and fly back to that square.
 
 ## Running things
 
-The toolchain is not on `PATH` by default:
-
 ```bash
-eval "$(make env)"      # F* 2026.08.09 + Z3 4.13.3, opam switch, nvm
+tools/setup.sh          # install the toolchain; --check to report only
+eval "$(make env)"      # F* 2026.08.09 + Z3 4.13.3, opam switch, nvm on PATH
 ```
 
 ```bash
@@ -141,6 +140,7 @@ make build              # native binaries and the js_of_ocaml bundle
 make ui                 # build the web UI
 make test               # all five suites
 make run                # serve on 127.0.0.1:7373 and open a browser
+make package            # release tarball
 
 tools/fetch-basemap.sh  # offline tiles, glyphs and sprites
 cd design && python3 grid_design.py    # regenerate the band table

@@ -81,7 +81,8 @@ runs all six test suites and the browser end-to-end test.
 ## Run it
 
 ```bash
-eval "$(make env)"           # F*, opam switch, nvm onto PATH
+tools/setup.sh               # F*, Z3, opam switch, node — all into $HOME
+eval "$(make env)"           # put them on PATH for this shell
 make ui                      # build the web UI
 make build                   # compile it into the server binary
 tools/fetch-basemap.sh       # ~30 MB of central London, tiles and glyphs
