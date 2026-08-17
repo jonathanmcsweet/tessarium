@@ -39,7 +39,14 @@ let required_words = 24
 let hkdf_salt = "tessarium/v1/salt"
 let hkdf_info = "tessarium/v1/feistel-key"
 
-let normalize s = String.trim (String.lowercase_ascii s)
+(* For the mnemonic only. BIP-39's English words are lowercase, so folding case
+   and trimming here is safe and forgiving of how a phrase was pasted.
+
+   It must NOT be applied to the passphrase. BIP-39 uses the passphrase
+   verbatim: it is case-sensitive, and whitespace in it is significant. Folding
+   it would make "MySecret" and "mysecret" the same map and silently throw away
+   one bit per letter. *)
+let normalize_mnemonic s = String.trim (String.lowercase_ascii s)
 
 let split_words s =
   String.split_on_char ' ' (String.map (function '\t' | '\n' | '\r' -> ' ' | c -> c) s)
@@ -48,7 +55,7 @@ let split_words s =
 (* 24 words only. A 12-word phrase carries 128 bits of entropy, which Grover
    reduces to an effective 64. 24 words leaves 128 standing. *)
 let validate_mnemonic m =
-  let words = split_words (normalize m) in
+  let words = split_words (normalize_mnemonic m) in
   let n = List.length words in
   if n <> required_words then
     Error
@@ -78,11 +85,12 @@ let derive_key ~mnemonic ~passphrase =
   match validate_mnemonic mnemonic with
   | Error e -> raise (Bad_mnemonic e)
   | Ok () ->
-      let words = split_words (normalize mnemonic) in
+      let words = split_words (normalize_mnemonic mnemonic) in
       let seed =
         Crypto.pbkdf2_sha512
           ~password:(String.concat " " words)
-          ~salt:("mnemonic" ^ normalize passphrase)
+          (* Verbatim, per BIP-39. Not normalised: see normalize_mnemonic. *)
+          ~salt:("mnemonic" ^ passphrase)
           ~count:2048 ~dklen:64
       in
       Crypto.hkdf_sha256 ~ikm:seed ~salt:hkdf_salt ~info:hkdf_info ~len:32

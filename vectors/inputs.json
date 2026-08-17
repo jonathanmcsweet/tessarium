@@ -3,15 +3,33 @@
  "mnemonics": [
   {
    "name": "zero",
-   "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art"
+   "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+   "passphrase": ""
   },
   {
    "name": "ones",
-   "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote"
+   "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
+   "passphrase": ""
   },
   {
    "name": "hash",
-   "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon"
+   "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+   "passphrase": ""
+  },
+  {
+   "name": "pass-mixed",
+   "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+   "passphrase": "MySecret"
+  },
+  {
+   "name": "pass-lower",
+   "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+   "passphrase": "mysecret"
+  },
+  {
+   "name": "pass-spaced",
+   "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+   "passphrase": " mysecret "
   }
  ],
  "feistel_key": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",

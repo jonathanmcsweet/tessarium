@@ -47,7 +47,10 @@ let hex s =
 let generate inputs =
   let mnemonics =
     List.map
-      (fun m -> (to_str (member "name" m), to_str (member "mnemonic" m)))
+      (fun m ->
+        ( to_str (member "name" m),
+          to_str (member "mnemonic" m),
+          match member "passphrase" m with `String p -> p | _ -> "" ))
       (to_list (member "mnemonics" inputs))
   in
   let feistel_key = unhex (to_str (member "feistel_key" inputs)) in
@@ -62,17 +65,19 @@ let generate inputs =
 
   let keys =
     List.map
-      (fun (name, m) -> (name, Tessarium.derive_key ~mnemonic:m ~passphrase:""))
+      (fun (name, m, passphrase) ->
+        (name, Tessarium.derive_key ~mnemonic:m ~passphrase))
       mnemonics
   in
 
   let key_derivation =
     List.map2
-      (fun (name, mnemonic) (_, key) ->
+      (fun (name, mnemonic, passphrase) (_, key) ->
         `Assoc
           [
             ("name", `String name);
             ("mnemonic", `String mnemonic);
+            ("passphrase", `String passphrase);
             ("key", `String (hex key));
           ])
       mnemonics keys

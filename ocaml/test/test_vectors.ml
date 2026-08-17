@@ -52,7 +52,10 @@ let () =
     (fun v ->
       let name = to_str (member "name" v) in
       let mnemonic = to_str (member "mnemonic" v) in
-      let key = Tessarium.derive_key ~mnemonic ~passphrase:"" in
+      let passphrase =
+        match member "passphrase" v with `String p -> p | _ -> ""
+      in
+      let key = Tessarium.derive_key ~mnemonic ~passphrase in
       Hashtbl.replace keys name key;
       check_eq (Printf.sprintf "derive_key[%s]" name) (hex key) (to_str (member "key" v)))
     (to_list (member "key_derivation" json));
@@ -117,6 +120,24 @@ let () =
             (Printf.sprintf "decode(%s) lands in the same cell" want)
             (Z.equal (cell dlat dlon) (cell lat_ns lon_ns)))
     (to_list (member "addresses" json));
+
+  (* The BIP-39 passphrase is case-sensitive and used verbatim. An earlier
+     version folded it through the mnemonic's normaliser, so "MySecret" and
+     "mysecret" produced the same map and every letter's case was thrown away.
+     Nothing failed; it just quietly weakened the passphrase. *)
+  let m = to_str (member "mnemonic" (List.hd (to_list (member "key_derivation" json)))) in
+  let k p = hex (Tessarium.derive_key ~mnemonic:m ~passphrase:p) in
+  check "passphrase case is significant" (k "MySecret" <> k "mysecret");
+  check "passphrase case is significant (upper)" (k "MYSECRET" <> k "mysecret");
+  check "passphrase whitespace is significant" (k " mysecret " <> k "mysecret");
+  check "an empty passphrase is unaffected"
+    (String.equal (k "") (hex (Tessarium.derive_key ~mnemonic:m ~passphrase:"")));
+  (* And the mnemonic itself stays forgiving: its words are lowercase by
+     definition, so how it was pasted must not matter. *)
+  check "mnemonic case and padding do not matter"
+    (String.equal
+       (hex (Tessarium.derive_key ~mnemonic:("  " ^ String.uppercase_ascii m ^ "  ") ~passphrase:""))
+       (k ""));
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "all vectors reproduce"

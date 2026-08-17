@@ -10,7 +10,7 @@ check("total_cells", w.TOTAL_CELLS === BigInt(V.total_cells));
 
 const keys = {};
 for (const kd of V.key_derivation) {
-  const k = w.deriveKey(kd.mnemonic);
+  const k = w.deriveKey(kd.mnemonic, kd.passphrase ?? "");
   keys[kd.name] = k;
   check(`key ${kd.name}`, k.toString("hex") === kd.key, `${k.toString("hex").slice(0,16)} vs ${kd.key.slice(0,16)}`);
 }

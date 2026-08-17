@@ -7,17 +7,38 @@
     {
       "name": "zero",
       "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+      "passphrase": "",
       "key": "cc03697da345b1fd2f3b40bc01bef5618aa10d807544b551e5ad200ad3892f6e"
     },
     {
       "name": "ones",
       "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
+      "passphrase": "",
       "key": "e8a6aba75accc0b9a0cddabe9f67bc645735192483a401bdd713d34727b657f9"
     },
     {
       "name": "hash",
       "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+      "passphrase": "",
       "key": "9b913bbcd3d41266387222ec7902e4062aa4f5036e7d9e18169e6af707afec45"
+    },
+    {
+      "name": "pass-mixed",
+      "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+      "passphrase": "MySecret",
+      "key": "a1d28f9c6419f3826fec20e4aa9fee936406d29d5a331353f4c1677b1e632548"
+    },
+    {
+      "name": "pass-lower",
+      "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+      "passphrase": "mysecret",
+      "key": "87075310938c0638be99bba417e4d2c3b4c2ee0afecaf0f3ea99afa99dabcd08"
+    },
+    {
+      "name": "pass-spaced",
+      "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
+      "passphrase": " mysecret ",
+      "key": "e868d4c6068537c881d27b61fa1ecf553a76e43bd8044700b92d21a30182fd8b"
     }
   ],
   "feistel_vectors": [

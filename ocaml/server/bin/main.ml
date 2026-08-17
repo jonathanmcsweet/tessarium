@@ -14,15 +14,31 @@ let default_port = 7373
    on Linux routes through. Failing to open a browser is not fatal -- the URL
    is on stdout, and a headless or self-hosted run has no browser to open. *)
 let open_browser proc_mgr url =
-  let candidates = [ "xdg-open"; "gio"; "sensible-browser"; "www-browser" ] in
-  let args = function "gio" -> [ "gio"; "open"; url ] | exe -> [ exe; url ] in
+  (* $BROWSER first. It is the long-standing convention, and it is what makes
+     this work inside a container or VM where there is no local browser at all:
+     editors and remote-development tools set it to a helper that forwards the
+     URL to wherever the human actually is. Falling straight through to
+     xdg-open there opens nothing, or opens it on the wrong machine. *)
+  let candidates =
+    (match Sys.getenv_opt "BROWSER" with
+    | Some b when String.trim b <> "" -> [ b ]
+    | _ -> [])
+    @ [ "xdg-open"; "gio"; "sensible-browser"; "www-browser" ]
+  in
+  let args exe =
+    if Filename.basename exe = "gio" then [ exe; "open"; url ] else [ exe; url ]
+  in
   let rec try_each = function
     | [] ->
-        Logs.info (fun m -> m "no browser opener found; open the URL yourself")
+        Logs.info (fun m ->
+            m "no way to open a browser found; open %s yourself" url)
     | exe :: rest -> (
         match Eio.Process.run proc_mgr (args exe) with
-        | () -> ()
-        | exception _ -> try_each rest)
+        | () -> Logs.info (fun m -> m "opened via %s" (Filename.basename exe))
+        | exception e ->
+            Logs.debug (fun m ->
+                m "%s failed: %s" exe (Printexc.to_string e));
+            try_each rest)
   in
   try_each candidates
 

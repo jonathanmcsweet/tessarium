@@ -27,7 +27,7 @@ check("totalCells", C.totalCells === String(v.total_cells));
 
 const keys = {};
 for (const kv of v.key_derivation) {
-  const r = C.deriveKey(kv.mnemonic, "");
+  const r = C.deriveKey(kv.mnemonic, kv.passphrase ?? "");
   if (r.error) { check("derive " + kv.name + ": " + r.error, false); continue; }
   keys[kv.name] = r.key;
   check("deriveKey[" + kv.name + "]", r.key === kv.key);

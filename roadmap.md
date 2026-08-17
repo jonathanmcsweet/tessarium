@@ -213,6 +213,19 @@ The theorem set is complete and in the ledger. What is left is narrower.
       `requires lat < lat_min + lat_span` and a separate `lemma_pole_clamp`
       covers the pole. Correct, and less tidy than a single statement.
 
+## Phase 4 — Correctness gaps
+
+- [ ] **Unicode normalisation of the passphrase.** BIP-39 specifies NFKD. The
+      independent JS implementation applies it; the OCaml core does not, so a
+      passphrase containing accented characters can derive two different keys
+      depending on how the text was composed — and the user gets no
+      indication. ASCII passphrases are unaffected, which is why the
+      differential tests do not catch it. Fixing it means a Unicode dependency
+      (`uunf`) that must also compile under js_of_ocaml.
+
+      Until then the two implementations genuinely disagree on non-ASCII
+      passphrases, and the README should not claim otherwise.
+
 ## Phase 4 — Performance
 
 - [ ] **Consider injecting a native round function.** An encode costs 53 µs,
