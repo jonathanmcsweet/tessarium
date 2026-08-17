@@ -144,5 +144,44 @@ let () =
   check "missing script does not fall back"
     (not (Route.is_spa_fallback [ "assets"; "app.js" ]));
 
+  (* ------------------------------------------------------- rate limiting *)
+  (* The clock is a parameter, so the interesting times can be tested directly
+     rather than by sleeping through them. *)
+  let module R = Tessarium_server.Rate_limit in
+  let cfg = { R.rate = 1.0; burst = 3.0 } in
+
+  (* A cold bucket is full, and the first call must not be refused. *)
+  let allowed, st = R.take cfg (R.create cfg) ~now:1000.0 in
+  check "first request is allowed" allowed;
+
+  (* Burst is spendable, then exhausted. *)
+  let allowed2, st = R.take cfg st ~now:1000.0 in
+  let allowed3, st = R.take cfg st ~now:1000.0 in
+  let allowed4, st = R.take cfg st ~now:1000.0 in
+  check "burst of 3 is spendable" (allowed2 && allowed3);
+  check "the fourth in a burst is refused" (not allowed4);
+  check "a refused request reports how long to wait"
+    (R.retry_after cfg st ~now:1000.0 >= 1);
+
+  (* And refills at the configured rate. *)
+  let allowed5, st = R.take cfg st ~now:1001.5 in
+  check "refills over time" allowed5;
+  (* After an idle age the bucket is full, not overflowing: exactly `burst`
+     requests succeed and the next does not. A refill that ignored the ceiling
+     would let one quiet hour pay for unlimited derivations. *)
+  check "refill stops at the burst ceiling"
+    (let rec drain n state =
+       let allowed, state' = R.take cfg state ~now:1_000_000.0 in
+       if allowed then drain (n + 1) state' else n
+     in
+     drain 0 st = 3);
+
+  (* A clock that goes backwards must not create tokens. *)
+  let _, back = R.take cfg (R.create cfg) ~now:1000.0 in
+  let b1, back = R.take cfg back ~now:900.0 in
+  let b2, back = R.take cfg back ~now:900.0 in
+  let b3, _ = R.take cfg back ~now:900.0 in
+  check "a backwards clock does not mint tokens" (b1 && b2 && not b3);
+
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "server decisions hold"

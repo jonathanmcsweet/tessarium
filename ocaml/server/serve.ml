@@ -202,7 +202,18 @@ let serve_file cfg ~root ~segments ~meth ~range_header ~immutable =
    client-side derivation exists to avoid. It survives because scripting and
    headless use need it, not because the UI does. *)
 module Sessions = struct
-  type t = { mutex : Eio.Mutex.t; table : (string, string) Hashtbl.t }
+  (* Derived keys expire. Without a TTL a long-running self-hosted instance
+     accumulates them until it exits, which turns a convenience cache into a
+     growing pile of key material in memory — the worst possible thing to keep
+     indefinitely by accident. *)
+  let ttl = 3600.0
+
+  (* And a ceiling, because a TTL alone still admits unbounded growth inside
+     one TTL window. Oldest goes first. *)
+  let max_sessions = 1024
+
+  type entry = { key : string; created : float }
+  type t = { mutex : Eio.Mutex.t; table : (string, entry) Hashtbl.t }
 
   let create () = { mutex = Eio.Mutex.create (); table = Hashtbl.create 8 }
 
@@ -212,11 +223,35 @@ module Sessions = struct
     Base64.encode_string ~alphabet:Base64.uri_safe_alphabet
       (Cstruct.to_string buf)
 
-  let put t id key =
-    Eio.Mutex.use_rw ~protect:true t.mutex (fun () -> Hashtbl.replace t.table id key)
+  let expired ~now e = now -. e.created > ttl
 
-  let get t id =
-    Eio.Mutex.use_ro t.mutex (fun () -> Hashtbl.find_opt t.table id)
+  (* Swept on write rather than on a timer: there is no work to do when nothing
+     is happening, and an idle server should not be waking up to tidy. *)
+  let sweep t ~now =
+    let dead =
+      Hashtbl.fold (fun id e acc -> if expired ~now e then id :: acc else acc) t.table []
+    in
+    List.iter (Hashtbl.remove t.table) dead;
+    if Hashtbl.length t.table >= max_sessions then begin
+      let oldest =
+        Hashtbl.fold
+          (fun id e acc ->
+            match acc with Some (_, c) when c <= e.created -> acc | _ -> Some (id, e.created))
+          t.table None
+      in
+      match oldest with Some (id, _) -> Hashtbl.remove t.table id | None -> ()
+    end
+
+  let put t ~now id key =
+    Eio.Mutex.use_rw ~protect:true t.mutex (fun () ->
+        sweep t ~now;
+        Hashtbl.replace t.table id { key; created = now })
+
+  let get t ~now id =
+    Eio.Mutex.use_ro t.mutex (fun () ->
+        match Hashtbl.find_opt t.table id with
+        | Some e when not (expired ~now e) -> Some e.key
+        | _ -> None)
 
   let drop t id =
     Eio.Mutex.use_rw ~protect:true t.mutex (fun () -> Hashtbl.remove t.table id)
@@ -241,7 +276,7 @@ let z_field name json =
   | Some (`Intlit s) -> z_of_string_opt s
   | _ -> None
 
-let handle_api cfg sessions random ~endpoint ~body =
+let handle_api cfg sessions limiter random ~endpoint ~body ~now =
   let bad = error cfg ~status:`Bad_request in
   match Yojson.Safe.from_string body with
   | exception _ -> bad "body is not valid JSON"
@@ -250,24 +285,38 @@ let handle_api cfg sessions random ~endpoint ~body =
         match string_field "session" json with
         | None -> bad "missing session"
         | Some id -> (
-            match Sessions.get sessions id with
+            match Sessions.get sessions ~now id with
             | None -> error cfg ~status:`Not_found "unknown or expired session"
             | Some key -> f key)
       in
       match endpoint with
       | "session" -> (
-          match string_field "mnemonic" json with
-          | None -> bad "missing mnemonic"
-          | Some mnemonic -> (
-              let passphrase =
-                Option.value (string_field "passphrase" json) ~default:""
-              in
-              match Tessarium.derive_key ~mnemonic ~passphrase with
-              | exception Tessarium.Bad_mnemonic e -> bad e
-              | key ->
-                  let id = Sessions.new_id random in
-                  Sessions.put sessions id key;
-                  respond_json cfg ~status:`OK (`Assoc [ ("session", `String id) ])))
+          (* The only rate-limited endpoint, because it is the only expensive
+             one: PBKDF2 is deliberately slow, which is what makes calling it
+             without limit a way to exhaust the host. *)
+          let allowed, limiter' = Rate_limit.take Rate_limit.default !limiter ~now in
+          limiter := limiter';
+          if not allowed then
+            let wait = Rate_limit.retry_after Rate_limit.default !limiter ~now in
+            respond_json cfg ~status:`Too_many_requests
+              (`Assoc
+                 [
+                   ("error", `String "too many key derivations; slow down");
+                   ("retry_after", `Int wait);
+                 ])
+          else
+            match string_field "mnemonic" json with
+            | None -> bad "missing mnemonic"
+            | Some mnemonic -> (
+                let passphrase =
+                  Option.value (string_field "passphrase" json) ~default:""
+                in
+                match Tessarium.derive_key ~mnemonic ~passphrase with
+                | exception Tessarium.Bad_mnemonic e -> bad e
+                | key ->
+                    let id = Sessions.new_id random in
+                    Sessions.put sessions ~now id key;
+                    respond_json cfg ~status:`OK (`Assoc [ ("session", `String id) ])))
       | "logout" -> (
           match string_field "session" json with
           | None -> bad "missing session"
@@ -305,7 +354,7 @@ let handle_api cfg sessions random ~endpoint ~body =
 
 let status_code s = Http.Status.to_int s
 
-let handler cfg ~ui_root ~basemap_root ~sessions ~random =
+let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random =
   let simple (result, bytes) status = (result, status, bytes, Http_range.Whole) in
   fun _conn (request : Http.Request.t) body ->
     let meth = Http.Request.meth request in
@@ -332,7 +381,8 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~random =
               `Not_found
           else
             let body = Eio.Flow.read_all body in
-            simple (handle_api cfg sessions random ~endpoint ~body) `OK
+            let now = Eio.Time.now clock in
+            simple (handle_api cfg sessions limiter random ~endpoint ~body ~now) `OK
       | Route.Basemap segments ->
           serve_file cfg ~root:basemap_root ~segments ~meth ~range_header
             ~immutable:false
@@ -384,8 +434,12 @@ let run env ~sw ~port cfg =
   let ui_root = Eio.Path.(fs / cfg.ui_dir) in
   let basemap_root = Eio.Path.(fs / cfg.basemap_dir) in
   let sessions = Sessions.create () in
+  let limiter = ref (Rate_limit.create Rate_limit.default) in
+  let clock = Eio.Stdenv.clock env in
   let random = Eio.Stdenv.secure_random env in
-  let callback = handler cfg ~ui_root ~basemap_root ~sessions ~random in
+  let callback =
+    handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
+  in
   let server = Cohttp_eio.Server.make_response_action ~callback () in
   (* Loopback only. This binary is the desktop app as well as the self-hosted
      server, and a desktop app that listens on every interface is a mistake

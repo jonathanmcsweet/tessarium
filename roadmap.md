@@ -237,18 +237,6 @@ The theorem set is complete and in the ledger. What is left is narrower.
       so, and this entry exists so the tradeoff is stated rather than
       rediscovered.
 
-## Phase 5 — Server hardening
-
-Serving, routing, ranges, the opt-in API and the access log are done. What is
-left is what only matters once this is exposed to more than one user.
-
-- [ ] Session expiry. Derived keys currently live in the cache until the
-      process exits, so a long-running self-hosted instance accumulates them
-      indefinitely. Needs a TTL and a sweep.
-- [ ] Rate-limit `/api/session`. PBKDF2 is deliberately expensive, which makes
-      an unauthenticated endpoint that runs it a denial-of-service lever
-      against the host.
-
 ## Phase 6 — Web UI
 
 The prototype is complete: phrase in, grid drawn, click a square, get its
