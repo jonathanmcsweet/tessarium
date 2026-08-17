@@ -102,8 +102,14 @@ halves effective strength; nothing here relies on factoring or discrete log.
   (address, true location) pairs is doing cryptanalysis against a key that also
   holds funds. Generate fresh.
 - Kuwakado–Morii quantum attacks on Feistel require superposition queries to the
-  encoder and do not apply to software the attacker does not control. Expect to
-  see it cited; it is not a threat to this design.
+  encoder — running our cipher on the attacker's own quantum hardware with our
+  key inside it — and do not apply to software the attacker does not control.
+  The newer "offline" variants (Bonnetain et al. 2019) drop that requirement
+  but target Even–Mansour/FX-style constructions and few-round Feistel
+  distinguishers, not 16 rounds with a full PRF as the round function. Expect
+  both to be cited; neither is a threat to this design. The FE1 write-up should
+  say so explicitly, with the citations, so the dismissal reads as informed
+  rather than unaware.
 - **A post-quantum library would have nothing to replace.** ML-KEM, ML-DSA and
   SLH-DSA are public-key primitives, and public-key crypto is what Shor breaks.
   This design contains none: no key exchange, no signatures, no shared secrets.
@@ -262,6 +268,13 @@ The theorem set is complete and in the ledger. What is left is narrower.
       than trusted. Cost: a hand-written implementation of a cryptographic
       primitive, which is exactly what this project has otherwise avoided.
 
+      **Adopting it is a breaking change with the blast radius of a grid
+      bump:** every derived key changes, so every address anyone has written
+      down changes. Land it before real users exist, and land it TOGETHER with
+      the NFKD passphrase fix below — that also changes keys (for non-ASCII
+      passphrases), and two separate derivation bumps is one more than
+      needed.
+
 - [ ] **Check the FE1 parameters against the published attack literature.**
       The construction is the family underlying FF1/FF3, which has a real
       attack literature (Bellare–Hoang–Tessaro 2016; Durak–Vaudenay 2017 on
@@ -285,6 +298,9 @@ The theorem set is complete and in the ledger. What is left is narrower.
       indication. ASCII passphrases are unaffected, which is why the
       differential tests do not catch it. Fixing it means a Unicode dependency
       (`uunf`) that must also compile under js_of_ocaml.
+
+      Key-changing for non-ASCII passphrases, so if Argon2id (Phase 4,
+      security) is adopted, ship both in one derivation-version bump.
 
       Until then the two implementations genuinely disagree on non-ASCII
       passphrases, and the README should not claim otherwise.
