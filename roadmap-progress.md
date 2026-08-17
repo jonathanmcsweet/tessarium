@@ -333,11 +333,20 @@ complete and pinned — F\* 2026.08.09 with Z3 4.13.3 from a binary release in
   22 s / 4.3 GB on its own. `lemma_unsnoc_is_last` plus `lemma_append_last`
   across the chunk seams leaves one small per-chunk normalisation.
 
-*OCaml 5.3.0, not 5.4.1 as previously recorded.* The F\* distribution ships its
-ulib OCaml support library as precompiled `.cmi`/`.cmx` — 129 objects with only
-97 `.ml` sources, so roughly a third cannot be rebuilt. OCaml objects are not
-portable across compiler versions, so extraction must link against the compiler
-F\* itself was built with. Every other constraint still clears: `eio` needs
+*OCaml 5.3.0, not 5.4.1 as previously recorded — by convenience, not by
+constraint.* The F\* distribution ships its ulib support library as precompiled
+`.cmi`/`.cmx`, and OCaml has no stable ABI: objects carry a version magic number
+and cross-module inlining details, so they cannot be linked by a different
+compiler. Matching 5.3.0, the compiler F\* itself was built with, lets
+extraction link those objects directly with no rebuild step.
+
+It is not a hard pin. The distribution also ships complete sources — 129
+compiled units against 129 `.ml` files, none missing — so any OCaml version F\*
+supports is available at the cost of rebuilding the support library. An earlier
+draft of this entry claimed a third of the units had no source and that the pin
+was forced; that was a miscount. `lib/ulib.ml` is a *directory*, and `ls *.ml`
+listed its contents rather than matching files, which made the sources look both
+fewer and misplaced. Every other constraint clears regardless: `eio` needs
 >= 5.2.0, `zarith_stubs_js` needs >= 5.1.0.
 
 *Node 24, not 22.* 22 entered Maintenance on 2025-10-21; 24 has been Active LTS
