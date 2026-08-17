@@ -300,3 +300,50 @@ original intent.
 **Follow-on:** Phase 1 gains the interface split and a chunked re-emit of the
 band table; the current emitter produces one flat literal, which now elaborates
 but poisons every SMT query in its module.
+
+---
+
+### 2026-08-17 — Band table verified; toolchain pinned
+
+**Phase:** 0–1
+
+**What:** `Tessarium.Scan` and `Tessarium.Table.Data` both verify with no
+admits, in 4.7 s and 304 MB. The band table is now a proved artifact rather than
+an assumption: adjacent-difference bounds, length, and the 55,692,067,744,000
+grand total all discharged against the committed `bands.json`. Toolchain
+complete and pinned — F\* 2026.08.09 with Z3 4.13.3 from a binary release in
+`$HOME`, OCaml 5.3.0 via an opam switch, Node 24.19.0 via nvm with a `.nvmrc`.
+
+**Rationale:** three changes, each forced by measurement rather than taste.
+
+- *The table stores cumulative column counts, not the two tables the grid
+  consumes.* `offsets[b]` is `cum[b] * rows_per_band` and `col_counts[b]` is
+  `cum[b+1] - cum[b]`, so band-offset contiguity — previously a lemma requiring
+  a two-list relational scan — becomes true by definition and needs no proof at
+  all. One predicate is left over the data, that adjacent differences lie in
+  (0, max], and it yields positive column counts and the per-band width bound
+  together. The stored values also shrink from 14 digits to 11, and one table
+  replaces two.
+- *Chunked, with the literals opaque to SMT.* Measured on the same table: one
+  whole-table obligation costs 56 s and 6.6 GB; seventeen per-chunk obligations
+  folded by data-free lemmas cost 4.7 s and 304 MB. 12x faster, 22x leaner, and
+  well inside what a CI runner can be trusted with.
+- *`lemma_total` folds `last` across chunks rather than indexing.* Reaching the
+  final element with `assert_norm` on `L.index` walks all 4097 cells and cost
+  22 s / 4.3 GB on its own. `lemma_unsnoc_is_last` plus `lemma_append_last`
+  across the chunk seams leaves one small per-chunk normalisation.
+
+*OCaml 5.3.0, not 5.4.1 as previously recorded.* The F\* distribution ships its
+ulib OCaml support library as precompiled `.cmi`/`.cmx` — 129 objects with only
+97 `.ml` sources, so roughly a third cannot be rebuilt. OCaml objects are not
+portable across compiler versions, so extraction must link against the compiler
+F\* itself was built with. Every other constraint still clears: `eio` needs
+>= 5.2.0, `zarith_stubs_js` needs >= 5.1.0.
+
+*Node 24, not 22.* 22 entered Maintenance on 2025-10-21; 24 has been Active LTS
+since 2025-10-28. Managed by nvm rather than a system package so the version is
+per-project and needs no root.
+
+**Follow-on:** `Tessarium.Grid.fsti` needs rewriting — it predates the
+cumulative encoding, declaring `col_counts` and `offsets` as separate abstract
+tables with contiguity as a lemma, and it opens the removed `FStar.Mul`.

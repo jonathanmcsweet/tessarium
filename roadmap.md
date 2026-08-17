@@ -207,28 +207,19 @@ assuming HMAC-SHA256 behaves as a PRF." Do not let the README overstate this.
 
 Design and reference done; the F\* work remains.
 
-- [ ] Split the table behind `Tessarium.Table.fsti` so the grid theorems are
-      proved against well-formedness alone and never against 4096 literals.
-      Forced by Z3 encoding size, not memory: a module defining the literals
-      drags them into *every* SMT query in that module, which makes even a
-      trivial index-bound check fail, while the identical code over 4 entries
-      verifies in 0.2 s. Mark the data `opaque_to_smt` — it stays reducible by
-      the normaliser but disappears from the SMT encoding.
-- [ ] Prove the table facts by per-chunk `assert_norm` over 256-entry lists,
-      combined by generic data-free lemmas. Chunked lists scan in ~2 s; the same
-      table via `ImmutableArray` lookups did not finish in 10 minutes. Use
-      `ImmutableArray` only for O(1) runtime lookup, never as the proof vehicle.
-- [ ] Implement `point_to_cell` / `cell_to_point` in F\* against
-      `fstar/Tessarium.Grid.fsti`
+- [ ] Rewrite `Tessarium.Grid.fsti` against `Tessarium.Table.Data`. The
+      existing interface predates the cumulative-table encoding: it declares
+      `col_counts` and `offsets` as separate abstract tables with contiguity as
+      a lemma, where both are now derived and contiguity is definitional. It
+      also opens `FStar.Mul`, which no longer exists.
+- [ ] Implement `point_to_cell` / `cell_to_point` / `cell_bounds`, with O(1)
+      band lookup via `FStar.ImmutableArray` over `cumcols_list` and a binary
+      search for the inverse
 - [ ] Prove `theorem_containment`, `theorem_injective`, `theorem_roundtrip`
-- [ ] Discharge the band-table well-formedness lemmas against the generated
-      table (contiguity, totals, `lemma_fits`, `lemma_cells_wide`). Per-chunk
-      `assert_norm` plus structural `append` lemmas, never one whole-table
-      obligation.
-- [ ] Prove `theorem_no_overflow`
-- [ ] Re-emit the band table chunked from `design/grid_design.py`. The current
-      emitter produces one flat 4096-entry literal, which F\* cannot elaborate
-      in 2 GB.
+- [ ] Derive `lemma_fits` and `lemma_cells_wide` from `lemma_total` and
+      `lemma_diffs`
+- [ ] Prove `theorem_no_overflow` — only 1.92x headroom on int64, so this is a
+      real obligation rather than a formality
 
 ## Phase 2 — Feistel and key derivation
 
