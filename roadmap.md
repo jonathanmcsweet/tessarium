@@ -292,14 +292,6 @@ The theorem set is complete and in the ledger. What is left is narrower.
       facts together; the hardening claim is false without the second.
       Rounds were raised 10 -> 16 as margin in the meantime.
 
-## Phase 4 — Correctness gaps
-
-      Key-changing for non-ASCII passphrases, so if Argon2id (Phase 4,
-      security) is adopted, ship both in one derivation-version bump.
-
-      Until then the two implementations genuinely disagree on non-ASCII
-      passphrases, and the README should not claim otherwise.
-
 ## Phase 4 — Performance
 
 - [ ] **Consider injecting a native round function.** An encode costs 53 µs,
