@@ -420,3 +420,77 @@ checks / 0 failures; JS bundle 4.4 MB, 46 checks / 0 failures / 0.84 s.
 theorems stay open in Phases 1–3, now against implementations that exist rather
 than against interfaces. CI is the gating item: until it runs, no verification
 claim in the README is reproducible by anyone else.
+
+---
+
+### 2026-08-17 — Working map prototype: server, UI, offline basemap, CI
+
+**Phase:** 0, 5–6
+
+**What:** The thing the project set out to build works. Enter a 24-word
+phrase, the map opens under it, click a square and get its address, paste an
+address and fly back to that square. Four pieces landed:
+
+- **Eio + cohttp-eio server.** Static assets, health, PMTiles over byte
+  ranges, and an encode/decode API that is off by default. Routing, path
+  safety and range parsing are pure and separately tested.
+- **Vite + React + MapLibre GL UI**, with the verified core in a Web Worker
+  that owns the derived key. The grid overlay is drawn from a new
+  `cells_in_bounds` in the core.
+- **PMTiles reader and region extractor in OCaml** — the offline basemap.
+- **CI**, verifying from a pinned F\* release and re-extracting on every push.
+
+**Rationale:** four decisions, three of them forced by something breaking.
+
+- *PMTiles in OCaml rather than the Go `pmtiles` tool.* Raised by the user as
+  a preference and it turned out to be the load-bearing choice: the desktop
+  target is meant to be one static binary, and the Phase 6 region downloader
+  has to run *inside* it. Shelling out to a Go binary would have made Go a
+  runtime dependency of the shipped app in all but name. Serving tiles never
+  needed it — that is plain range requests over an opaque file — so the Go
+  tool was only ever doing the one job the app itself must do.
+- *The key lives in the worker and there is no way to read it back.* The main
+  thread sends coordinates and receives addresses. This started as a way to
+  keep PBKDF2 off the render thread and became a real boundary: the main
+  thread has the DOM, which is where an injected script would be looking. The
+  browser test asserts a second worker in the same page has no key.
+- *Content-Security-Policy defaults to `connect-src 'self'`.* A seed phrase is
+  typed into this page, so the question is not whether the code is trustworthy
+  but whether a compromised dependency would have anywhere to send it. With no
+  remote origin permitted, it does not. Widening it takes a flag, which is why
+  the basemap had to be served locally rather than from a CDN.
+- *The access log is a closed variant of route shapes, not a format string.*
+  There is no free-form field, so there is nowhere for a phrase, key or
+  address to be interpolated even by accident, and query strings are dropped
+  before logging. Structural rather than disciplinary.
+
+**Bugs found, each by a test that existed to find it:**
+
+- *Worker errors were resolved as successes.* Operational failures came back
+  nested inside `result`, and the client only rejected on a top-level `error`.
+  So an address decoding to nothing — about 35% of them, by design — reported
+  success, and the map flew to `NaN`. The valid path worked perfectly, which
+  is exactly why this survived until a test looked up a deliberately invalid
+  address. Refusals now throw.
+- *A relative PMTiles offset used as an absolute one.* Directory entries store
+  offsets relative to the data section. The extractor added nothing, so it
+  copied tile bytes out of the root directory. The output had a correct
+  header, correct tile count, correct bounds, and every tile was garbage — no
+  error anywhere, just a map that renders blank. Caught by reading the output
+  back with the reference JavaScript implementation.
+- *An `assert` that was a bad test, not a bad implementation.* A lookup of
+  `pig.night.notaword.7473` was expected to name the unknown word; it decoded
+  instead, because four-letter prefix matching resolved `nota` to `notable`.
+  The feature working as designed.
+
+**Measured:** 349 checks across five suites — 199 native vectors, 55 in the JS
+bundle, 57 server, 38 PMTiles, 17 in headless Chromium. Extraction is
+byte-identical on re-run. A 0.25° × 0.10° London extract at zoom 15 is 31 MB
+of tiles out of a 128 GB planet build, plus 15 MB of glyphs.
+
+**Follow-on:** Phase 5 narrows to session expiry and rate-limiting the one
+endpoint that runs PBKDF2. Phase 6 keeps the in-app region downloader, label
+placement above zoom 20.5, and keyboard access. Phase 7's "single binary" is
+not yet true — assets are read from `ui/dist` at runtime. The basemap
+distribution question narrowed: no one needs to host extracts, but
+`demo-bucket.protomaps.com` is a demo bucket with no availability promise.

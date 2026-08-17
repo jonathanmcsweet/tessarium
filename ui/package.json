@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "sync-core": "cp ../_build/default/ocaml/js/tessarium_js.bc.js public/tessarium.js",
+    "sync-core": "rm -f public/tessarium.js && cp ../_build/default/ocaml/js/tessarium_js.bc.js public/tessarium.js && chmod +w public/tessarium.js",
     "dev": "npm run sync-core && vite",
     "build": "npm run sync-core && tsc -b --noEmit && vite build",
     "typecheck": "tsc -b --noEmit",

@@ -199,11 +199,8 @@ assuming HMAC-SHA256 behaves as a PRF." Do not let the README overstate this.
 
 - [ ] A setup script that reproduces the toolchain from nothing: the pinned
       `fstar.exe` and Z3 into `$HOME`, the opam switch, and nvm. The versions
-      are pinned and recorded; what is missing is one command that installs
-      them.
-- [ ] CI that verifies on every push, and fails if extracted OCaml differs from
-      a fresh extraction. **This is the gating item for every verification
-      claim in the README** — until it runs, nobody else can reproduce them.
+      are pinned and recorded, and CI installs them; what is missing is one
+      command a contributor can run locally.
 
 ## Phase 1 — Grid theorems
 
@@ -247,32 +244,46 @@ are the ones that justify the project, so they are not optional polish.
       architecture is meant to prevent. Removal criteria and interim rules in
       `reference/README.md`.
 
-## Phase 5 — Server
+## Phase 5 — Server hardening
 
-- [ ] Opt-in session/encode/decode API with an in-memory key cache so PBKDF2
-      runs once per session, never per request. Off by default.
-- [ ] Structured logging that can never emit a phrase, a key or an address
+Serving, routing, ranges, the opt-in API and the access log are done. What is
+left is what only matters once this is exposed to more than one user.
+
+- [ ] Session expiry. Derived keys currently live in the cache until the
+      process exits, so a long-running self-hosted instance accumulates them
+      indefinitely. Needs a TTL and a sweep.
+- [ ] Rate-limit `/api/session`. PBKDF2 is deliberately expensive, which makes
+      an unauthenticated endpoint that runs it a denial-of-service lever
+      against the host.
 
 ## Phase 6 — Web UI
 
-- [ ] Vite + React + MapLibre GL shell, PMTiles basemap with style, glyphs and
-      sprites served locally
-- [ ] Seed phrase entry: 24-word validation, checksum feedback, a hard warning
-      against reusing a wallet seed, and derivation in a Web Worker so the UI
-      does not stall on PBKDF2
-- [ ] Grid overlay drawn from `cell_bounds` for the visible viewport, appearing
-      only at zooms where a cell is large enough to click
-- [ ] Click a cell → its address, with copy-to-clipboard
-- [ ] Paste an address → validate, decode, fly to the cell, or report clearly
-      that it is one of the ~35% that resolve to nothing
-- [ ] Region downloader: pick an area, fetch the PMTiles extract, work offline
-      afterwards
-- [ ] The phrase never touches `localStorage`, a URL, or a network request
+The prototype is complete: phrase in, grid drawn, click a square, get its
+address, paste one back. What remains is scope the prototype deliberately did
+not cover.
+
+- [ ] **In-app region downloader.** `tools/fetch-basemap.sh` and
+      `tessarium-basemap` do this from a terminal; the app cannot. Needs a
+      map UI for picking a box, a size estimate before committing, progress,
+      and cancellation. The extractor itself is done and is a library, so this
+      is UI work over an existing API.
+- [ ] **Cell address labels are drawn only above zoom 20.5.** Below that they
+      collide illegibly. what3words draws one label per screen region instead
+      of one per cell; that is the better answer and is not implemented.
+- [ ] Keyboard access: the map is mouse-only, so a square cannot be selected
+      without a pointer.
+- [ ] Decide what happens outside the downloaded region. The grid and
+      addressing work everywhere, but the basemap is blank, and the app
+      currently gives no indication of where coverage ends.
 
 ## Phase 7 — Desktop
 
-- [ ] Single OCaml binary with UI assets embedded, serving localhost and opening
-      the system browser
+The binary already serves localhost and opens a browser, which is the whole
+runtime behaviour. What is missing is shipping it as one file.
+
+- [ ] Embed the UI assets in the binary. They are read from `ui/dist` at
+      runtime today, so the "single binary" claim is not yet true — it is a
+      binary plus a directory.
 - [ ] Packaging: tarball, `.deb`, AppImage
 - [ ] Confirm a clean machine needs nothing installed to run it
 
@@ -317,6 +328,9 @@ Deferred deliberately: web and Linux desktop first, both fully working.
   "scaffolding, do not cite as spec" framing as `reference/README.md`.
 - **Altitude / floors.** Out of scope for now; note whether the address format
   should reserve room for it before the format is frozen.
-- **Basemap distribution.** Protomaps publishes a planet build, but hosting
-  region extracts for the in-app downloader means either depending on someone
-  else's bucket or paying for one. Decide before Phase 6 ships the downloader.
+- **Basemap distribution.** Settled enough to ship: the extractor reads the
+  Protomaps planet build directly over HTTP range requests, so no one has to
+  host region extracts — a client pulls exactly the region it wants out of
+  someone else's already-public bucket. What remains open is whether to keep
+  depending on `demo-bucket.protomaps.com`, which is a demo bucket and carries
+  no availability promise. A self-hosted mirror of the planet build is ~128 GB.
