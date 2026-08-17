@@ -494,3 +494,53 @@ placement above zoom 20.5, and keyboard access. Phase 7's "single binary" is
 not yet true — assets are read from `ui/dist` at runtime. The basemap
 distribution question narrowed: no one needs to host extracts, but
 `demo-bucket.protomaps.com` is a demo bucket with no availability promise.
+
+---
+
+### 2026-08-17 — Every theorem proved
+
+**Phase:** 1–3
+
+**What:** The theorem set is complete, with no admits.
+`Grid.theorem_containment`, `theorem_injective` and `theorem_roundtrip`;
+`Feistel.theorem_roundtrip`, `theorem_injective`, `theorem_surjective`;
+`Codec.theorem_roundtrip` both directions and `theorem_injective`; and
+`Api.theorem_end_to_end`, which composes all three layers into the property a
+user would state — decoding an encoded point names that point's own square.
+
+**Rationale:** three things worth keeping.
+
+- *Band-seam injectivity reduces to one lemma.* `lemma_band_unique`: offsets is
+  strictly increasing, so the half-open interval each band owns is disjoint
+  from every other's, and no two bands can claim an index. The seam question
+  the design worried about for months is four lines once the table stores
+  cumulative counts, which is a return on that encoding decision rather than a
+  coincidence.
+- *The Feistel induction needed no second loop.* The obvious approach — a
+  decryption loop with an adjustable endpoint, so both directions range over
+  the same segment — would have added a function to the extracted surface for
+  the sake of a proof. Stating it as *decryption from the last round collapses
+  onto decryption from round i* avoids that entirely, and at i = 0 it is
+  exactly the round trip, since `dec_loop` at 0 is the identity.
+- *Zero admits is enforced by F\*, not by a grep.* `--report_assumes error`
+  makes every escape hatch an error. The grep that preceded it was wrong twice:
+  it fired on the word "assume" in a prose comment, and it would have missed a
+  hatch reached through an abbreviation.
+
+**Checked non-vacuous.** Every theorem was re-run against a deliberately false
+variant, and each was rejected: a point falling below its own cell, a round
+trip landing on `index + 1`, injectivity concluding two equal indices came from
+different rows, end-to-end decoding to `None`. The sharpest control was setting
+`rounds` to 9 — the parity invariant breaks, exactly as the design's
+"must be even" note says it should, which shows the proof depends on the
+round count rather than merely tolerating it.
+
+**Dropped:** a `theorem_encode_total` that verified but asserted nothing — its
+second disjunct held by the return type. A theorem that looks meaningful and
+is not is worse than an absent one, because it reads as coverage.
+
+**Follow-on:** two narrower gaps in Phases 1–3. Nothing proves the extracted
+OCaml matches the F\* it came from — the extraction pipeline is trusted, and
+199 vectors are all that bridge it. And `theorem_containment` carries
+`requires lat < lat_min + lat_span`, because exactly +90° is clamped rather
+than bucketed; `lemma_pole_clamp` covers the pole separately.

@@ -202,27 +202,20 @@ assuming HMAC-SHA256 behaves as a PRF." Do not let the README overstate this.
       are pinned and recorded, and CI installs them; what is missing is one
       command a contributor can run locally.
 
-## Phase 1 — Grid theorems
+## Phase 1–3 — Remaining proof work
 
-Implemented and verified; the theorems *about* the implementation remain. These
-are the ones that justify the project, so they are not optional polish.
+The theorem set is complete and in the ledger. What is left is narrower.
 
-- [ ] Prove `theorem_containment` — every point lies inside the cell it maps to.
-      This is the floor/ceiling bug the reference shipped, stated as a theorem.
-- [ ] Prove `theorem_injective`, **including across latitude-band seams**. The
-      one that matters: seams are where two bands can claim the same point or
-      leave a gap, and the failure set is measure-zero so tests miss it.
-- [ ] Prove `theorem_roundtrip` — `point_to_cell (cell_to_point c) = c`
-
-## Phase 2 — Feistel theorems
-
-- [ ] Prove `theorem_roundtrip` — holds for ANY round function, so it does not
-      depend on HMAC being cryptographic
-- [ ] Prove `theorem_injective` / `theorem_surjective`
-
-## Phase 3 — Codec theorem
-
-- [ ] Prove round-trip end to end: `decode (encode p) ` is `p`'s cell
+- [ ] **Nothing proves the extracted OCaml matches the F\* it came from.** The
+      extraction pipeline is trusted, not verified, and that is the largest
+      single gap between "the core is proved" and "the running program is
+      right". The 199 committed vectors are the only thing bridging it. No
+      cheap fix exists; the honest options are a much larger differential
+      corpus or, eventually, Low\* → C with its own audit trail.
+- [ ] **`theorem_containment` excludes exactly +90°.** Latitude is clamped
+      there rather than bucketed, so the theorem carries
+      `requires lat < lat_min + lat_span` and a separate `lemma_pole_clamp`
+      covers the pole. Correct, and less tidy than a single statement.
 
 ## Phase 4 — Measurement and scaffolding removal
 

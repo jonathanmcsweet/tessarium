@@ -30,7 +30,7 @@ build and a browser build from that one extraction.
 | HTTP server | Done — Eio, range requests, opt-in API |
 | Web UI | Done — enter a phrase, click a square, get its address |
 | Offline basemap | Done — PMTiles reader and region extractor in OCaml |
-| Grid theorems | **Not written** — containment, injectivity, round-trip |
+| Theorems | Done — containment, injectivity, round-trip, end to end |
 | Python reference | Scaffolding — all properties tested |
 | JavaScript implementation | Scaffolding — agrees with reference on 4,150 cases |
 
@@ -38,20 +38,39 @@ build and a browser build from that one extraction.
 
 Read this before repeating any claim from the table above.
 
-**Verified, today:** every module in `fstar/` passes `fstar.exe` with zero
-admits. The refinement types carry real obligations, and they are discharged —
-`point_to_cell` returns a value provably below `total_cells`, `band_search`
-provably finds the unique band containing a row, `cell_to_point` provably
-returns in-range coordinates, and the widest intermediate provably fits in
-int64. The band table itself is a proved artifact: its adjacent-difference
-bounds, its length and its 55,692,067,744,000 grand total are all discharged
-against the committed `bands.json`.
+**What is proved.** Every module in `fstar/` passes `fstar.exe` with zero
+admits, enforced by `--report_assumes error` rather than by a convention.
 
-**Not verified, today:** the three theorems that state the grid is *correct* as
-opposed to *well-formed* — containment, injectivity across band seams, and
-round-trip — are listed in `roadmap.md` and have not been written. Neither have
-the Feistel round-trip and codec round-trip theorems. Nothing is `admit`ted;
-these simply do not exist yet, which is a different and more honest gap.
+| Theorem | Says |
+|---|---|
+| `Grid.theorem_containment` | every point lies inside the cell it maps to |
+| `Grid.theorem_injective` | distinct cells get distinct indices, **band seams included** |
+| `Grid.theorem_roundtrip` | a cell's representative point maps back to that cell |
+| `Feistel.theorem_roundtrip` | `decrypt (encrypt x) = x`, for *any* round function |
+| `Feistel.theorem_injective` / `theorem_surjective` | the permutation is a bijection |
+| `Codec.theorem_roundtrip` | mixed radix is a bijection onto the address space |
+| `Api.theorem_end_to_end` | `decode (encode p)` names p's own square |
+| `Table.theorem_no_overflow` | the widest intermediate fits in int64 |
+
+`theorem_containment` is the floor/ceiling bug the reference implementation
+shipped, stated as a theorem. `theorem_injective` is the one that matters:
+band seams are where two bands could both claim a point or leave a gap, and
+tests miss it because the failure set is measure-zero.
+
+The band table is a proved artifact too — its adjacent-difference bounds, its
+length and its 55,692,067,744,000 grand total are discharged against the
+committed `bands.json`.
+
+**What is not proved, and cannot be.** That the mapping is *unguessable*. The
+strongest honest claim is "provably reversible for any round function, and
+unpredictable assuming HMAC-SHA256 behaves as a PRF." The second half is an
+assumption, and a standard one, but it is an assumption. Also unproved: the F\*
+extraction pipeline and `ocamlopt`, which are trusted; `digestif`'s SHA-2,
+which is vector-tested, not verified; and every line of the server, the UI and
+the PMTiles code, none of which is F\* at all.
+
+Proof establishes that the grid is *consistent*, not that it is *well
+designed*. No theorem here says a 3 m square is the right size.
 
 **Checked on every push:** `.github/workflows/ci.yml` verifies every module
 from a pinned F\* release, greps for `admit`/`assume`/`magic` (a proof hole
@@ -189,19 +208,6 @@ hand-written oracle to drift from it.
 
 Until then, treat anything in these two directories as scaffolding rather than
 architecture, and do not add features to them.
-
-## Trust boundary
-
-Verification, once it exists, will cover the grid arithmetic, the Feistel
-bijection, and the codec. It will not cover:
-
-- **The F\* extraction pipeline and `ocamlopt`** — trusted, not proved.
-- **Whether the mapping is unguessable.** The strongest honest claim is
-  "provably reversible for any round function, and unpredictable assuming
-  HMAC-SHA256 behaves as a PRF." That assumption is standard and reasonable,
-  but it is an assumption.
-- **Whether the grid is well designed.** Proof establishes that it is
-  consistent, not that it is sensible.
 
 ## Name
 
