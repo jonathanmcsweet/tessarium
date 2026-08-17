@@ -22,10 +22,28 @@ export type Region = {
 };
 
 const Estimate = z.object({
+  /* Bytes still to fetch: tiles already on disk are excluded server-side,
+     so an area you already hold estimates at zero. */
   total_bytes: z.number().int().nonnegative(),
   tiles: z.number().int().nonnegative(),
+  /* True when the source has tiles here but the archive already holds every
+     one of them -- "you have this" rather than "there is nothing". */
+  covered: z.boolean(),
 });
 export type Estimate = z.infer<typeof Estimate>;
+
+/* The whole world at country level -- the recommended first download, and
+   what makes every later choice visible instead of a grey guess. Measured
+   against the Protomaps planet build: zoom 6 is about 45 MB; zoom 7 would
+   quadruple it. Downloads merge, so detail added later never re-pays for
+   this. */
+export const WORLD: Region = {
+  min_lon: -180,
+  min_lat: -85,
+  max_lon: 180,
+  max_lat: 85,
+  max_zoom: 6,
+};
 
 const Job = z.discriminatedUnion("state", [
   z.object({ state: z.literal("idle") }),

@@ -77,3 +77,21 @@ let tile t tile_id =
   | None -> None
   | Some (offset, length) ->
       Some (t.src.read ~offset:(t.header.Header.data_offset + offset) ~length)
+
+(* Every tile entry in the archive, leaf pointers resolved, in tile-id order.
+   Runs are kept as runs; the caller decides whether to expand them. This is
+   what a merge walks: the whole contents, not one lookup. *)
+let entries t =
+  let rec expand depth entry_list =
+    List.concat_map
+      (fun e ->
+        if Directory.is_leaf_pointer e then
+          if depth >= 4 then invalid_arg "pmtiles: directories nest too deep"
+          else
+            expand (depth + 1)
+              (Array.to_list
+                 (leaf t ~offset:e.Directory.offset ~length:e.Directory.length))
+        else [ e ])
+      entry_list
+  in
+  expand 0 (Array.to_list t.root)

@@ -594,6 +594,14 @@ button:disabled {
   accent-color: var(--accent);
 }
 
+/* The card's offers, in order of usefulness: the world map first when there
+   is nothing on disk, then detail for the current view. */
+.download-option + .download-option {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
 .download-actions {
   margin-top: 10px;
   display: flex;

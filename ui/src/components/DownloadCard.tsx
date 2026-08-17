@@ -1,5 +1,11 @@
-/* The offline-maps card: estimate for the region it was opened on, confirm,
-   progress, cancel.
+/* The offline-maps card.
+
+   Two offers, not one. Until an archive exists every choice is a grey
+   guess -- there is nothing on screen to aim the viewport with -- so the
+   card leads with the whole world at country level, and only then offers
+   detail for the current view. Once the world map is down it stops being
+   mentioned; from there the flow is: find the place on the world map, zoom,
+   download the view.
 
    Not a modal. It sits over the map's corner and traps nothing -- the map
    stays usable behind it, which matters because looking at the map is how a
@@ -15,6 +21,8 @@ import {
   useBasemapCancel,
   useBasemapDownload,
   useBasemapEstimate,
+  useBasemapPresent,
+  WORLD,
 } from "../core/basemap";
 import { formatBytes } from "../i18n";
 import { m } from "../paraglide/messages";
@@ -48,7 +56,12 @@ export function DownloadCard({ region, job }: {
   job: Job | undefined;
 }) {
   const closeDownload = useAppStore((s) => s.closeDownload);
-  const estimate = useBasemapEstimate(region);
+  const present = useBasemapPresent();
+  /* Only certainty hides the world offer: while the HEAD is in flight the
+     card shows the view option alone rather than guessing. */
+  const worldFirst = present.data === false;
+  const world = useBasemapEstimate(worldFirst ? WORLD : null);
+  const view = useBasemapEstimate(region);
   const download = useBasemapDownload();
   const cancel = useBasemapCancel();
 
@@ -89,36 +102,63 @@ export function DownloadCard({ region, job }: {
         )
         : (
           <>
-            {estimate.isPending && (
-              <p className="hint">{m.map_download_estimating()}</p>
+            {worldFirst && (
+              <div className="download-option download-world">
+                <p className="hint">
+                  {world.isPending
+                    ? m.map_download_estimating()
+                    : world.isSuccess
+                    ? m.map_download_world_estimate({
+                      size: formatBytes(world.data.total_bytes),
+                    })
+                    : world.error instanceof Error
+                    ? world.error.message
+                    : String(world.error)}
+                </p>
+                <div className="download-actions">
+                  <button
+                    type="button"
+                    onClick={() => download.mutate(WORLD, loudly)}
+                    disabled={!world.isSuccess || world.data.tiles === 0
+                      || download.isPending}
+                  >
+                    {m.map_download_world_confirm()}
+                  </button>
+                </div>
+              </div>
             )}
-            {estimate.isError && (
-              <p className="hint invalid">
-                {estimate.error instanceof Error
-                  ? estimate.error.message
-                  : String(estimate.error)}
-              </p>
-            )}
-            {estimate.isSuccess && (
-              estimate.data.tiles === 0
-                ? <p className="hint">{m.map_download_none()}</p>
-                : (
-                  <p className="hint">
-                    {m.map_download_estimate({
-                      size: formatBytes(estimate.data.total_bytes),
+            <div className="download-option download-view">
+              {view.isPending && (
+                <p className="hint">{m.map_download_estimating()}</p>
+              )}
+              {view.isError && (
+                <p className="hint invalid">
+                  {view.error instanceof Error
+                    ? view.error.message
+                    : String(view.error)}
+                </p>
+              )}
+              {view.isSuccess && (
+                <p className="hint">
+                  {view.data.covered
+                    ? m.map_download_covered()
+                    : view.data.tiles === 0
+                    ? m.map_download_none()
+                    : m.map_download_estimate({
+                      size: formatBytes(view.data.total_bytes),
                     })}
-                  </p>
-                )
-            )}
-            <div className="download-actions">
-              <button
-                type="button"
-                onClick={() => download.mutate(region, loudly)}
-                disabled={!estimate.isSuccess || estimate.data.tiles === 0
-                  || download.isPending}
-              >
-                {m.map_download_confirm()}
-              </button>
+                </p>
+              )}
+              <div className="download-actions">
+                <button
+                  type="button"
+                  onClick={() => download.mutate(region, loudly)}
+                  disabled={!view.isSuccess || view.data.tiles === 0
+                    || download.isPending}
+                >
+                  {m.map_download_confirm()}
+                </button>
+              </div>
             </div>
           </>
         )}

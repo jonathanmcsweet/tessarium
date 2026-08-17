@@ -350,8 +350,10 @@ export function MapView() {
     if (job.state === "done") {
       toast.success(m.map_download_done());
       /* The archive exists now; the cached "absent" answer must not outlive
-         it and resurrect the banner. */
+         it and resurrect the banner, and every cached estimate is stale --
+         tiles just landed on disk that the numbers do not know about. */
       client.setQueryData(["basemap-present"], true);
+      client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       clearBasemapFailed();
       closeDownload();
       rebuildBasemap();

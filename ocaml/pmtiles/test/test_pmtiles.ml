@@ -139,7 +139,7 @@ let () =
      back. Everything in memory, so this runs in CI with no network. *)
   let tile_bytes id = Printf.sprintf "tile-%d-%s" id (String.make (id mod 37) 'x') in
 
-  let source_tiles = T.covering ~min_zoom:0 ~max_zoom:6 ~min_lon:(-1.) ~min_lat:50. ~max_lon:1. ~max_lat:52. in
+  let source_tiles = T.covering ~min_zoom:0 ~max_zoom:10 ~min_lon:(-1.) ~min_lat:50. ~max_lon:1. ~max_lat:52. in
   let data = Buffer.create 4096 in
   let src_entries =
     Array.of_list
@@ -171,7 +171,7 @@ let () =
       tile_compression = H.None_;
       tile_type = H.Mvt;
       min_zoom = 0;
-      max_zoom = 6;
+      max_zoom = 10;
       min_lon_e7 = -10000000;
       min_lat_e7 = 500000000;
       max_lon_e7 = 10000000;
@@ -280,6 +280,80 @@ let () =
   in
   check "identical tiles are stored once"
     (Array.length run_plan.E.blobs = 1 && Array.length run_plan.E.tiles = 8);
+
+  (* ------------------------------------------------------------- merge *)
+  (* Extract one box, then merge a second, overlapping box into it. Every
+     tile from BOTH must read back byte-identical, and -- base wins -- the
+     bytes fetched for the second box must exclude everything the first
+     already brought in. This is the property that makes "world map first,
+     then detail" affordable: adding a city never re-downloads the world. *)
+  let module M = Pmtiles.Merge in
+  let extract_box ~min_lon ~max_lon =
+    let p =
+      E.plan archive ~min_zoom:0 ~max_zoom:10 ~min_lon ~min_lat:50.5 ~max_lon
+        ~max_lat:51.5
+    in
+    let buf = Buffer.create 4096 in
+    let _ =
+      E.write p src_header ~min_zoom:0 ~max_zoom:10 ~min_lon ~min_lat:50.5
+        ~max_lon ~max_lat:51.5
+        ~append:(Buffer.add_string buf)
+        ~copy:(fun ~offset ~length ->
+          Buffer.add_string buf (String.sub archive_bytes offset length))
+    in
+    (p, Buffer.contents buf)
+  in
+  let plan_a, base_bytes = extract_box ~min_lon:(-0.5) ~max_lon:0.0 in
+  let base_archive = A.open_ (source_of base_bytes) in
+  let plan_b =
+    E.plan archive ~min_zoom:0 ~max_zoom:10 ~min_lon:0.2 ~min_lat:50.5
+      ~max_lon:0.8 ~max_lat:51.5
+  in
+  let merged_plan = M.plan ~base:(Some base_archive) plan_b in
+  let in_base id = Array.exists (fun (t, _) -> t = id) plan_a.E.tiles in
+  let expected_fresh =
+    Array.to_list plan_b.E.tiles
+    |> List.filter (fun (id, _) -> not (in_base id))
+    |> List.length
+  in
+  check "a merge only fetches tiles the base lacks"
+    (merged_plan.M.fresh_tiles = expected_fresh && expected_fresh > 0);
+  check "overlapping low zooms are not re-fetched"
+    (merged_plan.M.fetch_bytes < E.planned_bytes plan_b);
+  let merged_buf = Buffer.create 4096 in
+  let _ =
+    M.write merged_plan src_header ~min_zoom:0 ~max_zoom:10 ~min_lon:(-0.5)
+      ~min_lat:50.5 ~max_lon:0.8 ~max_lat:51.5
+      ~append:(Buffer.add_string merged_buf)
+      ~copy:(fun ~origin ~offset ~length ->
+        let bytes =
+          match origin with
+          | M.Base -> String.sub base_bytes offset length
+          | M.Fresh -> String.sub archive_bytes offset length
+        in
+        Buffer.add_string merged_buf bytes)
+  in
+  let merged = A.open_ (source_of (Buffer.contents merged_buf)) in
+  let both =
+    Array.to_list plan_a.E.tiles @ Array.to_list plan_b.E.tiles
+    |> List.map fst |> List.sort_uniq compare
+  in
+  check "every tile from both boxes survives the merge byte for byte"
+    (List.for_all
+       (fun id ->
+         match A.tile merged id with
+         | Some got -> String.equal got (tile_bytes id)
+         | None -> false)
+       both);
+  check "the merged archive reports the union's tile count"
+    (merged.A.header.H.addressed_tiles = List.length both);
+  check "a merge with no base is a plain extract"
+    (let p = M.plan ~base:None plan_b in
+     p.M.fetch_bytes = E.planned_bytes plan_b
+     && p.M.fresh_tiles = Array.length plan_b.E.tiles);
+  check "merging a region already held fetches nothing"
+    (let again = M.plan ~base:(Some merged) plan_b in
+     again.M.fresh_tiles = 0 && again.M.fetch_bytes = 0);
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "pmtiles round-trips"

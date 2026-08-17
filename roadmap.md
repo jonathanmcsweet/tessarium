@@ -315,15 +315,16 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
-- [ ] **One downloaded region at a time.** The in-app downloader replaces
-      map.pmtiles wholesale, so fetching Paris discards London's street-level
-      tiles (the low-zoom world context survives, because every download
-      includes zooms 0 and up for its box). Someone with two cities in their
-      life has to choose, or draw one box around both and pay for everything
-      between. The honest fix is merging: extract the new region, union the
-      tile sets, rebuild the directories — the extract writer has all the
-      pieces. Deferred because it needs a policy for eviction too; a merge
-      that only ever grows eats the disk quietly.
+- [ ] **Downloaded tiles never refresh, and the archive only grows.** Both
+      are consequences of the merge design that landed with the world-first
+      downloader: the copy already on disk wins, so adding a region never
+      re-fetches — and never updates — a tile you hold, and nothing is ever
+      evicted. Right for the common case (the estimate for an area you have
+      is honestly zero), wrong eventually: the Protomaps planet build is
+      rebuilt daily, and a basemap assembled over months will mix vintages
+      across zoom levels. Wants a "refresh everything I hold" action (re-fetch
+      the archive's bounding boxes with fresh-wins instead of base-wins) and
+      a way to see and reclaim what the archive holds.
 - [ ] **Satellite imagery overlay, as Google Maps has.** A toggle between the
       drawn map and aerial photography. Two open questions before it can be
       built: a source and the privacy story. There is no free planet-scale

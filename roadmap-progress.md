@@ -987,3 +987,37 @@ Range server with no external network. 59 e2e checks, 100 server checks.
 
 **Follow-on:** one region at a time — a new download replaces the archive —
 recorded as an open roadmap item, with region merging as the likely shape.
+
+### 2026-08-18 — World map first, merged downloads, and the speed fix
+
+**Phase:** 6
+
+**What:** The downloader reworked around the way people actually use offline
+maps, on user feedback that a grey screen gives nothing to aim a download at.
+Three pieces. (1) `Pmtiles.Merge`: downloads now merge into the archive on
+disk instead of replacing it — union of tile sets, base copy wins, directories
+rebuilt — so the world map survives every city added on top, estimates quote
+only the bytes you do not already hold, and an area you have reports
+"covered" (the UI says "you already have this" and disables the button). The
+generic writer under both extract and merge is `Extract.write_tiles`;
+`Archive.entries` enumerates an archive for merging. (2) World-first UI: with
+no basemap on disk the card leads with "Download world map" — the whole world
+at zoom 6, measured at ~44 MB against the Protomaps planet build (z7 is
+187 MB, z8 551 MB) — and drops the offer once an archive exists. From there:
+find the place on the world map, zoom, download the view. (3) Speed: every
+range request was its own TLS connection, so a city download was thousands of
+handshakes; `Pmtiles_source.with_readahead` fetches 1 MiB windows that the
+small ascending reads (directories, then clustered blobs) land in. The real
+world download now completes in ~30 s. The e2e drives the full sequence
+offline against the fixture server: world at generation one, view detail
+MERGED at generation two (header proven to span z0–15 by its own bytes),
+covered-state on the third ask. 64 e2e checks, 45 pmtiles checks (merge
+mutation-verified: dropping the data-offset translation fails the
+byte-for-byte check).
+
+**Rationale:** "There's so much of the world not filled in — no idea what to
+download since the whole screen is gray." The world overview is what makes
+every later choice visible, and merging is what makes it affordable.
+
+**Follow-on:** base-wins means held tiles never refresh and the archive only
+grows; recorded as an open roadmap item (refresh action + eviction story).

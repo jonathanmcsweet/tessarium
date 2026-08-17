@@ -82,12 +82,38 @@ let with_default_port uri =
 
 let is_url s = String.length s > 4 && String.sub s 0 4 = "http"
 
+(* One fetched window serves many reads. The reads an extract makes are
+   small and mostly ascending -- header, directories, then clustered tile
+   blobs -- and over HTTPS each read is otherwise its own connection and its
+   own TLS handshake, which is what made a city download take thousands of
+   round trips. A miss simply fetches a fresh window at the asked offset;
+   nothing is ever refetched byte by byte. *)
+let with_readahead ?(window = 1 lsl 20) (src : Pmtiles.Archive.source) =
+  let cache = ref ("", 0) in
+  {
+    Pmtiles.Archive.read =
+      (fun ~offset ~length ->
+        let data, start = !cache in
+        if offset >= start && offset + length <= start + String.length data
+        then String.sub data (offset - start) length
+        else begin
+          let got =
+            src.Pmtiles.Archive.read ~offset ~length:(max length window)
+          in
+          cache := (got, offset);
+          (* The archive may end inside the window; hand back what exists,
+             exactly as the underlying source would. *)
+          String.sub got 0 (min length (String.length got))
+        end);
+  }
+
 (* URL or path in, source out. [sw] scopes the connections; [fs] and [net]
    come from the caller's environment. *)
 let open_url ~sw ~fs ~net url =
   if is_url url then
     let client = https_client net in
-    http_source ~client ~sw ~uri:(with_default_port (Uri.of_string url))
+    with_readahead
+      (http_source ~client ~sw ~uri:(with_default_port (Uri.of_string url)))
   else file_source (Eio.Path.open_in ~sw Eio.Path.(fs / url))
 
 (* A GET of a whole body, for the glyph/sprite tarball, which is one download

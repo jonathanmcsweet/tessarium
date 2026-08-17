@@ -70,7 +70,7 @@ let planned_bytes p =
    a run length. This is the format's compression for repeated tiles and it is
    the difference between a directory of thousands of entries and one of
    dozens over open water. *)
-let entries_of_plan p ~blob_offsets =
+let entries_of_tiles tiles ~blob_offsets =
   let out = ref [] in
   let count = ref 0 in
   Array.iter
@@ -87,7 +87,7 @@ let entries_of_plan p ~blob_offsets =
       | _ ->
           incr count;
           out := { Directory.tile_id; offset; length; run_length = 1 } :: !out)
-    p.tiles;
+    tiles;
   Array.of_list (List.rev !out)
 
 (* Split entries into a root directory of leaf pointers plus the leaves
@@ -128,24 +128,26 @@ let build_directories entries =
 
 let e7 v = int_of_float (Float.round (v *. 1e7))
 
-(* [write] streams blobs through [copy], which is handed (source offset,
-   length) and must append those bytes. Keeping the copy injected means this
-   function does no IO and the caller decides whether bytes come from a file
-   or a socket. *)
-let write plan (source : Header.t) ~min_zoom ~max_zoom ~min_lon ~min_lat
-    ~max_lon ~max_lat ~append ~copy =
+(* The writer under [write] and [Merge.write]: tiles referencing abstract
+   blob indices, blob lengths for the layout, and a callback that must append
+   blob i's bytes when asked. Keeping the copy injected means this function
+   does no IO and the caller decides whether bytes come from a file, a
+   socket, or two different archives at once. *)
+let write_tiles ~(source : Header.t) ~min_zoom ~max_zoom ~min_lon ~min_lat
+    ~max_lon ~max_lat ~(tiles : (int * int) array)
+    ~(blob_lengths : int array) ~append ~copy_blob =
   (* Blob offsets are relative to the start of the tile data section, so they
      can be computed before the header's size is known. *)
-  let blob_offsets = Array.make (Array.length plan.blobs) (0, 0) in
+  let blob_offsets = Array.make (Array.length blob_lengths) (0, 0) in
   let running = ref 0 in
   Array.iteri
-    (fun i (_, length) ->
+    (fun i length ->
       blob_offsets.(i) <- (!running, length);
       running := !running + length)
-    plan.blobs;
+    blob_lengths;
   let data_length = !running in
 
-  let entries = entries_of_plan plan ~blob_offsets in
+  let entries = entries_of_tiles tiles ~blob_offsets in
   let root, leaves, _leaf_count = build_directories entries in
 
   let metadata = "{}" in
@@ -154,7 +156,7 @@ let write plan (source : Header.t) ~min_zoom ~max_zoom ~min_lon ~min_lat
   let leaf_offset = metadata_offset + String.length metadata in
   let data_offset = leaf_offset + String.length leaves in
 
-  let addressed = Array.length plan.tiles in
+  let addressed = Array.length tiles in
   let header =
     {
       source with
@@ -168,7 +170,7 @@ let write plan (source : Header.t) ~min_zoom ~max_zoom ~min_lon ~min_lat
       data_length;
       addressed_tiles = addressed;
       tile_entries = Array.length entries;
-      tile_contents = Array.length plan.blobs;
+      tile_contents = Array.length blob_lengths;
       (* Blobs are written in ascending tile-id order, which is what clustered
          means and what lets a reader coalesce adjacent requests. *)
       clustered = true;
@@ -188,5 +190,15 @@ let write plan (source : Header.t) ~min_zoom ~max_zoom ~min_lon ~min_lat
   append root;
   append metadata;
   append leaves;
-  Array.iter (fun (offset, length) -> copy ~offset ~length) plan.blobs;
+  Array.iteri (fun i _ -> copy_blob i) blob_lengths;
   header
+
+let write plan (source : Header.t) ~min_zoom ~max_zoom ~min_lon ~min_lat
+    ~max_lon ~max_lat ~append ~copy =
+  write_tiles ~source ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
+    ~tiles:plan.tiles
+    ~blob_lengths:(Array.map snd plan.blobs)
+    ~append
+    ~copy_blob:(fun i ->
+      let offset, length = plan.blobs.(i) in
+      copy ~offset ~length)

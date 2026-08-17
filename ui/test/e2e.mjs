@@ -281,11 +281,12 @@ check(
 
    The server under test was started with an EMPTY basemap directory and its
    download source pointed at a second instance of this same server, which
-   serves a generated fixture archive. So this one flow drives the whole
-   pipeline with no external network: the missing-basemap banner, the
-   estimate, our Range client against our own Range server, the extract, the
-   assets tarball, and the style swap -- which must happen without a page
-   reload, because a reload drops the key.
+   serves a generated fixture archive. So this drives the whole pipeline with
+   no external network: the missing-basemap banner, the world-map-first offer,
+   the estimate, our Range client against our own Range server, the extract,
+   the assets tarball, the style swap without a page reload -- and then a
+   SECOND download that must MERGE detail into the archive rather than
+   replace it, which is what makes "world first, then detail" usable at all.
 
    The repeated status polls over one keep-alive connection are also the
    regression test for a real bug: a poll whose declared body was not drained
@@ -322,27 +323,43 @@ const reversed = await postJson("basemap-estimate", {
 });
 check("a reversed box is refused with a 400", reversed.status === 400);
 
+/* Wait until the named download completes, by generation: a tiny fixture
+   download can run start-to-done entirely between two UI polls, and the
+   generation in the status envelope is exactly what makes that visible. */
+const awaitDone = async (generation) => {
+  for (let i = 0; i < 120; i++) {
+    const status = await (await postJson("basemap-status")).json();
+    if (status.generation === generation && status.job?.state === "done") {
+      return true;
+    }
+    if (status.job?.state === "failed") {
+      console.log(`  download failed: ${status.job.reason}`);
+      return false;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
+};
+
+/* With nothing on disk, the card leads with the world map. */
 await bannerAction.click();
 await page.waitForSelector(".download-card", { timeout: 10_000 });
 check("the download card opens from the banner", true);
+const worldButton = page.locator(".download-world button");
+await worldButton.waitFor({ state: "visible", timeout: 10_000 });
+check("an empty basemap leads with the world map offer", true);
 await page.waitForFunction(
-  () =>
-    !document.querySelector(".download-card .download-actions button")
-      ?.disabled,
+  () => !document.querySelector(".download-world button")?.disabled,
   { timeout: 30_000 },
 );
-check("the estimate arrives and enables the download", true);
-await page.locator(".download-card .download-actions button").click();
-
-/* The fixture is tiny, so the job can run start-to-done entirely between two
-   polls. The generation in the status envelope is what makes the completion
-   visible anyway, and this wait is the check that it does. */
+await worldButton.click();
+check("the world download completes at generation one", await awaitDone(1));
 await page.waitForFunction(
   () =>
     [...document.querySelectorAll("[data-sonner-toast]")].some((t) =>
       (t.textContent ?? "").includes("Maps downloaded")
     ),
-  { timeout: 60_000 },
+  { timeout: 30_000 },
 );
 check("the download completes with a toast", true);
 await page.waitForFunction(() => !document.querySelector(".banner"), {
@@ -367,19 +384,66 @@ check(
   "the sprite sheet arrived via the assets tarball",
   (await fetch(`${base}/basemap/sprites/v4/light.json`)).status === 200,
 );
-const doneStatus = await (await postJson("basemap-status")).json();
-check(
-  "the job reports done at generation one",
-  doneStatus.generation === 1 && doneStatus.job?.state === "done",
-);
 check(
   "still unlocked after the style swap -- no reload happened",
   (await page.locator(".panel").count()) === 1,
 );
+
+/* Second download: detail for the current view, MERGED over the world map.
+   The card must no longer offer the world, and afterwards every tile from
+   both downloads has to be in one archive. */
+const openButton = page.locator(".map-actions .icon-button");
 check(
   "the map carries its own download button",
-  (await page.locator(".map-actions .icon-button").count()) === 1,
+  (await openButton.count()) === 1,
 );
+await openButton.click();
+await page.waitForSelector(".download-card", { timeout: 10_000 });
+check(
+  "with maps on disk the world offer is gone",
+  (await page.locator(".download-world").count()) === 0,
+);
+const viewButton = page.locator(".download-view button");
+await page.waitForFunction(
+  () => !document.querySelector(".download-view button")?.disabled,
+  { timeout: 30_000 },
+);
+await viewButton.click();
+check("the view download completes at generation two", await awaitDone(2));
+await page.waitForFunction(() => !document.querySelector(".download-card"), {
+  timeout: 10_000,
+});
+
+/* Merged, not replaced: bytes 100-101 of a PMTiles header are its min and
+   max zoom, and only the union of both downloads spans 0 to 15. */
+const zoomBytes = await fetch(`${base}/basemap/map.pmtiles`, {
+  headers: { range: "bytes=100-101" },
+});
+const zooms = new Uint8Array(await zoomBytes.arrayBuffer());
+check(
+  `the merged archive spans zoom 0 to 15 (got ${zooms[0]}-${zooms[1]})`,
+  zooms[0] === 0 && zooms[1] === 15,
+);
+
+/* Asking again for what is already on disk: the estimate must say "you have
+   this" rather than re-quoting the price, and the download stays disabled. */
+await openButton.click();
+await page.waitForSelector(".download-card", { timeout: 10_000 });
+await page.waitForFunction(
+  () =>
+    (document.querySelector(".download-view .hint")?.textContent ?? "")
+      .includes("You already have"),
+  { timeout: 30_000 },
+);
+check("re-asking for a held area says so instead of re-quoting", true);
+check(
+  "and its download button stays disabled",
+  await page.locator(".download-view button").isDisabled(),
+);
+await page.locator(".download-card .icon-button").click();
+await page.waitForFunction(() => !document.querySelector(".download-card"), {
+  timeout: 10_000,
+});
 
 /* Let the swapped style fetch and render its tiles; anything it logs from
    here on fails the final console check. */

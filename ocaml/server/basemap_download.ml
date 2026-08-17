@@ -1,9 +1,14 @@
 (* The effectful side of the in-app basemap download.
 
    Every decision -- may a download start, is this box valid, what does
-   progress look like -- is [Basemap_job]'s and is tested there. This module
+   progress look like -- is [Basemap_job]'s and is tested there; the merge
+   arithmetic is [Pmtiles.Merge]'s, tested in the pmtiles suite. This module
    owns what cannot be pure: the fiber, the socket, the .part file, and the
    mutex around the one shared job cell.
+
+   Downloads MERGE into the archive on disk rather than replacing it, so the
+   world overview survives every city added on top of it, and a tile already
+   held is never fetched again.
 
    The tile source and assets URL are the server's configuration, never the
    client's. A request body names a region of the world; it does not name a
@@ -83,15 +88,54 @@ let plan_region ~sw ~fs ~net ~source (req : Basemap_job.request) =
   in
   (src, h, min_zoom, max_zoom, plan)
 
-let estimate ~fs ~net ~source (req : Basemap_job.request) =
+(* The archive already on disk, if any -- the merge's base. *)
+let open_base ~sw ~fs ~basemap_dir =
+  let path = Eio.Path.(fs / basemap_dir / "map.pmtiles") in
+  match Eio.Path.kind ~follow:true path with
+  | `Regular_file ->
+      Some
+        (Pmtiles.Archive.open_
+           (Pmtiles_source.file_source (Eio.Path.open_in ~sw path)))
+  | _ -> None
+
+let merge_plan ~sw ~fs ~net ~source ~basemap_dir req =
+  let src, h, min_zoom, max_zoom, fresh =
+    plan_region ~sw ~fs ~net ~source req
+  in
+  let base = open_base ~sw ~fs ~basemap_dir in
+  (match base with
+  | Some b
+    when b.Pmtiles.Archive.header.Pmtiles.Header.tile_compression
+         <> h.Pmtiles.Header.tile_compression ->
+      failwith
+        "the basemap on disk and the tile source disagree on compression; \
+         delete the basemap directory and download again"
+  | _ -> ());
+  (src, h, base, min_zoom, max_zoom, Pmtiles.Merge.plan ~base fresh, fresh)
+
+(* The estimate is what the user will actually pay for over the network:
+   tiles the base already holds are excluded, so re-asking for an area you
+   have says zero rather than re-quoting the full price. [covered] separates
+   "you have all of this" from "the source has nothing here". *)
+let estimate ~fs ~net ~source ~basemap_dir (req : Basemap_job.request) =
   match
     Eio.Switch.run @@ fun sw ->
-    let _, _, _, _, plan = plan_region ~sw ~fs ~net ~source req in
-    ( Pmtiles.Extract.planned_bytes plan,
-      Array.length plan.Pmtiles.Extract.tiles )
+    let _, _, _, _, _, mp, fresh =
+      merge_plan ~sw ~fs ~net ~source ~basemap_dir req
+    in
+    ( mp.Pmtiles.Merge.fetch_bytes,
+      mp.Pmtiles.Merge.fresh_tiles,
+      Array.length fresh.Pmtiles.Extract.tiles > 0
+      && mp.Pmtiles.Merge.fresh_tiles = 0 )
   with
-  | total_bytes, tiles ->
-      Ok (`Assoc [ ("total_bytes", `Int total_bytes); ("tiles", `Int tiles) ])
+  | fetch_bytes, tiles, covered ->
+      Ok
+        (`Assoc
+           [
+             ("total_bytes", `Int fetch_bytes);
+             ("tiles", `Int tiles);
+             ("covered", `Bool covered);
+           ])
   | exception e -> Error (friendly e)
 
 (* ----------------------------------------------------------------- assets *)
@@ -141,31 +185,60 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir (req : Basemap_job.requ
   let discard_part () = try Eio.Path.unlink part with _ -> () in
   match
     Eio.Switch.run @@ fun sw ->
-    let src, h, min_zoom, max_zoom, plan =
-      plan_region ~sw ~fs ~net ~source req
+    let src, h, base, min_zoom, max_zoom, mp, _fresh =
+      merge_plan ~sw ~fs ~net ~source ~basemap_dir req
     in
-    let total = Pmtiles.Extract.planned_bytes plan in
-    if Array.length plan.Pmtiles.Extract.tiles = 0 then
+    if Array.length mp.Pmtiles.Merge.tiles = 0 then
       failwith "the source has no tiles in that area";
+    if mp.Pmtiles.Merge.fresh_tiles = 0 && Option.is_some base then
+      failwith "you already have the maps for that area";
     check_cancel t;
+    (* Progress counts every byte the merged archive writes, local copies
+       included: it is the write that takes the time on a fast link, and a
+       bar that ignored the base would sit at 100% while still working. *)
+    let total = mp.Pmtiles.Merge.total_bytes in
     set t (Basemap_job.progress ~done_bytes:0 ~total_bytes:total);
     ensure_dir dir;
+    (* The merged header describes the union: the base's box and zooms grown
+       by the new region's, not replaced by them. *)
+    let e7f v = float_of_int v /. 1e7 in
+    let min_zoom, max_zoom, min_lon, min_lat, max_lon, max_lat =
+      match base with
+      | None ->
+          (min_zoom, max_zoom, req.min_lon, req.min_lat, req.max_lon, req.max_lat)
+      | Some b ->
+          let bh = b.Pmtiles.Archive.header in
+          ( min min_zoom bh.Pmtiles.Header.min_zoom,
+            max max_zoom bh.Pmtiles.Header.max_zoom,
+            Float.min req.min_lon (e7f bh.Pmtiles.Header.min_lon_e7),
+            Float.min req.min_lat (e7f bh.Pmtiles.Header.min_lat_e7),
+            Float.max req.max_lon (e7f bh.Pmtiles.Header.max_lon_e7),
+            Float.max req.max_lat (e7f bh.Pmtiles.Header.max_lat_e7) )
+    in
     (* Written under a .part name and renamed only once complete, so the file
        the map reads is never mid-write and a failed download leaves the
-       previous basemap untouched. *)
+       previous basemap untouched. The base is read from the old file while
+       the new one is written beside it. *)
     Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part (fun out ->
         let written = ref 0 in
         let append s = Eio.Flow.copy_string s out in
-        let copy ~offset ~length =
+        let copy ~origin ~offset ~length =
           check_cancel t;
-          Eio.Flow.copy_string (src.Pmtiles.Archive.read ~offset ~length) out;
+          let bytes =
+            match origin with
+            | Pmtiles.Merge.Base -> (
+                match base with
+                | Some b -> b.Pmtiles.Archive.src.Pmtiles.Archive.read ~offset ~length
+                | None -> assert false (* no Base blobs without a base *))
+            | Pmtiles.Merge.Fresh -> src.Pmtiles.Archive.read ~offset ~length
+          in
+          Eio.Flow.copy_string bytes out;
           written := !written + length;
           set t (Basemap_job.progress ~done_bytes:!written ~total_bytes:total)
         in
         ignore
-          (Pmtiles.Extract.write plan h ~min_zoom ~max_zoom
-             ~min_lon:req.min_lon ~min_lat:req.min_lat ~max_lon:req.max_lon
-             ~max_lat:req.max_lat ~append ~copy));
+          (Pmtiles.Merge.write mp h ~min_zoom ~max_zoom ~min_lon ~min_lat
+             ~max_lon ~max_lat ~append ~copy));
     Eio.Path.rename part Eio.Path.(dir / "map.pmtiles");
     fetch_assets t ~sw ~net ~assets ~dir;
     total
@@ -200,7 +273,7 @@ let start t ~sw ~fs ~net ~source ~assets ~basemap_dir req =
 
 let ops t ~sw ~fs ~net ~source ~assets ~basemap_dir =
   {
-    estimate = (fun req -> estimate ~fs ~net ~source req);
+    estimate = (fun req -> estimate ~fs ~net ~source ~basemap_dir req);
     start = (fun req -> start t ~sw ~fs ~net ~source ~assets ~basemap_dir req);
     cancel = (fun () -> cancel t);
     status = (fun () -> status t);
