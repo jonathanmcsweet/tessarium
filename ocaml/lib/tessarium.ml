@@ -170,3 +170,46 @@ let cell_bounds_z ~lat ~lon =
 let cell_bounds ~lat_ns ~lon_ns =
   let a, b, c, d = cell_bounds_z ~lat:(Z.of_int lat_ns) ~lon:(Z.of_int lon_ns) in
   (Z.to_int a, Z.to_int b, Z.to_int c, Z.to_int d)
+
+(* Every cell overlapping a bounding box, for the map's grid overlay.
+
+   This is a driver over `bounds_of_point`, not a second implementation of the
+   grid: it walks by taking each cell's upper edge as the next cell's lower
+   edge, which is exact because `cell_bounds` is half-open at the high edge.
+
+   It lives here rather than in the UI because the alternative is stepping
+   across cell boundaries in JavaScript floats, and a boundary that lands one
+   unit out is the exact bug this project was built to rule out. In integer
+   nanodegrees there is no rounding to get wrong.
+
+   [limit] bounds the work: the caller asks for a viewport, and a viewport
+   zoomed out far enough covers more cells than any renderer wants. Truncation
+   is reported rather than silent. *)
+let cells_in_bounds ~lat_lo ~lon_lo ~lat_hi ~lon_hi ~limit =
+  let clamp lo hi v = if Z.lt v lo then lo else if Z.gt v hi then hi else v in
+  let lat_lo = clamp lat_min lat_max lat_lo
+  and lat_hi = clamp lat_min lat_max lat_hi
+  and lon_lo = clamp lon_min lon_max lon_lo
+  and lon_hi = clamp lon_min lon_max lon_hi in
+  if Z.gt lat_lo lat_hi || Z.gt lon_lo lon_hi then ([], false)
+  else
+    let rec rows lat acc count =
+      if Z.gt lat lat_hi || count >= limit then (acc, Z.leq lat lat_hi)
+      else
+        (* Within one row every cell shares the row's latitude bounds, so the
+           row's upper edge comes out of the first cell in it. *)
+        let rec cols lon acc count row_top =
+          if Z.gt lon lon_hi || count >= limit then (acc, count, row_top)
+          else
+            let a, b, c, d = cell_bounds_z ~lat ~lon in
+            (* A cell whose upper edge does not advance would loop forever.
+               It cannot happen -- widths are positive -- but the guard costs
+               nothing and a hung tab costs a lot. *)
+            if Z.leq d lon then (acc, count, b)
+            else cols d ((a, b, c, d) :: acc) (count + 1) b
+        in
+        let acc, count, row_top = cols lon_lo acc count (Z.add lat Z.one) in
+        if Z.leq row_top lat then (acc, true) else rows row_top acc count
+    in
+    let cells, truncated = rows lat_lo [] 0 in
+    (List.rev cells, truncated)

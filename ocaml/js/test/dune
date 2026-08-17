@@ -1,0 +1,13 @@
+; The browser artifact checked against the same vectors as the native build.
+; This is the test that says the two agree, which is the whole reason the grid
+; is integer-only -- so it belongs in `dune test`, not in a README instruction.
+(rule
+ (alias runtest)
+ (deps
+  test_vectors.cjs
+  %{project_root}/ocaml/js/tessarium_js.bc.js
+  %{project_root}/vectors/vectors.json)
+ (action
+  (run node %{dep:test_vectors.cjs}
+   %{project_root}/ocaml/js/tessarium_js.bc.js
+   %{project_root}/vectors/vectors.json)))

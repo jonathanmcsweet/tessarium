@@ -107,4 +107,37 @@ let () =
            val lonLo = deg_of_ns c
            val lonHi = deg_of_ns d
          end
+
+       (* Every cell overlapping a viewport, as a flat Float64Array of
+          [latLo, latHi, lonLo, lonHi] quadruples.
+
+          Flat and typed rather than an array of objects: a z20 viewport is a
+          few thousand cells, and allocating four JS objects per cell to throw
+          away on the next map movement is how a map loses its frame budget.
+
+          The walk itself happens in the core, in integer nanodegrees. Stepping
+          cell to cell in JavaScript would mean crossing cell boundaries in
+          floating point, which is the one thing the integer grid exists to
+          prevent. *)
+       method gridForBounds latLo lonLo latHi lonHi limit =
+         let cells, truncated =
+           Tessarium.cells_in_bounds ~lat_lo:(ns_of_deg latLo)
+             ~lon_lo:(ns_of_deg lonLo) ~lat_hi:(ns_of_deg latHi)
+             ~lon_hi:(ns_of_deg lonHi) ~limit
+         in
+         let n = List.length cells in
+         let flat = new%js Typed_array.float64Array (n * 4) in
+         List.iteri
+           (fun i (a, b, c, d) ->
+             let put k v = Typed_array.set flat ((i * 4) + k) (Js.number_of_float v) in
+             put 0 (deg_of_ns a);
+             put 1 (deg_of_ns b);
+             put 2 (deg_of_ns c);
+             put 3 (deg_of_ns d))
+           cells;
+         object%js
+           val cells = flat
+           val count = n
+           val truncated = Js.bool truncated
+         end
     end)
