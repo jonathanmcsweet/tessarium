@@ -1,8 +1,6 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
-
   "app_name": "Tessarium",
-
   "gate_lede": "Three words and a number address every ~3 m square on Earth, under a map that belongs to your seed phrase alone.",
   "gate_phrase_label": "Your 24-word seed phrase",
   "gate_phrase_placeholder": "abandon ability able about above absent…",
@@ -26,17 +24,15 @@
   "gate_wallet_warning_body": "Anyone who learns a few of your addresses and where they actually are is doing cryptanalysis against this key. If it also holds funds, you have combined two unrelated risks for nothing.",
   "gate_fineprint": "24 words only. A 12-word phrase carries 128 bits of entropy, which Grover's algorithm reduces to an effective 64. Your phrase is never stored, never put in the URL, and never sent anywhere — the key is derived here, in a worker, on this device.",
   "gate_wordlist_note": "The 24 words come from the standard English BIP-39 list, in every language this app speaks.",
-
   "map_label": "Map. Use the arrow keys to move, plus and minus to zoom, and Enter to take the address of the centre square.",
   "map_keyboard_hint": "Arrow keys move the map, + and − zoom, Enter takes the address of the centre square.",
   "map_zoom_for_grid": "Zoom in to see the grid",
   "map_too_many_squares": "Too many squares in view to draw them all — zoom in",
   "map_basemap_missing": "No basemap found. Addressing still works over blank space; run tools/fetch-basemap.sh to download tiles.",
-
   "panel_lock": "Lock",
   "panel_lock_hint": "Forget the key",
   "panel_this_square": "This square",
-  "panel_no_selection": "Click any square on the map to see its address.",
+  "panel_no_selection": "Tap or click any square on the map to see its address.",
   "panel_reveal": "Show this address",
   "panel_conceal": "Hide this address",
   "panel_concealed": "Address hidden",
@@ -53,7 +49,6 @@
   "panel_found": "Found it — flying there now",
   "panel_prefix_hint": "Four-letter prefixes work, and separators are forgiving: {example} resolves the same way.",
   "panel_footer": "Addresses are meaningless to anyone with a different seed phrase. The same square has an entirely unrelated address under every other phrase.",
-
   "a11y_dismiss_banner": "Dismiss this message",
   "a11y_language": "Language"
 }

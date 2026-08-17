@@ -317,14 +317,15 @@ not cover.
       map UI for picking a box, a size estimate before committing, progress,
       and cancellation. The extractor itself is done and is a library, so this
       is UI work over an existing API.
-- [ ] **The non-English translations have not been reviewed by a native
-      speaker.** French (France and Canada) and Spanish (US) were written
-      wholesale and are unverified. They are security-relevant copy: the
-      wallet-reuse warning and the "write these words down" notice have to land
-      exactly, and a translation that softens either is worse than no
-      translation. `fr-CA` currently differs from `fr-FR` in one term
-      (`phrase de passe`) and otherwise mirrors it, which a Quebec reviewer
-      should correct.
+- [ ] **The non-English translations still want a native speaker.** They have
+      been through one adversarial review pass, which found and fixed real
+      defects — a French pronoun that attached "your 24 words and this second
+      seed phrase", a Spanish null subject that made the wallet warning read as
+      being about the attacker's funds, and `contraseña` priming users to think
+      the passphrase was a resettable password. What remains is the judgement a
+      review cannot supply: whether the copy sounds like a person. `fr-CA` now
+      differs from `fr-FR` in terminology, punctuation spacing and dash
+      convention, but a Quebec reader should still confirm it.
 - [ ] **A colour-contrast audit has not been done.** The palette was checked by
       eye against WCAG AA for the text that changed, not measured across every
       state. `--accent` on white is about 3.9:1, which passes for the address

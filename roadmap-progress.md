@@ -852,3 +852,28 @@ treats a plugin it cannot import as a warning and then reports success, having
 compiled nothing at all. The message test now checks the compiled output
 against the catalogue, so that becomes a failure instead of an empty UI.
 
+### 2026-08-17 — Adversarial review of the translations
+
+**Phase:** 6
+
+**What:** Two independent reviewers went over the French and Spanish against
+the English source. Both returned "not safe to ship". Every finding is applied.
+
+**Rationale:** The defects were not style. In French, `gate_passphrase_what`
+attached "celle-ci" to the wrong noun, so the sentence written to stop people
+confusing the passphrase with a second seed phrase said "your 24 words and
+this second seed phrase decide"; and the wallet warning said `graine de
+portefeuille`, a calque no French speaker uses for the thing every other
+string called a `phrase de récupération` — a user could read the warning,
+agree with it, and paste their wallet seed anyway. In Spanish, the wallet
+warning's dropped subject resolved to the attacker ("if *they* also hold
+funds"), and `contraseña` filed an unrecoverable secret under the same mental
+heading as a password you can reset. Both files also named the Enter key as
+the verb "to enter" in the screen-reader label.
+
+The English changed too: "Click any square" became "Tap or click", because the
+UI rules require touch parity and the source string did not have it.
+
+**Follow-on:** A native speaker should still read all three. Recorded in
+`roadmap.md`.
+
