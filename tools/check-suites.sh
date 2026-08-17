@@ -15,9 +15,14 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
 # name : the pattern its report line must match
+#
+# Match on something the suite says about ITSELF, never on how many checks it
+# contains. A pattern like "^58 checks" makes adding a test indistinguishable
+# from a suite that stopped running, which is the exact failure this script
+# exists to catch.
 suites=(
   "native vectors|all vectors reproduce"
-  "js_of_ocaml bundle|gridForBounds|^55 checks|^58 checks"
+  "js_of_ocaml bundle|js_of_ocaml bundle: [0-9]+ checks"
   "independent js implementation|checks passed, 0 failed"
   "server decisions|server decisions hold"
   "pmtiles round-trip|pmtiles round-trips"
@@ -58,4 +63,9 @@ if [ "$status" -ne 0 ]; then
   exit "$status"
 fi
 
-echo "    all $((${#suites[@]})) suites ran"
+echo "    all $((${#suites[@]})) dune suites ran"
+echo
+echo "note: the browser end-to-end suite is NOT run here -- it needs a live"
+echo "      server and Playwright. Run 'make test' for everything, or"
+echo "      'make test-ui' for that suite alone. A grid change that stales a"
+echo "      constant in it will not show up until you do."

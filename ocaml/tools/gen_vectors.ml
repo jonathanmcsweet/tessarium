@@ -126,6 +126,37 @@ let generate inputs =
              ])
   in
 
+  (* Addresses that name no location. The address space is larger than the
+     number of cells, so about 35% of word combinations decode to nothing --
+     which ones is decided entirely by the permutation, and changes completely
+     whenever the grid version does.
+
+     Generated rather than written down for exactly that reason. A hand-picked
+     example quietly becomes a valid address at the next grid change, and the
+     test asserting that it is refused goes on passing until it doesn't. That
+     happened: `zoo.zoo.zoo.9999` was invalid under grid 1 and is valid under
+     grid 2. *)
+  let invalid_addresses =
+    let wanted = 4 in
+    let rec search i found =
+      if List.length found >= wanted then List.rev found
+      else if i > 100_000 then
+        failwith "no invalid addresses found -- the address space is suspiciously full"
+      else
+        let addr =
+          Tessarium.address_to_string
+            ( Z.of_int (i mod 2048),
+              Z.of_int (i * 7 mod 2048),
+              Z.of_int (i * 13 mod 2048),
+              Z.of_int (i * 3 mod 10000) )
+        in
+        match Tessarium.decode ~key:addr_key addr with
+        | Error _ -> search (i + 1) (addr :: found)
+        | Ok _ -> search (i + 1) found
+    in
+    search 1 []
+  in
+
   `Assoc
     [
       ("grid_version", `String Tessarium.grid_version);
@@ -142,6 +173,7 @@ let generate inputs =
       ("feistel_vectors", `List feistel_vectors);
       ("grid_vectors", `List grid_vectors);
       ("addresses", `List addresses);
+      ("invalid_addresses", `List (List.map (fun a -> `String a) invalid_addresses));
     ]
 
 (* Compared as parsed values rather than as text: the committed file was

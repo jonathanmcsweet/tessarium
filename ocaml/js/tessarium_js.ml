@@ -51,6 +51,14 @@ let () =
              val error = Js.some (jstr e)
            end
 
+       (* Entropy in, 24 words out. The caller supplies the bytes -- in the
+          browser that is `crypto.getRandomValues` -- so the randomness stays
+          where it can be seen rather than being buried in here. *)
+       method mnemonicOfEntropy entropyHex =
+         jstr (Tessarium.mnemonic_of_entropy (string_of_hex (ostr entropyHex)))
+
+       val entropyBytes = Tessarium.entropy_bytes
+
        method validateMnemonic mnemonic =
          match Tessarium.validate_mnemonic (ostr mnemonic) with
          | Ok () -> Js.null

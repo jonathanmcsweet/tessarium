@@ -38,6 +38,14 @@ for (const a of v.addresses) {
   const d = C.decodeNs(keys[a.mnemonic], a.address);
   check("decodeNs(" + a.address + ")", d !== null);
 }
+/* Addresses that name no location. Generated into the vectors rather than
+   written here: which word combinations are invalid is decided by the
+   permutation and changes completely with the grid version, so a hand-picked
+   example goes stale silently. */
+for (const a of v.invalid_addresses) {
+  check(`${a} names no location`, C.decodeNs(keys[v.addresses[0].mnemonic], a) === null);
+}
+
 const b = C.cellBoundsDeg(51.5074, -0.1278);
 check("cellBoundsDeg ordered", b.latLo < b.latHi && b.lonLo < b.lonHi);
 
@@ -100,5 +108,8 @@ check("cellBoundsDeg ordered", b.latLo < b.latHi && b.lonLo < b.lonHi);
   check("truncation is reported", small.truncated === true);
 }
 
-console.log(`\n${checks} checks, ${fails} failures`);
+/* Named, so tools/check-suites.sh can tell that this suite ran without
+   matching on the number of checks in it -- which it used to do, and which
+   made adding a test look like a suite that had stopped running. */
+console.log(`\njs_of_ocaml bundle: ${checks} checks, ${fails} failures`);
 process.exit(fails ? 1 : 0);

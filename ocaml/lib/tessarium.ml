@@ -79,6 +79,36 @@ let validate_mnemonic m =
           Error "checksum failed -- likely a typo in one word"
         else Ok ()
 
+(* Entropy in, words out -- the inverse of [validate_mnemonic].
+
+   Pure on purpose. Where the bytes came from is the single decision that
+   decides whether a phrase is worth 2^256 guesses or 2^40, and it is the one
+   thing that cannot be checked by looking at the output: a phrase built from
+   a counter and one built from a hardware RNG are indistinguishable. So the
+   randomness stays with the caller, at the edge, where it is visible -- and
+   this half stays a function that can be tested against BIP-39's published
+   vectors.
+
+   32 bytes, because this application accepts 24-word phrases only. *)
+let entropy_bytes = 32
+
+let mnemonic_of_entropy entropy =
+  if String.length entropy <> entropy_bytes then
+    invalid_arg
+      (Printf.sprintf "expected %d bytes of entropy, got %d" entropy_bytes
+         (String.length entropy));
+  (* 256 bits of entropy plus an 8-bit checksum is 264, which is exactly 24
+     words of 11 bits each. *)
+  let bits =
+    Z.add
+      (Z.shift_left (Crypto.z_of_be_bytes entropy) 8)
+      (Z.of_int (Char.code (Crypto.sha256 entropy).[0]))
+  in
+  String.concat " "
+    (List.init required_words (fun i ->
+         let shift = (required_words - 1 - i) * 11 in
+         Wordlist.words.(Z.to_int (Z.logand (Z.shift_right bits shift) (Z.of_int 0x7ff)))))
+
 (* PBKDF2 is deliberately slow. Derive once per session and cache the result;
    it must never sit in the per-request path. *)
 let derive_key ~mnemonic ~passphrase =

@@ -501,5 +501,9 @@
       "lon_ns": -74041844406,
       "address": "attack.loud.trade.2213"
     }
+  ],
+  "invalid_addresses": [
+    "ability.abstract.accuse.0003", "able.achieve.addict.0006",
+    "abstract.alert.arena.0021", "absurd.alpha.artist.0024"
   ]
 }
