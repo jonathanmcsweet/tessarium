@@ -96,6 +96,21 @@ typo detection and is a feature, not waste.
 The construction is entirely hash-based, so it is already post-quantum. Grover
 halves effective strength; nothing here relies on factoring or discrete log.
 
+**The design criterion is an idealised future quantum adversary, not today's
+machines.** Every strength number this project quotes is already the
+post-Grover number, and Grover's square-root speedup is proven optimal for
+generic search (BBBV 1997) — no quantum computer of any future power beats it
+without a structural break in the hash itself. So "effective 128 bits" is a
+ceiling on any machine physics permits, not an estimate of current hardware.
+The assumptions that remain are named, not hidden: (1) SHA-2 has no structural
+break, quantum or classical; (2) the attacker never runs our keyed code in
+superposition — and a classical API answers classical bytes, so that holds
+against any machine for software the attacker does not control.
+
+**If SHA-2 ever weakens, the hash is an injected parameter.** The F\* proofs
+are round-function-agnostic: the fix is swap the hash, bump the version,
+regenerate the vectors. The verified core does not change.
+
 - **24-word mnemonics only.** 256 bits → 128 bits post-Grover. Do not offer
   12-word (128 → 64 bits, too weak).
 - **Warn hard against reusing a wallet seed.** Anyone who learns a few
@@ -285,8 +300,22 @@ The theorem set is complete and in the ledger. What is left is narrower.
       Two things make that argument load-bearing rather than comfortable, and
       both should be written down properly: the `--api` mode turns the server
       into an encryption oracle for whoever can reach it, and the UI itself
-      answers "what is the address of this point" on demand. Neither reaches
-      the query counts the attacks need, but the reasoning should be explicit.
+      answers "what is the address of this point" on demand.
+
+      **"The attacks need many queries" is not, by itself, a defence — the
+      write-up must put numbers on it.** Raw encode is 53 µs, so without the
+      rate limiter a million queries is under a minute; the limiter (1/s
+      sustained, burst 10, applied to every API call) is therefore
+      load-bearing, and the write-up must say so: with it, a million queries
+      is ~12 days of continuous hammering and the full codebook ~2.7 million
+      years. The API is also opt-in and loopback-only, so an attacker who can
+      query it at all is already on the user's machine. The write-up must
+      give the query complexity of each published attack at our parameters
+      (a ~ 2^22.6, b ~ 2^23.6, 16 rounds) against those caps — and state the
+      endgame plainly: even the complete codebook is not key recovery. The
+      key stays behind 2^128 post-Grover however many (address, place) pairs
+      the attacker holds; the codebook is only the map, which an attacker
+      with oracle access could already query point by point.
       Rounds were raised 10 -> 16 as margin in the meantime.
 
 ## Phase 4 — Correctness gaps
