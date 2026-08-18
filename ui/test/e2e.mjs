@@ -940,6 +940,42 @@ await page.waitForTimeout(1500);
    with under ANY key -- a wrong key simply decodes it to a different place on
    Earth and re-encodes that place back to the same words. The coordinates are
    the only output that differs. */
+/* Coordinates start hidden, exactly like the address -- they name where
+   someone is. The mask must be in the DOM in place of the value, not over
+   it, and the eye reveals. */
+check(
+  "coordinates are hidden by default",
+  (await page.locator(".coords dd").allTextContents()).every((t) =>
+    t.includes("•")
+  ),
+);
+const coordsEye = page.locator(".coords-row .icon-button").first();
+await coordsEye.click();
+check(
+  "the coordinates eye reveals them",
+  (await page.locator(".coords dd").allTextContents()).every((t) =>
+    /\d/.test(t)
+  ),
+);
+
+/* Zoomed out, a ~3 m square is sub-pixel; a pin has to mark it or a fresh
+   lookup shows an empty map. Checked by rendering, not by layer presence:
+   the layer existing and drawing nothing was the failure mode. */
+const pinVisible = await page.evaluate(async () => {
+  const map = window.__tessarium_map;
+  if (!map) return false;
+  const zoomWas = map.getZoom();
+  map.setZoom(12);
+  await new Promise((resolve) => map.once("idle", resolve));
+  const pins = map.queryRenderedFeatures(undefined, {
+    layers: ["selection-pin"],
+  }).length;
+  map.setZoom(zoomWas);
+  await new Promise((resolve) => map.once("idle", resolve));
+  return pins > 0;
+});
+check("a pin marks the selected square when zoomed out", pinVisible);
+
 const panelCoords = async () => {
   const cells = await page.locator(".coords dd").allTextContents();
   return cells.map((t) => Number.parseFloat(t.replace(/[^0-9.-]/g, "")));
@@ -1157,6 +1193,8 @@ await page.mouse.click(
 );
 await page.waitForTimeout(1500);
 await page.locator(".address-row .icon-button").first().click();
+/* Locking hid the coordinates again -- the reset is deliberate. */
+await page.locator(".coords-row .icon-button").first().click();
 const [nfkdLat, nfkdLon] = await panelCoords();
 check(
   `a precomposed passphrase is normalised before derivation (got ${nfkdLat}, ${nfkdLon} want ${

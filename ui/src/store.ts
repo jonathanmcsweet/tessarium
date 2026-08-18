@@ -38,6 +38,9 @@ type AppState = {
      revealed it is not asked again on the next square, and someone who hid it
      for a screen share does not get it back. */
   concealed: boolean;
+  /* The square's coordinates, same policy as its address: they name where
+     someone is, so they start hidden and stay as the user set them. */
+  coordsConcealed: boolean;
   basemapFailed: boolean;
   /* Whether the offline-maps card is open. In the store rather than local to
      the map because the missing-basemap banner opens it from outside. */
@@ -53,6 +56,7 @@ type AppState = {
   select: (selection: Selection) => void;
   requestFlyTo: (lat: number, lon: number) => void;
   toggleConcealed: () => void;
+  toggleCoordsConcealed: () => void;
   setBasemapFailed: () => void;
   clearBasemapFailed: () => void;
   openDownload: () => void;
@@ -64,6 +68,7 @@ export const useAppStore = create<AppState>()((set) => ({
   selection: null,
   flyTo: null,
   concealed: true,
+  coordsConcealed: true,
   basemapFailed: false,
   downloadOpen: false,
   locale: getLocale() as Locale,
@@ -79,6 +84,7 @@ export const useAppStore = create<AppState>()((set) => ({
       selection: null,
       flyTo: null,
       concealed: true,
+      coordsConcealed: true,
       downloadOpen: false,
     }),
   select: (selection) => set({ selection }),
@@ -90,6 +96,8 @@ export const useAppStore = create<AppState>()((set) => ({
       flyTo: { lat, lon, nonce: (state.flyTo?.nonce ?? 0) + 1 },
     })),
   toggleConcealed: () => set((state) => ({ concealed: !state.concealed })),
+  toggleCoordsConcealed: () =>
+    set((state) => ({ coordsConcealed: !state.coordsConcealed })),
   setBasemapFailed: () => set({ basemapFailed: true }),
   clearBasemapFailed: () => set({ basemapFailed: false }),
   openDownload: () => set({ downloadOpen: true }),

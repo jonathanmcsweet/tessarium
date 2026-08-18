@@ -19,6 +19,8 @@ import { LanguagePicker } from "./LanguagePicker";
 /* Same shape as an address, so the panel does not change width when it is
    concealed and the layout does not jump on every toggle. */
 const MASK = "••••••.••••••.••••••.••••";
+/* And the same idea for a coordinate. */
+const COORD_MASK = "••.•••••••";
 
 export function AddressPanel() {
   const [query, setQuery] = useState("");
@@ -27,6 +29,8 @@ export function AddressPanel() {
   const selection = useAppStore((s) => s.selection);
   const concealed = useAppStore((s) => s.concealed);
   const toggleConcealed = useAppStore((s) => s.toggleConcealed);
+  const coordsConcealed = useAppStore((s) => s.coordsConcealed);
+  const toggleCoordsConcealed = useAppStore((s) => s.toggleCoordsConcealed);
   const requestFlyTo = useAppStore((s) => s.requestFlyTo);
   const setLocked = useAppStore((s) => s.setLocked);
 
@@ -41,6 +45,20 @@ export function AddressPanel() {
     } catch {
       /* Clipboard access is refused in some contexts. The address is on
          screen and selectable, so say so rather than failing silently. */
+      toastError(m.panel_copy_failed());
+    }
+  }
+
+  async function copyCoords() {
+    if (!selection) return;
+    try {
+      await navigator.clipboard.writeText(
+        `${formatCoord(selection.cell.latLo)}, ${
+          formatCoord(selection.cell.lonLo)
+        }`,
+      );
+      toast.success(m.panel_copied());
+    } catch {
       toastError(m.panel_copy_failed());
     }
   }
@@ -113,12 +131,42 @@ export function AddressPanel() {
               {concealed && (
                 <p className="concealed-note">{m.panel_concealed()}</p>
               )}
-              <dl className="coords">
-                <dt>{m.panel_latitude()}</dt>
-                <dd>{formatCoord(selection.cell.latLo)}</dd>
-                <dt>{m.panel_longitude()}</dt>
-                <dd>{formatCoord(selection.cell.lonLo)}</dd>
-              </dl>
+              {
+                /* Coordinates name where someone is as plainly as the
+                  address does, so they get the same treatment: hidden by
+                  default, not rendered while hidden, copyable either way. */
+              }
+              <div className="coords-row">
+                <dl className="coords">
+                  <dt>{m.panel_latitude()}</dt>
+                  <dd>
+                    {coordsConcealed
+                      ? COORD_MASK
+                      : formatCoord(selection.cell.latLo)}
+                  </dd>
+                  <dt>{m.panel_longitude()}</dt>
+                  <dd>
+                    {coordsConcealed
+                      ? COORD_MASK
+                      : formatCoord(selection.cell.lonLo)}
+                  </dd>
+                </dl>
+                <IconButton
+                  label={coordsConcealed
+                    ? m.panel_coords_reveal()
+                    : m.panel_coords_conceal()}
+                  pressed={coordsConcealed}
+                  onClick={toggleCoordsConcealed}
+                  icon={coordsConcealed
+                    ? <EyeOff size={18} aria-hidden />
+                    : <Eye size={18} aria-hidden />}
+                />
+                <IconButton
+                  label={m.panel_coords_copy()}
+                  onClick={copyCoords}
+                  icon={<Copy size={18} aria-hidden />}
+                />
+              </div>
             </>
           )
           : <p className="hint">{m.panel_no_selection()}</p>}

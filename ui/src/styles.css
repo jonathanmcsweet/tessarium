@@ -344,11 +344,22 @@ button:disabled {
   color: var(--ok);
 }
 
+/* Coordinates get the address's own layout: values on the left, the eye and
+   copy beside them. */
+.coords-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 12px;
+}
+
 .coords {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 2px 12px;
-  margin: 12px 0 0;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
 }
 
