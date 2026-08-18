@@ -375,6 +375,29 @@ await page.waitForFunction(() => !document.querySelector(".download-card"), {
 });
 check("the card closes itself", true);
 
+/* The grid overlay must survive the style swap that follows a completed
+   download -- checked after the FIRST download, deliberately. It once did
+   not: when MapLibre's style diff succeeds it fires style.load
+   synchronously inside the setStyle call, and a listener registered after
+   the call has already missed it, so the overlay was never re-added. Each
+   missed listener stayed armed and repaired the NEXT swap, which made the
+   loss invisible after a second download and total after a single one --
+   the real-world case. */
+const overlayAlive = await page.evaluate(() => {
+  const map = window.__tessarium_map;
+  return !!(map && map.getSource("grid") && map.getLayer("grid-lines")
+    && map.getSource("selection") && map.getLayer("selection-outline"));
+});
+check("the grid overlay survives the download's style swap", overlayAlive);
+const gridRefilled = await page
+  .waitForFunction(
+    () =>
+      (window.__tessarium_map?.querySourceFeatures("grid").length ?? 0) > 0,
+    { timeout: 30_000 },
+  )
+  .then(() => true, () => false);
+check("and the grid refills after the swap", gridRefilled);
+
 /* From here on, basemap errors are real: the tiles on disk came from the
    fixture and MapLibre must parse every one of them cleanly. */
 basemapReady = true;

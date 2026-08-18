@@ -21,6 +21,14 @@ import { DownloadCard } from "./DownloadCard";
 import { IconButton } from "./IconButton";
 import "maplibre-gl/dist/maplibre-gl.css";
 
+/* The end-to-end test's handle on the live map. The map holds tiles and
+   geometry, never the key or an address, so exposing it forfeits nothing. */
+declare global {
+  interface Window {
+    __tessarium_map?: maplibregl.Map;
+  }
+}
+
 /* Below this the squares are smaller than a fingertip and the overlay is
    noise. A 3 m cell is about 5 px at z18 and 20 px at z20. */
 const GRID_MIN_ZOOM = 18;
@@ -76,6 +84,9 @@ const buildStyle = (version: number): maplibregl.StyleSpecification => ({
 /* The grid and selection overlay, added on load and re-added after every
    style swap -- setStyle discards custom sources and layers. */
 const addOverlay = (map: maplibregl.Map) => {
+  /* Adding twice throws. Cannot happen today, but the callers are event
+     listeners around a style swap whose timing MapLibre does not promise. */
+  if (map.getSource("grid")) return;
   map.addSource("grid", { type: "geojson", data: emptyGeoJson });
   map.addSource("selection", { type: "geojson", data: emptyGeoJson });
 
@@ -197,6 +208,7 @@ export function MapView() {
       keyboard: true,
     });
     mapRef.current = map;
+    window.__tessarium_map = map;
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }));
     map.addControl(
@@ -218,6 +230,7 @@ export function MapView() {
     return () => {
       map.remove();
       mapRef.current = null;
+      delete window.__tessarium_map;
       maplibregl.removeProtocol("pmtiles");
     };
   }, []);
@@ -300,11 +313,17 @@ export function MapView() {
     const map = mapRef.current;
     if (!map) return;
     styleVersion.current += 1;
-    map.setStyle(buildStyle(styleVersion.current));
+    /* Listener BEFORE setStyle. When MapLibre's style diff succeeds it
+       fires style.load synchronously inside the setStyle call, so a
+       listener registered after the call has already missed it -- which is
+       how the grid silently vanished after every download. When the diff
+       fails, MapLibre rebuilds the style from scratch and the event fires
+       asynchronously instead; registering first serves both timings. */
     map.once("style.load", () => {
       addOverlay(map);
       setStyleEpoch((epoch) => epoch + 1);
     });
+    map.setStyle(buildStyle(styleVersion.current));
   }, []);
 
   /* The region is frozen when the card opens. Panning while it is open

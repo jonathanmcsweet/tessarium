@@ -1119,3 +1119,25 @@ sequentially and can outlive the client's 120 s estimate timeout — noted on
 the giants roadmap item. City boxes are drawn, not boundaries — noted on
 the boxes item.
 
+### 2026-08-18 — Grid overlay lost after a download's style swap
+
+**Phase:** 6
+
+**What:** After any completed download the map rebuilt its style, and the
+grid and selection overlay never came back: when MapLibre's style diff
+succeeds it fires style.load synchronously inside the setStyle call, and
+rebuildBasemap registered its once-listener after the call — too late,
+every time. Each missed listener stayed armed and repaired the NEXT swap,
+so back-to-back downloads masked the loss and a single download (the
+real-world case — reported over a fresh Georgia download) lost the grid
+until reload. Fix: register the listener before setStyle (serves both the
+synchronous diff path and the asynchronous rebuild fallback), plus an
+idempotence guard in addOverlay. Regression test per the hard rule, shown
+failing first: the e2e now asserts the overlay's sources and layers survive
+the FIRST download's swap and that the grid refills, via a
+window.__tessarium_map test handle (the map holds tiles and geometry,
+never the key or an address). 73 e2e checks.
+
+**Rationale:** checked after the first download deliberately — the leaked
+listeners made any later swap look healthy.
+
