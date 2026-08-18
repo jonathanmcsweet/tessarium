@@ -4,7 +4,6 @@ import { layers, namedFlavor } from "@protomaps/basemaps";
 import { useQueryClient } from "@tanstack/react-query";
 import { Download } from "lucide-react";
 import maplibregl from "maplibre-gl";
-import { Protocol } from "pmtiles";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -53,10 +52,12 @@ const emptyGeoJson = {
   features: [] as GeoJSON.Feature[],
 };
 
-/* The style, rebuilt whenever the archive on disk is replaced. The version
-   number lands in the source URL as a query string -- the server strips it,
-   but the pmtiles protocol caches per URL, and without a new URL it would
-   keep reading the old archive's directories over the new bytes. */
+/* The style, rebuilt whenever the archive on disk is replaced. Tiles come
+   through the server's /tiles endpoint rather than from the archive file
+   directly: the server is what knows about BOTH archives -- the browse
+   cache and the main one -- and a missing tile is a quiet 204 instead of a
+   logged error. The version number lands in the tile URL as a query string
+   so MapLibre's per-URL caching cannot keep old tiles over new bytes. */
 const buildStyle = (version: number): maplibregl.StyleSpecification => ({
   version: 8,
   /* Everything the style needs is served from this origin. A style that
@@ -69,7 +70,9 @@ const buildStyle = (version: number): maplibregl.StyleSpecification => ({
   sources: {
     protomaps: {
       type: "vector",
-      url: `pmtiles:///basemap/map.pmtiles?v=${version}`,
+      tiles: [`${window.location.origin}/tiles/{z}/{x}/{y}.mvt?v=${version}`],
+      /* The planet build's depth; vector tiles overzoom crisply past it. */
+      maxzoom: 15,
       attribution:
         '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
     },
@@ -270,9 +273,6 @@ export function MapView() {
   useEffect(() => {
     if (!container.current || mapRef.current) return;
 
-    const protocol = new Protocol();
-    maplibregl.addProtocol("pmtiles", protocol.tile);
-
     const map = new maplibregl.Map({
       container: container.current,
       style: buildStyle(styleVersion.current),
@@ -309,7 +309,6 @@ export function MapView() {
       map.remove();
       mapRef.current = null;
       delete window.__tessarium_map;
-      maplibregl.removeProtocol("pmtiles");
     };
   }, []);
 

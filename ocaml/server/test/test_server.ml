@@ -137,6 +137,20 @@ let () =
   routes `GET "/../etc/passwd" Route.Not_found;
   routes `HEAD "/basemap/planet.pmtiles" (Route.Basemap [ "planet.pmtiles" ]);
 
+  (* The tile endpoint: strict, so every accepted URL names exactly one
+     tile id. Everything else must be Not_found, not a guess. *)
+  routes `GET "/tiles/0/0/0.mvt" (Route.Tile { z = 0; x = 0; y = 0 });
+  routes `GET "/tiles/15/16368/10893.mvt"
+    (Route.Tile { z = 15; x = 16368; y = 10893 });
+  routes `GET "/tiles/0/0/0.mvt?v=3" (Route.Tile { z = 0; x = 0; y = 0 });
+  routes `GET "/tiles/3/8/0.mvt" Route.Not_found;
+  routes `GET "/tiles/3/04/0.mvt" Route.Not_found;
+  routes `GET "/tiles/3/4/0.png" Route.Not_found;
+  routes `GET "/tiles/3/4.mvt" Route.Not_found;
+  routes `GET "/tiles/-1/0/0.mvt" Route.Not_found;
+  routes `GET "/tiles/27/0/0.mvt" Route.Not_found;
+  routes `POST "/tiles/0/0/0.mvt" Route.Method_not_allowed;
+
   (* A single-page app owns its own routes: a deep link must survive a reload,
      but a missing script must stay a 404 or every typo looks like the app. *)
   check "extensionless path falls back to the shell"

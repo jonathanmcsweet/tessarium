@@ -85,6 +85,78 @@ let respond_json cfg ~status json =
 let error cfg ~status message =
   respond_json cfg ~status (`Assoc [ ("error", `String message) ])
 
+(* ------------------------------------------------------------------ tiles *)
+
+(* One vector tile, looked up across the tile archives in order -- the
+   browse cache first when it exists (newer wins), then the main archive.
+   Bytes go out exactly as stored, with content-encoding naming the
+   archive's tile compression, so the server never inflates what the
+   browser can. A tile nobody holds is 204, not 404: past the edge of what
+   was downloaded, an empty tile is a normal answer the map renders as
+   nothing, where an error would be logged as one -- on every pan. *)
+let tile_files = [ "cache.pmtiles"; "map.pmtiles" ]
+
+let serve_tile cfg ~basemap_root ~z ~x ~y =
+  let id = Pmtiles.Tile_id.of_zxy ~z ~x ~y in
+  let found =
+    Eio.Switch.run @@ fun sw ->
+    List.find_map
+      (fun name ->
+        let path = Eio.Path.(basemap_root / name) in
+        match Eio.Path.kind ~follow:true path with
+        | `Regular_file -> (
+            (* Opened per request and closed with it: the root directory is
+               capped at 16 KB by the format, so this is a header and a
+               handful of small reads against the page cache. A rename
+               cannot tear it -- the fd pins whichever inode it opened. *)
+            match
+              let archive =
+                Pmtiles.Archive.open_
+                  (Pmtiles_source.file_source (Eio.Path.open_in ~sw path))
+              in
+              Option.map
+                (fun bytes -> (bytes, archive.Pmtiles.Archive.header))
+                (Pmtiles.Archive.tile archive id)
+            with
+            | v -> v
+            | exception e ->
+                Logs.warn (fun m ->
+                    m "tile %d/%d/%d: unreadable %s: %s" z x y name
+                      (Printexc.to_string e));
+                None)
+        | _ -> None)
+      tile_files
+  in
+  match found with
+  | None ->
+      (* MapLibre treats 204 as an empty tile and asks no questions. *)
+      ( respond_string cfg ~status:`No_content
+          ~content_type:"application/x-protobuf" "",
+        `No_content )
+  | Some (bytes, header) ->
+      let encoding =
+        match header.Pmtiles.Header.tile_compression with
+        | Pmtiles.Header.Gzip -> [ ("content-encoding", "gzip") ]
+        | Pmtiles.Header.Brotli -> [ ("content-encoding", "br") ]
+        | Pmtiles.Header.Zstd -> [ ("content-encoding", "zstd") ]
+        | Pmtiles.Header.None_ | Pmtiles.Header.Unknown -> []
+      in
+      let headers =
+        Http.Header.of_list
+          (("content-type", "application/x-protobuf")
+          :: ("content-length", string_of_int (String.length bytes))
+          (* Revalidate, never trust: an update or removal changes tiles
+             under the same URL. MapLibre's own in-memory cache carries the
+             session; the style's ?v= carries the swaps. *)
+          :: ("cache-control", "no-cache")
+          :: (encoding @ security_headers cfg))
+      in
+      ( ( `Response
+            (Cohttp_eio.Server.respond ~headers ~status:`OK
+               ~body:(Cohttp_eio.Body.of_string bytes) ()),
+          String.length bytes ),
+        `OK )
+
 (* ------------------------------------------------------- embedded assets *)
 
 (* The built UI, compiled into the binary. This is what makes the desktop
@@ -602,6 +674,9 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
             in
             let now = Eio.Time.now clock in
             simple (handle_api cfg sessions limiter random ~endpoint ~body ~now) `OK
+      | Route.Tile { z; x; y } ->
+          let (result, sent), status = serve_tile cfg ~basemap_root ~z ~x ~y in
+          (result, status, sent, Http_range.Whole)
       | Route.Basemap segments ->
           serve_file cfg ~root:basemap_root ~segments ~meth ~range_header
             ~immutable:false

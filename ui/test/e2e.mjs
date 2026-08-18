@@ -76,6 +76,15 @@ page.on("console", (msg) => {
 });
 page.on("pageerror", (err) => problems.push(`pageerror: ${err.message}`));
 page.on("requestfailed", (req) => {
+  /* MapLibre aborts its own in-flight tile requests whenever a tile leaves
+     the view or the style swaps; the client cancelling itself is not a
+     failure. Anything else that dies on /tiles/ still is. */
+  if (
+    req.url().includes("/tiles/")
+    && req.failure()?.errorText === "net::ERR_ABORTED"
+  ) {
+    return;
+  }
   if (!expected(req.url())) {
     problems.push(`requestfailed: ${req.url()} ${req.failure()?.errorText}`);
   }
@@ -309,6 +318,19 @@ const postJson = async (endpoint, body) =>
     body: JSON.stringify(body ?? {}),
   });
 
+/* Tiles are served through /tiles across the archives, and a tile nobody
+   holds is a quiet 204 -- past the coverage edge the map must render
+   nothing, not log an error per pan. */
+check(
+  "a tile with no archive behind it is 204, not an error",
+  (await fetch(`${base}/tiles/0/0/0.mvt`)).status === 204,
+);
+check(
+  "a malformed tile path is 404",
+  (await fetch(`${base}/tiles/3/8/0.mvt`)).status === 404
+    && (await fetch(`${base}/tiles/3/04/0.mvt`)).status === 404,
+);
+
 const idleStatus = await (await postJson("basemap-status")).json();
 check(
   "the download job starts idle at generation zero",
@@ -434,6 +456,12 @@ check(
   "the downloaded archive is served",
   (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
     === 200,
+);
+const worldTile = await fetch(`${base}/tiles/0/0/0.mvt`);
+check(
+  "the world tile serves through the tile endpoint after the download",
+  worldTile.status === 200
+    && (await worldTile.arrayBuffer()).byteLength > 0,
 );
 check(
   "the sprite sheet arrived via the assets tarball",
