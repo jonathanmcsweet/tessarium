@@ -57,9 +57,11 @@ export function AddressPanel() {
           formatCoord(selection.cell.lonLo)
         }`,
       );
-      toast.success(m.panel_copied());
+      toast.success(m.panel_coords_copied());
     } catch {
-      toastError(m.panel_copy_failed());
+      /* Unlike the address, the value may be deliberately absent from the
+         screen, so the fallback tells the user how to get at it. */
+      toastError(m.panel_coords_copy_failed());
     }
   }
 

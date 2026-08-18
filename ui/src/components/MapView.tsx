@@ -116,12 +116,14 @@ const addOverlay = (map: maplibregl.Map) => {
     id: "selection-fill",
     type: "fill",
     source: "selection",
+    filter: ["==", ["geometry-type"], "Polygon"],
     paint: { "fill-color": "#e8452c", "fill-opacity": 0.35 },
   });
   map.addLayer({
     id: "selection-outline",
     type: "line",
     source: "selection",
+    filter: ["==", ["geometry-type"], "Polygon"],
     paint: { "line-color": "#e8452c", "line-width": 2 },
   });
   /* A ~3 m square is sub-pixel until street level, so zoomed out the

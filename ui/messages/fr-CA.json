@@ -88,6 +88,8 @@
   "panel_coords_reveal": "Afficher ces coordonnées",
   "panel_coords_conceal": "Masquer ces coordonnées",
   "panel_coords_copy": "Copier ces coordonnées",
+  "panel_coords_copied": "Coordonnées copiées dans le presse-papiers.",
+  "panel_coords_copy_failed": "Impossible d'accéder au presse-papiers. Affichez les coordonnées pour les sélectionner à la main.",
   "panel_find_title": "Rechercher une adresse",
   "panel_find_label": "Adresse à rechercher",
   "panel_find_placeholder": "dream.tourist.creek.2703",
