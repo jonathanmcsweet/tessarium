@@ -1255,9 +1255,10 @@ contrast checks, 80 e2e checks green.
 
 **What:** docs/fe1-security.md, linked from the README: the construction's
 exact parameters (a ≈ 2^22.6, b ≈ 2^23.6, 16 rounds, HMAC-SHA256, fixed
-tweak); the two oracles and their arithmetic (raw encode ~53 µs, so the
-1/s-burst-10 limiter is load-bearing: a million queries ≈ 11.6 days, the
-full codebook ≈ 2.7 million years); Bellare–Hoang–Tessaro 2016,
+tweak); the two oracles and their arithmetic (raw encode 81 µs, measured
+at 16 rounds by the new ocaml/tools/bench_encode.ml; with the 1/s-burst-10
+limiter, a million queries ≈ 11.6 days, the full codebook ≈ 2.7 million
+years); Bellare–Hoang–Tessaro 2016,
 Durak–Vaudenay 2017 and Hoang–Miller–Trieu 2019 each named with why it
 does not reach these parameters (small-domain data requirements; chosen
 tweaks against a compile-time tweak constant; 8-round FF3 structure); the
@@ -1270,4 +1271,29 @@ against the source before writing.
 
 **Rationale:** the roadmap demanded the dismissal read as informed, with
 the load-bearing role of the rate limiter written down rather than assumed.
+
+### 2026-08-18 — Writing the security doc found the limiter gap
+
+**Phase:** 4
+
+**What:** Adversarial review of the FE1 write-up refuted its central
+quantitative claim against the code: only /api/session was rate-limited;
+encode and decode were raw oracles answering at full speed, so "a million
+queries ≈ 11.6 days" described a control that did not exist. The limiter
+now covers every key-touching endpoint via a pure, tested
+rate_limited_endpoint predicate applied at dispatch (mutation-tested: the
+suite fails three ways when encode/decode leave the set). Scripting
+consequence, deliberate: the opt-in API now answers at most 1 encode or
+decode per second sustained. Also corrected from the same review: the KDF
+chain is two PBKDF2 stages (HKDF text was stale in the locked decisions and
+copied into the doc); encode is 81 µs at 16 rounds, measured by the new
+committed bench, not the ten-round-era 53 µs; the 2:1 split is
+"near-balanced, tolerated", not "balanced"; attack families are
+round-parameterized (demonstrations at 8-10 rounds), stated as such; the
+offline-Simon citation no longer absorbs Hosoyamada-Sasaki's separate
+six-round classical-query Feistel work. CLAUDE.md still names the tweak
+tessarium-grid-1 (code says -2); left for the user, per its own rule.
+
+**Rationale:** the write-up exists to be checked against the code; being
+falsified by its own review and forcing the code to match is that working.
 

@@ -20,11 +20,12 @@ Z_a × Z_b with
 | Rounds | 16 (even, by proof obligation) | `fstar/Tessarium.Feistel.fst` |
 | Round function | HMAC-SHA256, full PRF per round | injected, `ocaml/lib` |
 | Tweak | the fixed string `tessarium-grid-2` | not an input anywhere |
-| Key | 32 bytes: mnemonic → PBKDF2-HMAC-SHA512 × 202,048 → HKDF-SHA256 | `ocaml/lib/tessarium.ml` |
+| Key | 32 bytes: mnemonic → PBKDF2-HMAC-SHA512 × 2,048 (BIP-39) → PBKDF2-HMAC-SHA512 × 200,000, salt `tessarium-kdf-2` | `ocaml/lib/tessarium.ml` |
 
-The a:b split is 1:2 — balanced in the sense a Feistel wants. The product
-is exactly the address space, so the bijection is exact: no cycle-walking,
-no partial rounds.
+The a:b split is 2:1 — near-balanced, one bit of imbalance, which the FE1
+analysis tolerates (the pair it replaced was 250:1; the correction is in
+the ledger). The product is exactly the address space, so the bijection is
+exact: no cycle-walking, no partial rounds.
 
 ## What an attacker can hold, and what it costs
 
@@ -36,11 +37,18 @@ Two oracles exist, and both matter more than the algebra:
   key lives, and cryptanalysis is not their cheapest move.
 - **`--api` mode is an encode/decode oracle over HTTP.** It is off by
   default, loopback-only, and rate-limited. The limiter is load-bearing and
-  this document is where that is written down: a raw encode is ~53 µs, so an
-  *unthrottled* oracle would answer a million queries in under a minute. At
-  the enforced 1 request/second (burst 10, applied to every API call), a
-  million queries is ~11.6 days of uninterrupted hammering, and the full
-  codebook — all 8.59 × 10^13 addresses — is about 2.7 million years.
+  this document is where that is written down — literally: writing it
+  revealed that only `/api/session` was throttled, and encode/decode were
+  raw oracles; the limiter now covers every key-touching endpoint
+  (`rate_limited_endpoint` in `ocaml/server/serve.ml`, mutation-tested).
+  A raw encode is ~81 µs measured at 16 rounds
+  (`ocaml/tools/bench_encode.ml`), so an *unthrottled* oracle would answer
+  a million queries in under two minutes. At the enforced 1 request/second
+  (burst 10, shared across session, encode and decode), a million queries
+  is ~11.6 days of uninterrupted hammering, and the full codebook — all
+  8.59 × 10^13 addresses — is about 2.7 million years. The basemap
+  endpoints sit outside this bucket: they touch tiles, never the key, and
+  carry their own work bounds.
 
 Shared addresses are the third channel: each address a user reveals, paired
 with where it truly is, is one known plaintext/ciphertext pair. Users
@@ -77,11 +85,12 @@ non-starters as above.
 **The generic bound.** With a PRF as round function, generalized Feistel
 security *proofs* (Black–Rogaway's original analysis; Patarin's and later
 Hoang–Rogaway's bounds for many rounds) give security that improves with
-round count; every published *attack* on this family lives at 10 rounds or
-fewer. Sixteen was chosen (raised from ten in this project's history, with
-the rationale in the ledger) to sit above the entire attack literature
-with margin, at a cost of six more HMACs per address — noise next to the
-KDF.
+round count. The attack *families* above are parameterized by round count
+with data requirements growing accordingly; every practical demonstration
+in the literature targets the standards' 8–10-round instantiations.
+Sixteen was chosen (raised from ten in this project's history, with the
+rationale in the ledger) to sit above all of it with margin, at a cost of
+six more HMACs per address — noise next to the KDF.
 
 ## The endgame an attacker cannot reach past
 
@@ -146,6 +155,8 @@ parameter: swap it, bump the grid version, regenerate the vectors.
   Quantum Computing.* SIAM J. Comput. 1997.
 - Kuwakado, Morii. *Quantum distinguisher between the 3-round Feistel
   cipher and the random permutation.* ISIT 2010.
+- Hosoyamada, Sasaki. *Quantum Demiric-Selçuk Meet-in-the-Middle Attacks:
+  Applications to 6-Round Generic Feistel Constructions.* SCN 2018.
 - Bonnetain, Hosoyamada, Naya-Plasencia, Sasaki, Schrottenloher. *Quantum
   Attacks without Superposition Queries: the Offline Simon's Algorithm.*
   ASIACRYPT 2019.

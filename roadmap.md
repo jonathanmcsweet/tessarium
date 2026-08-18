@@ -81,9 +81,12 @@ typo detection and is a feature, not waste.
   2026-08-17. Four rounds is distinguishable; do not economise here regardless
   of what has been proved. The count must be even — the halves swap domains
   each round, and the proof fails outright at an odd count.
-- **Key derivation:** mnemonic → BIP-39 seed (PBKDF2-HMAC-SHA512, standard) →
-  HKDF-SHA256 → 32-byte Feistel key. Derived once per session and cached;
-  PBKDF2 is deliberately slow and must not sit in the hot path.
+- **Key derivation:** mnemonic → BIP-39 seed (PBKDF2-HMAC-SHA512 × 2,048,
+  standard) → PBKDF2-HMAC-SHA512 × 200,000 over salt `tessarium-kdf-2` →
+  32-byte Feistel key. (Text corrected 2026-08-18: HKDF was replaced by the
+  hardened second PBKDF2 stage, as ledgered; this entry had not caught up.)
+  Derived once per session and cached; PBKDF2 is deliberately slow and must
+  not sit in the hot path.
 - **Tweak = grid version string** (`tessarium-grid-2`), and the HKDF salt
   and info strings are `tessarium/v1/salt` and `tessarium/v1/feistel-key`.
   Renamed from `w3wx/*` on 2026-08-15; since no address had been issued, this
@@ -258,9 +261,10 @@ The theorem set is complete and in the ledger. What is left is narrower.
 
 ## Phase 4 — Performance
 
-- [ ] **Consider injecting a native round function.** An encode costs 53 µs,
-      of which 51 µs is ten HMAC-SHA256 calls through `digestif`'s pure-OCaml
-      backend, at 5.1 µs each. The grid arithmetic is 0.06 µs, so Zarith is not
+- [ ] **Consider injecting a native round function.** An encode costs 81 µs
+      measured at 16 rounds (`ocaml/tools/bench_encode.ml`), almost all of
+      it sixteen HMAC-SHA256 calls through `digestif`'s pure-OCaml backend
+      at ~5.1 µs each. The grid arithmetic is 0.06 µs, so Zarith is not
       the cost and the extracted core needs no change.
 
       The round function is already a parameter and bijectivity holds for any

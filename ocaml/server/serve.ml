@@ -283,6 +283,17 @@ let z_field name json =
   | Some (`Intlit s) -> z_of_string_opt s
   | _ -> None
 
+(* The endpoints that spend or reveal key material share one token bucket.
+   Session because PBKDF2 is deliberately expensive; encode and decode
+   because each answer is a chosen plaintext/ciphertext pair, and the FE1
+   write-up's oracle arithmetic (docs/fe1-security.md) leans on this ceiling
+   -- an unthrottled encode oracle would answer a million queries in about a
+   minute. The basemap endpoints stay outside: they touch tiles, never the
+   key, and a download's status is polled every second. *)
+let rate_limited_endpoint = function
+  | "session" | "encode" | "decode" -> true
+  | _ -> false
+
 let handle_api cfg sessions limiter random ~endpoint ~body ~now =
   let bad = error cfg ~status:`Bad_request in
   match Yojson.Safe.from_string body with
@@ -296,23 +307,30 @@ let handle_api cfg sessions limiter random ~endpoint ~body ~now =
             | None -> error cfg ~status:`Not_found "unknown or expired session"
             | Some key -> f key)
       in
-      match endpoint with
-      | "session" -> (
-          (* The only rate-limited endpoint, because it is the only expensive
-             one: PBKDF2 is deliberately slow, which is what makes calling it
-             without limit a way to exhaust the host. *)
-          let allowed, limiter' = Rate_limit.take Rate_limit.default !limiter ~now in
+      let limited f =
+        if not (rate_limited_endpoint endpoint) then f ()
+        else begin
+          let allowed, limiter' =
+            Rate_limit.take Rate_limit.default !limiter ~now
+          in
           limiter := limiter';
           if not allowed then
-            let wait = Rate_limit.retry_after Rate_limit.default !limiter ~now in
+            let wait =
+              Rate_limit.retry_after Rate_limit.default !limiter ~now
+            in
             respond_json cfg ~status:`Too_many_requests
               (`Assoc
                  [
-                   ("error", `String "too many key derivations; slow down");
+                   ("error", `String "too many requests; slow down");
                    ("retry_after", `Int wait);
                  ])
-          else
-            match string_field "mnemonic" json with
+          else f ()
+        end
+      in
+      match endpoint with
+      | "session" -> (
+          limited @@ fun () ->
+          match string_field "mnemonic" json with
             | None -> bad "missing mnemonic"
             | Some mnemonic -> (
                 let passphrase =
@@ -331,6 +349,7 @@ let handle_api cfg sessions limiter random ~endpoint ~body ~now =
               Sessions.drop sessions id;
               respond_json cfg ~status:`OK (`Assoc [ ("ok", `Bool true) ]))
       | "encode" ->
+          limited @@ fun () ->
           with_key (fun key ->
               match (z_field "lat_ns" json, z_field "lon_ns" json) with
               | Some lat, Some lon -> (
@@ -341,6 +360,7 @@ let handle_api cfg sessions limiter random ~endpoint ~body ~now =
                         (`Assoc [ ("address", `String address) ]))
               | _ -> bad "missing lat_ns or lon_ns")
       | "decode" ->
+          limited @@ fun () ->
           with_key (fun key ->
               match string_field "address" json with
               | None -> bad "missing address"

@@ -34,3 +34,7 @@
  (name gen_basemap_fixture)
  (modules gen_basemap_fixture)
  (libraries pmtiles gzip))
+(executable
+ (name bench_encode)
+ (modules bench_encode)
+ (libraries tessarium unix zarith))
