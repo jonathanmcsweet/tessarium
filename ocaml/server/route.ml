@@ -9,6 +9,11 @@ type t =
   | Health
   | Asset of string list  (** under the UI root *)
   | Basemap of string list  (** under the basemap root *)
+  | Tile of { z : int; x : int; y : int }
+      (** one vector tile, looked up across the tile archives *)
+  | Tile_json
+      (** the source metadata MapLibre needs -- zoom range and bounds,
+          derived from the archive headers *)
   | Api of string  (** the API sub-path, e.g. "session" *)
   | Not_found
   | Method_not_allowed
@@ -20,6 +25,25 @@ let strip_prefix p segments =
   | first :: rest when String.equal first p -> Some rest
   | _ -> None
 
+(* /tiles/{z}/{x}/{y}.mvt. Strict: leading zeros, signs and out-of-grid
+   coordinates are Not_found, so every accepted tile names exactly one id. *)
+let tile_route segments =
+  let plain_int s =
+    if s = "" || (String.length s > 1 && s.[0] = '0') then None
+    else if String.for_all (fun c -> c >= '0' && c <= '9') s then
+      int_of_string_opt s
+    else None
+  in
+  match segments with
+  | [ zs; xs; ys ] -> (
+      match (plain_int zs, plain_int xs, Filename.chop_suffix_opt ~suffix:".mvt" ys) with
+      | Some z, Some x, Some ys when z <= Pmtiles.Tile_id.max_zoom -> (
+          match plain_int ys with
+          | Some y when x < 1 lsl z && y < 1 lsl z -> Some (Tile { z; x; y })
+          | _ -> None)
+      | _ -> None)
+  | _ -> None
+
 let of_request ~meth ~target =
   let readable = match meth with `GET | `HEAD -> true | _ -> false in
   match Url_path.resolve target with
@@ -29,15 +53,30 @@ let of_request ~meth ~target =
       | Some [] -> if readable then Health else Method_not_allowed
       | Some _ -> Not_found
       | None -> (
+          match segments with
+          | [ "tiles.json" ] ->
+              if readable then Tile_json else Method_not_allowed
+          | _ -> (
           match strip_prefix "api" segments with
           | Some [ endpoint ] ->
               if meth = `POST then Api endpoint else Method_not_allowed
           | Some _ -> Not_found
           | None -> (
-              match strip_prefix "basemap" segments with
-              | Some [] -> Not_found
-              | Some rest -> if readable then Basemap rest else Method_not_allowed
-              | None -> if readable then Asset segments else Method_not_allowed)))
+              match strip_prefix "tiles" segments with
+              | Some rest -> (
+                  if not readable then Method_not_allowed
+                  else
+                    match tile_route rest with
+                    | Some t -> t
+                    | None -> Not_found)
+              | None -> (
+                  match strip_prefix "basemap" segments with
+                  | Some [] -> Not_found
+                  | Some rest ->
+                      if readable then Basemap rest else Method_not_allowed
+                  | None ->
+                      if readable then Asset segments
+                      else Method_not_allowed)))))
 
 (* The basemap endpoints are part of the UI, not the opt-in encode/decode API:
    they carry a bounding box and no key material, so they stay reachable when

@@ -55,7 +55,10 @@ let pmtiles ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom =
     Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom ~min_lon ~min_lat ~max_lon
       ~max_lat
   in
-  let tile = mvt_tile in
+  (* Gzipped, like the real planet build: this is what makes the e2e suite
+     exercise the content-encoding path the browser actually decodes, not
+     only the trivial identity one. *)
+  let tile = Gzip.compress mvt_tile in
   (* Every id points at the one blob at data offset 0. *)
   let entries =
     List.map
@@ -89,7 +92,7 @@ let pmtiles ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom =
       tile_contents = 1;
       clustered = true;
       internal_compression = Pmtiles.Header.None_;
-      tile_compression = Pmtiles.Header.None_;
+      tile_compression = Pmtiles.Header.Gzip;
       tile_type = Pmtiles.Header.Mvt;
       min_zoom = 0;
       max_zoom;
