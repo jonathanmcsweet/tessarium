@@ -383,6 +383,23 @@ not cover.
 - [ ] Decide what happens outside the downloaded region. The grid and
       addressing work everywhere, but the basemap is blank, and the app
       currently gives no indication of where coverage ends.
+- [ ] **Choose a component library, then adopt it.** Today there is none:
+      hand-written components over one plain CSS file, with Radix Tooltip and
+      sonner as the only vetted primitives, and the region picker on native
+      details/summary and checkboxes. That honours the house rule (take
+      accessible primitives, don't hand-roll behavior) but spreads it across
+      three sources. Candidates, in current order of preference: React Aria
+      Components (Adobe — strongest accessibility and touch handling, actively
+      maintained, unstyled so the plain-CSS approach survives), Base UI (the
+      Radix and Material UI teams' successor to Radix primitives, whose own
+      maintenance has slowed), Mantine (if styled-out-of-the-box is wanted).
+      Criteria that decide it: WCAG depth, touch behavior, maintenance
+      cadence, no Tailwind requirement, bundle cost under the strict CSP.
+      Adoption means porting the tooltip, the picker tree, the language menu
+      and the selects — mechanical, not a redesign. Interacts with the Phase 9
+      webview-versus-native decision: a webview wraps this build unchanged,
+      while going native (Expo) would instead favor a universal library like
+      Tamagui — so settle that direction before investing heavily.
 
 ## Phase 7 — Desktop packaging
 
