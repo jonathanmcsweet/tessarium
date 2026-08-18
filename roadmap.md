@@ -315,7 +315,36 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
-- [ ] **Country downloads stop at regional detail.** The server plans at
+- [ ] **Full-depth country and state downloads.** IN PROGRESS (user: an
+      explicit country or state pick must mean the WHOLE thing at street
+      level, not regional detail). Landed and tested in the pmtiles suite:
+      `Tile_id.download_depth` (two tiers: full requested depth when the box
+      plans within 6,000,000 tile ids — France ≈ 2.2M so whole-France street
+      level qualifies, as does every US state; larger boxes like Brazil fall
+      back to a quick 131,072-id regional plan, flagged `clamped` so the UI
+      says "pick a state"); `Extract.plan ?on_tile` and `Merge.plan
+      ?on_entry` yield hooks so million-id plans cannot freeze the
+      single-domain server. Remaining, in order:
+      1. `Basemap_download.plan_region`: replace the flat
+         `depth_for ~limit:tile_budget` clamp with `download_depth
+         ~full_limit:6_000_000 ~quick_limit:131_072`; thread the hooks —
+         estimate passes a yield-every-4096 closure, run_download passes
+         yield+check_cancel so planning is cancellable.
+      2. Reword `map_download_depth_hint` in all six locales: the area is
+         too large for full detail in one download; zoom in or pick a state
+         or province for street level.
+      3. Suites + e2e (UK pick now plans z15 against the fixture — slower
+         but in-memory), live France estimate against the planet build
+         (expect gigabytes, 10–30 s planning), refresh ocaml/server/ui_dist,
+         rebuild, restart 7373, ledger entry.
+      Still open after that (the reason this item stays): the giants —
+      Brazil, Russia, whole US/Canada, Alaska (its box crosses the
+      antimeridian and comes back world-wide) — need chunked, resumable
+      downloads to go full depth; the final directory build blocks for a few
+      seconds at the end of a country-sized write; a full-country plan holds
+      roughly 300–400 MB transiently.
+- [ ] **(superseded text below is retained until step 3 lands)**
+      Country downloads stop at regional detail. The server plans at
       most 8,192 tiles per download (the guard that stopped "download this
       view" over half a continent from wedging the whole single-domain
       server for minutes while it planned forty million tile ids). Under

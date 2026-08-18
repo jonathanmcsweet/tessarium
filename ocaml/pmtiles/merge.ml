@@ -20,7 +20,11 @@ type plan = {
   fresh_tiles : int;  (** tiles the base did not already hold *)
 }
 
-let plan ~(base : Archive.t option) (fresh : Extract.plan) =
+(* [on_entry] is the same cooperative-yield hook [Extract.plan] takes: a
+   base archive that has grown to a country is millions of entries, and
+   expanding them must not freeze the scheduler that is doing it. *)
+let plan ?(on_entry = fun () -> ()) ~(base : Archive.t option)
+    (fresh : Extract.plan) =
   let by_id = Hashtbl.create 4096 in
   (match base with
   | None -> ()
@@ -28,6 +32,7 @@ let plan ~(base : Archive.t option) (fresh : Extract.plan) =
       let data = b.Archive.header.Header.data_offset in
       List.iter
         (fun (e : Directory.entry) ->
+          on_entry ();
           (* A run covers consecutive tile ids sharing one blob. *)
           for k = 0 to e.Directory.run_length - 1 do
             Hashtbl.replace by_id (e.Directory.tile_id + k)

@@ -31,7 +31,12 @@ let internal_compression = Header.None_
    16 KB; anything that does not fit goes into leaf directories. *)
 let max_root_bytes = 16384
 
-let plan archive ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat =
+(* [on_tile] is called once per candidate tile. It exists for callers inside
+   a cooperative scheduler: a country is a couple of million candidates, and
+   a loop that long without a yield freezes every other task the server has.
+   This module stays scheduler-agnostic; the caller injects the yield. *)
+let plan ?(on_tile = fun () -> ()) archive ~min_zoom ~max_zoom ~min_lon
+    ~min_lat ~max_lon ~max_lat =
   let ids =
     Tile_id.covering ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
   in
@@ -42,6 +47,7 @@ let plan archive ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat =
   let data_offset = archive.Archive.header.Header.data_offset in
   List.iter
     (fun id ->
+      on_tile ();
       match Archive.locate archive id with
       | None -> () (* a tile the source does not have; the map draws nothing *)
       | Some (relative, length) ->

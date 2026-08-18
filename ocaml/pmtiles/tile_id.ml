@@ -131,3 +131,23 @@ let depth_for ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~limit =
       if total > limit && z > min_zoom then best else go (z + 1) total z
   in
   go min_zoom 0 min_zoom
+
+(* Which depth a download gets: the full ask when the box affords it within
+   [full_limit], otherwise a quick regional fallback within [quick_limit],
+   flagged so the UI can say so.
+
+   Two limits on purpose. An explicit "give me France" is ~2.2 million tile
+   ids -- minutes of fetching but a plan a machine handles, so it gets street
+   level. All of Brazil at street level is over fifteen million and tens of
+   gigabytes; pretending otherwise would wedge the server and fill the disk,
+   so oversized boxes fall back to a depth that plans in a couple of
+   seconds, and the caller says "pick a state" instead. *)
+let download_depth ~min_zoom ~requested ~min_lon ~min_lat ~max_lon ~max_lat
+    ~full_limit ~quick_limit =
+  let depth limit =
+    depth_for ~min_zoom ~max_zoom:requested ~min_lon ~min_lat ~max_lon
+      ~max_lat ~limit
+  in
+  let full = depth full_limit in
+  if full >= requested then (requested, false)
+  else (depth quick_limit, true)
