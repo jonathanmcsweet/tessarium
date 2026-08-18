@@ -411,7 +411,10 @@ the one honest caveat.
       Blocked on: a release key and somewhere to publish it. The
       double-build reproducibility check is in CI (the `reproducible` job),
       and the tarball and .deb build bit-identically from clean with fixed
-      timestamps -- step 1 is standing; steps 2-4 wait on the key.
+      timestamps -- step 1 is standing on one machine; true cross-machine
+      identity additionally needs the absolute opam build paths scrubbed
+      from the binaries (60 such strings today; -ffile-prefix-map and
+      OCAMLPARAM equivalents are the tools). Steps 2-4 wait on the key.
 
 - [ ] **The AppImage's final squash step needs `appimagetool`.**
       `tools/package-appimage.sh` builds a complete AppDir and hands off;

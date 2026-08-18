@@ -9,6 +9,8 @@
 
 set -euo pipefail
 
+umask 022
+
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
@@ -28,10 +30,17 @@ install -m 644 packaging/tessarium.svg "$appdir/tessarium.svg"
 
 cat > "$appdir/AppRun" <<'RUN'
 #!/bin/sh
-# The basemap lives beside the user's data, not inside the read-only image.
-dir="${XDG_DATA_HOME:-$HOME/.local/share}/tessarium"
-mkdir -p "$dir/basemap"
-exec "$(dirname "$0")/usr/bin/tessarium-server" --basemap "$dir/basemap" "$@"
+# The basemap lives beside the user's data, not inside the read-only image
+# -- unless the user names their own; the flag cannot be repeated.
+here="$(dirname "$0")"
+case " $* " in
+  *" --basemap "*|*" --basemap="*)
+    exec "$here/usr/bin/tessarium-server" "$@" ;;
+  *)
+    dir="${XDG_DATA_HOME:-$HOME/.local/share}/tessarium"
+    mkdir -p "$dir/basemap"
+    exec "$here/usr/bin/tessarium-server" --basemap "$dir/basemap" "$@" ;;
+esac
 RUN
 chmod 755 "$appdir/AppRun"
 

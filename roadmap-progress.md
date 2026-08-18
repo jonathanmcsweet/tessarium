@@ -1323,3 +1323,23 @@ verifiable builds, leaving that item blocked on a release key only.
 **Rationale:** published checksums are worthless if the build is not
 bit-reproducible; the CI job is what keeps that property from rotting.
 
+### 2026-08-18 — Packaging review findings fixed
+
+**Phase:** 7
+
+**What:** The reproducible-CI job could never pass -- its git clean deleted
+the vendored fstarlib modules the second build needed (now excluded). The
+.deb's hardcoded libc6 floor understated reality (binaries import
+GLIBC_2.35; the floor is now computed from objdump at build time). Both
+artifacts inherited the packager's umask (077 broke dpkg-deb outright; 002
+shipped group-writable /usr) -- both scripts now set umask 022 and tar
+normalizes modes. The .deb gained md5sums and a copyright file naming GMP's
+LGPL and source now that it is statically embedded; the tarball README
+likewise. AppRun no longer makes --basemap unrepeatable. Installed-Size
+uses apparent size. Determinism claims scoped honestly: bit-identity holds
+per-toolchain; cross-machine identity needs the ~60 absolute opam paths
+scrubbed from the binaries first (recorded on the verifiable-builds item).
+
+**Rationale:** a reproducibility check that cannot pass, guarding a
+dependency floor that cannot hold, is worse than none -- it certifies.
+

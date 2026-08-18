@@ -197,7 +197,9 @@ jobs:
           sha256sum dist/*.tar.gz dist/*.deb > /tmp/first.sum
           cat /tmp/first.sum
           # -e _opam: the local switch is the toolchain, not build output.
-          git clean -xfd -e _opam
+          # -e ocaml/fstarlib: vendored once above; cleaning it would make
+          # the second build fail on Unbound module Prims.
+          git clean -xfd -e _opam -e ocaml/fstarlib
           build_all
           sha256sum dist/*.tar.gz dist/*.deb > /tmp/second.sum
           cat /tmp/second.sum

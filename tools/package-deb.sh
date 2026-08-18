@@ -9,9 +9,14 @@
 
 set -euo pipefail
 
+# Deterministic modes as well as timestamps: the artifact must not inherit
+# the packager's umask (077 breaks dpkg-deb outright; 002 ships
+# group-writable /usr).
+umask 022
+
 # dpkg-deb stamps its ar members and tars with this; without it every build
-# differs by build time alone.
-export SOURCE_DATE_EPOCH=1755475200
+# differs by build time alone. 2026-08-19 00:00 UTC.
+export SOURCE_DATE_EPOCH=1787011200
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
@@ -43,16 +48,36 @@ install -m 755 _build/default/ocaml/server/bin/main.exe "$stage/usr/bin/tessariu
 install -m 755 _build/default/ocaml/pmtiles/bin/main.exe "$stage/usr/bin/tessarium-basemap"
 install -m 644 packaging/tessarium.desktop "$stage/usr/share/applications/"
 install -m 644 packaging/tessarium.svg "$stage/usr/share/icons/hicolor/scalable/apps/"
-install -m 644 LICENSE "$stage/usr/share/doc/tessarium/copyright"
+# The application is Apache-2.0; the binaries also embed GNU GMP
+# statically, and conveying it obliges naming its licence and where its
+# source lives.
+{
+  cat LICENSE
+  cat <<'GMP'
 
-size_kb="$(du -sk "$stage" --exclude=DEBIAN | cut -f1)"
+----------------------------------------------------------------------
+These binaries statically link the GNU Multiple Precision Arithmetic
+Library (GMP), which is dual-licensed LGPLv3+ / GPLv2+. GMP source:
+https://gmplib.org/. Relinking against a modified GMP: rebuild from this
+package's full corresponding source, https://github.com/tessarium/tessarium.
+GMP
+} > "$stage/usr/share/doc/tessarium/copyright"
+chmod 644 "$stage/usr/share/doc/tessarium/copyright"
+
+# The true glibc floor, read off the binaries rather than guessed: a
+# hardcoded value rots the day the build image's glibc grows a symbol.
+glibc_floor="$(objdump -T \
+  "$stage/usr/bin/tessarium-server" "$stage/usr/bin/tessarium-basemap" \
+  | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)"
+
+size_kb="$(du -sk --apparent-size "$stage" --exclude=DEBIAN | cut -f1)"
 cat > "$stage/DEBIAN/control" <<CTRL
 Package: tessarium
 Version: ${version}
 Architecture: ${arch}
 Maintainer: Tessarium <noreply@tessarium.org>
 Installed-Size: ${size_kb}
-Depends: libc6 (>= 2.34)
+Depends: libc6 (>= ${glibc_floor})
 Section: utils
 Priority: optional
 Homepage: https://github.com/tessarium/tessarium
@@ -63,7 +88,10 @@ Description: private three-word addresses for every ~3 m square on Earth
  once a basemap is downloaded in-app.
 CTRL
 
-find "$stage" -exec touch -d "@1755475200" {} +
+(cd "$stage" && find usr -type f -exec md5sum {} +) > "$stage/DEBIAN/md5sums"
+chmod 644 "$stage/DEBIAN/md5sums"
+
+find "$stage" -exec touch -d "@${SOURCE_DATE_EPOCH}" {} +
 mkdir -p dist
 dpkg-deb --build --root-owner-group "$stage" "dist/${name}.deb" > /dev/null
 rm -rf "$stage"
