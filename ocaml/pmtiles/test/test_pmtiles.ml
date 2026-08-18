@@ -434,5 +434,44 @@ let () =
   check "both boxes in one request equal extract-then-merge byte for byte"
     (String.equal (Buffer.contents multi_buf) (Buffer.contents merged_buf));
 
+  (* ---------------------------------------------------- download parts *)
+  (* Splitting is what lets a giant box keep full depth: every part must
+     plan under the limit, and the union of the parts' ids must be exactly
+     the box's ids -- coverage is the correctness property, and seams may
+     overlap by a tile row without harm because the merge dedups by id. *)
+  let europe = (-10.0, 40.0, 10.0, 55.0) in
+  let ids (a, b, c, d) =
+    T.covering ~min_zoom:0 ~max_zoom:8 ~min_lon:a ~min_lat:b ~max_lon:c
+      ~max_lat:d
+  in
+  let full_ids = ids europe in
+  let limit = List.length full_ids / 3 in
+  let dp ~full_limit ~max_parts =
+    let a, b, c, d = europe in
+    T.download_parts ~min_zoom:0 ~requested:8 ~min_lon:a ~min_lat:b ~max_lon:c
+      ~max_lat:d ~full_limit ~quick_limit:64 ~max_parts
+  in
+  let parts, depth, clamped = dp ~full_limit:limit ~max_parts:8 in
+  check "a giant box splits rather than clamps"
+    ((not clamped) && depth = 8 && List.length parts > 1
+    && List.length parts <= 8);
+  check "every part plans within the limit"
+    (List.for_all
+       (fun (a, b, c, d) ->
+         T.count_ids ~min_zoom:0 ~max_zoom:8 ~min_lon:a ~min_lat:b ~max_lon:c
+           ~max_lat:d
+         <= limit)
+       parts);
+  check "the parts cover exactly the box's ids"
+    (List.concat_map ids parts |> List.sort_uniq compare = full_ids);
+  check "a box within the limit stays whole"
+    (let parts, depth, clamped =
+       dp ~full_limit:(List.length full_ids) ~max_parts:8
+     in
+     parts = [ europe ] && depth = 8 && not clamped);
+  check "too big for the part budget falls back to a quick clamp"
+    (let parts, depth, clamped = dp ~full_limit:(limit / 64) ~max_parts:2 in
+     clamped && depth < 8 && List.length parts = 1);
+
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "pmtiles round-trips"

@@ -7,6 +7,7 @@
    one code path rather than two that drift. *)
 
 module Serve = Tessarium_server.Serve
+module Basemap_download = Tessarium_server.Basemap_download
 
 let default_port = 7373
 
@@ -48,8 +49,17 @@ let setup_log level =
   Logs.set_reporter (Logs_fmt.reporter ())
 
 let serve port ui basemap api connect_src basemap_source basemap_assets
-    no_open log_level =
+    tile_budget no_open log_level =
   setup_log log_level;
+  let budget =
+    match tile_budget with
+    | "" -> Basemap_download.default_budget
+    | s -> (
+        try
+          Scanf.sscanf s "%d,%d,%d%!" (fun full quick max_parts ->
+              Basemap_download.{ full; quick; max_parts })
+        with _ -> invalid_arg "--tile-budget expects FULL,QUICK,PARTS")
+  in
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
   let cfg =
@@ -60,6 +70,7 @@ let serve port ui basemap api connect_src basemap_source basemap_assets
       connect_src;
       basemap_source;
       basemap_assets;
+      tile_budget = budget;
     }
   in
   let url = Printf.sprintf "http://127.0.0.1:%d/" port in
@@ -130,12 +141,20 @@ let no_open =
   let doc = "Do not open a browser. Implied for self-hosted and headless use." in
   Arg.(value & flag & info [ "no-open" ] ~doc)
 
+let tile_budget =
+  let doc =
+    "Planning budget as FULL,QUICK,PARTS tile-id counts. Advanced: the \
+     default suits real hardware; tests shrink it to force multi-part \
+     downloads against a small fixture."
+  in
+  Arg.(value & opt string "" & info [ "tile-budget" ] ~docv:"F,Q,P" ~doc)
+
 let cmd =
   let doc = "serve the Tessarium map on localhost" in
   let info = Cmd.info "tessarium-server" ~version:"0.1.0" ~doc in
   Cmd.v info
     Term.(
       const serve $ port $ ui $ basemap $ api $ connect_src $ basemap_source
-      $ basemap_assets $ no_open $ Logs_cli.level ())
+      $ basemap_assets $ tile_budget $ no_open $ Logs_cli.level ())
 
 let () = exit (Cmd.eval cmd)

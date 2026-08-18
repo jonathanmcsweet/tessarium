@@ -13,6 +13,7 @@ SWITCH    := tessarium
 PORT      ?= 7373
 # A second server instance the e2e downloads its basemap from.
 FIXTURE_PORT ?= 7374
+MULTIPART_PORT ?= 7375
 
 .PHONY: all env verify extract build ui test test-core test-static test-ui run package clean
 
@@ -74,7 +75,8 @@ test-static:
 # on our output open forever.
 test-ui:
 	@dune build ocaml/server/bin/main.exe ocaml/tools/gen_basemap_fixture.exe
-	@rm -rf _build/e2e-fixture _build/e2e-basemap && mkdir -p _build/e2e-basemap
+	@rm -rf _build/e2e-fixture _build/e2e-basemap _build/e2e-multipart \
+	  && mkdir -p _build/e2e-basemap _build/e2e-multipart
 	@./_build/default/ocaml/tools/gen_basemap_fixture.exe _build/e2e-fixture
 	@./_build/default/ocaml/server/bin/main.exe \
 	  --port $(FIXTURE_PORT) --basemap _build/e2e-fixture --no-open & \
@@ -84,14 +86,23 @@ test-ui:
 	  --basemap-source http://127.0.0.1:$(FIXTURE_PORT)/basemap/map.pmtiles \
 	  --basemap-assets http://127.0.0.1:$(FIXTURE_PORT)/basemap/assets.tar.gz & \
 	  echo $$! > .server.pid; \
-	  trap 'kill $$(cat .server.pid) $$(cat .fixture.pid) 2>/dev/null; \
-	    rm -f .server.pid .fixture.pid' EXIT; \
+	  ./_build/default/ocaml/server/bin/main.exe \
+	  --port $(MULTIPART_PORT) --basemap _build/e2e-multipart --no-open \
+	  --tile-budget 1024,256,8 \
+	  --basemap-source http://127.0.0.1:$(FIXTURE_PORT)/basemap/map.pmtiles \
+	  --basemap-assets http://127.0.0.1:$(FIXTURE_PORT)/basemap/assets.tar.gz & \
+	  echo $$! > .multipart.pid; \
+	  trap 'kill $$(cat .server.pid) $$(cat .fixture.pid) \
+	      $$(cat .multipart.pid) 2>/dev/null; \
+	    rm -f .server.pid .fixture.pid .multipart.pid' EXIT; \
 	  for i in $$(seq 40); do \
 	    curl -sf -o /dev/null http://127.0.0.1:$(PORT)/healthz \
 	    && curl -sf -o /dev/null http://127.0.0.1:$(FIXTURE_PORT)/healthz \
+	    && curl -sf -o /dev/null http://127.0.0.1:$(MULTIPART_PORT)/healthz \
 	    && break; sleep 0.25; \
 	  done; \
-	  ( cd ui && node test/e2e.mjs http://127.0.0.1:$(PORT) )
+	  ( cd ui && node test/e2e.mjs http://127.0.0.1:$(PORT) \
+	      http://127.0.0.1:$(MULTIPART_PORT) )
 
 # No --ui: the binary serves the UI it was built with. Pass --ui to override
 # with a directory, which is what `npm run dev` wants.

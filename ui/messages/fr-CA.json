@@ -50,6 +50,7 @@
   "map_download_cancel": "Annuler le téléchargement",
   "map_download_planning": "Préparation du téléchargement…",
   "map_download_progress": "{done} sur {total}",
+  "map_download_progress_part": "Partie {part} sur {parts} — {done} sur {total}",
   "map_download_assets": "Récupération des polices et des symboles…",
   "map_download_done": "Cartes téléchargées.",
   "map_download_failed": "Le téléchargement de la carte a échoué : {reason}",

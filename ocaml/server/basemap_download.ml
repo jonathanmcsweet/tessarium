@@ -74,15 +74,19 @@ let friendly = function Failure m -> m | e -> Printexc.to_string e
 
 (* ------------------------------------------------------------------ plan *)
 
-(* How deep a download goes. An explicit ask that plans within [full_limit]
-   tile ids gets its full depth -- whole-France street level is ~2.2 million
-   ids and qualifies, as does every US state. A box beyond that (Brazil, a
-   whole-world viewport) falls back to a quick [quick_limit] regional plan
-   and the UI says to pick a state; without the ceiling, half a continent at
-   street level meant planning tens of millions of ids -- minutes of
-   grinding and memory to match. *)
-let full_limit = 6_000_000
-let quick_limit = 131_072
+(* How much planning one request may cost. An explicit ask that plans within
+   [full] tile ids gets its full depth in one piece -- whole-France street
+   level is ~2.3 million ids and qualifies, as does every US state. A box
+   beyond that is SPLIT into at most [max_parts] pieces that each fit --
+   Brazil (~18M ids) becomes three or four, downloaded one at a time -- and
+   only a box too big even for that (Canada's box, Russia's) falls back to a
+   quick [quick]-id regional plan with the UI saying to pick a province.
+   Splitting is also what makes giants resumable: each piece merges and
+   renames atomically, so an interruption keeps every finished piece and a
+   re-request skips them. *)
+type budget = { full : int; quick : int; max_parts : int }
+
+let default_budget = { full = 6_000_000; quick = 131_072; max_parts = 8 }
 
 (* Million-id loops must share the scheduler: yield every so often, and a
    download also polls its cancel flag, so even the planning phase of a
@@ -96,35 +100,72 @@ let breathe ?cancel () =
       match cancel with Some t -> check_cancel t | None -> ()
     end
 
-let plan_regions ?cancel ~sw ~fs ~net ~source
-    (reqs : Basemap_job.request list) =
+let open_source ~sw ~fs ~net ~source =
   let src = Pmtiles_source.open_url ~sw ~fs ~net source in
   let archive = Pmtiles.Archive.open_ src in
-  let h = archive.Pmtiles.Archive.header in
-  (* All zooms from the top: the world-context tiles are a rounding error next
-     to the deep ones and are what keeps zooming out from hitting blank. *)
-  let min_zoom = h.Pmtiles.Header.min_zoom in
-  (* Each region is budgeted on its own: one giant pick falls back to
-     regional depth without dragging the states picked beside it down. *)
-  let planned =
+  (src, archive)
+
+(* One box a download will actually plan and fetch, with the region it came
+   from: a small region is one segment, a giant is several. *)
+type segment = {
+  req : Basemap_job.request;
+  depth : int;
+  box : float * float * float * float;
+}
+
+(* The units of work, in fetch order, plus the granted depth per region in
+   request order. Single-box regions ride together in one merge -- that is
+   what lets overlapping picks dedup against each other -- and every giant
+   part is its own unit, planned and written alone so memory stays at the
+   single-part envelope however large the region. Seams between parts may
+   share an edge row of tiles; the second part's merge sees them on disk
+   and skips them, so an estimate double-counts at most a sliver. *)
+let units_of ~budget ~header reqs =
+  let min_zoom = header.Pmtiles.Header.min_zoom in
+  let split =
     List.map
       (fun (req : Basemap_job.request) ->
-        let max_zoom, _clamped =
-          Pmtiles.Tile_id.download_depth ~min_zoom
-            ~requested:(min req.max_zoom h.Pmtiles.Header.max_zoom)
+        let requested = min req.max_zoom header.Pmtiles.Header.max_zoom in
+        let parts, depth, _clamped =
+          Pmtiles.Tile_id.download_parts ~min_zoom ~requested
             ~min_lon:req.min_lon ~min_lat:req.min_lat ~max_lon:req.max_lon
-            ~max_lat:req.max_lat ~full_limit ~quick_limit
+            ~max_lat:req.max_lat ~full_limit:budget.full
+            ~quick_limit:budget.quick ~max_parts:budget.max_parts
         in
-        let plan =
-          Pmtiles.Extract.plan
-            ~on_tile:(breathe ?cancel ())
-            archive ~min_zoom ~max_zoom ~min_lon:req.min_lon
-            ~min_lat:req.min_lat ~max_lon:req.max_lon ~max_lat:req.max_lat
-        in
-        (max_zoom, plan))
+        (req, depth, parts))
       reqs
   in
-  (src, h, min_zoom, List.map fst planned, List.map snd planned)
+  let singles, giants =
+    List.partition (fun (_, _, parts) -> List.length parts = 1) split
+  in
+  let batch =
+    match singles with
+    | [] -> []
+    | l ->
+        [
+          `Batch
+            (List.map
+               (fun ((req : Basemap_job.request), depth, parts) ->
+                 { req; depth; box = List.hd parts })
+               l);
+        ]
+  in
+  let parts =
+    List.concat_map
+      (fun (req, depth, boxes) ->
+        List.map (fun box -> `Part { req; depth; box }) boxes)
+      giants
+  in
+  (batch @ parts, List.map (fun (_, depth, _) -> depth) split)
+
+let plan_box ?cancel ~archive ~min_zoom (seg : segment) =
+  let a, b, c, d = seg.box in
+  Pmtiles.Extract.plan
+    ~on_tile:(breathe ?cancel ())
+    archive ~min_zoom ~max_zoom:seg.depth ~min_lon:a ~min_lat:b ~max_lon:c
+    ~max_lat:d
+
+let segments_of = function `Batch segs -> segs | `Part seg -> [ seg ]
 
 (* The archive already on disk, if any -- the merge's base. *)
 let open_base ~sw ~fs ~basemap_dir =
@@ -136,45 +177,50 @@ let open_base ~sw ~fs ~basemap_dir =
            (Pmtiles_source.file_source (Eio.Path.open_in ~sw path)))
   | _ -> None
 
-let merge_plan ?cancel ~sw ~fs ~net ~source ~basemap_dir reqs =
-  let src, h, min_zoom, depths, fresh =
-    plan_regions ?cancel ~sw ~fs ~net ~source reqs
-  in
-  let base = open_base ~sw ~fs ~basemap_dir in
-  (match base with
+let guard_compression ~h base =
+  match base with
   | Some b
     when b.Pmtiles.Archive.header.Pmtiles.Header.tile_compression
          <> h.Pmtiles.Header.tile_compression ->
       failwith
         "the basemap on disk and the tile source disagree on compression; \
          delete the basemap directory and download again"
-  | _ -> ());
-  ( src,
-    h,
-    base,
-    min_zoom,
-    depths,
-    Pmtiles.Merge.plan ~on_entry:(breathe ?cancel ()) ~base fresh,
-    fresh )
+  | _ -> ()
 
 (* The estimate is what the user will actually pay for over the network:
    tiles the base already holds are excluded, so re-asking for an area you
    have says zero rather than re-quoting the full price. [covered] separates
-   "you have all of this" from "the source has nothing here". *)
-let estimate ~fs ~net ~source ~basemap_dir (reqs : Basemap_job.request list) =
+   "you have all of this" from "the source has nothing here". Units are
+   planned one at a time and discarded, so a giant estimate costs the time
+   of its planning but only one part's memory. *)
+let estimate ~fs ~net ~source ~basemap_dir ~budget
+    (reqs : Basemap_job.request list) =
   match
     Eio.Switch.run @@ fun sw ->
-    let _, _, _, _, depths, mp, fresh =
-      merge_plan ~sw ~fs ~net ~source ~basemap_dir reqs
-    in
-    ( mp.Pmtiles.Merge.fetch_bytes,
-      mp.Pmtiles.Merge.fresh_tiles,
-      List.exists
-        (fun (f : Pmtiles.Extract.plan) ->
-          Array.length f.Pmtiles.Extract.tiles > 0)
-        fresh
-      && mp.Pmtiles.Merge.fresh_tiles = 0,
-      depths )
+    let _src, archive = open_source ~sw ~fs ~net ~source in
+    let h = archive.Pmtiles.Archive.header in
+    let base = open_base ~sw ~fs ~basemap_dir in
+    guard_compression ~h base;
+    let units, depths = units_of ~budget ~header:h reqs in
+    let fetch = ref 0 and fresh = ref 0 and any_tiles = ref false in
+    List.iter
+      (fun unit ->
+        let plans =
+          List.map
+            (plan_box ~archive ~min_zoom:h.Pmtiles.Header.min_zoom)
+            (segments_of unit)
+        in
+        if
+          List.exists
+            (fun (f : Pmtiles.Extract.plan) ->
+              Array.length f.Pmtiles.Extract.tiles > 0)
+            plans
+        then any_tiles := true;
+        let mp = Pmtiles.Merge.plan ~on_entry:(breathe ()) ~base plans in
+        fetch := !fetch + mp.Pmtiles.Merge.fetch_bytes;
+        fresh := !fresh + mp.Pmtiles.Merge.fresh_tiles)
+      units;
+    (!fetch, !fresh, !any_tiles && !fresh = 0, depths)
   with
   | fetch_bytes, tiles, covered, depths ->
       Ok
@@ -186,8 +232,7 @@ let estimate ~fs ~net ~source ~basemap_dir (reqs : Basemap_job.request list) =
              (* Depth granted per region, in request order. Less than the
                 region asked for means "too big, stopping at regional
                 detail" -- the UI names which ones. *)
-             ( "max_zooms",
-               `List (List.map (fun z -> `Int z) depths) );
+             ("max_zooms", `List (List.map (fun z -> `Int z) depths));
            ])
   | exception e -> Error (friendly e)
 
@@ -232,82 +277,136 @@ let fetch_assets t ~sw ~net ~assets ~dir =
 
 (* ---------------------------------------------------------------- download *)
 
-let run_download t ~fs ~net ~source ~assets ~basemap_dir
+let union_boxes boxes =
+  List.fold_left
+    (fun (a, b, c, d) (a', b', c', d') ->
+      (Float.min a a', Float.min b b', Float.max c c', Float.max d d'))
+    (180., 90., -180., -90.)
+    boxes
+
+(* Units run in order, each merged into the archive and renamed atomically
+   before the next begins. That sequencing IS the resume story: cancel or a
+   crash mid-unit loses only the current .part, every finished unit is
+   already the archive on disk, and a re-request finds its tiles held and
+   skips it after the planning cost alone. The price is that each unit
+   rewrites the archive it grows -- recorded on the roadmap, not hidden. *)
+let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
     (reqs : Basemap_job.request list) =
   let dir = Eio.Path.(fs / basemap_dir) in
-  let part = Eio.Path.(dir / "map.pmtiles.part") in
-  let discard_part () = try Eio.Path.unlink part with _ -> () in
+  let part_path = Eio.Path.(dir / "map.pmtiles.part") in
+  let discard_part () = try Eio.Path.unlink part_path with _ -> () in
   match
     Eio.Switch.run @@ fun sw ->
-    let src, h, base, min_zoom, depths, mp, _fresh =
-      merge_plan ~cancel:t ~sw ~fs ~net ~source ~basemap_dir reqs
+    let src, archive = open_source ~sw ~fs ~net ~source in
+    let h = archive.Pmtiles.Archive.header in
+    let min_zoom = h.Pmtiles.Header.min_zoom in
+    let units, _depths = units_of ~budget ~header:h reqs in
+    let parts_total = List.length units in
+    let had_base =
+      match Eio.Path.kind ~follow:true Eio.Path.(dir / "map.pmtiles") with
+      | `Regular_file -> true
+      | _ -> false
     in
-    if Array.length mp.Pmtiles.Merge.tiles = 0 then
-      failwith "the source has no tiles in that area";
-    if mp.Pmtiles.Merge.fresh_tiles = 0 && Option.is_some base then
-      failwith "you already have the maps for that area";
-    check_cancel t;
-    (* Progress counts every byte the merged archive writes, local copies
-       included: it is the write that takes the time on a fast link, and a
-       bar that ignored the base would sit at 100% while still working. *)
-    let total = mp.Pmtiles.Merge.total_bytes in
-    set t (Basemap_job.progress ~done_bytes:0 ~total_bytes:total);
     ensure_dir dir;
-    (* The merged header describes the union: every requested box and the
-       base's, folded together, at the deepest zoom any of them reached. *)
-    let e7f v = float_of_int v /. 1e7 in
-    let max_zoom = List.fold_left max min_zoom depths in
-    let min_lon, min_lat, max_lon, max_lat =
-      List.fold_left
-        (fun (a, b, c, d) (r : Basemap_job.request) ->
-          ( Float.min a r.min_lon,
-            Float.min b r.min_lat,
-            Float.max c r.max_lon,
-            Float.max d r.max_lat ))
-        (180., 90., -180., -90.)
-        reqs
-    in
-    let min_zoom, max_zoom, min_lon, min_lat, max_lon, max_lat =
-      match base with
-      | None -> (min_zoom, max_zoom, min_lon, min_lat, max_lon, max_lat)
-      | Some b ->
-          let bh = b.Pmtiles.Archive.header in
-          ( min min_zoom bh.Pmtiles.Header.min_zoom,
-            max max_zoom bh.Pmtiles.Header.max_zoom,
-            Float.min min_lon (e7f bh.Pmtiles.Header.min_lon_e7),
-            Float.min min_lat (e7f bh.Pmtiles.Header.min_lat_e7),
-            Float.max max_lon (e7f bh.Pmtiles.Header.max_lon_e7),
-            Float.max max_lat (e7f bh.Pmtiles.Header.max_lat_e7) )
-    in
-    (* Written under a .part name and renamed only once complete, so the file
-       the map reads is never mid-write and a failed download leaves the
-       previous basemap untouched. The base is read from the old file while
-       the new one is written beside it. *)
-    Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part (fun out ->
-        let written = ref 0 in
-        let append s = Eio.Flow.copy_string s out in
-        let copy ~origin ~offset ~length =
-          check_cancel t;
-          let bytes =
-            match origin with
-            | Pmtiles.Merge.Base -> (
-                match base with
-                | Some b -> b.Pmtiles.Archive.src.Pmtiles.Archive.read ~offset ~length
-                | None -> assert false (* no Base blobs without a base *))
-            | Pmtiles.Merge.Fresh -> src.Pmtiles.Archive.read ~offset ~length
-          in
-          Eio.Flow.copy_string bytes out;
-          written := !written + length;
-          set t (Basemap_job.progress ~done_bytes:!written ~total_bytes:total)
+    let written_total = ref 0 in
+    let wrote_any = ref false in
+    let found_tiles = ref false in
+    List.iteri
+      (fun i unit ->
+        check_cancel t;
+        (* Honest between parts: the next piece really is being planned. *)
+        set t Basemap_job.Planning;
+        let part = i + 1 in
+        (* A switch per unit so the base file handle closes before the
+           rename that replaces it. *)
+        Eio.Switch.run @@ fun usw ->
+        let base = open_base ~sw:usw ~fs ~basemap_dir in
+        guard_compression ~h base;
+        let plans =
+          List.map (plan_box ~cancel:t ~archive ~min_zoom) (segments_of unit)
         in
-        ignore
-          (Pmtiles.Merge.write mp h ~min_zoom ~max_zoom ~min_lon ~min_lat
-             ~max_lon ~max_lat ~append ~copy));
-    Eio.Path.rename part Eio.Path.(dir / "map.pmtiles");
+        if
+          List.exists
+            (fun (f : Pmtiles.Extract.plan) ->
+              Array.length f.Pmtiles.Extract.tiles > 0)
+            plans
+        then found_tiles := true;
+        let mp = Pmtiles.Merge.plan ~on_entry:(breathe ~cancel:t ()) ~base plans in
+        (* Nothing new in this unit -- the resume case -- writes nothing. *)
+        if mp.Pmtiles.Merge.fresh_tiles > 0 then begin
+          check_cancel t;
+          let total = mp.Pmtiles.Merge.total_bytes in
+          set t
+            (Basemap_job.progress ~done_bytes:0 ~total_bytes:total ~part
+               ~parts:parts_total);
+          (* The merged header describes the union: the base's box and zooms
+             grown by this unit's, so mid-sequence archives stay honest
+             about what they hold. *)
+          let e7f v = float_of_int v /. 1e7 in
+          let u_min_lon, u_min_lat, u_max_lon, u_max_lat =
+            union_boxes (List.map (fun (s : segment) -> s.box) (segments_of unit))
+          in
+          let u_depth =
+            List.fold_left
+              (fun acc (s : segment) -> max acc s.depth)
+              min_zoom (segments_of unit)
+          in
+          let min_zoom', max_zoom', min_lon, min_lat, max_lon, max_lat =
+            match base with
+            | None ->
+                (min_zoom, u_depth, u_min_lon, u_min_lat, u_max_lon, u_max_lat)
+            | Some b ->
+                let bh = b.Pmtiles.Archive.header in
+                ( min min_zoom bh.Pmtiles.Header.min_zoom,
+                  max u_depth bh.Pmtiles.Header.max_zoom,
+                  Float.min u_min_lon (e7f bh.Pmtiles.Header.min_lon_e7),
+                  Float.min u_min_lat (e7f bh.Pmtiles.Header.min_lat_e7),
+                  Float.max u_max_lon (e7f bh.Pmtiles.Header.max_lon_e7),
+                  Float.max u_max_lat (e7f bh.Pmtiles.Header.max_lat_e7) )
+          in
+          (* Written under a .part name and renamed only once complete, so
+             the file the map reads is never mid-write and a failure leaves
+             the previous archive untouched. *)
+          Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part_path
+            (fun out ->
+              let written = ref 0 in
+              let append str = Eio.Flow.copy_string str out in
+              let copy ~origin ~offset ~length =
+                check_cancel t;
+                let bytes =
+                  match origin with
+                  | Pmtiles.Merge.Base -> (
+                      match base with
+                      | Some b ->
+                          b.Pmtiles.Archive.src.Pmtiles.Archive.read ~offset
+                            ~length
+                      | None -> assert false (* no Base blobs without a base *))
+                  | Pmtiles.Merge.Fresh ->
+                      src.Pmtiles.Archive.read ~offset ~length
+                in
+                Eio.Flow.copy_string bytes out;
+                written := !written + length;
+                set t
+                  (Basemap_job.progress ~done_bytes:!written ~total_bytes:total
+                     ~part ~parts:parts_total)
+              in
+              ignore
+                (Pmtiles.Merge.write mp h ~min_zoom:min_zoom'
+                   ~max_zoom:max_zoom' ~min_lon ~min_lat ~max_lon ~max_lat
+                   ~append ~copy));
+          Eio.Path.rename part_path Eio.Path.(dir / "map.pmtiles");
+          wrote_any := true;
+          written_total := !written_total + total
+        end)
+      units;
+    if not !found_tiles then failwith "the source has no tiles in that area";
+    if (not !wrote_any) && had_base then
+      failwith "you already have the maps for that area";
     fetch_assets t ~sw ~net ~assets ~dir;
-    total
+    (!written_total, parts_total)
   with
-  | total -> set t (Basemap_job.Done { total_bytes = total })
+  | total_bytes, parts ->
+      set t (Basemap_job.Done { total_bytes; parts })
   | exception Cancelled_by_user ->
       discard_part ();
       set t Basemap_job.Cancelled
@@ -315,7 +414,7 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir
       discard_part ();
       set t (Basemap_job.Failed (friendly e))
 
-let start t ~sw ~fs ~net ~source ~assets ~basemap_dir reqs =
+let start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget reqs =
   let claimed =
     (* Claiming the job and checking it are one critical section; two requests
        arriving together must not both see a resting state. *)
@@ -331,14 +430,15 @@ let start t ~sw ~fs ~net ~source ~assets ~basemap_dir reqs =
   if not claimed then Error "a download is already running"
   else begin
     Eio.Fiber.fork ~sw (fun () ->
-        run_download t ~fs ~net ~source ~assets ~basemap_dir reqs);
+        run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget reqs);
     Ok ()
   end
 
-let ops t ~sw ~fs ~net ~source ~assets ~basemap_dir =
+let ops t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget =
   {
-    estimate = (fun req -> estimate ~fs ~net ~source ~basemap_dir req);
-    start = (fun req -> start t ~sw ~fs ~net ~source ~assets ~basemap_dir req);
+    estimate = (fun reqs -> estimate ~fs ~net ~source ~basemap_dir ~budget reqs);
+    start =
+      (fun reqs -> start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget reqs);
     cancel = (fun () -> cancel t);
     status = (fun () -> status t);
   }

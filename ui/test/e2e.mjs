@@ -544,6 +544,65 @@ await page.waitForFunction(() => !document.querySelector(".download-card"), {
   timeout: 10_000,
 });
 
+/* ------------------- multi-part downloads and resume ----------------------
+
+   A third server instance runs with a deliberately tiny tile budget
+   (--tile-budget 1024,256,8), so a request the production budget would
+   swallow whole is forced down the giant path: split into parts, fetched
+   one at a time, each merged and renamed atomically. Driven over the API
+   because the interesting claims are the server's. */
+const base3 = process.argv[3];
+const post3 = async (endpoint, body) =>
+  await fetch(`${base3}/api/${endpoint}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+const world = {
+  min_lon: -179.9,
+  min_lat: -84,
+  max_lon: 179.9,
+  max_lat: 84,
+  max_zoom: 6,
+};
+const est3 = await (await post3("basemap-estimate", { regions: [world] }))
+  .json();
+check(
+  "a box over the budget splits instead of clamping",
+  est3.max_zooms?.[0] === 6 && est3.covered === false && est3.tiles > 0,
+);
+const finalJob3 = async (generation) => {
+  for (let i = 0; i < 120; i++) {
+    const status = await (await post3("basemap-status")).json();
+    if (
+      status.generation === generation
+      && !["planning", "fetching", "assets"].includes(status.job?.state)
+      && status.job?.state !== "idle"
+    ) {
+      return status.job;
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return null;
+};
+await post3("basemap-download", { regions: [world] });
+const done3 = await finalJob3(1);
+check(
+  "the split download completes in several parts",
+  done3?.state === "done" && done3.parts >= 2,
+);
+const est3b = await (await post3("basemap-estimate", { regions: [world] }))
+  .json();
+check("re-asking after a split download says covered", est3b.covered === true);
+/* The resume path: every part's tiles are already held, so each is planned,
+   found covered, and skipped -- the download writes nothing and says so. */
+await post3("basemap-download", { regions: [world] });
+const again3 = await finalJob3(2);
+check(
+  "a re-download skips every held part and says so",
+  again3?.state === "failed" && /already have/.test(again3.reason ?? ""),
+);
+
 /* Let the swapped style fetch and render its tiles; anything it logs from
    here on fails the final console check. */
 await page.waitForTimeout(2500);

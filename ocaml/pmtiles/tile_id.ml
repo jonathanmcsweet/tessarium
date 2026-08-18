@@ -114,16 +114,24 @@ let covering ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat =
    describes would be tens of gigabytes. Depth follows area instead: a city
    box affords street level within the same budget that stops a continent
    at regional detail. Pure arithmetic; no tile is touched. *)
+let ids_in_box ~z ~min_lon ~min_lat ~max_lon ~max_lat =
+  let n = 1 lsl z in
+  let last = n - 1 in
+  let x0 = clamp 0 last (tile_x ~z ~lon:min_lon) in
+  let x1 = clamp 0 last (tile_x ~z ~lon:max_lon) in
+  let y0 = clamp 0 last (tile_y ~z ~lat:max_lat) in
+  let y1 = clamp 0 last (tile_y ~z ~lat:min_lat) in
+  (x1 - x0 + 1) * (y1 - y0 + 1)
+
+let count_ids ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat =
+  let total = ref 0 in
+  for z = min_zoom to max_zoom do
+    total := !total + ids_in_box ~z ~min_lon ~min_lat ~max_lon ~max_lat
+  done;
+  !total
+
 let depth_for ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~limit =
-  let count z =
-    let n = 1 lsl z in
-    let last = n - 1 in
-    let x0 = clamp 0 last (tile_x ~z ~lon:min_lon) in
-    let x1 = clamp 0 last (tile_x ~z ~lon:max_lon) in
-    let y0 = clamp 0 last (tile_y ~z ~lat:max_lat) in
-    let y1 = clamp 0 last (tile_y ~z ~lat:min_lat) in
-    (x1 - x0 + 1) * (y1 - y0 + 1)
-  in
+  let count z = ids_in_box ~z ~min_lon ~min_lat ~max_lon ~max_lat in
   let rec go z total best =
     if z > max_zoom then best
     else
@@ -151,3 +159,78 @@ let download_depth ~min_zoom ~requested ~min_lon ~min_lat ~max_lon ~max_lat
   let full = depth full_limit in
   if full >= requested then (requested, false)
   else (depth quick_limit, true)
+
+(* Latitude of the northern edge of tile row [y] at zoom [z] -- the inverse
+   of [tile_y]. Splitting a box along the tile grid rather than in degrees is
+   what keeps both halves holding similar tile counts at every latitude. *)
+let lat_of_row ~z ~y =
+  let n = float_of_int (1 lsl z) in
+  let t = Float.pi *. (1. -. (2. *. float_of_int y /. n)) in
+  Float.atan (Float.sinh t) *. 180. /. Float.pi
+
+(* Split a box into at most [max_parts] boxes, each planning within [limit]
+   ids up to [max_zoom]. Repeatedly bisects the worst offender along its
+   longer tile axis. Seams land on tile edges only by luck, so neighbouring
+   parts may share an edge row or column of tiles; the merge dedups shared
+   ids, so overlap costs a sliver of re-planning, never correctness. None
+   when [max_parts] pieces are not enough or a piece stops being divisible. *)
+let split ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~limit
+    ~max_parts =
+  let count (a, b, c, d) =
+    count_ids ~min_zoom ~max_zoom ~min_lon:a ~min_lat:b ~max_lon:c ~max_lat:d
+  in
+  let bisect (a, b, c, d) =
+    let z = max_zoom in
+    let last = (1 lsl z) - 1 in
+    let x0 = clamp 0 last (tile_x ~z ~lon:a)
+    and x1 = clamp 0 last (tile_x ~z ~lon:c) in
+    let y0 = clamp 0 last (tile_y ~z ~lat:d)
+    and y1 = clamp 0 last (tile_y ~z ~lat:b) in
+    if x1 - x0 >= y1 - y0 then
+      let xm = (x0 + x1 + 1) / 2 in
+      let lon = (float_of_int xm /. float_of_int (1 lsl z) *. 360.) -. 180. in
+      if lon <= a || lon >= c then None
+      else Some ((a, b, lon, d), (lon, b, c, d))
+    else
+      let ym = (y0 + y1 + 1) / 2 in
+      let lat = lat_of_row ~z ~y:ym in
+      if lat <= b || lat >= d then None
+      else Some ((a, lat, c, d), (a, b, c, lat))
+  in
+  let rec go parts =
+    match List.find_opt (fun box -> count box > limit) parts with
+    | None -> Some parts
+    | Some worst ->
+        if List.length parts >= max_parts then None
+        else (
+          match bisect worst with
+          | None -> None
+          | Some (first, second) ->
+              (* In place, first half before second: parts keep a stable
+                 west-to-east, north-to-south order for progress display. *)
+              go
+                (List.concat_map
+                   (fun box ->
+                     if box == worst then [ first; second ] else [ box ])
+                   parts))
+  in
+  go [ (min_lon, min_lat, max_lon, max_lat) ]
+
+(* Which boxes a download fetches, and how deep. One box at the full ask
+   when it fits [full_limit]; several when splitting affords the full ask
+   within [max_parts] pieces -- how a Brazil-sized pick gets street level;
+   otherwise the single box at a quick regional depth, flagged so the
+   caller can say so. See [download_depth] for the two-limit rationale. *)
+let download_parts ~min_zoom ~requested ~min_lon ~min_lat ~max_lon ~max_lat
+    ~full_limit ~quick_limit ~max_parts =
+  match
+    split ~min_zoom ~max_zoom:requested ~min_lon ~min_lat ~max_lon ~max_lat
+      ~limit:full_limit ~max_parts
+  with
+  | Some parts -> (parts, requested, false)
+  | None ->
+      let depth =
+        depth_for ~min_zoom ~max_zoom:requested ~min_lon ~min_lat ~max_lon
+          ~max_lat ~limit:quick_limit
+      in
+      ([ (min_lon, min_lat, max_lon, max_lat) ], depth, true)

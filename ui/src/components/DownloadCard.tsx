@@ -62,14 +62,25 @@ function Progress({ job }: { job: Job; }) {
   if (job.state !== "fetching") return null;
   const done = formatBytes(job.done_bytes);
   const total = formatBytes(job.total_bytes);
+  /* The bar tracks the CURRENT part -- part sizes are not known up front,
+     and a bar that restarts per labelled part is more honest than one
+     guessing at a total it cannot know. */
+  const text = job.parts > 1
+    ? m.map_download_progress_part({
+      part: job.part,
+      parts: job.parts,
+      done,
+      total,
+    })
+    : m.map_download_progress({ done, total });
   return (
     <>
       <progress
         value={job.done_bytes}
         max={Math.max(1, job.total_bytes)}
-        aria-label={m.map_download_progress({ done, total })}
+        aria-label={text}
       />
-      <p className="hint">{m.map_download_progress({ done, total })}</p>
+      <p className="hint">{text}</p>
     </>
   );
 }
