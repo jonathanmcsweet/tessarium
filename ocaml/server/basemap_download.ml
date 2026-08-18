@@ -74,6 +74,14 @@ let friendly = function Failure m -> m | e -> Printexc.to_string e
 
 (* ------------------------------------------------------------------ plan *)
 
+(* The most tiles one download may plan. Depth follows area under this
+   budget: a city view still gets street level, a continent view stops at
+   regional detail, and the whole world lands exactly on the overview zoom.
+   Without it, "download this view" over half a continent meant planning
+   tens of millions of tile ids -- minutes during which a single-domain
+   server answers nothing at all, and memory to match. *)
+let tile_budget = 8192
+
 let plan_region ~sw ~fs ~net ~source (req : Basemap_job.request) =
   let src = Pmtiles_source.open_url ~sw ~fs ~net source in
   let archive = Pmtiles.Archive.open_ src in
@@ -81,7 +89,12 @@ let plan_region ~sw ~fs ~net ~source (req : Basemap_job.request) =
   (* All zooms from the top: the world-context tiles are a rounding error next
      to the deep ones and are what keeps zooming out from hitting blank. *)
   let min_zoom = h.Pmtiles.Header.min_zoom in
-  let max_zoom = min req.max_zoom h.Pmtiles.Header.max_zoom in
+  let max_zoom =
+    Pmtiles.Tile_id.depth_for ~min_zoom
+      ~max_zoom:(min req.max_zoom h.Pmtiles.Header.max_zoom)
+      ~min_lon:req.min_lon ~min_lat:req.min_lat ~max_lon:req.max_lon
+      ~max_lat:req.max_lat ~limit:tile_budget
+  in
   let plan =
     Pmtiles.Extract.plan archive ~min_zoom ~max_zoom ~min_lon:req.min_lon
       ~min_lat:req.min_lat ~max_lon:req.max_lon ~max_lat:req.max_lat
@@ -120,21 +133,25 @@ let merge_plan ~sw ~fs ~net ~source ~basemap_dir req =
 let estimate ~fs ~net ~source ~basemap_dir (req : Basemap_job.request) =
   match
     Eio.Switch.run @@ fun sw ->
-    let _, _, _, _, _, mp, fresh =
+    let _, _, _, _, max_zoom, mp, fresh =
       merge_plan ~sw ~fs ~net ~source ~basemap_dir req
     in
     ( mp.Pmtiles.Merge.fetch_bytes,
       mp.Pmtiles.Merge.fresh_tiles,
       Array.length fresh.Pmtiles.Extract.tiles > 0
-      && mp.Pmtiles.Merge.fresh_tiles = 0 )
+      && mp.Pmtiles.Merge.fresh_tiles = 0,
+      max_zoom )
   with
-  | fetch_bytes, tiles, covered ->
+  | fetch_bytes, tiles, covered, max_zoom ->
       Ok
         (`Assoc
            [
              ("total_bytes", `Int fetch_bytes);
              ("tiles", `Int tiles);
              ("covered", `Bool covered);
+             (* The depth the budget afforded. Less than asked means "a big
+                area, stopping at regional detail" -- the UI says so. *)
+             ("max_zoom", `Int max_zoom);
            ])
   | exception e -> Error (friendly e)
 

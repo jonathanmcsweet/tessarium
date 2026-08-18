@@ -281,6 +281,31 @@ let () =
   check "identical tiles are stored once"
     (Array.length run_plan.E.blobs = 1 && Array.length run_plan.E.tiles = 8);
 
+  (* --------------------------------------------------------- depth_for *)
+  (* The budget that stops "download this view" from meaning forty million
+     tiles. A city fits street level inside the same limit that stops the
+     whole world at its overview zoom -- 8192 is the server's budget, and
+     the world must land on 6 under it, because that is the world map the
+     UI offers. *)
+  check "a city box affords full depth"
+    (T.depth_for ~min_zoom:0 ~max_zoom:15 ~min_lon:(-0.14) ~min_lat:51.49
+       ~max_lon:(-0.11) ~max_lat:51.52 ~limit:8192
+     = 15);
+  check "the whole world stops at its overview zoom"
+    (T.depth_for ~min_zoom:0 ~max_zoom:15 ~min_lon:(-180.) ~min_lat:(-85.)
+       ~max_lon:180. ~max_lat:85. ~limit:8192
+     = 6);
+  check "a continent lands in between"
+    (let d =
+       T.depth_for ~min_zoom:0 ~max_zoom:15 ~min_lon:(-130.) ~min_lat:20.
+         ~max_lon:(-60.) ~max_lat:55. ~limit:8192
+     in
+     d > 6 && d < 15);
+  check "depth never sinks below min_zoom"
+    (T.depth_for ~min_zoom:0 ~max_zoom:15 ~min_lon:(-180.) ~min_lat:(-85.)
+       ~max_lon:180. ~max_lat:85. ~limit:1
+     = 0);
+
   (* ------------------------------------------------------------- merge *)
   (* Extract one box, then merge a second, overlapping box into it. Every
      tile from BOTH must read back byte-identical, and -- base wins -- the

@@ -103,3 +103,31 @@ let covering ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat =
     done
   done;
   List.sort_uniq compare !ids
+
+(* The deepest zoom whose cumulative tile count over the box stays within
+   [limit], never less than [min_zoom].
+
+   This is the guard between "download this view" and a request that means
+   forty million tiles: a viewport showing half a continent, asked for at
+   street level. Planning that many ids is minutes of grinding -- during
+   which a single-domain server answers nothing -- and the archive it
+   describes would be tens of gigabytes. Depth follows area instead: a city
+   box affords street level within the same budget that stops a continent
+   at regional detail. Pure arithmetic; no tile is touched. *)
+let depth_for ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~limit =
+  let count z =
+    let n = 1 lsl z in
+    let last = n - 1 in
+    let x0 = clamp 0 last (tile_x ~z ~lon:min_lon) in
+    let x1 = clamp 0 last (tile_x ~z ~lon:max_lon) in
+    let y0 = clamp 0 last (tile_y ~z ~lat:max_lat) in
+    let y1 = clamp 0 last (tile_y ~z ~lat:min_lat) in
+    (x1 - x0 + 1) * (y1 - y0 + 1)
+  in
+  let rec go z total best =
+    if z > max_zoom then best
+    else
+      let total = total + count z in
+      if total > limit && z > min_zoom then best else go (z + 1) total z
+  in
+  go min_zoom 0 min_zoom

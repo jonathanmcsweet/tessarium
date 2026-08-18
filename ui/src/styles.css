@@ -565,11 +565,42 @@ button:disabled {
   top: 62px;
   left: 10px;
   width: min(320px, calc(100% - 20px));
+  max-height: calc(100% - 76px);
+  overflow-y: auto;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
   box-shadow: var(--shadow);
   padding: 12px 14px 14px;
+}
+
+.download-card label {
+  display: block;
+  margin: 2px 0 6px;
+  font-size: 13px;
+}
+
+.download-card select {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+  color: var(--ink);
+}
+
+.download-card select + select {
+  margin-top: 8px;
+}
+
+/* The picked region's offer nests inside the picker option; no divider. */
+.download-option .download-option {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 
 .download-card header {

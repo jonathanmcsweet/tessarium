@@ -440,6 +440,36 @@ check(
   "and its download button stays disabled",
   await page.locator(".download-view button").isDisabled(),
 );
+
+/* Third download: a country picked by name, the way the offline map apps do
+   it. The fixture's tiles sit inside the United Kingdom's box, so picking it
+   estimates real bytes and the download merges a third region in. The name
+   comes from Intl.DisplayNames, so this also pins the catalogue's ISO codes
+   to something the browser recognises. */
+await page.locator(".region-country").selectOption({
+  label: "United Kingdom",
+});
+await page.waitForFunction(
+  () => !document.querySelector(".download-region-offer button")?.disabled,
+  { timeout: 30_000 },
+);
+check("picking a country by name yields a real estimate", true);
+await page.locator(".download-region-offer button").click();
+check("the country download completes at generation three", await awaitDone(3));
+await page.waitForFunction(() => !document.querySelector(".download-card"), {
+  timeout: 10_000,
+});
+
+/* And a federation exposes its states: the picker for the United States
+   must offer a second select with more than forty entries. */
+await openButton.click();
+await page.waitForSelector(".download-card", { timeout: 10_000 });
+await page.locator(".region-country").selectOption({ label: "United States" });
+await page.waitForSelector(".region-sub", { timeout: 10_000 });
+check(
+  "a federation exposes its states",
+  (await page.locator(".region-sub option").count()) > 40,
+);
 await page.locator(".download-card .icon-button").click();
 await page.waitForFunction(() => !document.querySelector(".download-card"), {
   timeout: 10_000,

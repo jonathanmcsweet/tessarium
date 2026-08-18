@@ -29,6 +29,9 @@ const Estimate = z.object({
   /* True when the source has tiles here but the archive already holds every
      one of them -- "you have this" rather than "there is nothing". */
   covered: z.boolean(),
+  /* The depth the server's tile budget afforded for this box. Less than the
+     region asked for means a big area stopping at regional detail. */
+  max_zoom: z.number().int(),
 });
 export type Estimate = z.infer<typeof Estimate>;
 
@@ -83,6 +86,9 @@ async function post<T>(
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body ?? {}),
+    /* Generous, but bounded: "checking..." forever is how a wedged server
+       used to present itself in this card. */
+    signal: AbortSignal.timeout(120_000),
   });
   const json: unknown = await res.json().catch(() => null);
   if (!res.ok) {

@@ -1021,3 +1021,38 @@ every later choice visible, and merging is what makes it affordable.
 
 **Follow-on:** base-wins means held tiles never refresh and the archive only
 grows; recorded as an open roadmap item (refresh action + eviction story).
+
+### 2026-08-18 — Tile budget and the country picker
+
+**Phase:** 6
+
+**What:** Two follow-ons to the world-first downloader, both from live use.
+(1) The wedge: "download this view" over half a continent asked for street
+level across the whole box — ~40 million tile ids to plan, minutes of
+grinding during which the single-domain server answered nothing (and the
+likely cause of an earlier unexplained server death, via memory). New
+`Tile_id.depth_for` caps every plan at 8,192 tiles: depth follows area, so a
+city view still gets z15, a continent stops at regional detail, and the
+whole world lands exactly on the overview zoom. The estimate reports the
+depth it chose; the card says "stops at regional detail — zoom in and
+download again for street level" when it clamps. The continental estimate
+that hung for minutes now answers in 1.6 s. Client requests also carry a
+120 s abort so a wedged server can never again present as "checking…"
+forever. (2) The picker: download a country or state by name, as the
+established offline map apps do. Catalogue committed at ui/src/regions.json
+(Natural Earth, public domain; 177 countries, 294 subdivisions across nine
+federations), regenerated offline by tools/gen-regions.py; names localised
+at runtime with Intl.DisplayNames from ISO codes, so no message keys per
+country. The card's three offers (world, this view, picked region) now run
+through one shared Offer component — estimate, covered, depth hint, confirm
+— so they cannot drift. e2e: UK picked by its localised name merges in at
+generation three; the US select exposes 51 states. 67 e2e checks, 49
+pmtiles checks, 938 message checks.
+
+**Rationale:** "Several minutes now" — the estimate was not slow, the server
+was wedged planning an impossible request; the budget makes the impossible
+request mean something sensible instead of refusing it. The picker is the
+answer to "most open source android maps have this option".
+
+**Follow-on:** full-depth country downloads (yieldful planning, resume) and
+polygon-clipped regions, both on the roadmap.
