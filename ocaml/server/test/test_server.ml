@@ -299,10 +299,6 @@ let () =
     }
   in
   let calls = ref [] in
-  (* A browse or a job holding the writer's seat makes clearing the cache
-     impossible right now; the endpoint has to say so rather than claim it
-     erased something. *)
-  let clear_cache_succeeds = ref true in
   let ops =
     {
       D.estimate =
@@ -337,10 +333,7 @@ let () =
         (fun req ->
           calls := `Browse req :: !calls;
           Ok (7, req.Tessarium_server.Basemap_job.max_zoom));
-      clear_cache =
-        (fun () ->
-          calls := `Clear_cache :: !calls;
-          !clear_cache_succeeds);
+      clear_cache = (fun () -> calls := `Clear_cache :: !calls);
     }
   in
   let settings_calls = ref [] in
@@ -559,14 +552,6 @@ let () =
   check "the browse toggle on clears nothing"
     (run_settings ~body:{|{"browse_cache":true}|} = [ `Set (None, Some true) ]
     && !calls = []);
-  (* A refused clear -- a download holds the writer's seat -- must still
-     save the setting. Browsing stops either way; only the erasing waits. *)
-  clear_cache_succeeds := false;
-  calls := [];
-  check "a refused cache clear still saves the setting"
-    (run_settings ~body:{|{"browse_cache":false}|} = [ `Set (None, Some false) ]
-    && !calls = [ `Clear_cache ]);
-  clear_cache_succeeds := true;
 
   (* The browse endpoint: a viewport box and a zoom, gated server-side on
      the opt-in setting -- the page must not be able to make this server
@@ -887,6 +872,48 @@ let () =
     (not (L.valid_name "a\xe2\x80\x8bb"));
   check "bidi overrides are invalid" (not (L.valid_name "a\xe2\x80\xaeb"));
   check "ordinary multi-byte names stay valid" (L.valid_name "北京 – Beijing");
+
+  (* A browse is served at the depth the SOURCE can reach, not the one the
+     view asked for, and that answer goes back to the client: it decides
+     from it whether deeper tiles have actually arrived. Getting this wrong
+     is invisible on the server and leaves the map either blank or
+     rebuilding its style on every pan. *)
+  let header ~min_zoom ~max_zoom =
+    {
+      Pmtiles.Header.root_offset = 127;
+      root_length = 0;
+      metadata_offset = 127;
+      metadata_length = 0;
+      leaf_offset = 127;
+      leaf_length = 0;
+      data_offset = 127;
+      data_length = 0;
+      addressed_tiles = 0;
+      tile_entries = 0;
+      tile_contents = 0;
+      clustered = true;
+      internal_compression = Pmtiles.Header.None_;
+      tile_compression = Pmtiles.Header.Gzip;
+      tile_type = Pmtiles.Header.Mvt;
+      min_zoom;
+      max_zoom;
+      min_lon_e7 = 0;
+      min_lat_e7 = 0;
+      max_lon_e7 = 0;
+      max_lat_e7 = 0;
+      center_zoom = 0;
+      center_lon_e7 = 0;
+      center_lat_e7 = 0;
+    }
+  in
+  let h0_15 = header ~min_zoom:0 ~max_zoom:15 in
+  let h0_6 = header ~min_zoom:0 ~max_zoom:6 in
+  check "a browse within the source's depth is served there"
+    (D.browse_zoom ~header:h0_15 ~requested:12 = 12);
+  check "a browse past the source's depth is served at the source's"
+    (D.browse_zoom ~header:h0_6 ~requested:15 = 6);
+  check "and never above the source's shallowest level"
+    (D.browse_zoom ~header:(header ~min_zoom:5 ~max_zoom:15) ~requested:2 = 5);
 
   (* The Removing job state obeys the same one-writer rule as downloads. *)
   check "nothing starts while a removal runs"

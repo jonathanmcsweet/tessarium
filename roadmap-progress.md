@@ -1631,14 +1631,17 @@ life of the process. Now nothing escapes that block. Compaction's unlink was
 moved back AFTER the rename: the window it was "fixing" was benign and
 self-healing (the duplicate holds byte-identical tiles and the next browse
 folds again), while unlinking first destroys every browsed tile if the rename
-fails. Clearing the browse seat no longer goes through the mutex at all --
-`Eio.Mutex.use_rw` locks outside its own cancellation guard and raises in an
-already-cancelled fiber, which would strand the flag true and deadlock every
-later download in the prune wait, with no way back but a restart. Also:
-turning browsing off now WAITS OUT an in-flight browse rather than refusing to
-clear because of it (that browse was seconds from renaming its cache into
-place after the user opted out, and nothing would have deleted it), and the
-answer carries `cleared` rather than implying an erasure that did not happen;
+fails. Clearing the browse seat no longer goes through the mutex, which bought
+nothing: every critical section on it is a suspension-free read or assignment,
+so it is never held while another fiber runs, and the write now pairs with the
+lock-free read the waiter already does. Also: turning browsing off no longer
+refuses to erase because a browse holds the file -- the erasing is handed to
+whichever writer holds it and happens as that writer finishes, so the request
+answers immediately and the file still goes. The obvious alternative, waiting
+for the browse, was written first and rejected on review: it puts an unbounded
+network wait on a request the user is watching, and a stalled upstream read
+would hang the response until the browser gave up, leaving the toggle showing
+"on" over a setting the server had already saved;
 the browse response carries the zoom the server actually wrote, so a client
 deeper than its source stops rebuilding the style on every pan; `refreshTiles`
 is not called without a source; `Cancelled` is re-raised rather than logged;
@@ -1650,6 +1653,18 @@ falsification that would have shown this was itself broken -- `if true then ()
 else` in OCaml only skips to the next semicolon, so the "disabled" function
 kept running. Verifying a test by disabling the code it covers is only
 evidence when the disabling is checked too.
+
+A second review of those corrections found one of them was itself a
+regression -- waiting for the browse put an unbounded network wait on the
+settings request -- and that is what the deferred erasing above replaces. It
+also found three assertions that did not test what their names claimed; the
+browse depth is now a named function with its own checks, the response field
+is asserted end to end, and the French check was rebuilt to compare each
+punctuation mark against itself rather than inferring a house style by
+majority vote. That last rebuild showed the first version had "fixed" fr-FR
+by moving a colon AWAY from the standard spacing, so both French catalogues
+now follow the documented rule: a full no-break space before a colon, a
+narrow one before the marks that take one.
 
 **Follow-on:** the compression guard now has end-to-end coverage on a server
 whose source disagrees with its archive (both refusals fail without it,

@@ -30,6 +30,11 @@ type t = {
   (* Broadcast when [browsing] clears, so a download waiting to prune the
      cache sleeps instead of spinning through the browse's network time. *)
   browse_done : Eio.Condition.t;
+  (* "Erase the browse cache when you let go of it." Set when the user turns
+     browsing off while a writer holds the file, and honoured by that writer
+     on its way out -- so the request answers at once and the erasing still
+     happens, rather than the request waiting on someone else's network. *)
+  mutable clear_requested : bool;
 }
 
 (* What the request handler sees: closures, so the handler can be tested
@@ -48,10 +53,11 @@ type ops = {
      that cannot tell the difference will keep asking for a depth that can
      never arrive. *)
   browse : Basemap_job.request -> (int * int, string) result;
-  (* Deletes the browse cache outright. False when a browse or job holds
-     the writer's seat -- the caller treats that as "not now", never as a
-     license to delete files under a live writer. *)
-  clear_cache : unit -> bool;
+  (* Erases the browse cache. Never blocks and never fails: if a writer
+     holds the file, the erasing is handed to it and happens when it lets
+     go. Browsing is already off by the time this is called, so nothing new
+     can arrive in the meantime. *)
+  clear_cache : unit -> unit;
 }
 
 let create () =
@@ -62,6 +68,7 @@ let create () =
     cancel_requested = false;
     browsing = false;
     browse_done = Eio.Condition.create ();
+    clear_requested = false;
   }
 
 let set t job = Eio.Mutex.use_rw ~protect:true t.mutex (fun () -> t.job <- job)
@@ -90,22 +97,35 @@ let cancel t =
       end
       else false)
 
-(* Clearing the browse seat, deliberately WITHOUT the mutex.
+(* Clearing the browse seat, deliberately WITHOUT the mutex -- as the wait
+   in [prune_cache] reads it without one.
 
-   [Eio.Mutex.use_rw] takes the lock before it protects anything, and a
-   contended [lock] raises immediately in a fiber that is already cancelled
-   -- so the broadcast below it could be skipped, stranding [browsing] true.
-   Nothing would ever clear it: every later download would block forever in
-   [prune_cache]'s wait, never reaching a terminal state, and the one-writer
-   rule would refuse every download, update, remove and browse until the
-   process restarted.
+   Nothing is bought by taking it. Every critical section on [t.mutex] is a
+   read or an assignment with no suspension point in it, so a fiber never
+   finds the mutex held, and a bool write plus a broadcast cannot raise or
+   suspend either. The pairing that matters is with the waiter: it observes
+   [browsing] and suspends on the condition with nothing in between, which
+   is exactly what [await_no_mutex] requires.
 
-   A bool write and a broadcast cannot raise, and single-domain fibers do
-   not interleave without a suspension point, so the mutex bought nothing
-   here in the first place -- the same argument [prune_cache]'s read makes. *)
+   Both halves of that argument assume ONE domain, which is what this
+   server runs. Introduce a second and this field -- and the job cell the
+   waiter reads beside it -- need real synchronisation again. *)
 let release_browsing t =
   t.browsing <- false;
   Eio.Condition.broadcast t.browse_done
+
+let unlink_cache ~fs ~basemap_dir =
+  List.iter
+    (fun name ->
+      try Eio.Path.unlink Eio.Path.(fs / basemap_dir / name) with _ -> ())
+    [ "cache.pmtiles"; "cache.pmtiles.part" ]
+
+(* Every writer of cache.pmtiles calls this as it finishes. *)
+let honor_clear t ~fs ~basemap_dir =
+  if t.clear_requested then begin
+    t.clear_requested <- false;
+    unlink_cache ~fs ~basemap_dir
+  end
 
 let claim t =
   (* Claiming the job and checking it are one critical section; two requests
@@ -712,14 +732,17 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
     (!written_total, parts_total)
   with
   | total_bytes, parts ->
+      honor_clear t ~fs ~basemap_dir;
       set t (Basemap_job.Done { total_bytes; parts })
   | exception Cancelled_by_user ->
       discard_part ();
       prune_published ();
+      honor_clear t ~fs ~basemap_dir;
       set t Basemap_job.Cancelled
   | exception e ->
       discard_part ();
       prune_published ();
+      honor_clear t ~fs ~basemap_dir;
       set t (Basemap_job.Failed (friendly e))
 
 (* ----------------------------------------------------------------- remove *)
@@ -820,12 +843,19 @@ let run_remove t ~fs ~basemap_dir ~id =
               max 0 (before - after)
             end)
   with
-  | freed_bytes -> set t (Basemap_job.Removed { freed_bytes })
+  | freed_bytes ->
+      (* This job held the writer's seat, so a clear asked for meanwhile is
+         this job's to carry out as it leaves -- browsing is off by then,
+         and nothing else is coming to do it. *)
+      honor_clear t ~fs ~basemap_dir;
+      set t (Basemap_job.Removed { freed_bytes })
   | exception Cancelled_by_user ->
       discard_part ();
+      honor_clear t ~fs ~basemap_dir;
       set t Basemap_job.Cancelled
   | exception e ->
       discard_part ();
+      honor_clear t ~fs ~basemap_dir;
       set t (Basemap_job.Failed (friendly e))
 
 (* ----------------------------------------------------------------- browse *)
@@ -854,6 +884,11 @@ let run_compact t ~fs ~basemap_dir =
     Eio.Switch.run @@ fun sw ->
     match open_cache ~sw ~fs ~basemap_dir with
     | None -> ()
+    | Some _ when t.clear_requested ->
+        (* Asked for between the fork and here: erase rather than fold, or
+           the browsed tiles become permanent residents of the archive that
+           no later erasing can reach. *)
+        honor_clear t ~fs ~basemap_dir
     | Some cache ->
         let base = open_base ~sw ~fs ~basemap_dir in
         (* The fold stamps the cache's header over blobs copied verbatim
@@ -935,14 +970,21 @@ let run_compact t ~fs ~basemap_dir =
            merely a failing rename, destroys every browsed tile while
            map.pmtiles is still the pre-fold archive. *)
         Eio.Path.rename part_path Eio.Path.(dir / "map.pmtiles");
-        Eio.Path.unlink Eio.Path.(dir / "cache.pmtiles")
+        (* The fold is published; the leftover cache is the benign duplicate
+           argued for above, so failing to remove it must not be reported as
+           a failed compaction. *)
+        (try Eio.Path.unlink Eio.Path.(dir / "cache.pmtiles") with _ -> ())
   with
-  | () -> set t Basemap_job.Idle
+  | () ->
+      honor_clear t ~fs ~basemap_dir;
+      set t Basemap_job.Idle
   | exception Cancelled_by_user ->
       discard_part ();
+      honor_clear t ~fs ~basemap_dir;
       set t Basemap_job.Cancelled
   | exception e ->
       discard_part ();
+      honor_clear t ~fs ~basemap_dir;
       set t (Basemap_job.Failed (friendly e))
 
 (* One viewport's missing tiles, fetched into the cache. Opt-in (gated in
@@ -950,6 +992,15 @@ let run_compact t ~fs ~basemap_dir =
    naming too many tiles is refused rather than becoming a download in
    disguise -- the card is the place for those. *)
 let max_browse_tiles = 1_024
+
+(* The depth a browse can actually be served at: the view asks, the source
+   decides. Named and separate because the answer travels back to the
+   client, which compares it against the depth its map is showing -- a
+   client that mistook its own request for what arrived would ask for a
+   zoom the source cannot reach, forever. *)
+let browse_zoom ~header ~requested =
+  max header.Pmtiles.Header.min_zoom
+    (min requested header.Pmtiles.Header.max_zoom)
 
 let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
     (req : Basemap_job.request) =
@@ -967,16 +1018,17 @@ let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
   if not claimed then Error "the map is busy; try again shortly"
   else
     Fun.protect
-      ~finally:(fun () -> release_browsing t)
+      ~finally:(fun () ->
+        release_browsing t;
+        (* This fiber wrote the cache; it is the one that must erase it if
+           the user switched browsing off while it was in flight. *)
+        honor_clear t ~fs ~basemap_dir)
       (fun () ->
         match
           Eio.Switch.run @@ fun bsw ->
           let _resolved, src, archive = open_source ~sw:bsw ~fs ~net ~source in
           let h = archive.Pmtiles.Archive.header in
-          let zoom =
-            max h.Pmtiles.Header.min_zoom
-              (min req.max_zoom h.Pmtiles.Header.max_zoom)
-          in
+          let zoom = browse_zoom ~header:h ~requested:req.max_zoom in
           let ids =
             Pmtiles.Tile_id.count_ids ~min_zoom:zoom ~max_zoom:zoom
               ~min_lon:req.min_lon ~min_lat:req.min_lat ~max_lon:req.max_lon
@@ -1079,7 +1131,7 @@ let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
                here: a broken look at the cache must not fail the browse
                that already succeeded, and it must not escape as a dropped
                connection either. *)
-            (if fetched > 0 then
+            (if fetched > 0 && not t.clear_requested then
                try
                  Eio.Switch.run @@ fun csw ->
                  match open_cache ~sw:csw ~fs ~basemap_dir with
@@ -1096,6 +1148,7 @@ let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
                  Logs.warn (fun m ->
                      m "compaction check failed: %s" (Printexc.to_string e)));
             Ok (fetched, written_zoom)
+        | exception (Eio.Cancel.Cancelled _ as e) -> raise e
         | exception e ->
             (* The .part is dead weight the moment its browse dies; the
                file is also reachable under /basemap/, so litter is not
@@ -1107,44 +1160,18 @@ let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
 
 (* Turning the browse setting off also forgets what was browsed: the cache
    is a record of the places the user looked at, and in a privacy-focused
-   tool "off" should mean gone, not dormant. Claims the browsing seat so it
-   cannot race a browse writing the file or a download pruning it; busy
-   means a writer is mid-flight, and the caller reports "not now" rather
-   than deleting files out from under it. Tiles already folded into the
-   main archive are past helping -- the hint text says as much. *)
+   tool "off" should mean gone, not dormant. Tiles already folded into the
+   main archive are past helping -- the hint text says as much.
+
+   Never waits. The obvious spelling -- block until the in-flight browse
+   finishes, then delete -- puts an unbounded network wait on a request the
+   user is watching: a stalled upstream read would hang the settings
+   response until the browser gave up, and the toggle would snap back to
+   "on" over a setting the server had already saved. So a busy cache is
+   marked instead, and whoever holds it erases it as it leaves. *)
 let clear_cache t ~fs ~basemap_dir =
-  (* Waits out an in-flight browse rather than refusing because of it. That
-     browse is seconds of network away from renaming its own cache file into
-     place -- refusing here would let a fetch the user has just switched off
-     land AFTER they switched it off, and nothing would delete it afterwards:
-     the endpoint is closed by then, so no later browse comes to fold or
-     prune it. A running download or compaction is the one thing worth
-     refusing for; it is minutes long, and it prunes or folds the cache
-     itself. *)
-  let claimed =
-    let rec take () =
-      if Basemap_job.is_running t.job then false
-      else if t.browsing then begin
-        Eio.Condition.await_no_mutex t.browse_done;
-        take ()
-      end
-      else begin
-        t.browsing <- true;
-        true
-      end
-    in
-    take ()
-  in
-  claimed
-  && Fun.protect
-       ~finally:(fun () -> release_browsing t)
-       (fun () ->
-         List.iter
-           (fun name ->
-             try Eio.Path.unlink Eio.Path.(fs / basemap_dir / name)
-             with _ -> ())
-           [ "cache.pmtiles"; "cache.pmtiles.part" ];
-         true)
+  if t.browsing || Basemap_job.is_running t.job then t.clear_requested <- true
+  else unlink_cache ~fs ~basemap_dir
 
 (* ------------------------------------------------------------- lifecycle *)
 

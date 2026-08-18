@@ -996,6 +996,10 @@ check(
 const browsed = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
   .json();
 check("a settled view fetches its missing tiles", browsed.fetched > 0);
+/* The depth actually written travels back with it. The client compares
+   this against what its map advertises to decide whether deeper tiles have
+   arrived, so a wrong or missing number is a map that never fills in. */
+check("the browse answers with the depth it wrote", browsed.zoom === 15);
 /* The one-byte threshold compacts immediately; wait for the writer to rest. */
 let compacted = false;
 for (let i = 0; i < 120 && !compacted; i++) {
@@ -1425,15 +1429,15 @@ await postJson("basemap-settings", { browse_cache: false });
    silently, and only at render time. This server's source disagrees with
    the archive seeded beside it, so every path that would merge them has to
    refuse instead. */
-const base5 = process.argv[4] ?? "http://127.0.0.1:7376";
-const post5 = async (endpoint, body) =>
-  await fetch(`${base5}/api/${endpoint}`, {
+const base4 = process.argv[4] ?? "http://127.0.0.1:7376";
+const post4 = async (endpoint, body) =>
+  await fetch(`${base4}/api/${endpoint}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body ?? {}),
   });
 
-const mismatchEstimate = await post5("basemap-estimate", {
+const mismatchEstimate = await post4("basemap-estimate", {
   regions: [{ ...lb, max_zoom: 15 }],
 });
 const mismatchBody = await mismatchEstimate.json();
@@ -1442,8 +1446,8 @@ check(
   mismatchEstimate.status === 502
     && (mismatchBody.error ?? "").includes("compression"),
 );
-await post5("basemap-settings", { browse_cache: true });
-const mismatchBrowse = await post5("basemap-browse", { ...lb, zoom: 15 });
+await post4("basemap-settings", { browse_cache: true });
+const mismatchBrowse = await post4("basemap-browse", { ...lb, zoom: 15 });
 const mismatchBrowseBody = await mismatchBrowse.json();
 check(
   "and so is a browse, which would write those bytes into the cache",
@@ -1452,10 +1456,10 @@ check(
 );
 check(
   "nothing was written",
-  (await fetch(`${base5}/basemap/cache.pmtiles`, { method: "HEAD" })).status
+  (await fetch(`${base4}/basemap/cache.pmtiles`, { method: "HEAD" })).status
     === 404,
 );
-await post5("basemap-settings", { browse_cache: false });
+await post4("basemap-settings", { browse_cache: false });
 
 for (const p of problems) console.log(`  PAGE  ${p}`);
 check(

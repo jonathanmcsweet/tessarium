@@ -104,7 +104,13 @@ let ops ~fs ~basemap_dir =
      exceptions rather than as [load]'s Error. Caught here so every caller
      sees one result type. *)
   let get_t () =
-    try load ~fs ~basemap_dir with e -> Error (message e)
+    try load ~fs ~basemap_dir with
+    | Eio.Cancel.Cancelled _ as e ->
+        (* Cancellation is the scheduler talking, not this file failing; it
+           has to keep travelling or the fiber runs on inside a cancelled
+           context. *)
+        raise e
+    | e -> Error (message e)
   in
   (* One writer at a time. [set] is a read-modify-write of a shared file,
      and the reminder select and the browse toggle are separate controls a

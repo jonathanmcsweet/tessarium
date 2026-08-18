@@ -731,21 +731,12 @@ let handle_basemap cfg (ops : Basemap_download.ops)
               match settings.set ~days ~browse with
               | Ok payload ->
                   (* Off means gone: the browse cache is a record of where
-                     the user looked, so turning the setting off deletes it
-                     rather than leaving it dormant and still serving. The
-                     answer says whether that happened -- a download or a
-                     compaction holds the writer's seat and keeps the file
-                     alive for now, and claiming otherwise would be a lie
-                     about the user's browsing history. *)
-                  let payload =
-                    if browse <> Some false then payload
-                    else
-                      let cleared = ops.clear_cache () in
-                      match payload with
-                      | `Assoc fields ->
-                          `Assoc (fields @ [ ("cleared", `Bool cleared) ])
-                      | other -> other
-                  in
+                     the user looked, so turning the setting off erases it
+                     rather than leaving it dormant and still serving. This
+                     returns at once whether or not a writer holds the file;
+                     one that does erases it as it finishes, and browsing is
+                     already off, so nothing new can arrive meanwhile. *)
+                  if browse = Some false then ops.clear_cache ();
                   respond_json cfg ~status:`OK payload
               | Error e -> bad e))
   | "basemap-estimate" | "basemap-download" -> (

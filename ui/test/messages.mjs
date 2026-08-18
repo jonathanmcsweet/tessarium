@@ -95,37 +95,43 @@ for (const file of files) {
   }
 }
 
-/* French demands a no-break space before a high punctuation mark, and the two
-   French locales spell that space differently -- fr-FR narrow (U+202F), fr-CA
-   full (U+00A0). Which one is a house style, not a rule, so this asserts
-   CONSISTENCY inside each file rather than a particular character: one
-   translation reaching for the other locale's space is invisible on screen,
-   survives every other check here, and is exactly the mistake that gets made
-   when a key is added to six files at once. */
+/* French puts a no-break space before a high punctuation mark, and there are
+   two of them: narrow (U+202F) and full (U+00A0). Which one belongs where is
+   a real typographic rule, not a preference, but it differs by mark -- so
+   asserting one spelling per FILE would reject a correctly typeset catalogue.
+   What must hold is that a given mark is spaced the same way everywhere in a
+   locale: a single message reaching for the other space is invisible on
+   screen, survives every other check here, and is exactly the slip made when
+   a key is added to six files at once.
+
+   Silence about a mark with no space at all is deliberate. Canadian usage
+   drops it before ; ! ? and both catalogues rely on that. */
 for (const file of files.filter((f) => f.startsWith("fr-"))) {
   const messages = load(file);
-  const spaces = new Map();
+  const NO_BREAK = { "\u00a0": "U+00A0", "\u202f": "U+202F" };
+  const byMark = new Map();
   for (const [key, value] of Object.entries(messages)) {
     if (typeof value !== "string") continue;
-    for (let i = 0; i < value.length; i++) {
-      if (!"  ".includes(value[i])) continue;
-      if (!":;?!".includes(value[i + 1] ?? "")) continue;
-      const name = value[i] === " " ? "U+00A0" : "U+202F";
-      spaces.set(name, [...(spaces.get(name) ?? []), key]);
+    for (let i = 0; i < value.length - 1; i++) {
+      const name = NO_BREAK[value[i]];
+      if (!name) continue;
+      const mark = value[i + 1];
+      if (!":;?!".includes(mark)) continue;
+      const seen = byMark.get(mark) ?? new Map();
+      seen.set(name, [...(seen.get(name) ?? []), key]);
+      byMark.set(mark, seen);
     }
   }
-  const kinds = [...spaces.keys()];
-  const odd = kinds.length < 2
-    ? []
-    : (spaces.get(kinds[0]).length < spaces.get(kinds[1]).length
-      ? spaces.get(kinds[0])
-      : spaces.get(kinds[1]));
-  check(
-    `${file} spells its no-break space one way before punctuation (stray: ${
-      odd.join(", ") || "none"
-    })`,
-    kinds.length <= 1,
-  );
+  for (const [mark, seen] of byMark) {
+    const spellings = [...seen.entries()]
+      .map(([name, keys]) => `${name} in ${keys.join(", ")}`);
+    check(
+      `${file} spaces "${mark}" the same way throughout (${
+        spellings.join("; ")
+      })`,
+      seen.size <= 1,
+    );
+  }
 }
 
 /* And the catalogue has to have reached the compiler.
