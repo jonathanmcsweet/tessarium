@@ -25,12 +25,15 @@ if (!path) {
   process.exit(2);
 }
 
-const MNEMONIC =
+/* The corpus header names its mnemonic and passphrase, so a sweep can vary
+   the key -- which drags the KDF and the round schedule into the
+   differential. The fixed default matches the generator's. */
+let mnemonic =
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon " +
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon " +
   "abandon abandon abandon abandon abandon art";
-
-const key = w.deriveKey(MNEMONIC);
+let passphrase = "";
+let key = null;
 
 let checked = 0;
 let seams = 0;
@@ -42,10 +45,13 @@ const MAX_REPORTED = 10;
 const lines = readFileSync(path === "-" ? 0 : path, "utf8").split("\n");
 for (const line of lines) {
   if (line === "" || line.startsWith("#")) {
+    if (line.startsWith("# mnemonic: ")) mnemonic = line.slice(12).trim();
+    if (line.startsWith("# passphrase: ")) passphrase = line.slice(14);
     const m = /(\d+) at band seams/.exec(line);
     if (m) seams = Number(m[1]);
     continue;
   }
+  key ??= w.deriveKey(mnemonic, passphrase);
   const [latS, lonS, cellS, clatS, clonS, address] = line.split(" ");
   const lat = BigInt(latS);
   const lon = BigInt(lonS);
