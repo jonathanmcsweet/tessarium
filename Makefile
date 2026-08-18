@@ -14,6 +14,9 @@ PORT      ?= 7373
 # A second server instance the e2e downloads its basemap from.
 FIXTURE_PORT ?= 7374
 MULTIPART_PORT ?= 7375
+# Its source disagrees with its archive about tile compression, which the
+# server must refuse rather than write.
+MISMATCH_PORT ?= 7376
 
 .PHONY: all env verify extract build ui test test-core test-static test-ui run package package-deb package-appimage clean
 
@@ -76,8 +79,10 @@ test-static:
 test-ui:
 	@dune build ocaml/server/bin/main.exe ocaml/tools/gen_basemap_fixture.exe
 	@rm -rf _build/e2e-fixture _build/e2e-basemap _build/e2e-multipart \
-	  && mkdir -p _build/e2e-basemap _build/e2e-multipart
+	  _build/e2e-mismatch \
+	  && mkdir -p _build/e2e-basemap _build/e2e-multipart _build/e2e-mismatch
 	@./_build/default/ocaml/tools/gen_basemap_fixture.exe _build/e2e-fixture
+	@cp _build/e2e-fixture/map-shallow.pmtiles _build/e2e-mismatch/map.pmtiles
 	@./_build/default/ocaml/server/bin/main.exe \
 	  --port $(FIXTURE_PORT) --basemap _build/e2e-fixture --no-open & \
 	  echo $$! > .fixture.pid; \
@@ -92,17 +97,23 @@ test-ui:
 	  --basemap-source http://127.0.0.1:$(FIXTURE_PORT)/basemap/map.pmtiles \
 	  --basemap-assets http://127.0.0.1:$(FIXTURE_PORT)/basemap/assets.tar.gz & \
 	  echo $$! > .multipart.pid; \
+	  ./_build/default/ocaml/server/bin/main.exe \
+	  --port $(MISMATCH_PORT) --basemap _build/e2e-mismatch --no-open \
+	  --basemap-source http://127.0.0.1:$(FIXTURE_PORT)/basemap/map-raw.pmtiles \
+	  --basemap-assets http://127.0.0.1:$(FIXTURE_PORT)/basemap/assets.tar.gz & \
+	  echo $$! > .mismatch.pid; \
 	  trap 'kill $$(cat .server.pid) $$(cat .fixture.pid) \
-	      $$(cat .multipart.pid) 2>/dev/null; \
-	    rm -f .server.pid .fixture.pid .multipart.pid' EXIT; \
+	      $$(cat .multipart.pid) $$(cat .mismatch.pid) 2>/dev/null; \
+	    rm -f .server.pid .fixture.pid .multipart.pid .mismatch.pid' EXIT; \
 	  for i in $$(seq 40); do \
 	    curl -sf -o /dev/null http://127.0.0.1:$(PORT)/healthz \
 	    && curl -sf -o /dev/null http://127.0.0.1:$(FIXTURE_PORT)/healthz \
 	    && curl -sf -o /dev/null http://127.0.0.1:$(MULTIPART_PORT)/healthz \
+	    && curl -sf -o /dev/null http://127.0.0.1:$(MISMATCH_PORT)/healthz \
 	    && break; sleep 0.25; \
 	  done; \
 	  ( cd ui && node test/e2e.mjs http://127.0.0.1:$(PORT) \
-	      http://127.0.0.1:$(MULTIPART_PORT) )
+	      http://127.0.0.1:$(MULTIPART_PORT) http://127.0.0.1:$(MISMATCH_PORT) )
 
 # No --ui: the binary serves the UI it was built with. Pass --ui to override
 # with a directory, which is what `npm run dev` wants.

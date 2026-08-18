@@ -424,6 +424,20 @@ the one honest caveat.
 
 ## Phase 8 — Later, unscheduled
 
+- [ ] **The cancelled-download prune has no automated test.** A download that
+      publishes a part and then stops -- cancelled, or failed inside the unit
+      loop -- prunes the browse cache from its terminal handler, because every
+      renamed part owns its region from that moment. The success path is
+      covered end to end; this one is not, and the reason is that the fixture
+      cannot produce a slow download: every tile id in it points at one shared
+      blob, so a region of any size is three HTTP requests and finishes in
+      under half a second -- measured, not assumed. Wider regions, smaller
+      budgets and more parts all stay inside that window, so a test would be
+      racing the download rather than testing it, and a flaky suite is worth
+      less than an honest gap. Closing it needs a deliberately slow source: a
+      fixture of genuinely distinct tile blobs, or a delaying proxy in the
+      harness the download must read through.
+
 - [ ] **Antimeridian browse fetches only the western half of the view.** The
       browse-cache request clamps the viewport box at ±180 rather than
       splitting a wrapped view into two boxes, so panning across the date

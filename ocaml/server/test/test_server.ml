@@ -332,11 +332,8 @@ let () =
       browse =
         (fun req ->
           calls := `Browse req :: !calls;
-          Ok 7);
-      clear_cache =
-        (fun () ->
-          calls := `Clear_cache :: !calls;
-          true);
+          Ok (7, req.Tessarium_server.Basemap_job.max_zoom));
+      clear_cache = (fun () -> calls := `Clear_cache :: !calls);
     }
   in
   let settings_calls = ref [] in
@@ -876,11 +873,101 @@ let () =
   check "bidi overrides are invalid" (not (L.valid_name "a\xe2\x80\xaeb"));
   check "ordinary multi-byte names stay valid" (L.valid_name "北京 – Beijing");
 
+  (* A browse is served at the depth the SOURCE can reach, not the one the
+     view asked for, and that answer goes back to the client: it decides
+     from it whether deeper tiles have actually arrived. Getting this wrong
+     is invisible on the server and leaves the map either blank or
+     rebuilding its style on every pan. *)
+  let header ~min_zoom ~max_zoom =
+    {
+      Pmtiles.Header.root_offset = 127;
+      root_length = 0;
+      metadata_offset = 127;
+      metadata_length = 0;
+      leaf_offset = 127;
+      leaf_length = 0;
+      data_offset = 127;
+      data_length = 0;
+      addressed_tiles = 0;
+      tile_entries = 0;
+      tile_contents = 0;
+      clustered = true;
+      internal_compression = Pmtiles.Header.None_;
+      tile_compression = Pmtiles.Header.Gzip;
+      tile_type = Pmtiles.Header.Mvt;
+      min_zoom;
+      max_zoom;
+      min_lon_e7 = 0;
+      min_lat_e7 = 0;
+      max_lon_e7 = 0;
+      max_lat_e7 = 0;
+      center_zoom = 0;
+      center_lon_e7 = 0;
+      center_lat_e7 = 0;
+    }
+  in
+  let h0_15 = header ~min_zoom:0 ~max_zoom:15 in
+  let h0_6 = header ~min_zoom:0 ~max_zoom:6 in
+  check "a browse within the source's depth is served there"
+    (D.browse_zoom ~header:h0_15 ~requested:12 = 12);
+  check "a browse past the source's depth is served at the source's"
+    (D.browse_zoom ~header:h0_6 ~requested:15 = 6);
+  check "and never above the source's shallowest level"
+    (D.browse_zoom ~header:(header ~min_zoom:5 ~max_zoom:15) ~requested:2 = 5);
+
   (* The Removing job state obeys the same one-writer rule as downloads. *)
   check "nothing starts while a removal runs"
     (not (J.can_start (J.Removing { done_bytes = 0; total_bytes = 1 })));
   check "a removal is a running job"
     (J.is_running (J.Removing { done_bytes = 0; total_bytes = 1 }));
+
+  (* A settings write serializes against other writers, and the lock it uses
+     POISONS on any exception escaping the critical section: Eio refuses a
+     poisoned mutex forever after. So a transient read failure -- a bad mode
+     on the file, an exhausted fd table -- must not be allowed to escape, or
+     one unlucky request costs the user their settings endpoint for the
+     lifetime of the process. Driven against a real directory, because the
+     failure is the filesystem's. *)
+  Eio_main.run (fun env ->
+      let fs = Eio.Stdenv.fs env in
+      let dir = Filename.temp_file "tessarium-settings" "" in
+      Sys.remove dir;
+      Unix.mkdir dir 0o755;
+      let ops = Tessarium_server.Settings.ops ~fs ~basemap_dir:dir in
+      let path = Filename.concat dir "settings.json" in
+      (match ops.set ~days:(Some 30) ~browse:None with
+      | Ok _ -> ()
+      | Error e -> check ("the first write succeeds: " ^ e) false);
+      (* Unreadable: the load inside the critical section now raises. Root
+         ignores the mode and would make this prove nothing, so the failure
+         is confirmed before anything is concluded from it rather than
+         assumed from the chmod. *)
+      Unix.chmod path 0o000;
+      let readable =
+        match open_in_bin path with
+        | ic ->
+            close_in ic;
+            true
+        | exception _ -> false
+      in
+      if readable then
+        print_endline
+          "  SKIP  settings lock poisoning (this user can read 0o000 files)"
+      else begin
+        let blocked = ops.set ~days:(Some 45) ~browse:None in
+        check "a write over an unreadable settings file fails"
+          (Result.is_error blocked);
+        Unix.chmod path 0o644;
+        match ops.set ~days:(Some 60) ~browse:None with
+        | Ok json ->
+            check "and the next write still works -- the lock is not poisoned"
+              (Yojson.Safe.Util.member "update_reminder_days" json = `Int 60)
+        | Error e ->
+            check
+              ("and the next write still works -- the lock is not poisoned ("
+             ^ e ^ ")")
+              false
+      end);
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "server decisions hold"

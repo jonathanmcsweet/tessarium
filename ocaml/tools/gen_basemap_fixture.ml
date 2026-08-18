@@ -50,7 +50,8 @@ let mvt_tile =
 
 let e7 v = int_of_float (Float.round (v *. 1e7))
 
-let pmtiles ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom =
+let pmtiles ?(compression = Pmtiles.Header.Gzip) ~min_lon ~min_lat ~max_lon
+    ~max_lat ~max_zoom () =
   let ids =
     Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom ~min_lon ~min_lat ~max_lon
       ~max_lat
@@ -58,7 +59,11 @@ let pmtiles ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom =
   (* Gzipped, like the real planet build: this is what makes the e2e suite
      exercise the content-encoding path the browser actually decodes, not
      only the trivial identity one. *)
-  let tile = Gzip.compress mvt_tile in
+  let tile =
+    match compression with
+    | Pmtiles.Header.Gzip -> Gzip.compress mvt_tile
+    | _ -> mvt_tile
+  in
   (* Every id points at the one blob at data offset 0. *)
   let entries =
     List.map
@@ -92,7 +97,7 @@ let pmtiles ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom =
       tile_contents = 1;
       clustered = true;
       internal_compression = Pmtiles.Header.None_;
-      tile_compression = Pmtiles.Header.Gzip;
+      tile_compression = compression;
       tile_type = Pmtiles.Header.Mvt;
       min_zoom = 0;
       max_zoom;
@@ -156,9 +161,26 @@ let write path content =
 let () =
   let dir = Sys.argv.(1) in
   if not (Sys.file_exists dir) then Sys.mkdir dir 0o755;
+  let london ?compression () =
+    pmtiles ?compression ~min_lon:(-0.20) ~min_lat:51.46 ~max_lon:(-0.05)
+      ~max_lat:51.56 ~max_zoom:15 ()
+  in
+  write (Filename.concat dir "map.pmtiles") (london ());
+  (* The same tiles declaring no compression at all. A download or a browse
+     that mixed these with the gzipped archive above would relabel every
+     tile as something it is not, so the server refuses -- and the suite
+     needs a source that provokes exactly that. *)
   write
-    (Filename.concat dir "map.pmtiles")
+    (Filename.concat dir "map-raw.pmtiles")
+    (london ~compression:Pmtiles.Header.None_ ());
+  (* The same place, gzipped, but only down to zoom 6 -- the archive the
+     mismatch server starts with. Shallow on purpose: a browse for street
+     level then genuinely wants tiles it does not hold, so refusing the
+     differently compressed source is the only thing standing between the
+     cache and bytes labelled as something they are not. *)
+  write
+    (Filename.concat dir "map-shallow.pmtiles")
     (pmtiles ~min_lon:(-0.20) ~min_lat:51.46 ~max_lon:(-0.05) ~max_lat:51.56
-       ~max_zoom:15);
+       ~max_zoom:6 ());
   write (Filename.concat dir "assets.tar.gz") (Gzip.compress (assets_tarball ()));
   Printf.printf "basemap fixture written to %s\n" dir

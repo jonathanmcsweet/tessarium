@@ -690,10 +690,19 @@ let handle_basemap cfg (ops : Basemap_download.ops)
                 | Error e -> bad e
                 | Ok req -> (
                     match ops.browse req with
-                    | Ok fetched ->
+                    | Ok (fetched, written_zoom) ->
+                        (* The zoom actually written, which the source's own
+                           depth may have clamped below the one asked for:
+                           without it a client at a zoom the source cannot
+                           reach keeps asking for tiles that will never
+                           come. *)
                         respond_json cfg ~status:`OK
                           (`Assoc
-                             [ ("ok", `Bool true); ("fetched", `Int fetched) ])
+                             [
+                               ("ok", `Bool true);
+                               ("fetched", `Int fetched);
+                               ("zoom", `Int written_zoom);
+                             ])
                     | Error e -> error cfg ~status:`Conflict e))
             | _ ->
                 bad "expected min_lon, min_lat, max_lon, max_lat and zoom 0..15")
@@ -722,11 +731,12 @@ let handle_basemap cfg (ops : Basemap_download.ops)
               match settings.set ~days ~browse with
               | Ok payload ->
                   (* Off means gone: the browse cache is a record of where
-                     the user looked, so turning the setting off deletes it
-                     rather than leaving it dormant and still serving.
-                     Best-effort -- a running job keeps its seat, and the
-                     job's own prune or fold settles the file's fate. *)
-                  if browse = Some false then ignore (ops.clear_cache ());
+                     the user looked, so turning the setting off erases it
+                     rather than leaving it dormant and still serving. This
+                     returns at once whether or not a writer holds the file;
+                     one that does erases it as it finishes, and browsing is
+                     already off, so nothing new can arrive meanwhile. *)
+                  if browse = Some false then ops.clear_cache ();
                   respond_json cfg ~status:`OK payload
               | Error e -> bad e))
   | "basemap-estimate" | "basemap-download" -> (

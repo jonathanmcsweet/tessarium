@@ -95,6 +95,45 @@ for (const file of files) {
   }
 }
 
+/* French puts a no-break space before a high punctuation mark, and there are
+   two of them: narrow (U+202F) and full (U+00A0). Which one belongs where is
+   a real typographic rule, not a preference, but it differs by mark -- so
+   asserting one spelling per FILE would reject a correctly typeset catalogue.
+   What must hold is that a given mark is spaced the same way everywhere in a
+   locale: a single message reaching for the other space is invisible on
+   screen, survives every other check here, and is exactly the slip made when
+   a key is added to six files at once.
+
+   Silence about a mark with no space at all is deliberate. Canadian usage
+   drops it before ; ! ? and both catalogues rely on that. */
+for (const file of files.filter((f) => f.startsWith("fr-"))) {
+  const messages = load(file);
+  const NO_BREAK = { "\u00a0": "U+00A0", "\u202f": "U+202F" };
+  const byMark = new Map();
+  for (const [key, value] of Object.entries(messages)) {
+    if (typeof value !== "string") continue;
+    for (let i = 0; i < value.length - 1; i++) {
+      const name = NO_BREAK[value[i]];
+      if (!name) continue;
+      const mark = value[i + 1];
+      if (!":;?!".includes(mark)) continue;
+      const seen = byMark.get(mark) ?? new Map();
+      seen.set(name, [...(seen.get(name) ?? []), key]);
+      byMark.set(mark, seen);
+    }
+  }
+  for (const [mark, seen] of byMark) {
+    const spellings = [...seen.entries()]
+      .map(([name, keys]) => `${name} in ${keys.join(", ")}`);
+    check(
+      `${file} spaces "${mark}" the same way throughout (${
+        spellings.join("; ")
+      })`,
+      seen.size <= 1,
+    );
+  }
+}
+
 /* And the catalogue has to have reached the compiler.
 
    Paraglide treats a plugin it cannot import as a WARNING and then reports
