@@ -911,21 +911,36 @@ let () =
       (match ops.set ~days:(Some 30) ~browse:None with
       | Ok _ -> ()
       | Error e -> check ("the first write succeeds: " ^ e) false);
-      (* Unreadable: the load inside the critical section now raises. *)
+      (* Unreadable: the load inside the critical section now raises. Root
+         ignores the mode and would make this prove nothing, so the failure
+         is confirmed before anything is concluded from it rather than
+         assumed from the chmod. *)
       Unix.chmod path 0o000;
-      let blocked = ops.set ~days:(Some 45) ~browse:None in
-      check "a write over an unreadable settings file fails"
-        (Result.is_error blocked);
-      Unix.chmod path 0o644;
-      match ops.set ~days:(Some 60) ~browse:None with
-      | Ok json ->
-          check "and the next write still works -- the lock is not poisoned"
-            (Yojson.Safe.Util.member "update_reminder_days" json = `Int 60)
-      | Error e ->
-          check
-            ("and the next write still works -- the lock is not poisoned ("
-           ^ e ^ ")")
-            false);
+      let readable =
+        match open_in_bin path with
+        | ic ->
+            close_in ic;
+            true
+        | exception _ -> false
+      in
+      if readable then
+        print_endline
+          "  SKIP  settings lock poisoning (this user can read 0o000 files)"
+      else begin
+        let blocked = ops.set ~days:(Some 45) ~browse:None in
+        check "a write over an unreadable settings file fails"
+          (Result.is_error blocked);
+        Unix.chmod path 0o644;
+        match ops.set ~days:(Some 60) ~browse:None with
+        | Ok json ->
+            check "and the next write still works -- the lock is not poisoned"
+              (Yojson.Safe.Util.member "update_reminder_days" json = `Int 60)
+        | Error e ->
+            check
+              ("and the next write still works -- the lock is not poisoned ("
+             ^ e ^ ")")
+              false
+      end);
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "server decisions hold"
