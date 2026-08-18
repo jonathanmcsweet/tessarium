@@ -43,8 +43,8 @@ let plan ?(on_tile = fun () -> ()) ?clip archive ~min_zoom ~max_zoom ~min_lon
         Tile_id.covering ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
           ~max_lat
     | Some clip ->
-        Tile_id.covering_clipped ~min_zoom ~max_zoom ~min_lon ~min_lat
-          ~max_lon ~max_lat ~clip
+        Tile_id.covering_clipped ~on_node:on_tile ~min_zoom ~max_zoom
+          ~min_lon ~min_lat ~max_lon ~max_lat ~clip ()
   in
   let blob_index = Hashtbl.create 1024 in
   let blobs = ref [] in

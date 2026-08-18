@@ -15,6 +15,7 @@
 type t = { rings : (float * float) array array }
 
 let of_rings rings = { rings }
+let rings t = t.rings
 
 (* Even-odd ray cast, rightward from [p]. The half-open comparison on the
    segment's y-interval is what keeps a ray through a shared vertex from

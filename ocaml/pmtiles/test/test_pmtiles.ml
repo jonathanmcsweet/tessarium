@@ -497,7 +497,7 @@ let () =
   in
   let clipped ~min_zoom ~max_zoom (a, b, c, d) clip =
     T.covering_clipped ~min_zoom ~max_zoom ~min_lon:a ~min_lat:b ~max_lon:c
-      ~max_lat:d ~clip
+      ~max_lat:d ~clip ()
   in
   check "clipped covering equals the per-tile definition"
     (clipped ~min_zoom:0 ~max_zoom:7 clip_box triangle
@@ -512,8 +512,20 @@ let () =
   check "clipped count agrees with clipped covering"
     (let a, b, c, d = clip_box in
      T.count_ids_clipped ~min_zoom:0 ~max_zoom:7 ~min_lon:a ~min_lat:b
-       ~max_lon:c ~max_lat:d ~clip:triangle
+       ~max_lon:c ~max_lat:d ~clip:triangle ()
      = List.length (clipped ~min_zoom:0 ~max_zoom:7 clip_box triangle));
+  let unit_square = C.of_rings [| [| (0., 0.); (10., 0.); (10., 10.); (0., 10.) |] |] in
+  check "a box wholly inside the ring is Inside"
+    (C.classify unit_square ~min_x:4. ~min_y:4. ~max_x:6. ~max_y:6. = C.Inside);
+  check "a box wholly outside the ring is Outside"
+    (C.classify unit_square ~min_x:14. ~min_y:4. ~max_x:16. ~max_y:6.
+     = C.Outside);
+  check "a box the border passes through is Boundary"
+    (C.classify unit_square ~min_x:8. ~min_y:4. ~max_x:12. ~max_y:6.
+     = C.Boundary);
+  check "a ring wholly inside the box is Boundary, never Outside"
+    (C.classify unit_square ~min_x:(-5.) ~min_y:(-5.) ~max_x:15. ~max_y:15.
+     = C.Boundary);
   check "a multipolygon is the union of its rings"
     (let two =
        C.of_rings

@@ -142,7 +142,7 @@ function Offer({ regions, names, describe, confirmLabel, className }: {
       )}
       {showClamped && (
         <p className="hint">
-          {clampedNames.length === clamped.length
+          {names !== undefined && clampedNames.length > 0
             ? m.map_download_clamped({ names: formatList(clampedNames) })
             : m.map_download_depth_hint()}
         </p>

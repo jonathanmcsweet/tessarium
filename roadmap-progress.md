@@ -1196,3 +1196,28 @@ would be billions of tests. Holes deliberately unmodelled: downloading the
 Lesotho-shaped sliver inside South Africa is harmless; missing an enclave
 would not be.
 
+### 2026-08-18 — Polygon branch review findings fixed
+
+**Phase:** 6
+
+**What:** Adversarial review found the border simplifier silently dropping
+rings (Canada lost Vancouver Island; the US lost Molokai; 122 cities in all
+fell outside their simplified borders) and the clipped planner burning
+unyielding, unbounded CPU (a within-caps sawtooth polygon could wedge the
+server for hours). Fixed: ring simplification is anchored on a real chord
+and a collapsed ring survives as its bounding quad; the generator escalates
+each country's point budget until every catalogued city sits inside the
+simplified border, appending a city's drawn box as an extra ring when its
+point sits off the coarse 110m coastline; a committed data-invariant suite
+(ui/test/regions.mjs, 1,691 checks, in npm run check) ray-casts every city
+against its country's polygon -- it failed 122 ways against the old data.
+The quadtree walk gained a yield hook wired to the server's breathe/cancel
+closure and a work budget (2^28 ring-point operations) that kills
+pathological polygons cleanly. Antarctica, which encircles a pole and
+defeats lon/lat ray casting, ships no polygon and two hemisphere boxes.
+Plus: polygon null and [lon,lat,elev] positions accepted; classify gets
+direct unit checks; a multi-box country's depth warning stays named.
+
+**Rationale:** cities are the acceptance test for a border because they are
+exactly what a country download must contain.
+

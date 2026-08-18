@@ -122,7 +122,7 @@ type segment = {
    single-part envelope however large the region. Seams between parts may
    share an edge row of tiles; the second part's merge sees them on disk
    and skips them, so an estimate double-counts at most a sliver. *)
-let units_of ~budget ~header reqs =
+let units_of ?cancel ~budget ~header reqs =
   let min_zoom = header.Pmtiles.Header.min_zoom in
   let split =
     List.map
@@ -130,7 +130,9 @@ let units_of ~budget ~header reqs =
         let requested = min req.max_zoom header.Pmtiles.Header.max_zoom in
         let clip = Option.map Pmtiles.Clip.of_rings req.polygon in
         let parts, depth, _clamped =
-          Pmtiles.Tile_id.download_parts ?clip ~min_zoom ~requested
+          Pmtiles.Tile_id.download_parts ?clip
+            ~on_count:(breathe ?cancel ())
+            ~min_zoom ~requested
             ~min_lon:req.min_lon ~min_lat:req.min_lat ~max_lon:req.max_lon
             ~max_lat:req.max_lat ~full_limit:budget.full
             ~quick_limit:budget.quick ~max_parts:budget.max_parts ()
@@ -303,7 +305,7 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
     let src, archive = open_source ~sw ~fs ~net ~source in
     let h = archive.Pmtiles.Archive.header in
     let min_zoom = h.Pmtiles.Header.min_zoom in
-    let units, _depths = units_of ~budget ~header:h reqs in
+    let units, _depths = units_of ~cancel:t ~budget ~header:h reqs in
     let parts_total = List.length units in
     let had_base =
       match Eio.Path.kind ~follow:true Eio.Path.(dir / "map.pmtiles") with

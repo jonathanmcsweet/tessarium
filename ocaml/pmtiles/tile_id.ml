@@ -172,9 +172,21 @@ let tile_box ~z ~x ~y =
    billions of ray casts.
 
    [tile z x y] receives each border tile between the zooms; [block] receives
-   whole interior ranges, already intersected with the request box. *)
-let clip_walk ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~clip
-    ~tile ~block =
+   whole interior ranges, already intersected with the request box.
+   [on_node] fires per visited node so a caller inside a cooperative
+   scheduler can yield -- these walks reach hundreds of thousands of nodes
+   for a continent.
+
+   The work budget is the defence the request validator cannot be: a
+   polygon can be within every size cap and still be pathological (a
+   2048-point sawtooth across a world-sized box multiplies every node by
+   every segment). Work is measured in ring points examined; a real
+   country is tens of millions, the ceiling is generous past that, and
+   beyond it the walk dies cleanly instead of gnawing the CPU for hours. *)
+let max_clip_work = 1 lsl 28
+
+let clip_walk ?(on_node = fun () -> ()) ~min_zoom ~max_zoom ~min_lon ~min_lat
+    ~max_lon ~max_lat ~clip ~tile ~block () =
   let range z =
     let last = (1 lsl z) - 1 in
     ( clamp 0 last (tile_x ~z ~lon:min_lon),
@@ -198,8 +210,18 @@ let clip_walk ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~clip
       if x0 <= x1 && y0 <= y1 then block z' ~x0 ~x1 ~y0 ~y1
     done
   in
+  let work = ref 0 in
+  let ring_points =
+    Array.fold_left (fun acc r -> acc + Array.length r) 0 (Clip.rings clip)
+  in
   let rec visit z x y =
     if in_box z x y then begin
+      on_node ();
+      work := !work + ring_points;
+      if !work > max_clip_work then
+        failwith
+          "that polygon is too intricate for an area this size; pick a \
+           smaller area";
       let bx0, by0, bx1, by1 = tile_box ~z ~x ~y in
       match Clip.classify clip ~min_x:bx0 ~min_y:by0 ~max_x:bx1 ~max_y:by1 with
       | Clip.Outside -> ()
@@ -219,26 +241,30 @@ let clip_walk ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~clip
 
 (* [covering], polygon-clipped: every id between the zooms whose tile meets
    both the box and the polygon. Same ascending contract as [covering]. *)
-let covering_clipped ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
-    ~clip =
+let covering_clipped ?on_node ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
+    ~max_lat ~clip () =
   let ids = ref [] in
-  clip_walk ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~clip
+  clip_walk ?on_node ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
+    ~clip
     ~tile:(fun z x y -> ids := of_zxy ~z ~x ~y :: !ids)
     ~block:(fun z ~x0 ~x1 ~y0 ~y1 ->
       for x = x0 to x1 do
         for y = y0 to y1 do
           ids := of_zxy ~z ~x ~y :: !ids
         done
-      done);
+      done)
+    ();
   List.sort_uniq compare !ids
 
-let count_ids_clipped ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
-    ~clip =
+let count_ids_clipped ?on_node ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
+    ~max_lat ~clip () =
   let total = ref 0 in
-  clip_walk ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~clip
+  clip_walk ?on_node ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
+    ~clip
     ~tile:(fun _ _ _ -> incr total)
     ~block:(fun _ ~x0 ~x1 ~y0 ~y1 ->
-      total := !total + ((x1 - x0 + 1) * (y1 - y0 + 1)));
+      total := !total + ((x1 - x0 + 1) * (y1 - y0 + 1)))
+    ();
   !total
 
 (* Split a box into at most [max_parts] boxes, each planning within [limit]
@@ -247,16 +273,16 @@ let count_ids_clipped ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
    parts may share an edge row or column of tiles; the merge dedups shared
    ids, so overlap costs a sliver of re-planning, never correctness. None
    when [max_parts] pieces are not enough or a piece stops being divisible. *)
-let split ?clip ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
-    ~limit ~max_parts () =
+let split ?clip ?on_count ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
+    ~max_lat ~limit ~max_parts () =
   let count (a, b, c, d) =
     match clip with
     | None ->
         count_ids ~min_zoom ~max_zoom ~min_lon:a ~min_lat:b ~max_lon:c
           ~max_lat:d
     | Some clip ->
-        count_ids_clipped ~min_zoom ~max_zoom ~min_lon:a ~min_lat:b ~max_lon:c
-          ~max_lat:d ~clip
+        count_ids_clipped ?on_node:on_count ~min_zoom ~max_zoom ~min_lon:a
+          ~min_lat:b ~max_lon:c ~max_lat:d ~clip ()
   in
   let bisect (a, b, c, d) =
     let z = max_zoom in
@@ -308,11 +334,11 @@ let split ?clip ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
    pieces than [max_parts] allows; pretending otherwise would grind the
    server for hours, so it falls back to a depth that plans in a couple of
    seconds, and the caller says "pick a state" instead. *)
-let download_parts ?clip ~min_zoom ~requested ~min_lon ~min_lat ~max_lon
-    ~max_lat ~full_limit ~quick_limit ~max_parts () =
+let download_parts ?clip ?on_count ~min_zoom ~requested ~min_lon ~min_lat
+    ~max_lon ~max_lat ~full_limit ~quick_limit ~max_parts () =
   match
-    split ?clip ~min_zoom ~max_zoom:requested ~min_lon ~min_lat ~max_lon
-      ~max_lat ~limit:full_limit ~max_parts ()
+    split ?clip ?on_count ~min_zoom ~max_zoom:requested ~min_lon ~min_lat
+      ~max_lon ~max_lat ~limit:full_limit ~max_parts ()
   with
   | Some parts -> (parts, requested, false)
   | None ->
@@ -324,7 +350,7 @@ let download_parts ?clip ~min_zoom ~requested ~min_lon ~min_lat ~max_lon
         | Some clip ->
             depth_within ~min_zoom ~max_zoom:requested ~limit:quick_limit
               ~count_at:(fun z ->
-                count_ids_clipped ~min_zoom:z ~max_zoom:z ~min_lon ~min_lat
-                  ~max_lon ~max_lat ~clip)
+                count_ids_clipped ?on_node:on_count ~min_zoom:z ~max_zoom:z
+                  ~min_lon ~min_lat ~max_lon ~max_lat ~clip ())
       in
       ([ (min_lon, min_lat, max_lon, max_lat) ], depth, true)

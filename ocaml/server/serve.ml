@@ -379,14 +379,15 @@ let parse_polygon json =
     | _ -> None
   in
   match json_field "polygon" json with
-  | None -> Ok None
+  | None | Some `Null -> Ok None
   | Some (`List rings) -> (
       let ring = function
         | `List points ->
             let parsed =
               List.map
                 (function
-                  | `List [ a; b ] -> (
+                  (* GeoJSON positions may carry elevation; ignore it. *)
+                  | `List (a :: b :: _) -> (
                       match (num a, num b) with
                       | Some lon, Some lat -> Some (lon, lat)
                       | _ -> None)

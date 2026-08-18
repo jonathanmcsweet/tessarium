@@ -60,6 +60,50 @@ def douglas_peucker(points, eps):
     return [pt for pt, k in zip(points, keep) if k]
 
 
+def simplify_ring(ring, eps):
+    """A closed ring anchored for DP on its two most distant points -- DP
+    anchored on the closure point degenerates to a zero-length chord and
+    collapses small rings entirely (which once cost Canada all of
+    Vancouver Island)."""
+    pts = ring[:-1] if len(ring) > 1 and ring[0] == ring[-1] else list(ring)
+    if len(pts) < 3:
+        return pts
+    far = max(
+        range(1, len(pts)),
+        key=lambda i: (pts[i][0] - pts[0][0]) ** 2 + (pts[i][1] - pts[0][1]) ** 2,
+    )
+    out = douglas_peucker(pts[: far + 1], eps)[:-1] + douglas_peucker(
+        pts[far:] + [pts[0]], eps
+    )[:-1]
+    dedup = [pt for i, pt in enumerate(out) if i == 0 or pt != out[i - 1]]
+    if len(dedup) > 1 and dedup[0] == dedup[-1]:
+        dedup = dedup[:-1]
+    return dedup
+
+
+def quad(box):
+    a, b, c, d = box
+    return [[a, b], [c, b], [c, d], [a, d]]
+
+
+def ring_box(ring):
+    xs = [p[0] for p in ring]
+    ys = [p[1] for p in ring]
+    return [min(xs), min(ys), max(xs), max(ys)]
+
+
+def point_in_rings(rings, x, y):
+    odd = False
+    for ring in rings:
+        n = len(ring)
+        for i in range(n):
+            x1, y1 = ring[i]
+            x2, y2 = ring[(i + 1) % n]
+            if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1) + x1:
+                odd = not odd
+    return odd
+
+
 def outer_rings(geometry):
     if geometry["type"] == "Polygon":
         return [geometry["coordinates"][0]]
@@ -70,21 +114,59 @@ def simplify_rings(geometry, budget):
     """Outer rings only -- holes (Lesotho) download a sliver extra, which is
     harmless where missing an enclave would not be -- simplified until the
     whole multipolygon fits the point budget, then quantised to 2 decimals
-    (~1 km), which is the fidelity the 110m source has anyway."""
+    (~1 km), which is the fidelity the 110m source has anyway. A ring the
+    simplifier collapses survives as its bounding quad: an island may grow
+    a little water, never vanish."""
     rings = [[(round(x, 2), round(y, 2)) for x, y in ring] for ring in outer_rings(geometry)]
     eps = 0.01
     while True:
         out = []
         for ring in rings:
-            slim = douglas_peucker(ring, eps)
-            dedup = [pt for i, pt in enumerate(slim) if i == 0 or pt != slim[i - 1]]
-            if len(dedup) > 1 and dedup[0] == dedup[-1]:
-                dedup = dedup[:-1]
-            if len(dedup) >= 3:
-                out.append(dedup)
+            slim = simplify_ring(ring, eps)
+            if len(slim) < 3:
+                a, b, c, d = ring_box(ring)
+                if c > a and d > b:
+                    out.append([(a, b), (c, b), (c, d), (a, d)])
+                continue
+            out.append(slim)
         if sum(len(r) for r in out) <= budget or eps > 20:
             return [[[x, y] for x, y in ring] for ring in out]
         eps *= 1.6
+
+
+def encircles_pole(geometry):
+    """A ring sweeping (nearly) the full longitude range encircles a pole,
+    and even-odd ray casting in lon/lat space is meaningless for it."""
+    return any(
+        max(x for x, _ in ring) - min(x for x, _ in ring) >= 355
+        for ring in outer_rings(geometry)
+    )
+
+
+def country_polygon(geometry, cities, name):
+    """Simplified border that provably contains every catalogued city.
+    Cities are exactly what a country download must include, so they are the
+    acceptance test: the budget escalates while any falls out, and one whose
+    point genuinely sits off the coarse 110m coastline (harbours, atolls)
+    gets its drawn city box appended as an extra ring."""
+    if encircles_pole(geometry):
+        # Antarctica. No polygon: it downloads box-planned, like a viewport.
+        return []
+    budget = 300
+    while True:
+        rings = simplify_rings(geometry, budget)
+        missing = [c for c in cities if not point_in_rings(rings, *c["center"])]
+        if not missing or budget >= 1600:
+            break
+        budget = min(1600, int(budget * 1.6))
+    for c in missing:
+        rings.append(quad(c["bbox"]))
+    points = sum(len(r) for r in rings)
+    if len(rings) > 64 or points > 2048:
+        raise SystemExit(
+            f"{name}: polygon exceeds the server caps ({len(rings)} rings, {points} points)"
+        )
+    return rings
 
 
 def part_boxes(geometry):
@@ -113,6 +195,12 @@ def clustered_boxes(geometry):
     merged = merge_boxes(boxes)
     if merged[2] - merged[0] <= 180:
         return [merged]
+    if encircles_pole(geometry):
+        # Antarctica really does span every longitude; two honest halves.
+        return [
+            [-180.0, merged[1], 0.0, merged[3]],
+            [0.0, merged[1], 180.0, merged[3]],
+        ]
     west = [b for b in boxes if b[0] < 0]
     east = [b for b in boxes if b[0] >= 0]
     if not west or not east:
@@ -158,18 +246,7 @@ def city_box(lon, lat, scalerank):
 
 
 def main(countries_path, states_path, places_path):
-    countries = []
-    for f in json.load(open(countries_path))["features"]:
-        p = f["properties"]
-        countries.append(
-            {
-                "code": iso2(p),
-                "name": p["NAME"],
-                "boxes": clustered_boxes(f["geometry"]),
-                "polygon": simplify_rings(f["geometry"], 300),
-            }
-        )
-    countries.sort(key=lambda c: c["name"])
+    country_features = json.load(open(countries_path))["features"]
 
     subdivisions = {}
     for f in json.load(open(states_path))["features"]:
@@ -184,7 +261,9 @@ def main(countries_path, states_path, places_path):
     for entries in subdivisions.values():
         entries.sort(key=lambda e: e["name"])
 
-    known = {c["code"] for c in countries if c["code"]}
+    known = {
+        iso2(f["properties"]) for f in country_features if iso2(f["properties"])
+    }
     picked = {}
     dropped = 0
     for f in json.load(open(places_path))["features"]:
@@ -211,6 +290,30 @@ def main(countries_path, states_path, places_path):
         cities.setdefault(code, []).append(v["entry"])
     for entries in cities.values():
         entries.sort(key=lambda e: e["name"])
+
+    countries = []
+    for f in country_features:
+        p = f["properties"]
+        code = iso2(p)
+        accepted = [
+            {
+                "center": (
+                    (c["bbox"][0] + c["bbox"][2]) / 2,
+                    (c["bbox"][1] + c["bbox"][3]) / 2,
+                ),
+                "bbox": c["bbox"],
+            }
+            for c in (cities.get(code, []) if code else [])
+        ]
+        countries.append(
+            {
+                "code": code,
+                "name": p["NAME"],
+                "boxes": clustered_boxes(f["geometry"]),
+                "polygon": country_polygon(f["geometry"], accepted, p["NAME"]),
+            }
+        )
+    countries.sort(key=lambda c: c["name"])
 
     out = {
         "attribution": "Natural Earth, public domain: 110m admin-0 countries (boxes and simplified border polygons), 50m admin-1 states and provinces, 50m populated places",
