@@ -198,10 +198,18 @@ function Offer(
               ...(ledgerLabel !== undefined ? { name: ledgerLabel } : {}),
             }, loudly)}
           disabled={regions === null || !estimate.isSuccess
-            || estimate.data.tiles === 0 || estimate.data.covered
+            || (estimate.data.tiles === 0 && !estimate.data.covered)
             || download.isPending}
         >
-          {confirmLabel}
+          {
+            /* A covered area has nothing to fetch but can still be
+               RECORDED -- that is how an archive from before the ledger
+               gets its first entry. The server answers "you already have"
+               if it is recorded already. */
+            estimate.isSuccess && estimate.data.covered
+              ? m.map_download_adopt()
+              : confirmLabel
+          }
         </button>
       </div>
     </div>

@@ -71,7 +71,12 @@ let ops ~fs ~basemap_dir =
           Error "update_reminder_days must be 0..3650"
         else begin
           let t = { update_reminder_days = days } in
-          save ~fs ~basemap_dir t;
-          Ok (to_json t)
+          match save ~fs ~basemap_dir t with
+          | () -> Ok (to_json t)
+          | exception e ->
+              Error
+                (match e with
+                | Failure m -> m
+                | e -> Printexc.to_string e)
         end);
   }

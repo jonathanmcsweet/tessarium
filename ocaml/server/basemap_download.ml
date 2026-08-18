@@ -360,7 +360,7 @@ let copy_with_metadata t ~fs ~basemap_dir ~metadata ~on_progress
    skips it after the planning cost alone. The price is that each unit
    rewrites the archive it grows -- recorded on the roadmap, not hidden. *)
 let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
-    ~refresh (reqs : Basemap_job.request list) =
+    ~refresh ~replaces (reqs : Basemap_job.request list) =
   let dir = Eio.Path.(fs / basemap_dir) in
   let part_path = Eio.Path.(dir / "map.pmtiles.part") in
   let discard_part () = try Eio.Path.unlink part_path with _ -> () in
@@ -369,17 +369,41 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
     let resolved, src, archive = open_source ~sw ~fs ~net ~source in
     let h = archive.Pmtiles.Archive.header in
     let min_zoom = h.Pmtiles.Header.min_zoom in
-    let units, _depths = units_of ~cancel:t ~budget ~header:h reqs in
+    let units, depths = units_of ~cancel:t ~budget ~header:h reqs in
     let parts_total = List.length units in
     ensure_dir dir;
     let name = match name with Some n -> n | None -> default_name reqs in
-    (* Ledger identity is fixed by the request before anything runs; the
-       completion time and byte count are filled in when they are true. *)
+    (* The ledger records what was GRANTED, not what was asked: a clamped
+       giant never fetched below its granted depth, and Remove undoes only
+       what actually happened. Identity is fixed here, before anything
+       runs; the completion time and byte count are filled in when they
+       are true. *)
+    let recorded =
+      List.map2
+        (fun (r : Basemap_job.request) depth ->
+          { r with Basemap_job.max_zoom = min r.Basemap_job.max_zoom depth })
+        reqs depths
+    in
     let entry ~completed ~bytes =
-      Ledger.make ~name ~regions:reqs ~completed ~source:resolved ~bytes
+      Ledger.make ~name ~regions:recorded ~completed ~source:resolved ~bytes
     in
     let entry_id = Ledger.id (entry ~completed:0 ~bytes:0) in
+    (* An update replaces the entry it came from even if a changed budget
+       granted a different depth this time -- two records claiming the same
+       place would leave one of them describing tiles the other owns. *)
+    let record led e =
+      let led =
+        match replaces with
+        | Some old_id when old_id <> entry_id -> (
+            match Ledger.remove led ~id:old_id with
+            | Some (_, rest) -> rest
+            | None -> led)
+        | _ -> led
+      in
+      Ledger.record led e
+    in
     let written_total = ref 0 in
+    let fetched_total = ref 0 in
     let wrote_any = ref false in
     let found_tiles = ref false in
     let entry_written = ref false in
@@ -471,16 +495,19 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
               in
               (* The last part that writes also publishes the ledger entry, in
                  the same rename that publishes its tiles: the record and the
-                 tiles it describes are never separated by a crash window. *)
+                 tiles it describes are never separated by a crash window.
+                 [bytes] is what the network delivered -- the number the
+                 estimate quoted -- not the archive bytes copied merging. *)
               let metadata =
                 if part < parts_total then base_meta
                 else begin
                   let e =
-                    entry ~completed:(now ()) ~bytes:(!written_total + total)
+                    entry ~completed:(now ())
+                      ~bytes:
+                        (!fetched_total + mp.Pmtiles.Merge.fetch_bytes)
                   in
                   match
-                    Ledger.to_metadata (Ledger.record base_led e)
-                      ~previous:base_meta
+                    Ledger.to_metadata (record base_led e) ~previous:base_meta
                   with
                   | Ok m ->
                       entry_written := true;
@@ -494,7 +521,8 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
                    ~append ~copy));
           Eio.Path.rename part_path Eio.Path.(dir / "map.pmtiles");
           wrote_any := true;
-          written_total := !written_total + total
+          written_total := !written_total + total;
+          fetched_total := !fetched_total + mp.Pmtiles.Merge.fetch_bytes
         end)
       units;
     if not !found_tiles then failwith "the source has no tiles in that area";
@@ -515,10 +543,10 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
       | None -> ()  (* nothing written and nothing on disk: no record *)
       | Some b ->
           let completed = if !wrote_any then now () else 0 in
-          let e = entry ~completed ~bytes:!written_total in
+          let e = entry ~completed ~bytes:!fetched_total in
           let metadata =
             match
-              Ledger.to_metadata (Ledger.record base_led e) ~previous:base_meta
+              Ledger.to_metadata (record base_led e) ~previous:base_meta
             with
             | Ok m -> m
             | Error m -> failwith m
@@ -565,7 +593,11 @@ let run_remove t ~fs ~basemap_dir ~id =
                 ~drop ()
             in
             let bh = b.Pmtiles.Archive.header in
-            let before = bh.Pmtiles.Header.data_length in
+            (* The whole file: header, directories and metadata free along
+               with the tile data. *)
+            let before =
+              bh.Pmtiles.Header.data_offset + bh.Pmtiles.Header.data_length
+            in
             if Array.length pruned.Pmtiles.Merge.tiles = 0 then begin
               Eio.Path.unlink Eio.Path.(dir / "map.pmtiles");
               before
@@ -592,6 +624,7 @@ let run_remove t ~fs ~basemap_dir ~id =
               in
               let total = pruned.Pmtiles.Merge.total_bytes in
               set t (Basemap_job.Removing { done_bytes = 0; total_bytes = total });
+              let new_header = ref None in
               let e7f v = float_of_int v /. 1e7 in
               Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part_path
                 (fun out ->
@@ -611,17 +644,25 @@ let run_remove t ~fs ~basemap_dir ~id =
                            total_bytes = total;
                          })
                   in
-                  ignore
-                    (Pmtiles.Merge.write ~metadata pruned bh
-                       ~min_zoom:bh.Pmtiles.Header.min_zoom
-                       ~max_zoom:bh.Pmtiles.Header.max_zoom
-                       ~min_lon:(e7f bh.Pmtiles.Header.min_lon_e7)
-                       ~min_lat:(e7f bh.Pmtiles.Header.min_lat_e7)
-                       ~max_lon:(e7f bh.Pmtiles.Header.max_lon_e7)
-                       ~max_lat:(e7f bh.Pmtiles.Header.max_lat_e7)
-                       ~append ~copy));
+                  new_header :=
+                    Some
+                      (Pmtiles.Merge.write ~metadata pruned bh
+                         ~min_zoom:bh.Pmtiles.Header.min_zoom
+                         ~max_zoom:bh.Pmtiles.Header.max_zoom
+                         ~min_lon:(e7f bh.Pmtiles.Header.min_lon_e7)
+                         ~min_lat:(e7f bh.Pmtiles.Header.min_lat_e7)
+                         ~max_lon:(e7f bh.Pmtiles.Header.max_lon_e7)
+                         ~max_lat:(e7f bh.Pmtiles.Header.max_lat_e7)
+                         ~append ~copy));
               Eio.Path.rename part_path Eio.Path.(dir / "map.pmtiles");
-              max 0 (before - total)
+              let after =
+                match !new_header with
+                | Some (nh : Pmtiles.Header.t) ->
+                    nh.Pmtiles.Header.data_offset
+                    + nh.Pmtiles.Header.data_length
+                | None -> before
+              in
+              max 0 (before - after)
             end)
   with
   | freed_bytes -> set t (Basemap_job.Removed { freed_bytes })
@@ -651,14 +692,15 @@ let start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now reqs =
   else begin
     Eio.Fiber.fork ~sw (fun () ->
         run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
-          ~refresh:false reqs);
+          ~refresh:false ~replaces:None reqs);
     Ok ()
   end
 
 (* An update is the recorded download run again with the merge tie inverted:
    every tile in the region is fetched fresh and replaces its stale copy.
-   The regions come from the ledger, so the entry that results has the same
-   identity and replaces itself. *)
+   The regions come from the ledger, and the run replaces the entry it came
+   from by id -- explicitly, so a budget change that alters the granted
+   depth cannot leave two records claiming the same place. *)
 let start_update t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now ~id =
   if not (claim t) then Error "a download is already running"
   else begin
@@ -672,7 +714,8 @@ let start_update t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now ~id =
         | None -> set t (Basemap_job.Failed "no such downloaded map")
         | Some e ->
             run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
-              ~name:(Some e.Ledger.name) ~now ~refresh:true e.Ledger.regions
+              ~name:(Some e.Ledger.name) ~now ~refresh:true ~replaces:(Some id)
+              e.Ledger.regions
         | exception e -> set t (Basemap_job.Failed (friendly e)));
     Ok ()
   end

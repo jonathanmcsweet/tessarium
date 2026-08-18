@@ -70,6 +70,8 @@
   "map_ledger_reminder_never": "Nunca",
   "map_removing_progress": "Eliminando — {done} de {total}",
   "map_removed_done": "Mapas eliminados — {size} liberados.",
+  "map_download_adopt": "Registrar este mapa",
+  "map_removed_none": "Mapa eliminado de la lista. Sus teselas se comparten con otras descargas y se conservan.",
   "banner_basemap_action": "Descargar mapas",
   "panel_lock": "Bloquear",
   "panel_lock_hint": "Olvidar la clave",

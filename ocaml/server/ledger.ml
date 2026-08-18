@@ -17,10 +17,21 @@
 
 type entry = {
   name : string;  (** what the picker called it; display only *)
-  regions : Basemap_job.request list;  (** canonically sorted, never empty *)
-  completed : int;  (** when the download finished, in epoch seconds *)
+  regions : Basemap_job.request list;
+      (** canonically sorted, never empty. Depths are as GRANTED, not as
+          asked: a clamped giant records the zoom it actually fetched, so
+          Remove and Update speak of tiles that exist. *)
+  completed : int;
+      (** when the download that made or refreshed this entry finished, in
+          epoch seconds; zero when the tiles predate the ledger and their
+          age is unknown. Tiles already held were deliberately not
+          re-fetched then -- their age belongs to the entries that fetched
+          them -- and a resumed download records the resuming run. *)
   source : string;  (** the resolved archive it was fetched from *)
-  bytes : int;  (** bytes fetched by the download that made this entry *)
+  bytes : int;
+      (** bytes actually fetched from the source by the download that made
+          this entry -- the number the estimate quoted, not the archive
+          bytes copied while merging *)
 }
 
 type t = entry list
@@ -36,7 +47,14 @@ let version = 1
 let region_key (r : Basemap_job.request) =
   (r.min_lon, r.min_lat, r.max_lon, r.max_lat, r.max_zoom, r.polygon)
 
-let sort_regions = List.sort (fun a b -> compare (region_key a) (region_key b))
+(* Stable, so regions that compare equal keep their arrival order and the
+   serialized bytes cannot depend on the sort's whims. *)
+let sort_regions =
+  List.stable_sort (fun a b -> compare (region_key a) (region_key b))
+
+(* Negative zero prints as "-0.0000000" but compares equal to zero, which
+   would give one region two identities. It is the same bound; normalise. *)
+let pos v = v +. 0.
 
 (* The identity text is built with a fixed float format rather than from the
    JSON, so the id survives any serialization change. 1e-7 degrees is about
@@ -46,8 +64,8 @@ let canonical_text regions =
   List.iter
     (fun (r : Basemap_job.request) ->
       Buffer.add_string b
-        (Printf.sprintf "%.7f,%.7f,%.7f,%.7f,%d" r.min_lon r.min_lat r.max_lon
-           r.max_lat r.max_zoom);
+        (Printf.sprintf "%.7f,%.7f,%.7f,%.7f,%d" (pos r.min_lon)
+           (pos r.min_lat) (pos r.max_lon) (pos r.max_lat) r.max_zoom);
       (match r.polygon with
       | None -> ()
       | Some rings ->
@@ -56,7 +74,8 @@ let canonical_text regions =
               Buffer.add_char b '|';
               Array.iter
                 (fun (x, y) ->
-                  Buffer.add_string b (Printf.sprintf "%.7f,%.7f;" x y))
+                  Buffer.add_string b
+                    (Printf.sprintf "%.7f,%.7f;" (pos x) (pos y)))
                 ring)
             rings);
       Buffer.add_char b '\n')
@@ -76,14 +95,34 @@ let make ~name ~regions ~completed ~source ~bytes =
 
 (* Client-supplied and stored, so bounded and printable. Multi-byte UTF-8 is
    welcome -- the picker speaks six locales -- but a name that is not UTF-8
-   would come back out of Yojson as invalid JSON, so it dies here. *)
+   would come back out of Yojson as invalid JSON, and invisible characters
+   (C0/C1 controls, zero-width, bidi overrides) exist mostly to make one
+   string display as another, so both die here. *)
 let max_name_bytes = 120
+
+let visible_uchar u =
+  not
+    (u < 0x20
+    || (u >= 0x7f && u <= 0x9f)
+    || (u >= 0x200b && u <= 0x200f)
+    || (u >= 0x202a && u <= 0x202e)
+    || (u >= 0x2066 && u <= 0x2069)
+    || u = 0xfeff)
 
 let valid_name s =
   String.length s > 0
   && String.length s <= max_name_bytes
   && String.is_valid_utf_8 s
-  && String.for_all (fun c -> c >= ' ' && c <> '\x7f') s
+  &&
+  let ok = ref true in
+  let i = ref 0 in
+  while !ok && !i < String.length s do
+    let d = String.get_utf_8_uchar s !i in
+    if not (visible_uchar (Uchar.to_int (Uchar.utf_decode_uchar d))) then
+      ok := false;
+    i := !i + Uchar.utf_decode_length d
+  done;
+  !ok
 
 (* ---------------------------------------------------------------- edits *)
 
@@ -127,20 +166,30 @@ let prepare (r : Basemap_job.request) =
     clip = Option.map Pmtiles.Clip.of_rings r.polygon;
   }
 
-(* Whether this region's download fetches the tile. The box comparison is
-   inclusive on the edges, as the tile covering is; a clipped region fetches
-   its border tiles too, so Boundary counts. *)
+(* Whether this region's download fetches the tile: exactly the planner's
+   covering, restated as a membership test. The x/y range uses the same
+   floor arithmetic [Tile_id.covering] does -- a geometric edge-touch test
+   would claim the west and north neighbours of a tile-aligned box, which
+   the covering never fetches -- and a clipped region is that grid
+   intersected with its polygon, border tiles included, as [clip_walk]
+   walks it. *)
 let fetches p ~z ~x ~y =
   z <= p.max_zoom
   &&
-  let l, b, r, t = Pmtiles.Tile_id.tile_box ~z ~x ~y in
+  let bl, bb, br, bt = p.box in
+  let last = (1 lsl z) - 1 in
+  let grid v = max 0 (min last v) in
+  x >= grid (Pmtiles.Tile_id.tile_x ~z ~lon:bl)
+  && x <= grid (Pmtiles.Tile_id.tile_x ~z ~lon:br)
+  && y >= grid (Pmtiles.Tile_id.tile_y ~z ~lat:bt)
+  && y <= grid (Pmtiles.Tile_id.tile_y ~z ~lat:bb)
+  &&
   match p.clip with
+  | None -> true
   | Some clip ->
+      let l, b, r, t = Pmtiles.Tile_id.tile_box ~z ~x ~y in
       Pmtiles.Clip.classify clip ~min_x:l ~min_y:b ~max_x:r ~max_y:t
       <> Pmtiles.Clip.Outside
-  | None ->
-      let bl, bb, br, bt = p.box in
-      l <= br && r >= bl && b <= bt && t >= bb
 
 (* [drops ~removed ~kept] decides one tile's fate during a Remove rewrite. *)
 let drops ~(removed : entry) ~(kept : t) =
@@ -306,12 +355,20 @@ let of_json = function
 
 let wrap e = Printf.sprintf "the archive's download ledger is unreadable: %s" e
 
+let duplicated fields =
+  List.length (List.filter (fun (k, _) -> String.equal k metadata_key) fields)
+  > 1
+
 (* An archive with no ledger key has an empty ledger -- that is every
    archive written before this feature, and every fresh extract. Anything
-   else that fails to parse is corruption and says so. *)
+   else that fails to parse is corruption and says so -- including a ledger
+   key that appears twice, which reads and writes would otherwise resolve
+   differently from each other. *)
 let of_metadata s =
   match Yojson.Safe.from_string s with
   | exception _ -> Error (wrap "archive metadata is not JSON")
+  | `Assoc fields when duplicated fields ->
+      Error (wrap "the ledger key appears more than once")
   | `Assoc fields -> (
       match List.assoc_opt metadata_key fields with
       | None -> Ok []
@@ -324,6 +381,8 @@ let of_metadata s =
 let to_metadata (t : t) ~previous =
   match Yojson.Safe.from_string previous with
   | exception _ -> Error (wrap "archive metadata is not JSON")
+  | `Assoc fields when duplicated fields ->
+      Error (wrap "the ledger key appears more than once")
   | `Assoc fields ->
       let without = List.remove_assoc metadata_key fields in
       let fields' =

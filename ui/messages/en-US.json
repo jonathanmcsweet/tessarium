@@ -70,6 +70,8 @@
   "map_ledger_reminder_never": "Never",
   "map_removing_progress": "Removing — {done} of {total}",
   "map_removed_done": "Maps removed — {size} freed.",
+  "map_download_adopt": "Keep track of this map",
+  "map_removed_none": "Map removed from the list. Its tiles are shared with other downloads and stay.",
   "banner_basemap_action": "Download maps",
   "panel_lock": "Lock",
   "panel_lock_hint": "Forget the key",

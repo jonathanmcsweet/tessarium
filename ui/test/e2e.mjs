@@ -492,8 +492,10 @@ await page.waitForFunction(
 );
 check("re-asking for a held area says so instead of re-quoting", true);
 check(
-  "and its download button stays disabled",
-  await page.locator(".download-view button").isDisabled(),
+  "and its button turns into the record-only offer",
+  !(await page.locator(".download-view button").isDisabled())
+    && ((await page.locator(".download-view button").textContent()) ?? "")
+      .includes("Keep track"),
 );
 
 /* Third download: places picked by name from the tree -- and several at
@@ -712,9 +714,11 @@ check("the removed entry leaves the list", rowGone);
 const removedToast = await page
   .waitForFunction(
     () =>
-      [...document.querySelectorAll("[data-sonner-toast]")].some((t) =>
-        (t.textContent ?? "").includes("Maps removed")
-      ),
+      [...document.querySelectorAll("[data-sonner-toast]")].some((t) => {
+        const text = t.textContent ?? "";
+        /* Either wording is correct: bytes freed, or all tiles shared. */
+        return text.includes("Maps removed") || text.includes("Map removed");
+      }),
     { timeout: 10_000 },
   )
   .then(() => true, () => false);
@@ -730,7 +734,17 @@ check(
   (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
     === 200,
 );
-await page.locator(".download-card .icon-button").click();
+
+/* Update through the card, on the clipped country pick: the one deliberate
+   way to refresh held tiles, exercised over a polygon region. The card
+   closes itself when the job completes, like any download. */
+await page
+  .locator(".ledger-row")
+  .filter({ hasText: "United Kingdom" })
+  .locator("button")
+  .nth(0)
+  .click();
+check("an update of a clipped region completes", await awaitDone(6));
 await page.waitForFunction(() => !document.querySelector(".download-card"), {
   timeout: 10_000,
 });
@@ -803,7 +817,18 @@ check(
   "a scripted download is recorded under its box",
   led3.entries?.length === 1
     && led3.entries[0].name === "-179.90, -84.00 - 179.90, 84.00"
-    && led3.entries[0].bytes > 0 && led3.entries[0].completed > 0,
+    && led3.entries[0].completed > 0,
+);
+/* The accuracy claim on bytes: the entry records what the network
+   delivered, never archive-copy volume. For a multi-part download the
+   quote deliberately double-counts seam tiles the later parts then skip,
+   so fetched <= quoted; and the copy volume re-counts every earlier part,
+   so fetched < Done's total. The old bug recorded the latter. */
+check(
+  "the recorded bytes are network bytes, not copy volume",
+  led3.entries?.[0]?.bytes > 0
+    && led3.entries[0].bytes <= est3.total_bytes
+    && led3.entries[0].bytes < done3.total_bytes,
 );
 const id3 = led3.entries?.[0]?.id ?? "";
 /* Update re-fetches the region tile for tile -- the one deliberate way to
@@ -851,6 +876,36 @@ const rem3b = await finalJob3(5);
 check(
   "removing from a missing archive fails out loud",
   rem3b?.state === "failed",
+);
+
+/* A giant beyond even the split ceiling is clamped to a shallower granted
+   depth -- and the ledger must record the depth that was FETCHED, not the
+   one asked for, or Remove and Update would speak of tiles that never
+   existed. */
+const deepWorld = { ...world, max_zoom: 10 };
+const estClamped = await (await post3("basemap-estimate", {
+  regions: [deepWorld],
+})).json();
+check(
+  "the tiny budget clamps a too-deep world",
+  typeof estClamped.max_zooms?.[0] === "number"
+    && estClamped.max_zooms[0] < 10,
+);
+await post3("basemap-download", {
+  name: "Clamped world",
+  regions: [deepWorld],
+});
+const clamped3 = await finalJob3(6);
+check("the clamped download completes", clamped3?.state === "done");
+const ledClamped = await (await post3("basemap-ledger")).json();
+check(
+  "the entry records the granted depth, not the request",
+  ledClamped.entries?.length === 1
+    && ledClamped.entries[0].max_zoom === estClamped.max_zooms[0],
+);
+check(
+  "and its bytes are again exactly the quote",
+  ledClamped.entries?.[0]?.bytes === estClamped.total_bytes,
 );
 
 /* Let the swapped style fetch and render its tiles; anything it logs from

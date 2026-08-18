@@ -706,6 +706,78 @@ let () =
   check "a tile wholly outside the polygon is kept"
     (not (pdrops ~z:3 ~x:6 ~y:3));
 
+  (* [Ledger.fetches] must be the covering's membership function EXACTLY --
+     the review that demanded this found a geometric edge-touch test
+     claiming the west and north neighbours of a tile-aligned box, which
+     the covering never fetches. Checked as a property: for boxes plain,
+     tile-aligned and clipped, every tile in a z0..5 universe is claimed by
+     [drops] iff the planner's covering lists it. *)
+  let module T = Pmtiles.Tile_id in
+  let universe f =
+    let ok = ref true in
+    for z = 0 to 5 do
+      let n = 1 lsl z in
+      for x = 0 to n - 1 do
+        for y = 0 to n - 1 do
+          if not (f ~z ~x ~y) then ok := false
+        done
+      done
+    done;
+    !ok
+  in
+  let agrees ?polygon ~z:max_zoom (a, b, c, d) =
+    let ids =
+      match polygon with
+      | None ->
+          T.covering ~min_zoom:0 ~max_zoom ~min_lon:a ~min_lat:b ~max_lon:c
+            ~max_lat:d
+      | Some rings ->
+          T.covering_clipped ~min_zoom:0 ~max_zoom ~min_lon:a ~min_lat:b
+            ~max_lon:c ~max_lat:d
+            ~clip:(Pmtiles.Clip.of_rings rings)
+            ()
+    in
+    let drops =
+      L.drops ~removed:(entry [ reg ?polygon ~z:max_zoom (a, b, c, d) ])
+        ~kept:[]
+    in
+    universe (fun ~z ~x ~y ->
+        drops ~z ~x ~y = List.mem (T.of_zxy ~z ~x ~y) ids)
+  in
+  check "drops = covering, on an ordinary box" (agrees ~z:4 (-5.1, 41.3, 9.6, 51.1));
+  check "drops = covering, on an exactly tile-aligned box"
+    (agrees ~z:4 (tl, tb, tr, tt));
+  check "drops = covering, on a sliver crossing a tile boundary"
+    (agrees ~z:5 (tl -. 0.001, tb, tl +. 0.001, tt));
+  check "drops = covering, clipped to a triangle"
+    (agrees ~polygon:[| [| (-5., 42.); (9., 42.); (2., 51.) |] |] ~z:4
+       (-5.1, 41.3, 9.6, 51.1));
+  check "drops = covering, clipped to the padded quad"
+    (agrees ~polygon:quad ~z:4 (tl -. pad, tb -. pad, tr +. pad, tt +. pad));
+
+  (* Signed zero is the same bound: one region, one identity, and ties in
+     the sort cannot reorder the bytes. *)
+  check "negative zero does not split an identity"
+    (L.id (entry [ reg ~z:15 (-0.0, 41.3, 9.6, 51.1) ])
+    = L.id (entry [ reg ~z:15 (0.0, 41.3, 9.6, 51.1) ]));
+
+  (* A ledger key that appears twice would make reads and writes resolve
+     differently; both refuse it. *)
+  let doubled =
+    {|{"tessarium_ledger":{"v":1,"entries":[]},"tessarium_ledger":{"v":1,"entries":[]}}|}
+  in
+  check "a duplicated ledger key is refused on read"
+    (unreadable (L.of_metadata doubled));
+  check "a duplicated ledger key is refused on write"
+    (unreadable (L.to_metadata [ e1 ] ~previous:doubled));
+
+  (* Invisible characters exist mostly to make one name display as another. *)
+  check "C1 controls are invalid" (not (L.valid_name "a\xc2\x85b"));
+  check "zero-width characters are invalid"
+    (not (L.valid_name "a\xe2\x80\x8bb"));
+  check "bidi overrides are invalid" (not (L.valid_name "a\xe2\x80\xaeb"));
+  check "ordinary multi-byte names stay valid" (L.valid_name "北京 – Beijing");
+
   (* The Removing job state obeys the same one-writer rule as downloads. *)
   check "nothing starts while a removal runs"
     (not (J.can_start (J.Removing { done_bytes = 0; total_bytes = 1 })));
