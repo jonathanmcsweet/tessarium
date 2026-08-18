@@ -1141,3 +1141,31 @@ never the key or an address). 73 e2e checks.
 **Rationale:** checked after the first download deliberately — the leaked
 listeners made any later swap look healthy.
 
+### 2026-08-18 — Resumable multi-part downloads for the giants
+
+**Phase:** 6
+
+**What:** Boxes too big to plan in one piece (over 6M tile ids) now split
+into at most eight parts that each fit the proven single-part envelope
+(`Tile_id.split`: bisect the worst offender along its longer tile axis;
+coverage proven exactly in the pmtiles suite -- union of part ids equals the
+box's ids). Parts fetch sequentially, each merged into the archive and
+renamed atomically; an interruption or cancel keeps every finished part, and
+a re-request finds a held part covered and skips it after planning alone --
+that is the resume, proven in e2e against a third server instance running
+`--tile-budget 1024,256,8` (split download completes with parts >= 2;
+re-download skips every part and says "already have"). Single-box regions
+still ride one merge so overlapping picks keep deduping. `Merge.plan`
+rewritten from hashtable to sorted-array merge-join (~3x less memory on
+giant bases; byte-for-byte identical output under the existing round-trip
+checks). Job states carry part/parts; the UI bar tracks the current part
+("Part 2 of 4"). Estimates plan units one at a time and discard them
+(bounded memory); client estimate timeout raised to 300 s. Live against the
+planet build: Brazil 6.03 GB / 17.9M tiles / z15 estimated in 52 s;
+continental US 19.1 GB / 21.7M tiles / z15; healthz under 1 s mid-plan.
+77 e2e / 61 pmtiles / 106 server / 974 message checks green.
+
+**Rationale:** sequential atomic part-merges reuse the entire existing merge
+machinery -- resume falls out of base-wins dedup rather than a new on-disk
+format. The write amplification that buys is recorded on the roadmap item.
+

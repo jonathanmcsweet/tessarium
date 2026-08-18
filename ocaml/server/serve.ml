@@ -22,6 +22,9 @@ type config = {
       (** where the in-app downloader reads tiles: URL or local path.
           Configuration, never client input. *)
   basemap_assets : string;  (** the glyph+sprite tarball, likewise *)
+  tile_budget : Basemap_download.budget;
+      (** how much planning one download may cost; tests shrink it to force
+          multi-part downloads against a tiny fixture *)
 }
 
 (* ------------------------------------------------------------- responses *)
@@ -548,6 +551,7 @@ let run env ~sw ~port cfg =
       (Basemap_download.create ())
       ~sw ~fs ~net:(Eio.Stdenv.net env) ~source:cfg.basemap_source
       ~assets:cfg.basemap_assets ~basemap_dir:cfg.basemap_dir
+      ~budget:cfg.tile_budget
   in
   let callback =
     handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random

@@ -186,19 +186,27 @@ let () =
   (* ------------------------------------------------- basemap download job *)
   let module J = Tessarium_server.Basemap_job in
   check "a download may start from idle" (J.can_start J.Idle);
-  check "a download may restart after done" (J.can_start (J.Done { total_bytes = 9 }));
+  check "a download may restart after done"
+    (J.can_start (J.Done { total_bytes = 9; parts = 1 }));
   check "a download may retry after failure" (J.can_start (J.Failed "x"));
   check "a download may restart after cancel" (J.can_start J.Cancelled);
   check "no second download while planning" (not (J.can_start J.Planning));
   check "no second download while fetching"
-    (not (J.can_start (J.Fetching { done_bytes = 0; total_bytes = 9 })));
+    (not
+       (J.can_start
+          (J.Fetching { done_bytes = 0; total_bytes = 9; part = 1; parts = 1 })));
   check "no second download while assets fetch" (not (J.can_start J.Assets));
   check "progress is clamped to the total"
-    (J.progress ~done_bytes:120 ~total_bytes:100
-     = J.Fetching { done_bytes = 100; total_bytes = 100 });
+    (J.progress ~done_bytes:120 ~total_bytes:100 ~part:1 ~parts:1
+     = J.Fetching { done_bytes = 100; total_bytes = 100; part = 1; parts = 1 });
   check "progress cannot be negative"
-    (J.progress ~done_bytes:(-5) ~total_bytes:100
-     = J.Fetching { done_bytes = 0; total_bytes = 100 });
+    (J.progress ~done_bytes:(-5) ~total_bytes:100 ~part:1 ~parts:1
+     = J.Fetching { done_bytes = 0; total_bytes = 100; part = 1; parts = 1 });
+  check "part is clamped into 1..parts"
+    (J.progress ~done_bytes:0 ~total_bytes:1 ~part:9 ~parts:4
+     = J.Fetching { done_bytes = 0; total_bytes = 1; part = 4; parts = 4 }
+    && J.progress ~done_bytes:0 ~total_bytes:1 ~part:0 ~parts:0
+       = J.Fetching { done_bytes = 0; total_bytes = 1; part = 1; parts = 1 });
   check "a reversed box is refused"
     (Result.is_error (J.validate ~min_lon:1. ~min_lat:0. ~max_lon:0. ~max_lat:1. ~max_zoom:15));
   check "an out-of-range box is refused"
@@ -270,6 +278,7 @@ let () =
       connect_src = [];
       basemap_source = "unused";
       basemap_assets = "unused";
+      tile_budget = D.default_budget;
     }
   in
   let calls = ref [] in

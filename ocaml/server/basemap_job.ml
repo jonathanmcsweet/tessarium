@@ -8,9 +8,14 @@
 type t =
   | Idle
   | Planning
-  | Fetching of { done_bytes : int; total_bytes : int }
+  | Fetching of {
+      done_bytes : int;
+      total_bytes : int;
+      part : int;  (** 1-based; a single-box download is part 1 of 1 *)
+      parts : int;
+    }
   | Assets  (** tiles written; glyphs and sprites downloading *)
-  | Done of { total_bytes : int }
+  | Done of { total_bytes : int; parts : int }
   | Failed of string
   | Cancelled
 
@@ -27,11 +32,14 @@ let is_running = function
 (* Progress is clamped rather than trusted. The copier reports raw byte
    counts; gzip framing can push the last report past the planned total, and a
    progress bar at 101% reads as a bug because it is one. *)
-let progress ~done_bytes ~total_bytes =
+let progress ~done_bytes ~total_bytes ~part ~parts =
+  let parts = max 1 parts in
   Fetching
     {
       done_bytes = max 0 (min done_bytes total_bytes);
       total_bytes = max 0 total_bytes;
+      part = max 1 (min part parts);
+      parts;
     }
 
 (* The request the UI sends, validated. Server-side, because the server does
@@ -60,16 +68,23 @@ let validate ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom =
 let to_json = function
   | Idle -> `Assoc [ ("state", `String "idle") ]
   | Planning -> `Assoc [ ("state", `String "planning") ]
-  | Fetching { done_bytes; total_bytes } ->
+  | Fetching { done_bytes; total_bytes; part; parts } ->
       `Assoc
         [
           ("state", `String "fetching");
           ("done_bytes", `Int done_bytes);
           ("total_bytes", `Int total_bytes);
+          ("part", `Int part);
+          ("parts", `Int parts);
         ]
   | Assets -> `Assoc [ ("state", `String "assets") ]
-  | Done { total_bytes } ->
-      `Assoc [ ("state", `String "done"); ("total_bytes", `Int total_bytes) ]
+  | Done { total_bytes; parts } ->
+      `Assoc
+        [
+          ("state", `String "done");
+          ("total_bytes", `Int total_bytes);
+          ("parts", `Int parts);
+        ]
   | Failed reason ->
       `Assoc [ ("state", `String "failed"); ("reason", `String reason) ]
   | Cancelled -> `Assoc [ ("state", `String "cancelled") ]

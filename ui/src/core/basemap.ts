@@ -56,9 +56,16 @@ const Job = z.discriminatedUnion("state", [
     state: z.literal("fetching"),
     done_bytes: z.number(),
     total_bytes: z.number(),
+    /* Giants are fetched in parts; a small download is part 1 of 1. */
+    part: z.number().int().min(1),
+    parts: z.number().int().min(1),
   }),
   z.object({ state: z.literal("assets") }),
-  z.object({ state: z.literal("done"), total_bytes: z.number() }),
+  z.object({
+    state: z.literal("done"),
+    total_bytes: z.number(),
+    parts: z.number().int().min(1),
+  }),
   z.object({ state: z.literal("failed"), reason: z.string() }),
   z.object({ state: z.literal("cancelled") }),
 ]);
@@ -82,6 +89,7 @@ async function post<T>(
   schema: z.ZodType<T>,
   endpoint: string,
   body?: unknown,
+  timeoutMs = 120_000,
 ): Promise<T> {
   const res = await fetch(`/api/${endpoint}`, {
     method: "POST",
@@ -89,7 +97,7 @@ async function post<T>(
     body: JSON.stringify(body ?? {}),
     /* Generous, but bounded: "checking..." forever is how a wedged server
        used to present itself in this card. */
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const json: unknown = await res.json().catch(() => null);
   if (!res.ok) {
@@ -128,7 +136,10 @@ export function useBasemapPresent() {
 export function useBasemapEstimate(regions: Region[] | null) {
   return useQuery({
     queryKey: ["basemap-estimate", regions],
-    queryFn: () => post(Estimate, "basemap-estimate", { regions }),
+    /* Five minutes, not two: a Brazil-sized selection plans some twenty
+       million tile ids server-side, exactly and cooperatively, and honest
+       slowness beats a timeout that aborts a working estimate. */
+    queryFn: () => post(Estimate, "basemap-estimate", { regions }, 300_000),
     enabled: regions !== null && regions.length > 0,
     staleTime: 5 * 60_000,
     retry: false,

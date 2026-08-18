@@ -50,6 +50,7 @@
   "map_download_cancel": "Cancel download",
   "map_download_planning": "Working out what to fetch…",
   "map_download_progress": "{done} of {total}",
+  "map_download_progress_part": "Part {part} of {parts} — {done} of {total}",
   "map_download_assets": "Fetching fonts and symbols…",
   "map_download_done": "Maps downloaded.",
   "map_download_failed": "The map download failed: {reason}",
