@@ -17,6 +17,7 @@ import { fetchAddress, fetchGrid } from "../core/queries";
 import { getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
+import { toastError } from "../toast";
 import { DownloadCard } from "./DownloadCard";
 import { IconButton } from "./IconButton";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -377,7 +378,7 @@ export function MapView() {
       closeDownload();
       rebuildBasemap();
     } else if (job.state === "failed") {
-      toast.error(m.map_download_failed({ reason: job.reason }));
+      toastError(m.map_download_failed({ reason: job.reason }));
     } else if (job.state === "cancelled") {
       toast(m.map_download_cancelled());
       closeDownload();
@@ -396,7 +397,7 @@ export function MapView() {
       /* One square, one address, asked for only when the user asks. */
       const result = await fetchAddress(client, lat, lon).catch(
         (e: unknown) => {
-          toast.error(e instanceof Error ? e.message : String(e));
+          toastError(e instanceof Error ? e.message : String(e));
           return null;
         },
       );

@@ -11,7 +11,6 @@
 
 import { Dices } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
 import {
   useGeneratePhrase,
   useUnlock,
@@ -19,6 +18,7 @@ import {
 } from "../core/queries";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
+import { toastError } from "../toast";
 import { LanguagePicker } from "./LanguagePicker";
 
 const wordsIn = (phrase: string) => phrase.trim().split(/\s+/).filter(Boolean);
@@ -63,7 +63,7 @@ export function PhraseEntry() {
         setGenerated(mnemonic);
         input.current?.focus();
       },
-      onError: () => toast.error(m.gate_generate_failed()),
+      onError: () => toastError(m.gate_generate_failed()),
     });
   }
 
@@ -75,7 +75,7 @@ export function PhraseEntry() {
       {
         onSuccess: (result) => {
           if (!result.ok) {
-            toast.error(result.error ?? m.gate_unlock_failed());
+            toastError(result.error ?? m.gate_unlock_failed());
             return;
           }
           /* Drop the phrase from component state the moment it is no longer
@@ -86,7 +86,7 @@ export function PhraseEntry() {
           setGenerated(null);
           setUnlocked();
         },
-        onError: () => toast.error(m.gate_unlock_failed()),
+        onError: () => toastError(m.gate_unlock_failed()),
       },
     );
   }

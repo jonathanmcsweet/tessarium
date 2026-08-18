@@ -390,6 +390,10 @@ await page.waitForFunction(
   { timeout: 30_000 },
 );
 check("the download completes with a toast", true);
+check(
+  "and the toast carries a close button for keyboard users",
+  (await page.locator("[data-sonner-toast] [data-close-button]").count()) >= 1,
+);
 await page.waitForFunction(() => !document.querySelector(".banner"), {
   timeout: 10_000,
 });

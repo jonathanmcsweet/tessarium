@@ -1221,3 +1221,31 @@ direct unit checks; a multi-box country's depth warning stays named.
 **Rationale:** cities are the acceptance test for a border because they are
 exactly what a country download must contain.
 
+### 2026-08-18 — Contrast audit enforced; error toasts wait to be read
+
+**Phase:** 6
+
+**What:** Every foreground/background pair the stylesheet uses is now
+measured against WCAG AA by ui/test/contrast.mjs (41 checks, wired into
+npm run check), reading the palette live from styles.css so drift fails the
+build; literal-presence checks keep the hand-listed pairs honest. The audit
+found the active palette already passing -- --accent's 3.95:1 is only ever
+the 19px/600 address line, which is large text at a 3:1 bar, and that
+rationale is now pinned in the test -- and one genuinely illegible pair:
+disabled button labels at 1.63:1 (WCAG-exempt, but unreadable), now 5.66:1.
+Review fixes went further: the large-text exemption
+for the accent died entirely (a mobile media query renders the address at
+17px, under the bold threshold) -- the address now uses --accent-text at
+4.84:1; sonner's richColors was dropped because its red-on-pink error text
+sat at 4.35:1 outside the stylesheet where no audit can see it; input and
+select borders moved to --line-strong (3.44:1, non-text 3:1) from a 1.33:1
+hairline; placeholders are pinned to the audited hint colour. Error toasts
+persist until dismissed (ui/src/toast.ts wraps every toast.error call; the
+e2e asserts a toast carries the close button): a five-second auto-dismiss
+is shorter than a long error read aloud through sonner's live region.
+Out of the audit's reach, recorded here: canvas-drawn grid and selection
+colours over arbitrary map imagery are not statically checkable. 51
+contrast checks, 80 e2e checks green.
+
+**Rationale:** an audit that runs once rots; this one runs on every check.
+
