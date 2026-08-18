@@ -334,6 +334,10 @@ let () =
           calls := `Browse req :: !calls;
           Ok (7, req.Tessarium_server.Basemap_job.max_zoom));
       clear_cache = (fun () -> calls := `Clear_cache :: !calls);
+      search =
+        (fun ~query ~limit ->
+          calls := `Search (query, limit) :: !calls;
+          Ok (`Assoc [ ("results", `List []) ]));
     }
   in
   let settings_calls = ref [] in
@@ -914,6 +918,125 @@ let () =
     (D.browse_zoom ~header:h0_6 ~requested:15 = 6);
   check "and never above the source's shallowest level"
     (D.browse_zoom ~header:(header ~min_zoom:5 ~max_zoom:15) ~requested:2 = 5);
+
+  (* --------------------------------------------------------- search *)
+  (* Accents and case must not decide whether a place can be found: a French
+     user typing "orleans" on an English keyboard is asking for Orléans. *)
+  let module P = Tessarium_server.Place_index in
+  check "folding drops case" (P.fold "MARSEILLE" = "marseille");
+  check "folding drops accents" (P.fold "Orléans" = "orleans");
+  check "folding leaves other scripts alone" (P.fold "Энурмино" = "Энурмино");
+
+  (* A line survives the file it is written to. *)
+  let e =
+    {
+      P.name = "Fixtureville";
+      kind = "locality";
+      layer = "places";
+      weight = 4242.;
+      lon = 2.3484;
+      lat = 48.8535;
+    }
+  in
+  (match P.of_line (P.to_line e) with
+  | Some back ->
+      check "an index line round-trips"
+        (back.P.name = e.P.name && back.P.kind = e.P.kind
+       && back.P.weight = e.P.weight
+       && Float.abs (back.P.lon -. e.P.lon) < 1e-6
+       && Float.abs (back.P.lat -. e.P.lat) < 1e-6)
+  | None -> check "an index line round-trips" false);
+  check "a truncated line is skipped, not fatal" (P.of_line "junk" = None);
+  check "a line with no name is skipped"
+    (* Seven fields, so it is the empty NAME that rejects it rather than the
+       arity -- the six-field version passed this check without ever
+       reaching the guard it is named after. *)
+    (P.of_line "\t\tlocality\tplaces\t0\t1.0\t2.0" = None);
+
+  (* Eleven French places are called Paris. Ranking exists so the one with
+     two million people is offered first, and so an exact match is never
+     buried under a longer name that merely contains it. *)
+  let place ?(weight = 0.) ?(layer = "places") name =
+    { P.name; kind = "locality"; layer; weight; lon = 0.; lat = 0. }
+  in
+  let big = place ~weight:2_100_000. "Paris" in
+  let small = place ~weight:200. "Paris" in
+  check "population decides between identical names"
+    (P.compare_entry big small < 0);
+  check "a town outranks a road of the same name"
+    (P.compare_entry (place "Rivoli") (place ~layer:"roads" "Rivoli") < 0);
+
+  (* Ranking bands, in the order the comments claim: an exact name beats one
+     that merely starts with the query, which beats a match at a word
+     boundary, which beats one buried mid-word. *)
+  let band q name =
+    match P.score_of ~needle:(P.fold q) (P.fold name) with
+    | Some s -> s / 100_000
+    | None -> -1
+  in
+  check "an exact name scores best" (band "york" "York" = 0);
+  check "then a name that starts with it" (band "york" "Yorkshire" = 1);
+  check "then a match at a word boundary" (band "york" "New York Road" = 2);
+  check "then one buried in a word" (band "ork" "Yorkshire" = 3);
+  check "and a name without it does not match" (band "zzz" "York" = -1);
+  (* The best occurrence decides, not the first: scanning left to right and
+     stopping would score this as buried. *)
+  check "a later word-start beats an earlier mid-word hit"
+    (band "ork" "Yorkshire ork lane" = 2);
+  check "a shorter name wins inside a band"
+    (P.score_of ~needle:"york" (P.fold "Yorkshire")
+    < P.score_of ~needle:"york" (P.fold "Yorkshire Road"));
+
+  (* Names arrive from tiles this project did not write, and the record
+     separator must not be forgeable. *)
+  let forged =
+    {
+      P.name = "Innocent\nEVIL\tEvil Display";
+      kind = "locality";
+      layer = "places";
+      weight = 0.;
+      lon = 1.;
+      lat = 2.;
+    }
+  in
+  let line = P.to_line forged in
+  check "a name cannot smuggle a newline into the index"
+    (not (String.contains line '\n'));
+  check "nor forge a second row with a tab"
+    (List.length (String.split_on_char '\t' line) = 7);
+
+  (* Folding reaches past Latin-1: a Nordic download is searchable by
+     someone typing lower case. *)
+  check "case folds in Latin Extended-A" (P.fold "Ĉ" = P.fold "ĉ");
+  check "and for the Latin-1 letters with no ASCII form"
+    (P.fold "Ørsta" = P.fold "ørsta");
+
+  (* The wire shape of a job state is a contract with the UI, which parses
+     it as a tagged union and THROWS on anything it does not know. A state
+     added here without its client counterpart does not degrade -- it breaks
+     status polling for the whole job, which is how the indexing state
+     shipped broken once already. *)
+  let state_json j =
+    match Tessarium_server.Basemap_job.to_json j with
+    | `Assoc fields -> List.map fst fields
+    | _ -> []
+  in
+  check "indexing reports tiles, not bytes"
+    (state_json (Indexing { done_tiles = 3; total_tiles = 9 })
+    = [ "state"; "done_tiles"; "total_tiles" ]);
+  check "and names itself the way the client matches on"
+    (match Tessarium_server.Basemap_job.to_json
+             (Indexing { done_tiles = 0; total_tiles = 1 })
+     with
+    | `Assoc fields -> List.assoc_opt "state" fields = Some (`String "indexing")
+    | _ -> false);
+  check "indexing is a running job"
+    (Tessarium_server.Basemap_job.is_running
+       (Indexing { done_tiles = 0; total_tiles = 1 }));
+  check "and nothing else may start during it"
+    (not
+       (Tessarium_server.Basemap_job.can_start
+          (Indexing { done_tiles = 0; total_tiles = 1 })));
 
   (* The Removing job state obeys the same one-writer rule as downloads. *)
   check "nothing starts while a removal runs"

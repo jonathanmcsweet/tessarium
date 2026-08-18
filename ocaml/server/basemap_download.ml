@@ -53,6 +53,9 @@ type ops = {
      that cannot tell the difference will keep asking for a depth that can
      never arrive. *)
   browse : Basemap_job.request -> (int * int, string) result;
+  (* Names from the downloaded region, ranked. Reads the index built when
+     the region landed; never the network. *)
+  search : query:string -> limit:int -> (Yojson.Safe.t, string) result;
   (* Erases the browse cache. Never blocks and never fails: if a writer
      holds the file, the erasing is handed to it and happens when it lets
      go. Browsing is already off by the time this is called, so nothing new
@@ -272,6 +275,31 @@ let open_base ~sw ~fs ~basemap_dir = open_archive ~sw ~fs ~basemap_dir "map.pmti
    outgrows the budget's compaction threshold. *)
 let open_cache ~sw ~fs ~basemap_dir =
   open_archive ~sw ~fs ~basemap_dir "cache.pmtiles"
+
+(* Reading the archive's own labels into the search index. Runs when the
+   archive changes -- a download, an update, a removal -- because that is
+   exactly when the names it can offer change, and because a keystroke
+   cannot wait the seconds this takes on a country. An archive with no
+   tiles has no names, so its index goes rather than lingering. *)
+let reindex t ~fs ~basemap_dir =
+  Eio.Switch.run @@ fun sw ->
+  match open_archive ~sw ~fs ~basemap_dir "map.pmtiles" with
+  | None -> Place_index.remove ~fs ~basemap_dir
+  | Some archive ->
+      let last = ref 0 in
+      let entries =
+        Place_index.build archive ~on_tile:(fun done_ total ->
+            (* Progress, but not thirty thousand mutex takes: the bar moves
+               at a human rate either way. *)
+            if done_ - !last >= 256 || done_ = total then begin
+              last := done_;
+              check_cancel t;
+              set t
+                (Basemap_job.Indexing
+                   { done_tiles = done_; total_tiles = total })
+            end)
+      in
+      Place_index.save ~fs ~basemap_dir entries
 
 (* The archive's ledger, read before anything rewrites the archive. An
    unreadable ledger stops the operation cold rather than being overwritten:
@@ -729,6 +757,21 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
        should still get its attempt. *)
     pruned := true;
     fetch_assets t ~sw ~net ~assets ~dir;
+    (* Last, because it reads the finished archive: the names a region can
+       offer are only knowable once its tiles are on disk.
+
+       Its failure -- including a cancel arriving while it runs -- must not
+       reach the terminal handlers below. By this point every tile is on
+       disk and the ledger entry is published: the download DID happen, and
+       reporting it as cancelled because the index was interrupted would be
+       a lie the ledger immediately contradicts. A missing index costs
+       search, not the map. *)
+    (try reindex t ~fs ~basemap_dir with
+    | Cancelled_by_user ->
+        Logs.info (fun m -> m "search index skipped: cancelled")
+    | e ->
+        Logs.warn (fun m ->
+            m "search index build failed: %s" (Printexc.to_string e)));
     (!written_total, parts_total)
   with
   | total_bytes, parts ->
@@ -848,6 +891,17 @@ let run_remove t ~fs ~basemap_dir ~id =
          this job's to carry out as it leaves -- browsing is off by then,
          and nothing else is coming to do it. *)
       honor_clear t ~fs ~basemap_dir;
+      (* The removed region's names must stop being findable, and a search
+         hit flying the map to tiles that are gone is worse than no hit. *)
+      (try reindex t ~fs ~basemap_dir
+       with e ->
+         (* Keeping the old index would leave the removed region's names
+            findable, and a result flying the map to tiles that are gone is
+            worse than no result. Better nothing than stale. *)
+         Logs.warn (fun m ->
+             m "search index rebuild failed, dropping it: %s"
+               (Printexc.to_string e));
+         Place_index.remove ~fs ~basemap_dir);
       set t (Basemap_job.Removed { freed_bytes })
   | exception Cancelled_by_user ->
       discard_part ();
@@ -973,7 +1027,15 @@ let run_compact t ~fs ~basemap_dir =
         (* The fold is published; the leftover cache is the benign duplicate
            argued for above, so failing to remove it must not be reported as
            a failed compaction. *)
-        (try Eio.Path.unlink Eio.Path.(dir / "cache.pmtiles") with _ -> ())
+        (try Eio.Path.unlink Eio.Path.(dir / "cache.pmtiles") with _ -> ());
+        (* Browsed tiles carry labels too, and they have just become part of
+           the archive: without this, a place the user browsed to is on the
+           map but not findable. *)
+        (try reindex t ~fs ~basemap_dir with
+        | Cancelled_by_user -> ()
+        | e ->
+            Logs.warn (fun m ->
+                m "search index build failed: %s" (Printexc.to_string e)))
   with
   | () ->
       honor_clear t ~fs ~basemap_dir;
@@ -1268,4 +1330,9 @@ let ops t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now =
     browse =
       (fun req -> run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget req);
     clear_cache = (fun () -> clear_cache t ~fs ~basemap_dir);
+    search =
+      (fun ~query ~limit ->
+        match Place_index.search ~fs ~basemap_dir ~query ~limit with
+        | results -> Ok (Place_index.to_json results)
+        | exception e -> Error (friendly e));
   }

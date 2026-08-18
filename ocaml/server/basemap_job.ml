@@ -19,6 +19,8 @@ type t =
       (** the archive is being rewritten without one ledger entry's tiles *)
   | Compacting of { done_bytes : int; total_bytes : int }
       (** browsed tiles are being folded into the main archive *)
+  | Indexing of { done_tiles : int; total_tiles : int }
+      (** the archive's own labels are being read into the search index *)
   | Done of { total_bytes : int; parts : int }
   | Removed of { freed_bytes : int }
       (** a removal finished; its own terminal state so the UI can say
@@ -30,10 +32,12 @@ type t =
    two fibers writing one map.pmtiles is corruption with extra steps. *)
 let can_start = function
   | Idle | Done _ | Removed _ | Failed _ | Cancelled -> true
-  | Planning | Fetching _ | Assets | Removing _ | Compacting _ -> false
+  | Planning | Fetching _ | Assets | Removing _ | Compacting _ | Indexing _ ->
+      false
 
 let is_running = function
-  | Planning | Fetching _ | Assets | Removing _ | Compacting _ -> true
+  | Planning | Fetching _ | Assets | Removing _ | Compacting _ | Indexing _ ->
+      true
   | Idle | Done _ | Removed _ | Failed _ | Cancelled -> false
 
 (* Progress is clamped rather than trusted. The copier reports raw byte
@@ -127,6 +131,13 @@ let to_json = function
           ("state", `String "compacting");
           ("done_bytes", `Int done_bytes);
           ("total_bytes", `Int total_bytes);
+        ]
+  | Indexing { done_tiles; total_tiles } ->
+      `Assoc
+        [
+          ("state", `String "indexing");
+          ("done_tiles", `Int done_tiles);
+          ("total_tiles", `Int total_tiles);
         ]
   | Done { total_bytes; parts } ->
       `Assoc

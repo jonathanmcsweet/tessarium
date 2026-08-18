@@ -76,6 +76,11 @@ const Job = z.discriminatedUnion("state", [
     total_bytes: z.number(),
   }),
   z.object({
+    state: z.literal("indexing"),
+    done_tiles: z.number(),
+    total_tiles: z.number(),
+  }),
+  z.object({
     state: z.literal("done"),
     total_bytes: z.number(),
     parts: z.number().int().min(1),
@@ -99,7 +104,7 @@ export type JobStatus = z.infer<typeof JobStatus>;
 export const isRunning = (job: Job): boolean =>
   job.state === "planning" || job.state === "fetching"
   || job.state === "assets" || job.state === "removing"
-  || job.state === "compacting";
+  || job.state === "compacting" || job.state === "indexing";
 
 /* One row of the download ledger: a region the archive was asked to hold,
    as recorded inside the archive itself. `completed` is epoch seconds;
@@ -298,6 +303,36 @@ export function useBasemapBrowse() {
         client.invalidateQueries({ queryKey: ["basemap-status"] });
       }
     },
+  });
+}
+
+/* A place name, from the index built when the region was downloaded. Never
+   a network geocoder: the query names where the user is going, and that is
+   the one thing this application is arranged not to tell anyone. */
+export const PlaceResult = z.object({
+  name: z.string(),
+  kind: z.string(),
+  layer: z.string(),
+  weight: z.number(),
+  lon: z.number(),
+  lat: z.number(),
+});
+export type PlaceResult = z.infer<typeof PlaceResult>;
+
+const PlaceResults = z.object({ results: z.array(PlaceResult) });
+
+export function usePlaceSearch(query: string) {
+  const trimmed = query.trim();
+  return useQuery({
+    queryKey: ["place-search", trimmed],
+    queryFn: () =>
+      post(PlaceResults, "basemap-search", { q: trimmed, limit: 8 }),
+    /* Two characters is where the answer stops being "most of the map". */
+    enabled: trimmed.length >= 2,
+    /* The index only changes when a region is downloaded or removed, so a
+       repeated query is genuinely the same answer. */
+    staleTime: 5 * 60_000,
+    retry: false,
   });
 }
 

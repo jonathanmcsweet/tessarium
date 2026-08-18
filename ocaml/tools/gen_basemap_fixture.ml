@@ -44,7 +44,32 @@ let mvt_tile =
     ^ bytes_field 2 feature
     ^ varint_field 5 4096
   in
-  bytes_field 3 layer
+  (* A second layer shaped like the real basemap's: one named place, with a
+     kind and a population, so the search index has something to find and
+     something to rank. Named after nothing real -- a fixture that shared a
+     name with a place on Earth would make a passing test ambiguous. *)
+  let named_feature =
+    (* tags: name -> "Fixtureville", kind -> "locality", population -> 4242 *)
+    let tags = varint 0 ^ varint 0 ^ varint 1 ^ varint 1 ^ varint 2 ^ varint 2 in
+    varint_field 3 1
+    ^ bytes_field 2 tags
+    ^ bytes_field 4 geometry
+  in
+  let str_value v = bytes_field 1 v in
+  let int_value n = varint_field 4 n in
+  let places =
+    varint_field 15 2
+    ^ bytes_field 1 "places"
+    ^ bytes_field 2 named_feature
+    ^ bytes_field 3 "name"
+    ^ bytes_field 3 "kind"
+    ^ bytes_field 3 "population"
+    ^ bytes_field 4 (str_value "Fixtureville")
+    ^ bytes_field 4 (str_value "locality")
+    ^ bytes_field 4 (int_value 4242)
+    ^ varint_field 5 4096
+  in
+  bytes_field 3 layer ^ bytes_field 3 places
 
 (* ---------------------------------------------------------------- pmtiles *)
 
