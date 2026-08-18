@@ -29,9 +29,13 @@ type t = {
    with pure fakes and never needs the switch, the network or the clock. *)
 type ops = {
   estimate : Basemap_job.request list -> (Yojson.Safe.t, string) result;
-  start : Basemap_job.request list -> (unit, string) result;
+  start :
+    name:string option -> Basemap_job.request list -> (unit, string) result;
   cancel : unit -> bool;
   status : unit -> Yojson.Safe.t;
+  ledger : unit -> (Yojson.Safe.t, string) result;
+  update : id:string -> (unit, string) result;
+  remove : id:string -> (unit, string) result;
 }
 
 let create () =
@@ -100,11 +104,13 @@ let breathe ?cancel () =
       match cancel with Some t -> check_cancel t | None -> ()
     end
 
+(* The resolved URL is part of the return: the ledger records which archive
+   a region was actually fetched from, and "latest" is not an answer. *)
 let open_source ~sw ~fs ~net ~source =
   let source = Pmtiles_source.resolve ~sw ~net source in
   let src = Pmtiles_source.open_url ~sw ~fs ~net source in
   let archive = Pmtiles.Archive.open_ src in
-  (src, archive)
+  (source, src, archive)
 
 (* One box a download will actually plan and fetch, with the region it came
    from: a small region is one segment, a giant is several. *)
@@ -183,6 +189,26 @@ let open_base ~sw ~fs ~basemap_dir =
            (Pmtiles_source.file_source (Eio.Path.open_in ~sw path)))
   | _ -> None
 
+(* The archive's ledger, read before anything rewrites the archive. An
+   unreadable ledger stops the operation cold rather than being overwritten:
+   silently forgetting what a gigabyte archive holds is the one failure this
+   feature must never have. *)
+let base_ledger = function
+  | None -> ("{}", [])
+  | Some b -> (
+      let meta = Pmtiles.Archive.metadata b in
+      match Ledger.of_metadata meta with
+      | Ok l -> (meta, l)
+      | Error m -> failwith m)
+
+(* A scripted request without a name still gets a legible ledger row. *)
+let default_name (reqs : Basemap_job.request list) =
+  match reqs with
+  | [] -> "?"
+  | r :: _ ->
+      Printf.sprintf "%.2f, %.2f - %.2f, %.2f" r.min_lon r.min_lat r.max_lon
+        r.max_lat
+
 let guard_compression ~h base =
   match base with
   | Some b
@@ -203,7 +229,7 @@ let estimate ~fs ~net ~source ~basemap_dir ~budget
     (reqs : Basemap_job.request list) =
   match
     Eio.Switch.run @@ fun sw ->
-    let _src, archive = open_source ~sw ~fs ~net ~source in
+    let _resolved, _src, archive = open_source ~sw ~fs ~net ~source in
     let h = archive.Pmtiles.Archive.header in
     let base = open_base ~sw ~fs ~basemap_dir in
     guard_compression ~h base;
@@ -290,33 +316,73 @@ let union_boxes boxes =
     (180., 90., -180., -90.)
     boxes
 
+(* Copies the archive byte-for-byte under .part + rename, changing only its
+   metadata. One full pass of disk IO, zero network. This is the ledger's
+   fallback path: a record that must land when no tile write is carrying it. *)
+let copy_with_metadata t ~fs ~basemap_dir ~metadata ~on_progress
+    (b : Pmtiles.Archive.t) =
+  let dir = Eio.Path.(fs / basemap_dir) in
+  let part_path = Eio.Path.(dir / "map.pmtiles.part") in
+  let keep_all ~z:_ ~x:_ ~y:_ = false in
+  let plan, _ =
+    Pmtiles.Merge.prune ~on_entry:(breathe ~cancel:t ()) ~base:b ~drop:keep_all
+      ()
+  in
+  let bh = b.Pmtiles.Archive.header in
+  let total = plan.Pmtiles.Merge.total_bytes in
+  let e7f v = float_of_int v /. 1e7 in
+  Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part_path (fun out ->
+      let written = ref 0 in
+      let append str = Eio.Flow.copy_string str out in
+      let copy ~origin:_ ~offset ~length =
+        check_cancel t;
+        Eio.Flow.copy_string
+          (b.Pmtiles.Archive.src.Pmtiles.Archive.read ~offset ~length)
+          out;
+        written := !written + length;
+        on_progress (min !written total) total
+      in
+      ignore
+        (Pmtiles.Merge.write ~metadata plan bh
+           ~min_zoom:bh.Pmtiles.Header.min_zoom
+           ~max_zoom:bh.Pmtiles.Header.max_zoom
+           ~min_lon:(e7f bh.Pmtiles.Header.min_lon_e7)
+           ~min_lat:(e7f bh.Pmtiles.Header.min_lat_e7)
+           ~max_lon:(e7f bh.Pmtiles.Header.max_lon_e7)
+           ~max_lat:(e7f bh.Pmtiles.Header.max_lat_e7)
+           ~append ~copy));
+  Eio.Path.rename part_path Eio.Path.(dir / "map.pmtiles")
+
 (* Units run in order, each merged into the archive and renamed atomically
    before the next begins. That sequencing IS the resume story: cancel or a
    crash mid-unit loses only the current .part, every finished unit is
    already the archive on disk, and a re-request finds its tiles held and
    skips it after the planning cost alone. The price is that each unit
    rewrites the archive it grows -- recorded on the roadmap, not hidden. *)
-let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
-    (reqs : Basemap_job.request list) =
+let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
+    ~refresh (reqs : Basemap_job.request list) =
   let dir = Eio.Path.(fs / basemap_dir) in
   let part_path = Eio.Path.(dir / "map.pmtiles.part") in
   let discard_part () = try Eio.Path.unlink part_path with _ -> () in
   match
     Eio.Switch.run @@ fun sw ->
-    let src, archive = open_source ~sw ~fs ~net ~source in
+    let resolved, src, archive = open_source ~sw ~fs ~net ~source in
     let h = archive.Pmtiles.Archive.header in
     let min_zoom = h.Pmtiles.Header.min_zoom in
     let units, _depths = units_of ~cancel:t ~budget ~header:h reqs in
     let parts_total = List.length units in
-    let had_base =
-      match Eio.Path.kind ~follow:true Eio.Path.(dir / "map.pmtiles") with
-      | `Regular_file -> true
-      | _ -> false
-    in
     ensure_dir dir;
+    let name = match name with Some n -> n | None -> default_name reqs in
+    (* Ledger identity is fixed by the request before anything runs; the
+       completion time and byte count are filled in when they are true. *)
+    let entry ~completed ~bytes =
+      Ledger.make ~name ~regions:reqs ~completed ~source:resolved ~bytes
+    in
+    let entry_id = Ledger.id (entry ~completed:0 ~bytes:0) in
     let written_total = ref 0 in
     let wrote_any = ref false in
     let found_tiles = ref false in
+    let entry_written = ref false in
     List.iteri
       (fun i unit ->
         check_cancel t;
@@ -330,6 +396,7 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
         Eio.Switch.run @@ fun usw ->
         let base = open_base ~sw:usw ~fs ~basemap_dir in
         guard_compression ~h base;
+        let base_meta, base_led = base_ledger base in
         let plans =
           List.map (plan_box ~cancel:t ~archive ~min_zoom) (segments_of unit)
         in
@@ -339,9 +406,13 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
               Array.length f.Pmtiles.Extract.tiles > 0)
             plans
         then found_tiles := true;
-        let mp = Pmtiles.Merge.plan ~on_entry:(breathe ~cancel:t ()) ~base plans in
+        let mp =
+          Pmtiles.Merge.plan ~on_entry:(breathe ~cancel:t ()) ~refresh ~base
+            plans
+        in
         (* Nothing new in this unit -- the resume case -- writes nothing. *)
-        if mp.Pmtiles.Merge.fresh_tiles > 0 then begin
+        if mp.Pmtiles.Merge.fresh_tiles > 0 || mp.Pmtiles.Merge.refreshed_tiles > 0
+        then begin
           check_cancel t;
           let total = mp.Pmtiles.Merge.total_bytes in
           set t
@@ -398,8 +469,27 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
                   (Basemap_job.progress ~done_bytes:!written ~total_bytes:total
                      ~part ~parts:parts_total)
               in
+              (* The last part that writes also publishes the ledger entry, in
+                 the same rename that publishes its tiles: the record and the
+                 tiles it describes are never separated by a crash window. *)
+              let metadata =
+                if part < parts_total then base_meta
+                else begin
+                  let e =
+                    entry ~completed:(now ()) ~bytes:(!written_total + total)
+                  in
+                  match
+                    Ledger.to_metadata (Ledger.record base_led e)
+                      ~previous:base_meta
+                  with
+                  | Ok m ->
+                      entry_written := true;
+                      m
+                  | Error m -> failwith m
+                end
+              in
               ignore
-                (Pmtiles.Merge.write mp h ~min_zoom:min_zoom'
+                (Pmtiles.Merge.write ~metadata mp h ~min_zoom:min_zoom'
                    ~max_zoom:max_zoom' ~min_lon ~min_lat ~max_lon ~max_lat
                    ~append ~copy));
           Eio.Path.rename part_path Eio.Path.(dir / "map.pmtiles");
@@ -408,8 +498,35 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
         end)
       units;
     if not !found_tiles then failwith "the source has no tiles in that area";
-    if (not !wrote_any) && had_base then
-      failwith "you already have the maps for that area";
+    (* The entry may still be unpublished: the final part was skipped as
+       already held, or nothing was fetched at all. A repeat of a recorded
+       download stays a no-op and says so; anything else gets the entry via
+       one metadata-only rewrite -- including an archive from before the
+       ledger existed, which is adopted with completion time zero, meaning
+       "age unknown, treat as stale". *)
+    if not !entry_written then begin
+      Eio.Switch.run @@ fun usw ->
+      let base = open_base ~sw:usw ~fs ~basemap_dir in
+      let base_meta, base_led = base_ledger base in
+      let already = Ledger.find base_led ~id:entry_id <> None in
+      if (not !wrote_any) && already then
+        failwith "you already have the maps for that area";
+      match base with
+      | None -> ()  (* nothing written and nothing on disk: no record *)
+      | Some b ->
+          let completed = if !wrote_any then now () else 0 in
+          let e = entry ~completed ~bytes:!written_total in
+          let metadata =
+            match
+              Ledger.to_metadata (Ledger.record base_led e) ~previous:base_meta
+            with
+            | Ok m -> m
+            | Error m -> failwith m
+          in
+          copy_with_metadata t ~fs ~basemap_dir ~metadata
+            ~on_progress:(fun _ _ -> ())
+            b
+    end;
     fetch_assets t ~sw ~net ~assets ~dir;
     (!written_total, parts_total)
   with
@@ -422,31 +539,199 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
       discard_part ();
       set t (Basemap_job.Failed (friendly e))
 
-let start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget reqs =
-  let claimed =
-    (* Claiming the job and checking it are one critical section; two requests
-       arriving together must not both see a resting state. *)
-    Eio.Mutex.use_rw ~protect:true t.mutex (fun () ->
-        if Basemap_job.can_start t.job then begin
-          t.job <- Basemap_job.Planning;
-          t.generation <- t.generation + 1;
-          t.cancel_requested <- false;
-          true
-        end
-        else false)
-  in
-  if not claimed then Error "a download is already running"
+(* ----------------------------------------------------------------- remove *)
+
+(* Rewrites the archive without one ledger entry's tiles, entry and tiles
+   leaving in the same atomic rename. Never touches the network. When the
+   last tile goes, the archive file goes with it -- an empty archive and a
+   missing one should be the same state, and the missing one is the honest
+   spelling. *)
+let run_remove t ~fs ~basemap_dir ~id =
+  let dir = Eio.Path.(fs / basemap_dir) in
+  let part_path = Eio.Path.(dir / "map.pmtiles.part") in
+  let discard_part () = try Eio.Path.unlink part_path with _ -> () in
+  match
+    Eio.Switch.run @@ fun sw ->
+    match open_base ~sw ~fs ~basemap_dir with
+    | None -> failwith "there is no downloaded map to remove from"
+    | Some b -> (
+        let base_meta, led = base_ledger (Some b) in
+        match Ledger.remove led ~id with
+        | None -> failwith "no such downloaded map"
+        | Some (gone, kept) ->
+            let drop = Ledger.drops ~removed:gone ~kept in
+            let pruned, dropped_tiles =
+              Pmtiles.Merge.prune ~on_entry:(breathe ~cancel:t ()) ~base:b
+                ~drop ()
+            in
+            let bh = b.Pmtiles.Archive.header in
+            let before = bh.Pmtiles.Header.data_length in
+            if Array.length pruned.Pmtiles.Merge.tiles = 0 then begin
+              Eio.Path.unlink Eio.Path.(dir / "map.pmtiles");
+              before
+            end
+            else if dropped_tiles = 0 then begin
+              (* Everything the entry covered is shared with what stays. The
+                 record still goes; the tiles were never only its own. *)
+              let metadata =
+                match Ledger.to_metadata kept ~previous:base_meta with
+                | Ok m -> m
+                | Error m -> failwith m
+              in
+              copy_with_metadata t ~fs ~basemap_dir ~metadata
+                ~on_progress:(fun done_bytes total_bytes ->
+                  set t (Basemap_job.Removing { done_bytes; total_bytes }))
+                b;
+              0
+            end
+            else begin
+              let metadata =
+                match Ledger.to_metadata kept ~previous:base_meta with
+                | Ok m -> m
+                | Error m -> failwith m
+              in
+              let total = pruned.Pmtiles.Merge.total_bytes in
+              set t (Basemap_job.Removing { done_bytes = 0; total_bytes = total });
+              let e7f v = float_of_int v /. 1e7 in
+              Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part_path
+                (fun out ->
+                  let written = ref 0 in
+                  let append str = Eio.Flow.copy_string str out in
+                  let copy ~origin:_ ~offset ~length =
+                    check_cancel t;
+                    Eio.Flow.copy_string
+                      (b.Pmtiles.Archive.src.Pmtiles.Archive.read ~offset
+                         ~length)
+                      out;
+                    written := !written + length;
+                    set t
+                      (Basemap_job.Removing
+                         {
+                           done_bytes = min !written total;
+                           total_bytes = total;
+                         })
+                  in
+                  ignore
+                    (Pmtiles.Merge.write ~metadata pruned bh
+                       ~min_zoom:bh.Pmtiles.Header.min_zoom
+                       ~max_zoom:bh.Pmtiles.Header.max_zoom
+                       ~min_lon:(e7f bh.Pmtiles.Header.min_lon_e7)
+                       ~min_lat:(e7f bh.Pmtiles.Header.min_lat_e7)
+                       ~max_lon:(e7f bh.Pmtiles.Header.max_lon_e7)
+                       ~max_lat:(e7f bh.Pmtiles.Header.max_lat_e7)
+                       ~append ~copy));
+              Eio.Path.rename part_path Eio.Path.(dir / "map.pmtiles");
+              max 0 (before - total)
+            end)
+  with
+  | freed_bytes -> set t (Basemap_job.Removed { freed_bytes })
+  | exception Cancelled_by_user ->
+      discard_part ();
+      set t Basemap_job.Cancelled
+  | exception e ->
+      discard_part ();
+      set t (Basemap_job.Failed (friendly e))
+
+(* ------------------------------------------------------------- lifecycle *)
+
+let claim t =
+  (* Claiming the job and checking it are one critical section; two requests
+     arriving together must not both see a resting state. *)
+  Eio.Mutex.use_rw ~protect:true t.mutex (fun () ->
+      if Basemap_job.can_start t.job then begin
+        t.job <- Basemap_job.Planning;
+        t.generation <- t.generation + 1;
+        t.cancel_requested <- false;
+        true
+      end
+      else false)
+
+let start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now reqs =
+  if not (claim t) then Error "a download is already running"
   else begin
     Eio.Fiber.fork ~sw (fun () ->
-        run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget reqs);
+        run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
+          ~refresh:false reqs);
     Ok ()
   end
 
-let ops t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget =
+(* An update is the recorded download run again with the merge tie inverted:
+   every tile in the region is fetched fresh and replaces its stale copy.
+   The regions come from the ledger, so the entry that results has the same
+   identity and replaces itself. *)
+let start_update t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now ~id =
+  if not (claim t) then Error "a download is already running"
+  else begin
+    Eio.Fiber.fork ~sw (fun () ->
+        match
+          Eio.Switch.run @@ fun usw ->
+          let base = open_base ~sw:usw ~fs ~basemap_dir in
+          let _meta, led = base_ledger base in
+          Ledger.find led ~id
+        with
+        | None -> set t (Basemap_job.Failed "no such downloaded map")
+        | Some e ->
+            run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
+              ~name:(Some e.Ledger.name) ~now ~refresh:true e.Ledger.regions
+        | exception e -> set t (Basemap_job.Failed (friendly e)));
+    Ok ()
+  end
+
+let start_remove t ~sw ~fs ~basemap_dir ~id =
+  if not (claim t) then Error "a download is already running"
+  else begin
+    Eio.Fiber.fork ~sw (fun () -> run_remove t ~fs ~basemap_dir ~id);
+    Ok ()
+  end
+
+(* What the archive holds, for the UI's downloaded-maps list. Reading it
+   opens the archive fresh each time -- a header and a metadata blob, not
+   the tiles -- so the list is always what is on disk right now. *)
+let ledger_json ~fs ~basemap_dir =
+  match
+    Eio.Switch.run @@ fun sw ->
+    let base = open_base ~sw ~fs ~basemap_dir in
+    let _meta, led = base_ledger base in
+    `Assoc
+      [
+        ( "entries",
+          `List
+            (List.map
+               (fun (e : Ledger.entry) ->
+                 `Assoc
+                   [
+                     ("id", `String (Ledger.id e));
+                     ("name", `String e.Ledger.name);
+                     ("completed", `Int e.Ledger.completed);
+                     ("source", `String e.Ledger.source);
+                     ("bytes", `Int e.Ledger.bytes);
+                     ("regions", `Int (List.length e.Ledger.regions));
+                     ( "max_zoom",
+                       `Int
+                         (List.fold_left
+                            (fun acc (r : Basemap_job.request) ->
+                              max acc r.max_zoom)
+                            0 e.Ledger.regions) );
+                   ])
+               led) );
+      ]
+  with
+  | json -> Ok json
+  | exception e -> Error (friendly e)
+
+let ops t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now =
   {
     estimate = (fun reqs -> estimate ~fs ~net ~source ~basemap_dir ~budget reqs);
     start =
-      (fun reqs -> start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget reqs);
+      (fun ~name reqs ->
+        start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
+          reqs);
     cancel = (fun () -> cancel t);
     status = (fun () -> status t);
+    ledger = (fun () -> ledger_json ~fs ~basemap_dir);
+    update =
+      (fun ~id ->
+        start_update t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now
+          ~id);
+    remove = (fun ~id -> start_remove t ~sw ~fs ~basemap_dir ~id);
   }

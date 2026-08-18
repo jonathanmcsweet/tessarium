@@ -557,6 +557,119 @@ let () =
               parts
             |> List.sort_uniq compare = full);
 
+  (* --------------------------------------------------- archive metadata *)
+  (* The download ledger rides in the metadata section, so what a writer is
+     given must be exactly what a reader gets back -- byte for byte, with
+     the tiles unharmed around it. *)
+  let meta = {|{"tessarium_ledger":{"v":1,"entries":[]}}|} in
+  let with_meta =
+    let p =
+      E.plan archive ~min_zoom:0 ~max_zoom:10 ~min_lon:(-0.5) ~min_lat:50.5
+        ~max_lon:0.0 ~max_lat:51.5
+    in
+    let buf = Buffer.create 4096 in
+    let _ =
+      E.write ~metadata:meta p src_header ~min_zoom:0 ~max_zoom:10
+        ~min_lon:(-0.5) ~min_lat:50.5 ~max_lon:0.0 ~max_lat:51.5
+        ~append:(Buffer.add_string buf)
+        ~copy:(fun ~offset ~length ->
+          Buffer.add_string buf (String.sub archive_bytes offset length))
+    in
+    A.open_ (source_of (Buffer.contents buf))
+  in
+  check "written metadata reads back byte for byte"
+    (A.metadata with_meta = meta);
+  check "tiles read exactly around a metadata payload"
+    (Array.for_all
+       (fun (id, _) ->
+         match A.tile with_meta id with
+         | Some got -> String.equal got (tile_bytes id)
+         | None -> false)
+       plan_a.E.tiles);
+  check "the default metadata stays the empty object"
+    (A.metadata merged = "{}");
+
+  (* ------------------------------------------------------- refresh merge *)
+  (* An update inverts exactly one tie: every tile of the region is fetched
+     fresh and replaces its held copy, tiles outside the region stay Base,
+     and nothing else about the merge changes. *)
+  let refreshed = M.plan ~refresh:true ~base:(Some merged) [ plan_b ] in
+  check "a refresh re-fetches every tile of its region"
+    (refreshed.M.refreshed_tiles = Array.length plan_b.E.tiles
+    && refreshed.M.fresh_tiles = 0
+    && refreshed.M.fetch_bytes = E.planned_bytes plan_b);
+  check "without refresh the same plan fetches nothing"
+    (let p = M.plan ~base:(Some merged) [ plan_b ] in
+     p.M.refreshed_tiles = 0 && p.M.fetch_bytes = 0);
+  check "a refresh never drops a tile"
+    (Array.length refreshed.M.tiles = List.length both);
+  check "tiles outside the refreshed region stay on disk"
+    (let fresh_ids =
+       Array.to_list plan_b.E.tiles |> List.map fst |> List.sort_uniq compare
+     in
+     Array.for_all
+       (fun (id, blob) ->
+         let origin, _, _ = refreshed.M.blobs.(blob) in
+         if List.mem id fresh_ids then origin = M.Fresh else origin = M.Base)
+       refreshed.M.tiles);
+  check "a refreshed archive reads back byte-identical tiles"
+    (let buf = Buffer.create 4096 in
+     let _ =
+       M.write refreshed src_header ~min_zoom:0 ~max_zoom:10 ~min_lon:(-0.5)
+         ~min_lat:50.5 ~max_lon:0.8 ~max_lat:51.5
+         ~append:(Buffer.add_string buf)
+         ~copy:(fun ~origin ~offset ~length ->
+           Buffer.add_string buf
+             (match origin with
+             | M.Base -> String.sub (Buffer.contents merged_buf) offset length
+             | M.Fresh -> String.sub archive_bytes offset length))
+     in
+     let a = A.open_ (source_of (Buffer.contents buf)) in
+     List.for_all
+       (fun id ->
+         match A.tile a id with
+         | Some got -> String.equal got (tile_bytes id)
+         | None -> false)
+       both);
+
+  (* --------------------------------------------------------------- prune *)
+  (* Removal is a filter over the base with blob sharing honoured: a blob
+     leaves only when its last referencing tile does. *)
+  let b_exclusive =
+    Array.to_list plan_b.E.tiles |> List.map fst
+    |> List.filter (fun id ->
+           not (Array.exists (fun (t, _) -> t = id) plan_a.E.tiles))
+  in
+  let drop_b ~z ~x ~y = List.mem (T.of_zxy ~z ~x ~y) b_exclusive in
+  let pruned, dropped = M.prune ~base:merged ~drop:drop_b () in
+  check "prune drops exactly the named tiles"
+    (dropped = List.length b_exclusive
+    && Array.length pruned.M.tiles
+       = List.length both - List.length b_exclusive);
+  check "prune fetches nothing" (pruned.M.fetch_bytes = 0);
+  check "a pruned archive keeps survivors byte for byte and loses the rest"
+    (let buf = Buffer.create 4096 in
+     let _ =
+       M.write pruned src_header ~min_zoom:0 ~max_zoom:10 ~min_lon:(-0.5)
+         ~min_lat:50.5 ~max_lon:0.8 ~max_lat:51.5
+         ~append:(Buffer.add_string buf)
+         ~copy:(fun ~origin:_ ~offset ~length ->
+           Buffer.add_string buf
+             (String.sub (Buffer.contents merged_buf) offset length))
+     in
+     let a = A.open_ (source_of (Buffer.contents buf)) in
+     List.for_all
+       (fun id ->
+         match A.tile a id with
+         | Some got ->
+             (not (List.mem id b_exclusive))
+             && String.equal got (tile_bytes id)
+         | None -> List.mem id b_exclusive)
+       both);
+  check "prune with nothing to drop keeps every tile"
+    (let all, none = M.prune ~base:merged ~drop:(fun ~z:_ ~x:_ ~y:_ -> false) () in
+     none = 0 && Array.length all.M.tiles = List.length both);
+
   (* ------------------------------------------------ newest planet build *)
   (* The default source resolves "latest" against the Protomaps build
      listing, because the old stable URL was deleted from under the project

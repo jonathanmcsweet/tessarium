@@ -1396,3 +1396,43 @@ builds are still tileset schema 4.x (4.15.2), which the UI style targets.
 roadmap: Protomaps promises nothing about the daily builds either, and a
 mirror is ~137 GB.
 
+### 2026-08-18 — The download ledger: list, update, remove, reminders
+
+**Phase:** 5 (offline basemap)
+
+**What:** Every completed download is now recorded — name, regions, date,
+resolved source build, bytes — inside map.pmtiles' own metadata section, in
+the same atomic rename that publishes its tiles, so the record can never
+describe tiles that are not on disk. The card lists the entries with per-row
+**Update** (re-fetches the region tile for tile: the merge tie inverted to
+fresh-wins, the one deliberate way to refresh stale tiles) and **Remove**
+(rewrites the archive without the entry's tiles; the rule is Remove undoes
+the download — a tile goes exactly when the removed download would have
+fetched it and no kept entry's would; removing the last entry deletes the
+file). Regions older than a threshold get an "update available" nudge; the
+threshold (30/90/180/never, default 90 days) persists server-side in
+basemap/settings.json because the browser deliberately stores nothing.
+Pre-ledger archives are adopted by re-requesting a covered area: the entry
+lands with completion time zero, displayed as "age unknown" and treated as
+stale. Scripted downloads without a name are recorded under their box.
+New suites: ledger serialization (canonical bytes, identity from regions
+alone and blind to their order, loud corruption failure — never a silently
+emptied ledger), removal geometry on exact tile boundaries, refresh and
+prune merge properties, endpoint dispatch, and the whole lifecycle driven
+through the real card and API in e2e (103 checks, run twice for
+determinism).
+
+**Rationale:** one merged archive plus a ledger, not per-region files —
+per-region archives must be self-contained, so overlapping picks would
+store and download shared tiles repeatedly, defeating skip-if-held; and
+the agreed browse-cache feature only makes sense in a merged store. The
+ledger lives in the archive rather than a sidecar for crash-consistency;
+the settings live in a sidecar rather than the archive because a
+preference toggle must not rewrite gigabytes. Determinism is load-bearing
+per the user's explicit requirement: fixed serialization order, an entry
+id derived only from its regions (%.7f canonical text, SHA-256), and the
+clock injected, never read.
+
+**Follow-on:** the opt-in browse cache (two-tier archive) and an
+update-price estimate, both on the roadmap.
+

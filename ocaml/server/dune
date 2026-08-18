@@ -27,6 +27,7 @@
   logs.fmt
   fmt
   yojson
+  digestif
   zarith
   base64
   gzip

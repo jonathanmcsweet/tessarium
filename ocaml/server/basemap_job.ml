@@ -15,19 +15,24 @@ type t =
       parts : int;
     }
   | Assets  (** tiles written; glyphs and sprites downloading *)
+  | Removing of { done_bytes : int; total_bytes : int }
+      (** the archive is being rewritten without one ledger entry's tiles *)
   | Done of { total_bytes : int; parts : int }
+  | Removed of { freed_bytes : int }
+      (** a removal finished; its own terminal state so the UI can say
+          "removed" rather than pretending a download completed *)
   | Failed of string
   | Cancelled
 
 (* A new download may begin from any resting state. Never from a running one:
    two fibers writing one map.pmtiles is corruption with extra steps. *)
 let can_start = function
-  | Idle | Done _ | Failed _ | Cancelled -> true
-  | Planning | Fetching _ | Assets -> false
+  | Idle | Done _ | Removed _ | Failed _ | Cancelled -> true
+  | Planning | Fetching _ | Assets | Removing _ -> false
 
 let is_running = function
-  | Planning | Fetching _ | Assets -> true
-  | Idle | Done _ | Failed _ | Cancelled -> false
+  | Planning | Fetching _ | Assets | Removing _ -> true
+  | Idle | Done _ | Removed _ | Failed _ | Cancelled -> false
 
 (* Progress is clamped rather than trusted. The copier reports raw byte
    counts; gzip framing can push the last report past the planned total, and a
@@ -107,6 +112,13 @@ let to_json = function
           ("parts", `Int parts);
         ]
   | Assets -> `Assoc [ ("state", `String "assets") ]
+  | Removing { done_bytes; total_bytes } ->
+      `Assoc
+        [
+          ("state", `String "removing");
+          ("done_bytes", `Int done_bytes);
+          ("total_bytes", `Int total_bytes);
+        ]
   | Done { total_bytes; parts } ->
       `Assoc
         [
@@ -114,6 +126,9 @@ let to_json = function
           ("total_bytes", `Int total_bytes);
           ("parts", `Int parts);
         ]
+  | Removed { freed_bytes } ->
+      `Assoc
+        [ ("state", `String "removed"); ("freed_bytes", `Int freed_bytes) ]
   | Failed reason ->
       `Assoc [ ("state", `String "failed"); ("reason", `String reason) ]
   | Cancelled -> `Assoc [ ("state", `String "cancelled") ]

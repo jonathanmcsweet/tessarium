@@ -462,14 +462,65 @@ let parse_regions json =
       |> Result.map List.rev
   | _ -> Error {|missing regions: expected {"regions": [...]}|}
 
-let handle_basemap cfg (ops : Basemap_download.ops) ~endpoint ~body =
+(* The ledger id is a hex digest prefix the server itself handed out; the
+   only thing to defend against is garbage. *)
+let parse_id json =
+  match json_field "id" json with
+  | Some (`String s)
+    when String.length s > 0 && String.length s <= 64
+         && String.for_all
+              (function 'a' .. 'f' | '0' .. '9' -> true | _ -> false)
+              s ->
+      Ok s
+  | _ -> Error {|missing id: expected {"id": "..."}|}
+
+let handle_basemap cfg (ops : Basemap_download.ops)
+    (settings : Settings.ops) ~endpoint ~body =
   let bad = error cfg ~status:`Bad_request in
+  (* A ledger or settings failure is this server's own data gone wrong, not
+     the caller's request and not the upstream source. *)
+  let broken = error cfg ~status:`Internal_server_error in
+  let with_json body k =
+    match Yojson.Safe.from_string body with
+    | exception _ -> bad "body is not valid JSON"
+    | json -> k json
+  in
+  let started = function
+    | Ok () -> respond_json cfg ~status:`OK (`Assoc [ ("ok", `Bool true) ])
+    | Error e -> error cfg ~status:`Conflict e
+  in
   match endpoint with
   | "basemap-status" -> respond_json cfg ~status:`OK (ops.status ())
   | "basemap-cancel" ->
       let stopped = ops.cancel () in
       respond_json cfg ~status:`OK
         (`Assoc [ ("ok", `Bool true); ("stopped", `Bool stopped) ])
+  | "basemap-ledger" -> (
+      match ops.ledger () with
+      | Ok payload -> respond_json cfg ~status:`OK payload
+      | Error e -> broken e)
+  | "basemap-update" ->
+      with_json body (fun json ->
+          match parse_id json with
+          | Error e -> bad e
+          | Ok id -> started (ops.update ~id))
+  | "basemap-remove" ->
+      with_json body (fun json ->
+          match parse_id json with
+          | Error e -> bad e
+          | Ok id -> started (ops.remove ~id))
+  | "basemap-settings" ->
+      with_json body (fun json ->
+          match json_field "update_reminder_days" json with
+          | None -> (
+              match settings.get () with
+              | Ok payload -> respond_json cfg ~status:`OK payload
+              | Error e -> broken e)
+          | Some (`Int days) -> (
+              match settings.set days with
+              | Ok payload -> respond_json cfg ~status:`OK payload
+              | Error e -> bad e)
+          | Some _ -> bad "update_reminder_days must be an integer")
   | "basemap-estimate" | "basemap-download" -> (
       match Yojson.Safe.from_string body with
       | exception _ -> bad "body is not valid JSON"
@@ -486,10 +537,13 @@ let handle_basemap cfg (ops : Basemap_download.ops) ~endpoint ~body =
                        should say so rather than blame the request. *)
                     error cfg ~status:`Bad_gateway e
               else
-                match ops.start reqs with
-                | Ok () ->
-                    respond_json cfg ~status:`OK (`Assoc [ ("ok", `Bool true) ])
-                | Error e -> error cfg ~status:`Conflict e))
+                (* The ledger displays whatever name the picker sends, so it
+                   is bounded and printable or the request dies here. *)
+                match json_field "name" json with
+                | Some (`String s) when Ledger.valid_name s ->
+                    started (ops.start ~name:(Some s) reqs)
+                | Some _ -> bad "name must be 1-120 bytes of printable UTF-8"
+                | None -> started (ops.start ~name:None reqs)))
   | _ -> error cfg ~status:`Not_found "no such endpoint"
 
 (* Whether a request declared a body. Both mistakes around this are real and
@@ -507,7 +561,7 @@ let declares_body headers =
 let status_code s = Http.Status.to_int s
 
 let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
-    ~basemap_ops =
+    ~basemap_ops ~settings_ops =
   let simple (result, bytes) status = (result, status, bytes, Http_range.Whole) in
   fun _conn (request : Http.Request.t) body ->
     let meth = Http.Request.meth request in
@@ -533,7 +587,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
               Eio.Flow.read_all body
             else ""
           in
-          simple (handle_basemap cfg basemap_ops ~endpoint ~body) `OK
+          simple (handle_basemap cfg basemap_ops settings_ops ~endpoint ~body) `OK
       | Route.Api endpoint ->
           if not cfg.api_enabled then
             simple
@@ -610,10 +664,14 @@ let run env ~sw ~port cfg =
       ~sw ~fs ~net:(Eio.Stdenv.net env) ~source:cfg.basemap_source
       ~assets:cfg.basemap_assets ~basemap_dir:cfg.basemap_dir
       ~budget:cfg.tile_budget
+      (* Epoch seconds for the ledger; the float is Eio's, the truncation
+         deliberate -- sub-second precision on a download date is noise. *)
+      ~now:(fun () -> int_of_float (Eio.Time.now clock))
   in
+  let settings_ops = Settings.ops ~fs ~basemap_dir:cfg.basemap_dir in
   let callback =
     handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
-      ~basemap_ops
+      ~basemap_ops ~settings_ops
   in
   let server = Cohttp_eio.Server.make_response_action ~callback () in
   (* Loopback only. This binary is the desktop app as well as the self-hosted

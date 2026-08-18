@@ -145,9 +145,9 @@ let e7 v = int_of_float (Float.round (v *. 1e7))
    blob i's bytes when asked. Keeping the copy injected means this function
    does no IO and the caller decides whether bytes come from a file, a
    socket, or two different archives at once. *)
-let write_tiles ~(source : Header.t) ~min_zoom ~max_zoom ~min_lon ~min_lat
-    ~max_lon ~max_lat ~(tiles : (int * int) array)
-    ~(blob_lengths : int array) ~append ~copy_blob =
+let write_tiles ?(metadata = "{}") ~(source : Header.t) ~min_zoom ~max_zoom
+    ~min_lon ~min_lat ~max_lon ~max_lat ~(tiles : (int * int) array)
+    ~(blob_lengths : int array) ~append ~copy_blob () =
   (* Blob offsets are relative to the start of the tile data section, so they
      can be computed before the header's size is known. *)
   let blob_offsets = Array.make (Array.length blob_lengths) (0, 0) in
@@ -162,7 +162,9 @@ let write_tiles ~(source : Header.t) ~min_zoom ~max_zoom ~min_lon ~min_lat
   let entries = entries_of_tiles tiles ~blob_offsets in
   let root, leaves, _leaf_count = build_directories entries in
 
-  let metadata = "{}" in
+  (* Written archives use no internal compression, so the metadata string is
+     stored verbatim -- what the caller passes is byte-for-byte what a reader
+     gets back, which the download ledger depends on. *)
   let root_offset = Header.size in
   let metadata_offset = root_offset + String.length root in
   let leaf_offset = metadata_offset + String.length metadata in
@@ -205,12 +207,13 @@ let write_tiles ~(source : Header.t) ~min_zoom ~max_zoom ~min_lon ~min_lat
   Array.iteri (fun i _ -> copy_blob i) blob_lengths;
   header
 
-let write plan (source : Header.t) ~min_zoom ~max_zoom ~min_lon ~min_lat
-    ~max_lon ~max_lat ~append ~copy =
-  write_tiles ~source ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
-    ~tiles:plan.tiles
+let write ?metadata plan (source : Header.t) ~min_zoom ~max_zoom ~min_lon
+    ~min_lat ~max_lon ~max_lat ~append ~copy =
+  write_tiles ?metadata ~source ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
+    ~max_lat ~tiles:plan.tiles
     ~blob_lengths:(Array.map snd plan.blobs)
     ~append
     ~copy_blob:(fun i ->
       let offset, length = plan.blobs.(i) in
       copy ~offset ~length)
+    ()

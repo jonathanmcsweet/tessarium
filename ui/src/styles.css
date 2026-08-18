@@ -714,6 +714,63 @@ button:disabled {
   color: white;
 }
 
+/* Downloaded maps: one row per recorded region, its age, its two verbs. */
+.ledger-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ledger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.ledger-row + .ledger-row {
+  border-top: 1px solid var(--line);
+}
+
+.ledger-row .download-actions {
+  margin-top: 0;
+  flex: none;
+}
+
+.ledger-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ledger-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* The staleness nudge is text, not a traffic light: --accent-text holds
+   4.5:1 on the card, where the brighter accent would not. */
+.ledger-stale {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.ledger-reminder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.ledger-reminder select {
+  flex: none;
+  width: auto;
+}
+
 /* Small screens: the panel becomes a sheet under the map rather than a column
    beside it, and nothing is allowed to overflow sideways. */
 @media (max-width: 560px) {
