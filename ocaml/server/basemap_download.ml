@@ -317,8 +317,10 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
         (* Honest between parts: the next piece really is being planned. *)
         set t Basemap_job.Planning;
         let part = i + 1 in
-        (* A switch per unit so the base file handle closes before the
-           rename that replaces it. *)
+        (* A switch per unit so each part's base handle closes when its
+           part ends. The rename happens while it is open -- POSIX keeps
+           the old inode alive for the open reader, and every base read of
+           this part completes before the rename. *)
         Eio.Switch.run @@ fun usw ->
         let base = open_base ~sw:usw ~fs ~basemap_dir in
         guard_compression ~h base;

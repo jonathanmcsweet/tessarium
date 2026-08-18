@@ -325,10 +325,13 @@ not cover.
       what its estimate just planned (Brazil: ~52 s each time). And a part's
       merge expands the whole accumulated base into memory -- arrays now,
       about a third of the old hashtable cost, but still linear in the
-      archive, so every merge after a giant carries it. Blob-level resume
-      inside a part, plan reuse between estimate and download, and a
-      streaming merge that never expands the base are the fixes, roughly in
-      that order of value. Canada and Russia still clamp: their BOXES are
+      archive, so every merge after a giant carries it. Parts also lose
+      cross-part blob dedup: a blob shared by tiles in two parts (ocean,
+      mostly) is fetched and stored once per part, where a single merge
+      stores it once -- content-addressing at write time is the fix.
+      Blob-level resume inside a part, plan reuse between estimate and
+      download, and a streaming merge that never expands the base are the
+      other fixes, roughly in that order of value. Canada and Russia still clamp: their BOXES are
       near-planetary (112M and 188M ids against a 48M ceiling); polygon
       clipping, below, is most of their answer.
 - [ ] **Region boxes are boxes.** The picker (Natural Earth data,

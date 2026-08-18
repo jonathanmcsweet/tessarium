@@ -49,17 +49,8 @@ let setup_log level =
   Logs.set_reporter (Logs_fmt.reporter ())
 
 let serve port ui basemap api connect_src basemap_source basemap_assets
-    tile_budget no_open log_level =
+    budget no_open log_level =
   setup_log log_level;
-  let budget =
-    match tile_budget with
-    | "" -> Basemap_download.default_budget
-    | s -> (
-        try
-          Scanf.sscanf s "%d,%d,%d%!" (fun full quick max_parts ->
-              Basemap_download.{ full; quick; max_parts })
-        with _ -> invalid_arg "--tile-budget expects FULL,QUICK,PARTS")
-  in
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
   let cfg =
@@ -147,7 +138,28 @@ let tile_budget =
      default suits real hardware; tests shrink it to force multi-part \
      downloads against a small fixture."
   in
-  Arg.(value & opt string "" & info [ "tile-budget" ] ~docv:"F,Q,P" ~doc)
+  (* A converter rather than an in-band parse: bad input earns cmdliner's
+     usage diagnostic, not an uncaught exception, and nonpositive values are
+     refused here -- downstream they silently degrade every download to the
+     minimum zoom. *)
+  let budget_conv =
+    let parse s =
+      try
+        Scanf.sscanf s "%d,%d,%d%!" (fun full quick max_parts ->
+            if full > 0 && quick > 0 && max_parts > 0 then
+              Ok Basemap_download.{ full; quick; max_parts }
+            else Error (`Msg "tile budget values must all be positive"))
+      with _ -> Error (`Msg "expected FULL,QUICK,PARTS as three integers")
+    in
+    let print ppf (b : Basemap_download.budget) =
+      Format.fprintf ppf "%d,%d,%d" b.full b.quick b.max_parts
+    in
+    Arg.conv ~docv:"F,Q,P" (parse, print)
+  in
+  Arg.(
+    value
+    & opt budget_conv Basemap_download.default_budget
+    & info [ "tile-budget" ] ~docv:"F,Q,P" ~doc)
 
 let cmd =
   let doc = "serve the Tessarium map on localhost" in

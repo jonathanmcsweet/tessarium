@@ -306,29 +306,34 @@ let () =
        ~max_lon:180. ~max_lat:85. ~limit:1
      = 0);
 
-  (* ------------------------------------------------------ download_depth *)
-  (* An explicit country or state gets the full ask; only a box too large to
-     plan falls back, and says so. Limits here are the server's real ones. *)
-  let dd ~min_lon ~min_lat ~max_lon ~max_lat =
-    T.download_depth ~min_zoom:0 ~requested:15 ~min_lon ~min_lat ~max_lon
-      ~max_lat ~full_limit:6_000_000 ~quick_limit:131_072
+  (* ------------------------------------------------------ download_parts *)
+  (* An explicit country or state gets the full ask; a giant splits into
+     parts that each fit; only a near-planetary box falls back, and says
+     so. Limits here are the server's real ones. *)
+  let dp ~min_lon ~min_lat ~max_lon ~max_lat =
+    T.download_parts ~min_zoom:0 ~requested:15 ~min_lon ~min_lat ~max_lon
+      ~max_lat ~full_limit:6_000_000 ~quick_limit:131_072 ~max_parts:8
   in
-  check "France gets street level, unclamped"
-    (dd ~min_lon:(-5.1) ~min_lat:41.3 ~max_lon:9.6 ~max_lat:51.1
-     = (15, false));
-  check "California gets street level, unclamped"
-    (dd ~min_lon:(-124.4) ~min_lat:32.5 ~max_lon:(-114.1) ~max_lat:42.0
-     = (15, false));
-  check "Brazil is too large for one full-detail download and says so"
-    (let depth, clamped =
-       dd ~min_lon:(-74.0) ~min_lat:(-33.8) ~max_lon:(-34.7) ~max_lat:5.2
+  check "France gets street level in one piece"
+    (dp ~min_lon:(-5.1) ~min_lat:41.3 ~max_lon:9.6 ~max_lat:51.1
+     = ([ (-5.1, 41.3, 9.6, 51.1) ], 15, false));
+  check "California gets street level in one piece"
+    (let parts, depth, clamped =
+       dp ~min_lon:(-124.4) ~min_lat:32.5 ~max_lon:(-114.1) ~max_lat:42.0
      in
-     clamped && depth >= 9 && depth < 15);
+     List.length parts = 1 && depth = 15 && not clamped);
+  check "Brazil gets street level, split into parts"
+    (let parts, depth, clamped =
+       dp ~min_lon:(-74.0) ~min_lat:(-33.8) ~max_lon:(-34.7) ~max_lat:5.3
+     in
+     (not clamped) && depth = 15
+     && List.length parts > 1
+     && List.length parts <= 8);
   check "the whole world falls back to a quick plan"
-    (let depth, clamped =
-       dd ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
+    (let parts, depth, clamped =
+       dp ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
      in
-     clamped && depth < 12);
+     clamped && depth < 12 && List.length parts = 1);
 
   (* ------------------------------------------------------------- merge *)
   (* Extract one box, then merge a second, overlapping box into it. Every

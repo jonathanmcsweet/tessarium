@@ -140,26 +140,6 @@ let depth_for ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~limit =
   in
   go min_zoom 0 min_zoom
 
-(* Which depth a download gets: the full ask when the box affords it within
-   [full_limit], otherwise a quick regional fallback within [quick_limit],
-   flagged so the UI can say so.
-
-   Two limits on purpose. An explicit "give me France" is ~2.2 million tile
-   ids -- minutes of fetching but a plan a machine handles, so it gets street
-   level. All of Brazil at street level is over fifteen million and tens of
-   gigabytes; pretending otherwise would wedge the server and fill the disk,
-   so oversized boxes fall back to a depth that plans in a couple of
-   seconds, and the caller says "pick a state" instead. *)
-let download_depth ~min_zoom ~requested ~min_lon ~min_lat ~max_lon ~max_lat
-    ~full_limit ~quick_limit =
-  let depth limit =
-    depth_for ~min_zoom ~max_zoom:requested ~min_lon ~min_lat ~max_lon
-      ~max_lat ~limit
-  in
-  let full = depth full_limit in
-  if full >= requested then (requested, false)
-  else (depth quick_limit, true)
-
 (* Latitude of the northern edge of tile row [y] at zoom [z] -- the inverse
    of [tile_y]. Splitting a box along the tile grid rather than in degrees is
    what keeps both halves holding similar tile counts at every latitude. *)
@@ -220,7 +200,15 @@ let split ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~limit
    when it fits [full_limit]; several when splitting affords the full ask
    within [max_parts] pieces -- how a Brazil-sized pick gets street level;
    otherwise the single box at a quick regional depth, flagged so the
-   caller can say so. See [download_depth] for the two-limit rationale. *)
+   caller can say so.
+
+   Two limits on purpose. An explicit "give me France" is ~2.3 million tile
+   ids -- minutes of fetching but a plan a machine handles, so it gets
+   street level in one piece. All of Brazil is ~18 million and splits into
+   a handful of pieces that each fit. A near-planetary box would need more
+   pieces than [max_parts] allows; pretending otherwise would grind the
+   server for hours, so it falls back to a depth that plans in a couple of
+   seconds, and the caller says "pick a state" instead. *)
 let download_parts ~min_zoom ~requested ~min_lon ~min_lat ~max_lon ~max_lat
     ~full_limit ~quick_limit ~max_parts =
   match

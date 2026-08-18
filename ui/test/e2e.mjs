@@ -551,7 +551,7 @@ await page.waitForFunction(() => !document.querySelector(".download-card"), {
    swallow whole is forced down the giant path: split into parts, fetched
    one at a time, each merged and renamed atomically. Driven over the API
    because the interesting claims are the server's. */
-const base3 = process.argv[3];
+const base3 = process.argv[3] ?? "http://127.0.0.1:7375";
 const post3 = async (endpoint, body) =>
   await fetch(`${base3}/api/${endpoint}`, {
     method: "POST",
