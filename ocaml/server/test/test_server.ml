@@ -299,6 +299,10 @@ let () =
     }
   in
   let calls = ref [] in
+  (* A browse or a job holding the writer's seat makes clearing the cache
+     impossible right now; the endpoint has to say so rather than claim it
+     erased something. *)
+  let clear_cache_succeeds = ref true in
   let ops =
     {
       D.estimate =
@@ -332,11 +336,11 @@ let () =
       browse =
         (fun req ->
           calls := `Browse req :: !calls;
-          Ok 7);
+          Ok (7, req.Tessarium_server.Basemap_job.max_zoom));
       clear_cache =
         (fun () ->
           calls := `Clear_cache :: !calls;
-          true);
+          !clear_cache_succeeds);
     }
   in
   let settings_calls = ref [] in
@@ -555,6 +559,14 @@ let () =
   check "the browse toggle on clears nothing"
     (run_settings ~body:{|{"browse_cache":true}|} = [ `Set (None, Some true) ]
     && !calls = []);
+  (* A refused clear -- a download holds the writer's seat -- must still
+     save the setting. Browsing stops either way; only the erasing waits. *)
+  clear_cache_succeeds := false;
+  calls := [];
+  check "a refused cache clear still saves the setting"
+    (run_settings ~body:{|{"browse_cache":false}|} = [ `Set (None, Some false) ]
+    && !calls = [ `Clear_cache ]);
+  clear_cache_succeeds := true;
 
   (* The browse endpoint: a viewport box and a zoom, gated server-side on
      the opt-in setting -- the page must not be able to make this server
@@ -881,6 +893,39 @@ let () =
     (not (J.can_start (J.Removing { done_bytes = 0; total_bytes = 1 })));
   check "a removal is a running job"
     (J.is_running (J.Removing { done_bytes = 0; total_bytes = 1 }));
+
+  (* A settings write serializes against other writers, and the lock it uses
+     POISONS on any exception escaping the critical section: Eio refuses a
+     poisoned mutex forever after. So a transient read failure -- a bad mode
+     on the file, an exhausted fd table -- must not be allowed to escape, or
+     one unlucky request costs the user their settings endpoint for the
+     lifetime of the process. Driven against a real directory, because the
+     failure is the filesystem's. *)
+  Eio_main.run (fun env ->
+      let fs = Eio.Stdenv.fs env in
+      let dir = Filename.temp_file "tessarium-settings" "" in
+      Sys.remove dir;
+      Unix.mkdir dir 0o755;
+      let ops = Tessarium_server.Settings.ops ~fs ~basemap_dir:dir in
+      let path = Filename.concat dir "settings.json" in
+      (match ops.set ~days:(Some 30) ~browse:None with
+      | Ok _ -> ()
+      | Error e -> check ("the first write succeeds: " ^ e) false);
+      (* Unreadable: the load inside the critical section now raises. *)
+      Unix.chmod path 0o000;
+      let blocked = ops.set ~days:(Some 45) ~browse:None in
+      check "a write over an unreadable settings file fails"
+        (Result.is_error blocked);
+      Unix.chmod path 0o644;
+      match ops.set ~days:(Some 60) ~browse:None with
+      | Ok json ->
+          check "and the next write still works -- the lock is not poisoned"
+            (Yojson.Safe.Util.member "update_reminder_days" json = `Int 60)
+      | Error e ->
+          check
+            ("and the next write still works -- the lock is not poisoned ("
+           ^ e ^ ")")
+            false);
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "server decisions hold"

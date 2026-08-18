@@ -95,6 +95,39 @@ for (const file of files) {
   }
 }
 
+/* French demands a no-break space before a high punctuation mark, and the two
+   French locales spell that space differently -- fr-FR narrow (U+202F), fr-CA
+   full (U+00A0). Which one is a house style, not a rule, so this asserts
+   CONSISTENCY inside each file rather than a particular character: one
+   translation reaching for the other locale's space is invisible on screen,
+   survives every other check here, and is exactly the mistake that gets made
+   when a key is added to six files at once. */
+for (const file of files.filter((f) => f.startsWith("fr-"))) {
+  const messages = load(file);
+  const spaces = new Map();
+  for (const [key, value] of Object.entries(messages)) {
+    if (typeof value !== "string") continue;
+    for (let i = 0; i < value.length; i++) {
+      if (!"  ".includes(value[i])) continue;
+      if (!":;?!".includes(value[i + 1] ?? "")) continue;
+      const name = value[i] === " " ? "U+00A0" : "U+202F";
+      spaces.set(name, [...(spaces.get(name) ?? []), key]);
+    }
+  }
+  const kinds = [...spaces.keys()];
+  const odd = kinds.length < 2
+    ? []
+    : (spaces.get(kinds[0]).length < spaces.get(kinds[1]).length
+      ? spaces.get(kinds[0])
+      : spaces.get(kinds[1]));
+  check(
+    `${file} spells its no-break space one way before punctuation (stray: ${
+      odd.join(", ") || "none"
+    })`,
+    kinds.length <= 1,
+  );
+}
+
 /* And the catalogue has to have reached the compiler.
 
    Paraglide treats a plugin it cannot import as a WARNING and then reports

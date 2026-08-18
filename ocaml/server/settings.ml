@@ -96,8 +96,16 @@ type ops = {
   browse_enabled : unit -> bool;
 }
 
+let message = function Failure m -> m | e -> Printexc.to_string e
+
 let ops ~fs ~basemap_dir =
-  let get_t () = load ~fs ~basemap_dir in
+  (* Reading the file is fallible in ways that have nothing to do with its
+     contents -- a bad mode, an exhausted fd table -- and those arrive as
+     exceptions rather than as [load]'s Error. Caught here so every caller
+     sees one result type. *)
+  let get_t () =
+    try load ~fs ~basemap_dir with e -> Error (message e)
+  in
   (* One writer at a time. [set] is a read-modify-write of a shared file,
      and the reminder select and the browse toggle are separate controls a
      quick user can fire together: unserialized, the later save silently
@@ -109,6 +117,10 @@ let ops ~fs ~basemap_dir =
     get = (fun () -> Result.map to_json (get_t ()));
     set =
       (fun ~days ~browse ->
+        (* NOTHING may escape this block. Eio poisons a mutex whose critical
+           section raised, and refuses it forever after -- so an exception
+           here would cost the user their settings endpoint for the life of
+           the process, not just this request. *)
         Eio.Mutex.use_rw ~protect:true write_lock @@ fun () ->
         match days with
         | Some d when not (valid_days d) ->
@@ -120,11 +132,7 @@ let ops ~fs ~basemap_dir =
                 let t = apply current ~days ~browse in
                 match save ~fs ~basemap_dir t with
                 | () -> Ok (to_json t)
-                | exception e ->
-                    Error
-                      (match e with
-                      | Failure m -> m
-                      | e -> Printexc.to_string e))));
+                | exception e -> Error (message e))));
     browse_enabled =
       (fun () ->
         match get_t () with Ok t -> t.browse_cache | Error _ -> false);

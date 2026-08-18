@@ -279,7 +279,13 @@ export function useBasemapBrowse() {
       zoom: number;
     }) =>
       post(
-        z.object({ ok: z.boolean(), fetched: z.number().int().nonnegative() }),
+        z.object({
+          ok: z.boolean(),
+          fetched: z.number().int().nonnegative(),
+          /* The depth the server actually wrote, which its source may have
+             clamped below the one asked for. */
+          zoom: z.number().int().nonnegative(),
+        }),
         "basemap-browse",
         view,
       ),

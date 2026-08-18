@@ -690,10 +690,19 @@ let handle_basemap cfg (ops : Basemap_download.ops)
                 | Error e -> bad e
                 | Ok req -> (
                     match ops.browse req with
-                    | Ok fetched ->
+                    | Ok (fetched, written_zoom) ->
+                        (* The zoom actually written, which the source's own
+                           depth may have clamped below the one asked for:
+                           without it a client at a zoom the source cannot
+                           reach keeps asking for tiles that will never
+                           come. *)
                         respond_json cfg ~status:`OK
                           (`Assoc
-                             [ ("ok", `Bool true); ("fetched", `Int fetched) ])
+                             [
+                               ("ok", `Bool true);
+                               ("fetched", `Int fetched);
+                               ("zoom", `Int written_zoom);
+                             ])
                     | Error e -> error cfg ~status:`Conflict e))
             | _ ->
                 bad "expected min_lon, min_lat, max_lon, max_lat and zoom 0..15")
@@ -723,10 +732,20 @@ let handle_basemap cfg (ops : Basemap_download.ops)
               | Ok payload ->
                   (* Off means gone: the browse cache is a record of where
                      the user looked, so turning the setting off deletes it
-                     rather than leaving it dormant and still serving.
-                     Best-effort -- a running job keeps its seat, and the
-                     job's own prune or fold settles the file's fate. *)
-                  if browse = Some false then ignore (ops.clear_cache ());
+                     rather than leaving it dormant and still serving. The
+                     answer says whether that happened -- a download or a
+                     compaction holds the writer's seat and keeps the file
+                     alive for now, and claiming otherwise would be a lie
+                     about the user's browsing history. *)
+                  let payload =
+                    if browse <> Some false then payload
+                    else
+                      let cleared = ops.clear_cache () in
+                      match payload with
+                      | `Assoc fields ->
+                          `Assoc (fields @ [ ("cleared", `Bool cleared) ])
+                      | other -> other
+                  in
                   respond_json cfg ~status:`OK payload
               | Error e -> bad e))
   | "basemap-estimate" | "basemap-download" -> (

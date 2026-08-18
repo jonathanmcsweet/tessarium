@@ -75,7 +75,7 @@
   "map_compacting_progress": "Rangement des cartes enregistrées — {done} sur {total}",
   "map_browse_toggle": "Compléter la carte pendant la navigation en ligne",
   "map_browse_hint": "Une fois activé, les zones consultées en ligne sont enregistrées et restent utilisables hors connexion. Une fois désactivé, plus rien n'est téléchargé et les zones récemment consultées sont effacées.",
-  "map_compact_failed": "Le rangement des cartes enregistrées a échoué : {reason}",
+  "map_compact_failed": "Le rangement des cartes enregistrées a échoué : {reason}",
   "banner_basemap_action": "Télécharger les cartes",
   "panel_lock": "Verrouiller",
   "panel_lock_hint": "Oublier la clé",

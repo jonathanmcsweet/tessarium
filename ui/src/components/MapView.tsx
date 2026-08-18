@@ -443,18 +443,27 @@ export function MapView() {
           onSettled: () => {
             browseInFlight.current = false;
           },
-          onSuccess: ({ fetched }) => {
+          onSuccess: ({ fetched, zoom: written }) => {
             if (fetched === 0) return;
+            /* Mid-style-swap there is no source to talk to, and both calls
+               below throw without one. The tiles are on disk; the style
+               being built will ask for them. */
+            const source = map.getSource("protomaps");
+            if (!source) return;
             /* The tiles on screen were 204s a moment ago. Below the
                source's advertised depth, re-asking is enough; past it,
                MapLibre will never ask -- the source's maxzoom was pinned
                from tiles.json at style time -- so the style is rebuilt to
-               learn the deeper coverage the cache just gained. */
-            const source = map.getSource("protomaps");
-            const maxzoom = source
-              ? (source as unknown as { maxzoom?: number; }).maxzoom
-              : undefined;
-            if (typeof maxzoom === "number" && zoom > maxzoom) {
+               learn the deeper coverage the cache just gained.
+
+               Measured against the depth the SERVER wrote, never the one
+               this pan asked for: against a source shallower than the
+               camera those two differ forever, and comparing the request
+               would rebuild the style on every pan, chasing tiles that can
+               never arrive. */
+            const maxzoom =
+              (source as unknown as { maxzoom?: number; }).maxzoom;
+            if (typeof maxzoom === "number" && written > maxzoom) {
               rebuildBasemap();
             } else {
               map.refreshTiles("protomaps");

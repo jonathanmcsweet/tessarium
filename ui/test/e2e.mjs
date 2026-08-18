@@ -1417,6 +1417,46 @@ check(
 );
 await postJson("basemap-settings", { browse_cache: false });
 
+/* ------------------ a source that changed compression ---------------------
+
+   Tile bytes are copied verbatim and the header says how to read them, so
+   an archive built from a gzipped source and then merged with an
+   uncompressed one would relabel every tile it already held. Unreadable,
+   silently, and only at render time. This server's source disagrees with
+   the archive seeded beside it, so every path that would merge them has to
+   refuse instead. */
+const base5 = process.argv[4] ?? "http://127.0.0.1:7376";
+const post5 = async (endpoint, body) =>
+  await fetch(`${base5}/api/${endpoint}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+
+const mismatchEstimate = await post5("basemap-estimate", {
+  regions: [{ ...lb, max_zoom: 15 }],
+});
+const mismatchBody = await mismatchEstimate.json();
+check(
+  "an estimate against a differently compressed source is refused",
+  mismatchEstimate.status === 502
+    && (mismatchBody.error ?? "").includes("compression"),
+);
+await post5("basemap-settings", { browse_cache: true });
+const mismatchBrowse = await post5("basemap-browse", { ...lb, zoom: 15 });
+const mismatchBrowseBody = await mismatchBrowse.json();
+check(
+  "and so is a browse, which would write those bytes into the cache",
+  mismatchBrowse.status === 409
+    && (mismatchBrowseBody.error ?? "").includes("compression"),
+);
+check(
+  "nothing was written",
+  (await fetch(`${base5}/basemap/cache.pmtiles`, { method: "HEAD" })).status
+    === 404,
+);
+await post5("basemap-settings", { browse_cache: false });
+
 for (const p of problems) console.log(`  PAGE  ${p}`);
 check(
   "no console errors, CSP violations or failed requests",

@@ -75,7 +75,7 @@
   "map_compacting_progress": "Rangement des cartes enregistrées — {done} sur {total}",
   "map_browse_toggle": "Compléter la carte pendant la navigation en ligne",
   "map_browse_hint": "Une fois activé, les zones consultées en ligne sont enregistrées et restent utilisables hors connexion. Une fois désactivé, plus rien n'est téléchargé et les zones récemment consultées sont effacées.",
-  "map_compact_failed": "Le rangement des cartes enregistrées a échoué : {reason}",
+  "map_compact_failed": "Le rangement des cartes enregistrées a échoué : {reason}",
   "banner_basemap_action": "Télécharger les cartes",
   "panel_lock": "Verrouiller",
   "panel_lock_hint": "Oublier la clé",
@@ -100,7 +100,7 @@
   "panel_prefix_example": "drea tour cree 2703",
   "panel_go": "Y aller",
   "panel_found": "Trouvée – on s’y déplace",
-  "panel_prefix_hint": "Les préfixes de quatre lettres fonctionnent, et le séparateur importe peu : {example} donne le même résultat.",
+  "panel_prefix_hint": "Les préfixes de quatre lettres fonctionnent, et le séparateur importe peu : {example} donne le même résultat.",
   "panel_footer": "Les adresses n’ont aucun sens pour quiconque possède une phrase de récupération différente. Selon toute autre phrase, le même carré porte une adresse qui n’a aucun rapport avec celle-ci.",
   "a11y_dismiss_banner": "Ignorer ce message",
   "a11y_language": "Langue"

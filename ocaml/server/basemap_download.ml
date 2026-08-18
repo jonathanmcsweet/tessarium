@@ -43,7 +43,11 @@ type ops = {
   ledger : unit -> (Yojson.Safe.t, string) result;
   update : id:string -> (unit, string) result;
   remove : id:string -> (unit, string) result;
-  browse : Basemap_job.request -> (int, string) result;
+  (* Answers with the tiles fetched AND the zoom actually written: the
+     source's depth may be shallower than the view asked for, and a client
+     that cannot tell the difference will keep asking for a depth that can
+     never arrive. *)
+  browse : Basemap_job.request -> (int * int, string) result;
   (* Deletes the browse cache outright. False when a browse or job holds
      the writer's seat -- the caller treats that as "not now", never as a
      license to delete files under a live writer. *)
@@ -85,6 +89,23 @@ let cancel t =
         true
       end
       else false)
+
+(* Clearing the browse seat, deliberately WITHOUT the mutex.
+
+   [Eio.Mutex.use_rw] takes the lock before it protects anything, and a
+   contended [lock] raises immediately in a fiber that is already cancelled
+   -- so the broadcast below it could be skipped, stranding [browsing] true.
+   Nothing would ever clear it: every later download would block forever in
+   [prune_cache]'s wait, never reaching a terminal state, and the one-writer
+   rule would refuse every download, update, remove and browse until the
+   process restarted.
+
+   A bool write and a broadcast cannot raise, and single-domain fibers do
+   not interleave without a suspension point, so the mutex bought nothing
+   here in the first place -- the same argument [prune_cache]'s read makes. *)
+let release_browsing t =
+  t.browsing <- false;
+  Eio.Condition.broadcast t.browse_done
 
 let claim t =
   (* Claiming the job and checking it are one critical section; two requests
@@ -472,12 +493,22 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
      costs a re-fetchable cache tile, under-pruning costs correctness. *)
   let published = ref false in
   let prune_regions = ref [] in
+  (* Once, whichever exit runs it: the success path prunes inside the switch
+     and a later failure -- the assets fetch is the usual one -- must not
+     walk the whole cache a second time to drop nothing. *)
+  let pruned = ref false in
   let prune_published () =
-    if !published then
-      try prune_cache t ~fs ~basemap_dir ~regions:!prune_regions
-      with e ->
-        Logs.warn (fun m ->
-            m "browse cache prune failed: %s" (Printexc.to_string e))
+    if !published && not !pruned then begin
+      pruned := true;
+      try prune_cache t ~fs ~basemap_dir ~regions:!prune_regions with
+      | Eio.Cancel.Cancelled _ as e ->
+          (* Eio requires this one to keep travelling; swallowing it leaves
+             the fiber running inside a cancelled context. *)
+          raise e
+      | e ->
+          Logs.warn (fun m ->
+              m "browse cache prune failed: %s" (Printexc.to_string e))
+    end
   in
   match
     Eio.Switch.run @@ fun sw ->
@@ -673,6 +704,10 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
             b
     end;
     prune_cache t ~fs ~basemap_dir ~regions:recorded;
+    (* Marked only once it has actually happened: a prune that raised left
+       the cache untouched (it publishes by rename), so the terminal handler
+       should still get its attempt. *)
+    pruned := true;
     fetch_assets t ~sw ~net ~assets ~dir;
     (!written_total, parts_total)
   with
@@ -890,13 +925,17 @@ let run_compact t ~fs ~basemap_dir =
               (Pmtiles.Merge.write ~metadata:base_meta mp ch
                  ~min_zoom:min_zoom' ~max_zoom:max_zoom' ~min_lon ~min_lat
                  ~max_lon ~max_lat ~append ~copy));
-        (* The cache goes FIRST, then the merged archive lands: a crash
-           between the two costs only re-fetchable browsed tiles. The
-           reverse order would leave a cache duplicating the archive it
-           was folded into, shadowing it on every request with nothing
-           ever responsible for deleting it. *)
-        Eio.Path.unlink Eio.Path.(dir / "cache.pmtiles");
-        Eio.Path.rename part_path Eio.Path.(dir / "map.pmtiles")
+        (* The merged archive lands FIRST, and only then does the cache go.
+           Do not swap these. A crash in this window leaves a cache holding
+           tiles byte-identical to ones map.pmtiles now also holds: the
+           endpoint serves the same bytes from either, the TileJSON folds
+           to the same ranges, and the next browse past the threshold folds
+           again and completes the unlink -- it self-heals, and costs
+           nothing meanwhile. Unlinking first instead means a crash, or
+           merely a failing rename, destroys every browsed tile while
+           map.pmtiles is still the pre-fold archive. *)
+        Eio.Path.rename part_path Eio.Path.(dir / "map.pmtiles");
+        Eio.Path.unlink Eio.Path.(dir / "cache.pmtiles")
   with
   | () -> set t Basemap_job.Idle
   | exception Cancelled_by_user ->
@@ -928,9 +967,7 @@ let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
   if not claimed then Error "the map is busy; try again shortly"
   else
     Fun.protect
-      ~finally:(fun () ->
-        Eio.Mutex.use_rw ~protect:true t.mutex (fun () -> t.browsing <- false);
-        Eio.Condition.broadcast t.browse_done)
+      ~finally:(fun () -> release_browsing t)
       (fun () ->
         match
           Eio.Switch.run @@ fun bsw ->
@@ -975,7 +1012,7 @@ let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
                    (fun (id, _) -> not (held main id || held cache id))
                    (Array.to_list plan.Pmtiles.Extract.tiles))
             in
-            if Array.length wanted = 0 then 0
+            if Array.length wanted = 0 then (0, zoom)
             else begin
               let filtered = { plan with Pmtiles.Extract.tiles = wanted } in
               let mp =
@@ -1031,11 +1068,11 @@ let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
                        ~max_lat:u_max_lat ~append ~copy));
               Eio.Path.rename part_path
                 Eio.Path.(fs / basemap_dir / "cache.pmtiles");
-              mp.Pmtiles.Merge.fresh_tiles
+              (mp.Pmtiles.Merge.fresh_tiles, zoom)
             end
           end
         with
-        | fetched ->
+        | (fetched, written_zoom) ->
             (* Fold the cache into the main archive once it outgrows the
                threshold -- unless a download holds the writer's seat, in
                which case a later browse will try again. Failures here stay
@@ -1053,10 +1090,12 @@ let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
                        Eio.Fiber.fork ~sw (fun () ->
                            run_compact t ~fs ~basemap_dir)
                  | _ -> ()
-               with e ->
+               with
+               | Eio.Cancel.Cancelled _ as e -> raise e
+               | e ->
                  Logs.warn (fun m ->
                      m "compaction check failed: %s" (Printexc.to_string e)));
-            Ok fetched
+            Ok (fetched, written_zoom)
         | exception e ->
             (* The .part is dead weight the moment its browse dies; the
                file is also reachable under /basemap/, so litter is not
@@ -1074,20 +1113,31 @@ let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
    than deleting files out from under it. Tiles already folded into the
    main archive are past helping -- the hint text says as much. *)
 let clear_cache t ~fs ~basemap_dir =
+  (* Waits out an in-flight browse rather than refusing because of it. That
+     browse is seconds of network away from renaming its own cache file into
+     place -- refusing here would let a fetch the user has just switched off
+     land AFTER they switched it off, and nothing would delete it afterwards:
+     the endpoint is closed by then, so no later browse comes to fold or
+     prune it. A running download or compaction is the one thing worth
+     refusing for; it is minutes long, and it prunes or folds the cache
+     itself. *)
   let claimed =
-    Eio.Mutex.use_rw ~protect:true t.mutex (fun () ->
-        if t.browsing || Basemap_job.is_running t.job then false
-        else begin
-          t.browsing <- true;
-          true
-        end)
+    let rec take () =
+      if Basemap_job.is_running t.job then false
+      else if t.browsing then begin
+        Eio.Condition.await_no_mutex t.browse_done;
+        take ()
+      end
+      else begin
+        t.browsing <- true;
+        true
+      end
+    in
+    take ()
   in
   claimed
   && Fun.protect
-       ~finally:(fun () ->
-         Eio.Mutex.use_rw ~protect:true t.mutex (fun () ->
-             t.browsing <- false);
-         Eio.Condition.broadcast t.browse_done)
+       ~finally:(fun () -> release_browsing t)
        (fun () ->
          List.iter
            (fun name ->
