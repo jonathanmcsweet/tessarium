@@ -28,8 +28,8 @@ type t = {
 (* What the request handler sees: four closures, so the handler can be tested
    with pure fakes and never needs the switch, the network or the clock. *)
 type ops = {
-  estimate : Basemap_job.request -> (Yojson.Safe.t, string) result;
-  start : Basemap_job.request -> (unit, string) result;
+  estimate : Basemap_job.request list -> (Yojson.Safe.t, string) result;
+  start : Basemap_job.request list -> (unit, string) result;
   cancel : unit -> bool;
   status : unit -> Yojson.Safe.t;
 }
@@ -96,26 +96,35 @@ let breathe ?cancel () =
       match cancel with Some t -> check_cancel t | None -> ()
     end
 
-let plan_region ?cancel ~sw ~fs ~net ~source (req : Basemap_job.request) =
+let plan_regions ?cancel ~sw ~fs ~net ~source
+    (reqs : Basemap_job.request list) =
   let src = Pmtiles_source.open_url ~sw ~fs ~net source in
   let archive = Pmtiles.Archive.open_ src in
   let h = archive.Pmtiles.Archive.header in
   (* All zooms from the top: the world-context tiles are a rounding error next
      to the deep ones and are what keeps zooming out from hitting blank. *)
   let min_zoom = h.Pmtiles.Header.min_zoom in
-  let max_zoom, _clamped =
-    Pmtiles.Tile_id.download_depth ~min_zoom
-      ~requested:(min req.max_zoom h.Pmtiles.Header.max_zoom)
-      ~min_lon:req.min_lon ~min_lat:req.min_lat ~max_lon:req.max_lon
-      ~max_lat:req.max_lat ~full_limit ~quick_limit
+  (* Each region is budgeted on its own: one giant pick falls back to
+     regional depth without dragging the states picked beside it down. *)
+  let planned =
+    List.map
+      (fun (req : Basemap_job.request) ->
+        let max_zoom, _clamped =
+          Pmtiles.Tile_id.download_depth ~min_zoom
+            ~requested:(min req.max_zoom h.Pmtiles.Header.max_zoom)
+            ~min_lon:req.min_lon ~min_lat:req.min_lat ~max_lon:req.max_lon
+            ~max_lat:req.max_lat ~full_limit ~quick_limit
+        in
+        let plan =
+          Pmtiles.Extract.plan
+            ~on_tile:(breathe ?cancel ())
+            archive ~min_zoom ~max_zoom ~min_lon:req.min_lon
+            ~min_lat:req.min_lat ~max_lon:req.max_lon ~max_lat:req.max_lat
+        in
+        (max_zoom, plan))
+      reqs
   in
-  let plan =
-    Pmtiles.Extract.plan
-      ~on_tile:(breathe ?cancel ())
-      archive ~min_zoom ~max_zoom ~min_lon:req.min_lon ~min_lat:req.min_lat
-      ~max_lon:req.max_lon ~max_lat:req.max_lat
-  in
-  (src, h, min_zoom, max_zoom, plan)
+  (src, h, min_zoom, List.map fst planned, List.map snd planned)
 
 (* The archive already on disk, if any -- the merge's base. *)
 let open_base ~sw ~fs ~basemap_dir =
@@ -127,9 +136,9 @@ let open_base ~sw ~fs ~basemap_dir =
            (Pmtiles_source.file_source (Eio.Path.open_in ~sw path)))
   | _ -> None
 
-let merge_plan ?cancel ~sw ~fs ~net ~source ~basemap_dir req =
-  let src, h, min_zoom, max_zoom, fresh =
-    plan_region ?cancel ~sw ~fs ~net ~source req
+let merge_plan ?cancel ~sw ~fs ~net ~source ~basemap_dir reqs =
+  let src, h, min_zoom, depths, fresh =
+    plan_regions ?cancel ~sw ~fs ~net ~source reqs
   in
   let base = open_base ~sw ~fs ~basemap_dir in
   (match base with
@@ -144,7 +153,7 @@ let merge_plan ?cancel ~sw ~fs ~net ~source ~basemap_dir req =
     h,
     base,
     min_zoom,
-    max_zoom,
+    depths,
     Pmtiles.Merge.plan ~on_entry:(breathe ?cancel ()) ~base fresh,
     fresh )
 
@@ -152,28 +161,33 @@ let merge_plan ?cancel ~sw ~fs ~net ~source ~basemap_dir req =
    tiles the base already holds are excluded, so re-asking for an area you
    have says zero rather than re-quoting the full price. [covered] separates
    "you have all of this" from "the source has nothing here". *)
-let estimate ~fs ~net ~source ~basemap_dir (req : Basemap_job.request) =
+let estimate ~fs ~net ~source ~basemap_dir (reqs : Basemap_job.request list) =
   match
     Eio.Switch.run @@ fun sw ->
-    let _, _, _, _, max_zoom, mp, fresh =
-      merge_plan ~sw ~fs ~net ~source ~basemap_dir req
+    let _, _, _, _, depths, mp, fresh =
+      merge_plan ~sw ~fs ~net ~source ~basemap_dir reqs
     in
     ( mp.Pmtiles.Merge.fetch_bytes,
       mp.Pmtiles.Merge.fresh_tiles,
-      Array.length fresh.Pmtiles.Extract.tiles > 0
+      List.exists
+        (fun (f : Pmtiles.Extract.plan) ->
+          Array.length f.Pmtiles.Extract.tiles > 0)
+        fresh
       && mp.Pmtiles.Merge.fresh_tiles = 0,
-      max_zoom )
+      depths )
   with
-  | fetch_bytes, tiles, covered, max_zoom ->
+  | fetch_bytes, tiles, covered, depths ->
       Ok
         (`Assoc
            [
              ("total_bytes", `Int fetch_bytes);
              ("tiles", `Int tiles);
              ("covered", `Bool covered);
-             (* The depth the budget afforded. Less than asked means "a big
-                area, stopping at regional detail" -- the UI says so. *)
-             ("max_zoom", `Int max_zoom);
+             (* Depth granted per region, in request order. Less than the
+                region asked for means "too big, stopping at regional
+                detail" -- the UI names which ones. *)
+             ( "max_zooms",
+               `List (List.map (fun z -> `Int z) depths) );
            ])
   | exception e -> Error (friendly e)
 
@@ -218,14 +232,15 @@ let fetch_assets t ~sw ~net ~assets ~dir =
 
 (* ---------------------------------------------------------------- download *)
 
-let run_download t ~fs ~net ~source ~assets ~basemap_dir (req : Basemap_job.request) =
+let run_download t ~fs ~net ~source ~assets ~basemap_dir
+    (reqs : Basemap_job.request list) =
   let dir = Eio.Path.(fs / basemap_dir) in
   let part = Eio.Path.(dir / "map.pmtiles.part") in
   let discard_part () = try Eio.Path.unlink part with _ -> () in
   match
     Eio.Switch.run @@ fun sw ->
-    let src, h, base, min_zoom, max_zoom, mp, _fresh =
-      merge_plan ~cancel:t ~sw ~fs ~net ~source ~basemap_dir req
+    let src, h, base, min_zoom, depths, mp, _fresh =
+      merge_plan ~cancel:t ~sw ~fs ~net ~source ~basemap_dir reqs
     in
     if Array.length mp.Pmtiles.Merge.tiles = 0 then
       failwith "the source has no tiles in that area";
@@ -238,21 +253,31 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir (req : Basemap_job.requ
     let total = mp.Pmtiles.Merge.total_bytes in
     set t (Basemap_job.progress ~done_bytes:0 ~total_bytes:total);
     ensure_dir dir;
-    (* The merged header describes the union: the base's box and zooms grown
-       by the new region's, not replaced by them. *)
+    (* The merged header describes the union: every requested box and the
+       base's, folded together, at the deepest zoom any of them reached. *)
     let e7f v = float_of_int v /. 1e7 in
+    let max_zoom = List.fold_left max min_zoom depths in
+    let min_lon, min_lat, max_lon, max_lat =
+      List.fold_left
+        (fun (a, b, c, d) (r : Basemap_job.request) ->
+          ( Float.min a r.min_lon,
+            Float.min b r.min_lat,
+            Float.max c r.max_lon,
+            Float.max d r.max_lat ))
+        (180., 90., -180., -90.)
+        reqs
+    in
     let min_zoom, max_zoom, min_lon, min_lat, max_lon, max_lat =
       match base with
-      | None ->
-          (min_zoom, max_zoom, req.min_lon, req.min_lat, req.max_lon, req.max_lat)
+      | None -> (min_zoom, max_zoom, min_lon, min_lat, max_lon, max_lat)
       | Some b ->
           let bh = b.Pmtiles.Archive.header in
           ( min min_zoom bh.Pmtiles.Header.min_zoom,
             max max_zoom bh.Pmtiles.Header.max_zoom,
-            Float.min req.min_lon (e7f bh.Pmtiles.Header.min_lon_e7),
-            Float.min req.min_lat (e7f bh.Pmtiles.Header.min_lat_e7),
-            Float.max req.max_lon (e7f bh.Pmtiles.Header.max_lon_e7),
-            Float.max req.max_lat (e7f bh.Pmtiles.Header.max_lat_e7) )
+            Float.min min_lon (e7f bh.Pmtiles.Header.min_lon_e7),
+            Float.min min_lat (e7f bh.Pmtiles.Header.min_lat_e7),
+            Float.max max_lon (e7f bh.Pmtiles.Header.max_lon_e7),
+            Float.max max_lat (e7f bh.Pmtiles.Header.max_lat_e7) )
     in
     (* Written under a .part name and renamed only once complete, so the file
        the map reads is never mid-write and a failed download leaves the
@@ -290,7 +315,7 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir (req : Basemap_job.requ
       discard_part ();
       set t (Basemap_job.Failed (friendly e))
 
-let start t ~sw ~fs ~net ~source ~assets ~basemap_dir req =
+let start t ~sw ~fs ~net ~source ~assets ~basemap_dir reqs =
   let claimed =
     (* Claiming the job and checking it are one critical section; two requests
        arriving together must not both see a resting state. *)
@@ -306,7 +331,7 @@ let start t ~sw ~fs ~net ~source ~assets ~basemap_dir req =
   if not claimed then Error "a download is already running"
   else begin
     Eio.Fiber.fork ~sw (fun () ->
-        run_download t ~fs ~net ~source ~assets ~basemap_dir req);
+        run_download t ~fs ~net ~source ~assets ~basemap_dir reqs);
     Ok ()
   end
 

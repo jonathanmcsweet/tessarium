@@ -358,7 +358,7 @@ let () =
     E.plan archive ~min_zoom:0 ~max_zoom:10 ~min_lon:0.2 ~min_lat:50.5
       ~max_lon:0.8 ~max_lat:51.5
   in
-  let merged_plan = M.plan ~base:(Some base_archive) plan_b in
+  let merged_plan = M.plan ~base:(Some base_archive) [ plan_b ] in
   let in_base id = Array.exists (fun (t, _) -> t = id) plan_a.E.tiles in
   let expected_fresh =
     Array.to_list plan_b.E.tiles
@@ -397,12 +397,42 @@ let () =
   check "the merged archive reports the union's tile count"
     (merged.A.header.H.addressed_tiles = List.length both);
   check "a merge with no base is a plain extract"
-    (let p = M.plan ~base:None plan_b in
+    (let p = M.plan ~base:None [ plan_b ] in
      p.M.fetch_bytes = E.planned_bytes plan_b
      && p.M.fresh_tiles = Array.length plan_b.E.tiles);
   check "merging a region already held fetches nothing"
-    (let again = M.plan ~base:(Some merged) plan_b in
+    (let again = M.plan ~base:(Some merged) [ plan_b ] in
      again.M.fresh_tiles = 0 && again.M.fetch_bytes = 0);
+
+  (* ------------------------------------------------- multi-region merge *)
+  (* One request may name several regions. They dedup against each other by
+     tile id, exactly as each dedups against the base: naming a country and
+     also one of its cities pays for the shared tiles once. *)
+  check "a region named twice in one request costs once"
+    (let twice = M.plan ~base:None [ plan_b; plan_b ] in
+     let once = M.plan ~base:None [ plan_b ] in
+     twice.M.fetch_bytes = once.M.fetch_bytes
+     && twice.M.fresh_tiles = once.M.fresh_tiles);
+  let multi = M.plan ~base:None [ plan_a; plan_b ] in
+  check "overlapping regions dedup the zooms they share"
+    (multi.M.fetch_bytes
+     < E.planned_bytes plan_a + E.planned_bytes plan_b
+    && multi.M.fresh_tiles = List.length both);
+  (* Downloading both boxes in one request must build the same archive as
+     downloading one and then merging in the other. *)
+  let multi_buf = Buffer.create 4096 in
+  let _ =
+    M.write multi src_header ~min_zoom:0 ~max_zoom:10 ~min_lon:(-0.5)
+      ~min_lat:50.5 ~max_lon:0.8 ~max_lat:51.5
+      ~append:(Buffer.add_string multi_buf)
+      ~copy:(fun ~origin ~offset ~length ->
+        match origin with
+        | M.Fresh ->
+            Buffer.add_string multi_buf (String.sub archive_bytes offset length)
+        | M.Base -> assert false (* no base, no Base blobs *))
+  in
+  check "both boxes in one request equal extract-then-merge byte for byte"
+    (String.equal (Buffer.contents multi_buf) (Buffer.contents merged_buf));
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "pmtiles round-trips"

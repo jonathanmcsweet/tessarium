@@ -69,3 +69,12 @@ export const formatBytes = (bytes: number): string => {
     maximumFractionDigits: bytes < 10e6 ? 1 : 0,
   }).format(bytes / 1e6);
 };
+
+/* Names as a locale-correct list ("France, Brazil, and Japan" / "France,
+   Brésil et Japon"). Names arrive already localised; only the glue between
+   them is this function's business. */
+export const formatList = (names: string[]): string =>
+  new Intl.ListFormat(getLocale(), {
+    style: "long",
+    type: "conjunction",
+  }).format(names);

@@ -29,9 +29,10 @@ const Estimate = z.object({
   /* True when the source has tiles here but the archive already holds every
      one of them -- "you have this" rather than "there is nothing". */
   covered: z.boolean(),
-  /* The depth the server's tile budget afforded for this box. Less than the
-     region asked for means a big area stopping at regional detail. */
-  max_zoom: z.number().int(),
+  /* The depth the server's tile budget afforded, per requested region and
+     in request order. Less than a region asked for means that pick was too
+     big and stops at regional detail. */
+  max_zooms: z.array(z.number().int()),
 });
 export type Estimate = z.infer<typeof Estimate>;
 
@@ -119,14 +120,16 @@ export function useBasemapPresent() {
   });
 }
 
-/* The size question, keyed by the exact region so reopening the same view
-   does not re-plan. Short staleTime rather than Infinity: the answer changes
-   when the source archive does, which is rare but real. */
-export function useBasemapEstimate(region: Region | null) {
+/* The size question, keyed by the exact regions so reopening the same view
+   does not re-plan. One request carries the whole selection: the server
+   dedups overlapping picks by tile id, so the answer is the real price of
+   the set, not the sum of its parts. Short staleTime rather than Infinity:
+   the answer changes when the source archive does, which is rare but real. */
+export function useBasemapEstimate(regions: Region[] | null) {
   return useQuery({
-    queryKey: ["basemap-estimate", region],
-    queryFn: () => post(Estimate, "basemap-estimate", region),
-    enabled: region !== null,
+    queryKey: ["basemap-estimate", regions],
+    queryFn: () => post(Estimate, "basemap-estimate", { regions }),
+    enabled: regions !== null && regions.length > 0,
     staleTime: 5 * 60_000,
     retry: false,
   });
@@ -147,8 +150,8 @@ export function useBasemapStatus() {
 export function useBasemapDownload() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (region: Region) =>
-      post(z.object({ ok: z.boolean() }), "basemap-download", region),
+    mutationFn: (regions: Region[]) =>
+      post(z.object({ ok: z.boolean() }), "basemap-download", { regions }),
     /* Refetch immediately so the poll loop sees the running state and starts
        ticking; without this it would sleep until something else asked. */
     onSuccess: () => client.invalidateQueries({ queryKey: ["basemap-status"] }),

@@ -564,7 +564,7 @@ button:disabled {
   position: absolute;
   top: 62px;
   left: 10px;
-  width: min(320px, calc(100% - 20px));
+  width: min(380px, calc(100% - 20px));
   max-height: calc(100% - 76px);
   overflow-y: auto;
   background: var(--card);
@@ -580,7 +580,7 @@ button:disabled {
   font-size: 13px;
 }
 
-.download-card select {
+.download-card .region-filter {
   width: 100%;
   font: inherit;
   font-size: 13px;
@@ -592,8 +592,56 @@ button:disabled {
   color: var(--ink);
 }
 
-.download-card select + select {
-  margin-top: 8px;
+/* The picker's tree. It scrolls inside the card so the selection's estimate
+   and its download button stay in reach below the list. */
+.region-tree {
+  list-style: none;
+  margin: 8px 0 10px;
+  padding: 0;
+  max-height: min(45vh, 340px);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.region-tree li + li {
+  border-top: 1px solid var(--line);
+}
+
+.region-tree summary {
+  cursor: pointer;
+  padding: 10px;
+  min-height: 40px;
+  font-size: 13px;
+}
+
+.region-tree details[open] > summary {
+  font-weight: 600;
+}
+
+.region-group {
+  margin: 4px 10px 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+
+.download-card .region-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 10px 2px 22px;
+  min-height: 40px;
+  font-size: 13px;
+}
+
+.region-check input {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  accent-color: var(--accent);
 }
 
 /* The picked region's offer nests inside the picker option; no divider. */

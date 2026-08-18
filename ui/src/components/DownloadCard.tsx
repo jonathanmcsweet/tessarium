@@ -2,14 +2,17 @@
 
    Offers, in order of usefulness: the whole world at country level when
    nothing is on disk (there is nothing on screen to aim a viewport with
-   until it exists), detail for the current view, and a country or state
-   picked by name -- the way the established offline map apps do it, because
-   aiming a viewport at Portugal is work a list does better.
+   until it exists), detail for the current view, and any mix of countries,
+   states and cities picked by name from a filterable tree -- the way the
+   established offline map apps do it, because aiming a viewport at Portugal
+   is work a list does better.
 
-   Every offer runs through the same estimate-then-confirm shape: what it
-   costs, whether it is already held, whether a big area stops at regional
-   detail. Downloads merge, so offers compose instead of replacing each
-   other.
+   A selection travels as ONE download: the server plans all its regions
+   together and dedups overlap by tile id, so picking a country and also one
+   of its cities pays for the shared tiles once, and the estimate is the
+   real price of the set rather than the sum of its parts. Every offer runs
+   through the same estimate-then-confirm shape: what it costs, whether it
+   is already held, which picks are too big for street level.
 
    Not a modal. It sits over the map's corner and traps nothing -- the map
    stays usable behind it, which matters because looking at the map is how a
@@ -18,7 +21,7 @@
    one. */
 
 import { X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   isRunning,
@@ -30,9 +33,15 @@ import {
   useBasemapPresent,
   WORLD,
 } from "../core/basemap";
-import { formatBytes } from "../i18n";
+import { formatBytes, formatList, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
-import { countries, subdivisionsOf, toRegion } from "../regions";
+import {
+  citiesOf,
+  countries,
+  type Subdivision,
+  subdivisionsOf,
+  toRegion,
+} from "../regions";
 import { useAppStore } from "../store";
 import { IconButton } from "./IconButton";
 
@@ -66,18 +75,38 @@ function Progress({ job }: { job: Job; }) {
 }
 
 /* One offer: its estimate, its caveats, its button. Shared by the world,
-   the current view, and a picked region, so the three cannot drift. */
-function Offer({ region, describe, confirmLabel, className }: {
-  region: Region | null;
+   the current view, and the picker's selection, so the three cannot
+   drift. */
+function Offer({ regions, names, describe, confirmLabel, className }: {
+  regions: Region[] | null;
+  /* Aligned with regions. Lets the depth warning name the picks that are
+     too big for street level; the world and the view have no names worth
+     saying and get the generic wording. */
+  names?: string[];
   describe: (size: string) => string;
   confirmLabel: string;
   className: string;
 }) {
-  const estimate = useBasemapEstimate(region);
+  const estimate = useBasemapEstimate(regions);
   const download = useBasemapDownload();
+  /* The picks granted less depth than they asked for. */
+  const clamped = estimate.isSuccess && regions !== null
+    ? regions
+      .map((region, i) => ({
+        name: names?.[i],
+        granted: estimate.data.max_zooms[i] ?? region.max_zoom,
+        asked: region.max_zoom,
+      }))
+      .filter((r) => r.granted < r.asked)
+    : [];
+  const clampedNames = clamped
+    .map((r) => r.name)
+    .filter((n): n is string => n !== undefined);
+  const showClamped = clamped.length > 0 && estimate.isSuccess
+    && !estimate.data.covered && estimate.data.tiles > 0;
   return (
     <div className={`download-option ${className}`}>
-      {region !== null && estimate.isPending && (
+      {regions !== null && estimate.isPending && (
         <p className="hint">{m.map_download_estimating()}</p>
       )}
       {estimate.isError && (
@@ -96,15 +125,18 @@ function Offer({ region, describe, confirmLabel, className }: {
             : describe(formatBytes(estimate.data.total_bytes))}
         </p>
       )}
-      {estimate.isSuccess && !estimate.data.covered && estimate.data.tiles > 0
-        && region !== null && estimate.data.max_zoom < region.max_zoom && (
-        <p className="hint">{m.map_download_depth_hint()}</p>
+      {showClamped && (
+        <p className="hint">
+          {clampedNames.length === clamped.length
+            ? m.map_download_clamped({ names: formatList(clampedNames) })
+            : m.map_download_depth_hint()}
+        </p>
       )}
       <div className="download-actions">
         <button
           type="button"
-          onClick={() => region && download.mutate(region, loudly)}
-          disabled={region === null || !estimate.isSuccess
+          onClick={() => regions && download.mutate(regions, loudly)}
+          disabled={regions === null || !estimate.isSuccess
             || estimate.data.tiles === 0 || estimate.data.covered
             || download.isPending}
         >
@@ -115,60 +147,147 @@ function Offer({ region, describe, confirmLabel, className }: {
   );
 }
 
-/* Countries and states by name. Selects rather than anything fancier: they
-   are natively accessible, natively mobile, and 177 entries is what they
-   are for. */
+/* A pick: a whole country, one of its states, or a city. The label is what
+   the selection count and the depth warning speak of. */
+type Choice = { key: string; label: string; region: Region; };
+
+/* The estimate is a real planning job server-side. Waiting for the
+   selection to settle turns five quick taps into one request instead of
+   five abandoned ones. */
+function useSettled<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return settled;
+}
+
+function CheckRow({ text, checked, onChange }: {
+  text: string;
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <label className="region-check">
+      <input type="checkbox" checked={checked} onChange={onChange} />
+      <span>{text}</span>
+    </label>
+  );
+}
+
+/* Countries disclose their states and cities; any mix across any number of
+   countries rides in one download. Native details/summary and checkboxes on
+   purpose: every behavior here -- disclosure, toggling, keyboard focus --
+   is the browser's own rather than re-implemented. */
 function RegionPicker() {
-  const [countryIdx, setCountryIdx] = useState("");
-  const [subIdx, setSubIdx] = useState("");
+  const [filter, setFilter] = useState("");
+  const [selected, setSelected] = useState(new Map<string, Choice>());
   /* Re-sorted per render on purpose: the locale can change under a live
      picker, and "Germany" and "Allemagne" sort to different places. */
   const list = countries();
-  const chosen = countryIdx === "" ? null : list[Number(countryIdx)] ?? null;
-  const subs = chosen ? subdivisionsOf(chosen.country) : [];
-  const sub = subIdx === "" ? null : subs[Number(subIdx)] ?? null;
-  const box = sub?.bbox ?? chosen?.country.bbox ?? null;
+  const locale = getLocale();
+  const needle = filter.trim().toLocaleLowerCase(locale);
+
+  const toggle = (choice: Choice) =>
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(choice.key)) next.delete(choice.key);
+      else next.set(choice.key, choice);
+      return next;
+    });
+
+  const picksNow = useMemo(() => [...selected.values()], [selected]);
+  const picks = useSettled(picksNow, 500);
 
   return (
     <div className="download-option download-region">
-      <label htmlFor="region-country">{m.map_download_region_label()}</label>
-      <select
-        id="region-country"
-        className="region-country"
-        value={countryIdx}
-        onChange={(e) => {
-          setCountryIdx(e.target.value);
-          setSubIdx("");
-        }}
-      >
-        <option value="">{m.map_download_region_placeholder()}</option>
-        {list.map((entry, i) => (
-          <option key={entry.country.name} value={String(i)}>
-            {entry.label}
-          </option>
-        ))}
-      </select>
-      {subs.length > 0 && (
-        <select
-          className="region-sub"
-          aria-label={m.map_download_region_sub_label()}
-          value={subIdx}
-          onChange={(e) => setSubIdx(e.target.value)}
-        >
-          <option value="">{m.map_download_region_whole()}</option>
-          {subs.map((entry, i) => (
-            <option key={entry.name} value={String(i)}>{entry.name}</option>
-          ))}
-        </select>
-      )}
-      {box && (
+      <label htmlFor="region-filter">{m.map_download_region_label()}</label>
+      <input
+        id="region-filter"
+        className="region-filter"
+        type="search"
+        placeholder={m.map_download_region_filter()}
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+      />
+      <ul className="region-tree">
+        {list.map(({ country, label }) => {
+          const code = country.code ?? country.name;
+          const subs = subdivisionsOf(country);
+          const cities = citiesOf(country);
+          const matches = (name: string) =>
+            name.toLocaleLowerCase(locale).includes(needle);
+          const selfMatch = needle === "" || matches(label);
+          const childMatch = !selfMatch
+            && [...subs, ...cities].some((c) => matches(c.name));
+          if (!selfMatch && !childMatch) return null;
+          const whole: Choice = {
+            key: `country:${code}`,
+            label,
+            region: toRegion(country.bbox),
+          };
+          const named = (kind: string, entry: Subdivision): Choice => ({
+            key: `${kind}:${code}:${entry.name}`,
+            label: entry.name,
+            region: toRegion(entry.bbox),
+          });
+          return (
+            <li key={code}>
+              {
+                /* Filtering holds matches open so the hits are visible; with
+                  no filter the browser owns the disclosure state. */
+              }
+              <details open={needle === "" ? undefined : true}>
+                <summary>{label}</summary>
+                <CheckRow
+                  text={m.map_download_region_whole()}
+                  checked={selected.has(whole.key)}
+                  onChange={() => toggle(whole)}
+                />
+                {subs.length > 0 && (
+                  <p className="region-group">
+                    {m.map_download_region_sub_label()}
+                  </p>
+                )}
+                {subs.map((entry) => {
+                  const choice = named("state", entry);
+                  return (
+                    <CheckRow
+                      key={choice.key}
+                      text={entry.name}
+                      checked={selected.has(choice.key)}
+                      onChange={() => toggle(choice)}
+                    />
+                  );
+                })}
+                {cities.length > 0 && (
+                  <p className="region-group">
+                    {m.map_download_region_cities()}
+                  </p>
+                )}
+                {cities.map((entry) => {
+                  const choice = named("city", entry);
+                  return (
+                    <CheckRow
+                      key={choice.key}
+                      text={entry.name}
+                      checked={selected.has(choice.key)}
+                      onChange={() => toggle(choice)}
+                    />
+                  );
+                })}
+              </details>
+            </li>
+          );
+        })}
+      </ul>
+      {(selected.size > 0 || picks.length > 0) && (
         <Offer
-          region={toRegion(box)}
+          regions={picks.length > 0 ? picks.map((p) => p.region) : null}
+          names={picks.map((p) => p.label)}
           describe={(size) =>
-            m.map_download_region_estimate({
-              size,
-              name: sub?.name ?? chosen?.label ?? "",
-            })}
+            m.map_download_region_selected({ count: picks.length, size })}
           confirmLabel={m.map_download_confirm()}
           className="download-region-offer"
         />
@@ -220,14 +339,14 @@ export function DownloadCard({ region, job }: {
           <>
             {worldFirst && (
               <Offer
-                region={WORLD}
+                regions={[WORLD]}
                 describe={(size) => m.map_download_world_estimate({ size })}
                 confirmLabel={m.map_download_world_confirm()}
                 className="download-world"
               />
             )}
             <Offer
-              region={region}
+              regions={[region]}
               describe={(size) => m.map_download_estimate({ size })}
               confirmLabel={m.map_download_confirm()}
               className="download-view"

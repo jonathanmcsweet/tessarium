@@ -3,11 +3,13 @@
    need it" possible: without it, every download replaced map.pmtiles
    wholesale and fetching Paris discarded London.
 
-   Planned first, like an extract. Every tile in either input gets exactly
-   one entry, and the base's copy wins when both have one -- so a merge never
+   Planned first, like an extract. Every tile in any input gets exactly one
+   entry, and the base's copy wins when both have one -- so a merge never
    re-fetches bytes already on disk, and re-downloading a region you already
-   have costs nothing. The trade: a merge never refreshes a stale tile
-   either. That is recorded in the roadmap, not hidden here. *)
+   have costs nothing. Fresh regions dedup among themselves the same way, so
+   a request naming a country and also one of its cities pays for the overlap
+   once. The trade: a merge never refreshes a stale tile either. That is
+   recorded in the roadmap, not hidden here. *)
 
 type origin = Base | Fresh
 
@@ -24,7 +26,7 @@ type plan = {
    base archive that has grown to a country is millions of entries, and
    expanding them must not freeze the scheduler that is doing it. *)
 let plan ?(on_entry = fun () -> ()) ~(base : Archive.t option)
-    (fresh : Extract.plan) =
+    (fresh : Extract.plan list) =
   let by_id = Hashtbl.create 4096 in
   (match base with
   | None -> ()
@@ -40,14 +42,18 @@ let plan ?(on_entry = fun () -> ()) ~(base : Archive.t option)
           done)
         (Archive.entries b));
   let fresh_tiles = ref 0 in
-  Array.iter
-    (fun (id, blob) ->
-      if not (Hashtbl.mem by_id id) then begin
-        incr fresh_tiles;
-        let offset, length = fresh.Extract.blobs.(blob) in
-        Hashtbl.replace by_id id (Fresh, offset, length)
-      end)
-    fresh.Extract.tiles;
+  List.iter
+    (fun (f : Extract.plan) ->
+      Array.iter
+        (fun (id, blob) ->
+          on_entry ();
+          if not (Hashtbl.mem by_id id) then begin
+            incr fresh_tiles;
+            let offset, length = f.Extract.blobs.(blob) in
+            Hashtbl.replace by_id id (Fresh, offset, length)
+          end)
+        f.Extract.tiles)
+    fresh;
   let ids =
     Hashtbl.fold (fun id _ acc -> id :: acc) by_id [] |> List.sort compare
   in

@@ -315,13 +315,17 @@ check(
   idleStatus.generation === 0 && idleStatus.job?.state === "idle",
 );
 const reversed = await postJson("basemap-estimate", {
-  min_lon: 1,
+  regions: [{ min_lon: 1, min_lat: 0, max_lon: 0, max_lat: 1, max_zoom: 15 }],
+});
+check("a reversed box is refused with a 400", reversed.status === 400);
+const bare = await postJson("basemap-estimate", {
+  min_lon: 0,
   min_lat: 0,
-  max_lon: 0,
+  max_lon: 1,
   max_lat: 1,
   max_zoom: 15,
 });
-check("a reversed box is refused with a 400", reversed.status === 400);
+check("a bare box without the regions wrapper is refused", bare.status === 400);
 
 /* Wait until the named download completes, by generation: a tiny fixture
    download can run start-to-done entirely between two UI polls, and the
@@ -441,34 +445,76 @@ check(
   await page.locator(".download-view button").isDisabled(),
 );
 
-/* Third download: a country picked by name, the way the offline map apps do
-   it. The fixture's tiles sit inside the United Kingdom's box, so picking it
-   estimates real bytes and the download merges a third region in. The name
-   comes from Intl.DisplayNames, so this also pins the catalogue's ISO codes
-   to something the browser recognises. */
-await page.locator(".region-country").selectOption({
-  label: "United Kingdom",
-});
+/* Third download: places picked by name from the tree -- and several at
+   once, riding in ONE download. The fixture's tiles sit inside the United
+   Kingdom's box, so picking the UK estimates real bytes; adding the city of
+   London on top must NOT change the price, because the server dedups
+   overlapping picks by tile id. The country name comes from
+   Intl.DisplayNames, so this also pins the catalogue's ISO codes to
+   something the browser recognises. */
+await page.locator("#region-filter").fill("United Kingdom");
+const ukEntry = page
+  .locator(".region-tree details")
+  .filter({ hasText: "United Kingdom" });
+await ukEntry
+  .locator(".region-check")
+  .filter({ hasText: "The whole country" })
+  .locator("input")
+  .check();
 await page.waitForFunction(
   () => !document.querySelector(".download-region-offer button")?.disabled,
   { timeout: 30_000 },
 );
 check("picking a country by name yields a real estimate", true);
+const priceOf = async () => {
+  const hint = await page
+    .locator(".download-region-offer .hint")
+    .first()
+    .textContent();
+  return (hint?.match(/About (.+) in total/) ?? [])[1] ?? "";
+};
+const ukAlone = await priceOf();
+check("the selection names its price", ukAlone !== "");
+await ukEntry
+  .locator(".region-check")
+  .filter({ hasText: "London" })
+  .locator("input")
+  .check();
+await page.waitForFunction(
+  () =>
+    (document.querySelector(".download-region-offer .hint")?.textContent ?? "")
+      .includes("Places selected: 2"),
+  { timeout: 30_000 },
+);
+check(
+  "a city inside a picked country adds nothing to the price",
+  (await priceOf()) === ukAlone,
+);
 await page.locator(".download-region-offer button").click();
-check("the country download completes at generation three", await awaitDone(3));
+check(
+  "the two-place download completes at generation three",
+  await awaitDone(3),
+);
 await page.waitForFunction(() => !document.querySelector(".download-card"), {
   timeout: 10_000,
 });
 
-/* And a federation exposes its states: the picker for the United States
-   must offer a second select with more than forty entries. */
+/* And a federation exposes its states and cities as checkboxes: the United
+   States entry must offer more than forty states, plus named cities. */
 await openButton.click();
 await page.waitForSelector(".download-card", { timeout: 10_000 });
-await page.locator(".region-country").selectOption({ label: "United States" });
-await page.waitForSelector(".region-sub", { timeout: 10_000 });
+await page.locator("#region-filter").fill("United States");
+const usEntry = page
+  .locator(".region-tree details")
+  .filter({ hasText: "United States" });
 check(
   "a federation exposes its states",
-  (await page.locator(".region-sub option").count()) > 40,
+  (await usEntry.locator(".region-check").count()) > 40,
+);
+check(
+  "and its cities",
+  (await usEntry.locator(".region-check").filter({ hasText: "Chicago" })
+    .count()) === 1,
 );
 await page.locator(".download-card .icon-button").click();
 await page.waitForFunction(() => !document.querySelector(".download-card"), {

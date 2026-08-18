@@ -379,6 +379,28 @@ let parse_region json =
       Basemap_job.validate ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom
   | _ -> Error "missing min_lon, min_lat, max_lon, max_lat or max_zoom"
 
+(* One request names one or more regions -- the picker lets several countries,
+   states and cities ride in a single download, merged and deduplicated
+   server-side. The cap is a sanity bound far above anything the picker
+   sends, not a promise. *)
+let parse_regions json =
+  match json_field "regions" json with
+  | Some (`List []) -> Error "regions must not be empty"
+  | Some (`List items) when List.length items > 64 ->
+      Error "too many regions in one request"
+  | Some (`List items) ->
+      List.fold_left
+        (fun acc item ->
+          match acc with
+          | Error _ -> acc
+          | Ok regions -> (
+              match parse_region item with
+              | Ok r -> Ok (r :: regions)
+              | Error e -> Error e))
+        (Ok []) items
+      |> Result.map List.rev
+  | _ -> Error {|missing regions: expected {"regions": [...]}|}
+
 let handle_basemap cfg (ops : Basemap_download.ops) ~endpoint ~body =
   let bad = error cfg ~status:`Bad_request in
   match endpoint with
@@ -391,11 +413,11 @@ let handle_basemap cfg (ops : Basemap_download.ops) ~endpoint ~body =
       match Yojson.Safe.from_string body with
       | exception _ -> bad "body is not valid JSON"
       | json -> (
-          match parse_region json with
+          match parse_regions json with
           | Error e -> bad e
-          | Ok req ->
+          | Ok reqs ->
               if String.equal endpoint "basemap-estimate" then
-                match ops.estimate req with
+                match ops.estimate reqs with
                 | Ok payload -> respond_json cfg ~status:`OK payload
                 | Error e ->
                     (* The failure is upstream of this server -- the tile
@@ -403,7 +425,7 @@ let handle_basemap cfg (ops : Basemap_download.ops) ~endpoint ~body =
                        should say so rather than blame the request. *)
                     error cfg ~status:`Bad_gateway e
               else
-                match ops.start req with
+                match ops.start reqs with
                 | Ok () ->
                     respond_json cfg ~status:`OK (`Assoc [ ("ok", `Bool true) ])
                 | Error e -> error cfg ~status:`Conflict e))

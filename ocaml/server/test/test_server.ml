@@ -317,26 +317,48 @@ let () =
   check "cancel reaches the job"
     (run ~endpoint:"basemap-cancel" ~body:"" = [ `Cancel ]);
   let box = {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15}|} in
-  (match run ~endpoint:"basemap-download" ~body:box with
-  | [ `Start (req : Tessarium_server.Basemap_job.request) ] ->
+  let wrap boxes = {|{"regions":[|} ^ String.concat "," boxes ^ "]}" in
+  (match run ~endpoint:"basemap-download" ~body:(wrap [ box ]) with
+  | [ `Start [ (req : Tessarium_server.Basemap_job.request) ] ] ->
       check "a good box starts a download with the parsed values"
         (req.min_lon = -0.25 && req.max_lat = 51.55 && req.max_zoom = 15);
       (* max_lon arrived as the JSON integer 0 and must still be a number. *)
       check "integer coordinates are accepted" (req.max_lon = 0.)
   | _ -> check "a good box starts a download with the parsed values" false);
+  let paris =
+    {|{"min_lon":2.1,"min_lat":48.7,"max_lon":2.6,"max_lat":49,"max_zoom":15}|}
+  in
+  (* Several regions ride in one request, in order: the picker sends its
+     whole selection at once and reads the depths back by position. *)
+  (match run ~endpoint:"basemap-download" ~body:(wrap [ box; paris ]) with
+  | [ `Start [ (a : Tessarium_server.Basemap_job.request); b ] ] ->
+      check "two regions arrive as one download, in order"
+        (a.min_lon = -0.25 && b.min_lon = 2.1)
+  | _ -> check "two regions arrive as one download, in order" false);
   check "estimate goes to the planner"
-    (match run ~endpoint:"basemap-estimate" ~body:box with
+    (match run ~endpoint:"basemap-estimate" ~body:(wrap [ box ]) with
     | [ `Estimate _ ] -> true
     | _ -> false);
   check "a malformed body reaches nothing"
     (run ~endpoint:"basemap-download" ~body:"{not json" = []);
+  check "a bare box without the regions wrapper reaches nothing"
+    (run ~endpoint:"basemap-download" ~body:box = []);
+  check "an empty regions list reaches nothing"
+    (run ~endpoint:"basemap-download" ~body:{|{"regions":[]}|} = []);
+  check "an absurd number of regions reaches nothing"
+    (run ~endpoint:"basemap-download"
+       ~body:(wrap (List.init 65 (fun _ -> box)))
+     = []);
   check "a reversed box reaches nothing"
     (run ~endpoint:"basemap-download"
-       ~body:{|{"min_lon":1,"min_lat":0,"max_lon":0,"max_lat":1,"max_zoom":15}|}
+       ~body:
+         (wrap [ {|{"min_lon":1,"min_lat":0,"max_lon":0,"max_lat":1,"max_zoom":15}|} ])
      = []);
+  check "one bad box poisons the whole request"
+    (run ~endpoint:"basemap-download" ~body:(wrap [ box; "{}" ]) = []);
   check "a missing field reaches nothing"
     (run ~endpoint:"basemap-download"
-       ~body:{|{"min_lon":1,"min_lat":0,"max_lon":2,"max_zoom":15}|}
+       ~body:(wrap [ {|{"min_lon":1,"min_lat":0,"max_lon":2,"max_zoom":15}|} ])
      = []);
 
   (* The status envelope carries a generation alongside the job: a fast

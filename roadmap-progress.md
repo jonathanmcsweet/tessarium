@@ -1085,3 +1085,37 @@ exception with an honest explanation, not the rule.
 **Follow-on:** the giants (Brazil-scale boxes, Alaska's antimeridian bbox)
 need chunked resumable downloads; the final directory build blocks briefly;
 a country plan holds ~300–400 MB transiently. All in the roadmap item.
+
+### 2026-08-18 — Multi-select downloads and the city catalogue
+
+**Phase:** 6
+
+**What:** The picker is now a filterable tree: every country expands to its
+states and its cities (Natural Earth 50m populated places joined into the
+committed catalogue — 1,198 cities across 173 countries; boxes drawn by
+prominence and latitude, since the source carries points), and any mix of
+checkboxes across any number of countries rides in ONE download.
+`Merge.plan` takes a list of fresh regions and dedups them against each
+other by tile id exactly as against the base, so a country plus one of its
+cities pays for the overlap once — proven byte-for-byte in the pmtiles
+suite (both boxes in one request equal extract-then-merge) and through the
+UI in the e2e (adding London to a UK selection leaves the price unchanged).
+The API now takes {"regions": [...]} (a bare box is refused) and answers
+per-region max_zooms, so the card names exactly which picks are too big for
+street level (Intl.ListFormat) while each region is depth-budgeted on its
+own — one giant pick no longer drags the states beside it down to regional
+detail. Estimates fire after the selection settles for 500 ms, not per tap.
+71 e2e / 56 pmtiles / 105 server / 962 message checks, all suites green.
+
+**Rationale:** "I'd like some sort of expanded view where I can select
+multiple states or cities at the same time." Built on native
+details/summary and checkboxes rather than a component library: every
+behavior in the tree — disclosure, toggling, keyboard focus — is the
+browser's own, per the house rule of taking primitives instead of
+re-implementing behavior.
+
+**Follow-on:** several full-depth countries in one selection plan
+sequentially and can outlive the client's 120 s estimate timeout — noted on
+the giants roadmap item. City boxes are drawn, not boundaries — noted on
+the boxes item.
+
