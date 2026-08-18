@@ -19,15 +19,20 @@ import { getLocale } from "./i18n";
 import data from "./regions.json";
 
 const Box = z.tuple([z.number(), z.number(), z.number(), z.number()]);
+const Ring = z.array(z.tuple([z.number(), z.number()]));
+/* Boxes, plural: a country astride the antimeridian (Russia) is two honest
+   boxes rather than one world-wide one, and the download API happily takes
+   several regions. Country polygons clip the download to the border. */
 const Catalogue = z.object({
   countries: z.array(z.object({
     code: z.string().nullable(),
     name: z.string(),
-    bbox: Box,
+    boxes: z.array(Box).min(1),
+    polygon: z.array(Ring),
   })),
   subdivisions: z.record(
     z.string(),
-    z.array(z.object({ name: z.string(), bbox: Box })),
+    z.array(z.object({ name: z.string(), boxes: z.array(Box).min(1) })),
   ),
   cities: z.record(
     z.string(),
@@ -42,6 +47,10 @@ const catalogue = Catalogue.parse(data);
 
 export type Country = (typeof catalogue.countries)[number];
 export type Subdivision = {
+  name: string;
+  boxes: [number, number, number, number][];
+};
+export type City = {
   name: string;
   bbox: [number, number, number, number];
 };
@@ -70,16 +79,25 @@ export const countries = (): { country: Country; label: string; }[] => {
 export const subdivisionsOf = (country: Country): Subdivision[] =>
   country.code ? catalogue.subdivisions[country.code] ?? [] : [];
 
-/* Cities share the subdivision shape: a named box. */
-export const citiesOf = (country: Country): Subdivision[] =>
+export const citiesOf = (country: Country): City[] =>
   country.code ? catalogue.cities[country.code] ?? [] : [];
 
 export const toRegion = (
   bbox: [number, number, number, number],
+  polygon?: [number, number][][],
 ): Region => ({
   min_lon: bbox[0],
   min_lat: bbox[1],
   max_lon: bbox[2],
   max_lat: bbox[3],
   max_zoom: 15,
+  ...(polygon && polygon.length > 0 ? { polygon } : {}),
 });
+
+/* Every region a whole-country download means: one per box, sharing the
+   country's border polygon. */
+export const countryRegions = (country: Country): Region[] =>
+  country.boxes.map((box) => toRegion(box, country.polygon));
+
+export const subdivisionRegions = (sub: Subdivision): Region[] =>
+  sub.boxes.map((box) => toRegion(box));

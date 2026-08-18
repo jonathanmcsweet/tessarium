@@ -327,6 +327,30 @@ const bare = await postJson("basemap-estimate", {
 });
 check("a bare box without the regions wrapper is refused", bare.status === 400);
 
+/* Polygon clipping, end to end: the same box estimated whole and clipped to
+   a triangle covering only part of it must shrink, not vanish. The fixture
+   holds London (-0.20..-0.05, 51.46..51.56); the triangle covers its west. */
+const londonBox = {
+  min_lon: -0.25,
+  min_lat: 51.44,
+  max_lon: 0.0,
+  max_lat: 51.58,
+  max_zoom: 15,
+};
+const wholeEst = await (await postJson("basemap-estimate", {
+  regions: [londonBox],
+})).json();
+const clipEst = await (await postJson("basemap-estimate", {
+  regions: [{
+    ...londonBox,
+    polygon: [[[-0.21, 51.45], [-0.13, 51.45], [-0.17, 51.57]]],
+  }],
+})).json();
+check(
+  "a polygon clips the plan to fewer tiles",
+  clipEst.tiles > 0 && wholeEst.tiles > clipEst.tiles,
+);
+
 /* Wait until the named download completes, by generation: a tiny fixture
    download can run start-to-done entirely between two UI polls, and the
    generation in the status envelope is exactly what makes that visible. */
@@ -385,7 +409,7 @@ check("the card closes itself", true);
    the real-world case. */
 const overlayAlive = await page.evaluate(() => {
   const map = window.__tessarium_map;
-  return !!(map && map.getSource("grid") && map.getLayer("grid-lines")
+  return !!(map?.getSource("grid") && map.getLayer("grid-lines")
     && map.getSource("selection") && map.getLayer("selection-outline"));
 });
 check("the grid overlay survives the download's style swap", overlayAlive);
@@ -539,6 +563,29 @@ check(
   (await usEntry.locator(".region-check").filter({ hasText: "Chicago" })
     .count()) === 1,
 );
+
+/* Fiji straddles the antimeridian, so its whole-country pick is TWO boxes
+   sharing one border polygon. (Not Russia: its clipped land now genuinely
+   affords full depth, and honestly planning it takes minutes -- the fixture
+   deserves the small antimeridian country.) Its only fixture tile is the
+   world-spanning z0, already on disk from the world download, so the honest
+   answer -- and the assertion -- is "covered": the two-box polygon request
+   survived validation, planning and the merge arithmetic end to end. */
+await page.locator("#region-filter").fill("Fiji");
+await page
+  .locator(".region-tree details")
+  .filter({ hasText: "Fiji" })
+  .locator(".region-check")
+  .filter({ hasText: "The whole country" })
+  .locator("input")
+  .check();
+await page.waitForFunction(
+  () =>
+    (document.querySelector(".download-region-offer .hint")?.textContent ?? "")
+      .includes("already have"),
+  { timeout: 30_000 },
+);
+check("a two-box antimeridian country estimates cleanly", true);
 await page.locator(".download-card .icon-button").click();
 await page.waitForFunction(() => !document.querySelector(".download-card"), {
   timeout: 10_000,

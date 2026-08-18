@@ -19,6 +19,10 @@ export type Region = {
   max_lon: number;
   max_lat: number;
   max_zoom: number;
+  /* Outer rings of the region's border, when the catalogue knows them. The
+     server clips the download to the polygon, so a country stops at its
+     border instead of its bounding box. */
+  polygon?: [number, number][][];
 };
 
 const Estimate = z.object({

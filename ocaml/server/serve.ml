@@ -370,6 +370,40 @@ let float_field name json =
 let int_field name json =
   match json_field name json with Some (`Int i) -> Some i | _ -> None
 
+(* A polygon arrives as rings of [lon,lat] pairs. Anything malformed is a
+   parse error for the whole region; the size caps live in the validator. *)
+let parse_polygon json =
+  let num = function
+    | `Float f -> Some f
+    | `Int i -> Some (float_of_int i)
+    | _ -> None
+  in
+  match json_field "polygon" json with
+  | None -> Ok None
+  | Some (`List rings) -> (
+      let ring = function
+        | `List points ->
+            let parsed =
+              List.map
+                (function
+                  | `List [ a; b ] -> (
+                      match (num a, num b) with
+                      | Some lon, Some lat -> Some (lon, lat)
+                      | _ -> None)
+                  | _ -> None)
+                points
+            in
+            if List.for_all Option.is_some parsed then
+              Some (Array.of_list (List.filter_map Fun.id parsed))
+            else None
+        | _ -> None
+      in
+      match List.map ring rings with
+      | parsed when List.for_all Option.is_some parsed ->
+          Ok (Some (Array.of_list (List.filter_map Fun.id parsed)))
+      | _ -> Error "polygon must be rings of [lon,lat] pairs")
+  | Some _ -> Error "polygon must be rings of [lon,lat] pairs"
+
 let parse_region json =
   match
     ( float_field "min_lon" json,
@@ -378,8 +412,11 @@ let parse_region json =
       float_field "max_lat" json,
       int_field "max_zoom" json )
   with
-  | Some min_lon, Some min_lat, Some max_lon, Some max_lat, Some max_zoom ->
-      Basemap_job.validate ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom
+  | Some min_lon, Some min_lat, Some max_lon, Some max_lat, Some max_zoom -> (
+      match parse_polygon json with
+      | Error e -> Error e
+      | Ok polygon ->
+          Basemap_job.validate ?polygon ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom ())
   | _ -> Error "missing min_lon, min_lat, max_lon, max_lat or max_zoom"
 
 (* One request names one or more regions -- the picker lets several countries,

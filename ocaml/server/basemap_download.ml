@@ -111,6 +111,8 @@ type segment = {
   req : Basemap_job.request;
   depth : int;
   box : float * float * float * float;
+  clip : Pmtiles.Clip.t option;
+      (** the region's polygon; planning stops at the border, not the box *)
 }
 
 (* The units of work, in fetch order, plus the granted depth per region in
@@ -126,17 +128,18 @@ let units_of ~budget ~header reqs =
     List.map
       (fun (req : Basemap_job.request) ->
         let requested = min req.max_zoom header.Pmtiles.Header.max_zoom in
+        let clip = Option.map Pmtiles.Clip.of_rings req.polygon in
         let parts, depth, _clamped =
-          Pmtiles.Tile_id.download_parts ~min_zoom ~requested
+          Pmtiles.Tile_id.download_parts ?clip ~min_zoom ~requested
             ~min_lon:req.min_lon ~min_lat:req.min_lat ~max_lon:req.max_lon
             ~max_lat:req.max_lat ~full_limit:budget.full
-            ~quick_limit:budget.quick ~max_parts:budget.max_parts
+            ~quick_limit:budget.quick ~max_parts:budget.max_parts ()
         in
-        (req, depth, parts))
+        (req, depth, clip, parts))
       reqs
   in
   let singles, giants =
-    List.partition (fun (_, _, parts) -> List.length parts = 1) split
+    List.partition (fun (_, _, _, parts) -> List.length parts = 1) split
   in
   let batch =
     match singles with
@@ -145,25 +148,25 @@ let units_of ~budget ~header reqs =
         [
           `Batch
             (List.map
-               (fun ((req : Basemap_job.request), depth, parts) ->
-                 { req; depth; box = List.hd parts })
+               (fun ((req : Basemap_job.request), depth, clip, parts) ->
+                 { req; depth; clip; box = List.hd parts })
                l);
         ]
   in
   let parts =
     List.concat_map
-      (fun (req, depth, boxes) ->
-        List.map (fun box -> `Part { req; depth; box }) boxes)
+      (fun (req, depth, clip, boxes) ->
+        List.map (fun box -> `Part { req; depth; clip; box }) boxes)
       giants
   in
-  (batch @ parts, List.map (fun (_, depth, _) -> depth) split)
+  (batch @ parts, List.map (fun (_, depth, _, _) -> depth) split)
 
 let plan_box ?cancel ~archive ~min_zoom (seg : segment) =
   let a, b, c, d = seg.box in
   Pmtiles.Extract.plan
     ~on_tile:(breathe ?cancel ())
-    archive ~min_zoom ~max_zoom:seg.depth ~min_lon:a ~min_lat:b ~max_lon:c
-    ~max_lat:d
+    ?clip:seg.clip archive ~min_zoom ~max_zoom:seg.depth ~min_lon:a ~min_lat:b
+    ~max_lon:c ~max_lat:d
 
 let segments_of = function `Batch segs -> segs | `Part seg -> [ seg ]
 

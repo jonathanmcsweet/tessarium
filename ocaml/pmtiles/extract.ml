@@ -35,10 +35,16 @@ let max_root_bytes = 16384
    a cooperative scheduler: a country is a couple of million candidates, and
    a loop that long without a yield freezes every other task the server has.
    This module stays scheduler-agnostic; the caller injects the yield. *)
-let plan ?(on_tile = fun () -> ()) archive ~min_zoom ~max_zoom ~min_lon
+let plan ?(on_tile = fun () -> ()) ?clip archive ~min_zoom ~max_zoom ~min_lon
     ~min_lat ~max_lon ~max_lat =
   let ids =
-    Tile_id.covering ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
+    match clip with
+    | None ->
+        Tile_id.covering ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
+          ~max_lat
+    | Some clip ->
+        Tile_id.covering_clipped ~min_zoom ~max_zoom ~min_lon ~min_lat
+          ~max_lon ~max_lat ~clip
   in
   let blob_index = Hashtbl.create 1024 in
   let blobs = ref [] in

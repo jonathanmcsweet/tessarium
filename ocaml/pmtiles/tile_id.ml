@@ -130,6 +130,15 @@ let count_ids ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat =
   done;
   !total
 
+let depth_within ~min_zoom ~max_zoom ~limit ~count_at =
+  let rec go z total best =
+    if z > max_zoom then best
+    else
+      let total = total + count_at z in
+      if total > limit && z > min_zoom then best else go (z + 1) total z
+  in
+  go min_zoom 0 min_zoom
+
 let depth_for ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~limit =
   let count z = ids_in_box ~z ~min_lon ~min_lat ~max_lon ~max_lat in
   let rec go z total best =
@@ -148,16 +157,106 @@ let lat_of_row ~z ~y =
   let t = Float.pi *. (1. -. (2. *. float_of_int y /. n)) in
   Float.atan (Float.sinh t) *. 180. /. Float.pi
 
+(* Geographic box of one tile. *)
+let tile_box ~z ~x ~y =
+  let n = float_of_int (1 lsl z) in
+  let lon0 = (float_of_int x /. n *. 360.) -. 180. in
+  let lon1 = (float_of_int (x + 1) /. n *. 360.) -. 180. in
+  (lon0, lat_of_row ~z ~y:(y + 1), lon1, lat_of_row ~z ~y)
+
+(* The quadtree walk behind clipped covering and counting. A subtree wholly
+   outside the polygon is pruned in one test; one wholly inside stops paying
+   for geometry and hands its tiles over as arithmetic ranges; only the
+   border tests per tile. O(border length) per zoom, which is what makes
+   clipping a country at z15 affordable where a per-tile test would be
+   billions of ray casts.
+
+   [tile z x y] receives each border tile between the zooms; [block] receives
+   whole interior ranges, already intersected with the request box. *)
+let clip_walk ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~clip
+    ~tile ~block =
+  let range z =
+    let last = (1 lsl z) - 1 in
+    ( clamp 0 last (tile_x ~z ~lon:min_lon),
+      clamp 0 last (tile_x ~z ~lon:max_lon),
+      clamp 0 last (tile_y ~z ~lat:max_lat),
+      clamp 0 last (tile_y ~z ~lat:min_lat) )
+  in
+  let ranges = Array.init (max_zoom + 1) range in
+  let in_box z x y =
+    let x0, x1, y0, y1 = ranges.(z) in
+    x >= x0 && x <= x1 && y >= y0 && y <= y1
+  in
+  let interior z x y =
+    for z' = max z min_zoom to max_zoom do
+      let scale = z' - z in
+      let x0, x1, y0, y1 = ranges.(z') in
+      let x0 = max x0 (x lsl scale)
+      and x1 = min x1 (((x + 1) lsl scale) - 1)
+      and y0 = max y0 (y lsl scale)
+      and y1 = min y1 (((y + 1) lsl scale) - 1) in
+      if x0 <= x1 && y0 <= y1 then block z' ~x0 ~x1 ~y0 ~y1
+    done
+  in
+  let rec visit z x y =
+    if in_box z x y then begin
+      let bx0, by0, bx1, by1 = tile_box ~z ~x ~y in
+      match Clip.classify clip ~min_x:bx0 ~min_y:by0 ~max_x:bx1 ~max_y:by1 with
+      | Clip.Outside -> ()
+      | Clip.Inside -> interior z x y
+      | Clip.Boundary ->
+          if z >= min_zoom then tile z x y;
+          if z < max_zoom then begin
+            let x2 = x * 2 and y2 = y * 2 in
+            visit (z + 1) x2 y2;
+            visit (z + 1) (x2 + 1) y2;
+            visit (z + 1) x2 (y2 + 1);
+            visit (z + 1) (x2 + 1) (y2 + 1)
+          end
+    end
+  in
+  visit 0 0 0
+
+(* [covering], polygon-clipped: every id between the zooms whose tile meets
+   both the box and the polygon. Same ascending contract as [covering]. *)
+let covering_clipped ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
+    ~clip =
+  let ids = ref [] in
+  clip_walk ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~clip
+    ~tile:(fun z x y -> ids := of_zxy ~z ~x ~y :: !ids)
+    ~block:(fun z ~x0 ~x1 ~y0 ~y1 ->
+      for x = x0 to x1 do
+        for y = y0 to y1 do
+          ids := of_zxy ~z ~x ~y :: !ids
+        done
+      done);
+  List.sort_uniq compare !ids
+
+let count_ids_clipped ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
+    ~clip =
+  let total = ref 0 in
+  clip_walk ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~clip
+    ~tile:(fun _ _ _ -> incr total)
+    ~block:(fun _ ~x0 ~x1 ~y0 ~y1 ->
+      total := !total + ((x1 - x0 + 1) * (y1 - y0 + 1)));
+  !total
+
 (* Split a box into at most [max_parts] boxes, each planning within [limit]
    ids up to [max_zoom]. Repeatedly bisects the worst offender along its
    longer tile axis. Seams land on tile edges only by luck, so neighbouring
    parts may share an edge row or column of tiles; the merge dedups shared
    ids, so overlap costs a sliver of re-planning, never correctness. None
    when [max_parts] pieces are not enough or a piece stops being divisible. *)
-let split ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~limit
-    ~max_parts =
+let split ?clip ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
+    ~limit ~max_parts () =
   let count (a, b, c, d) =
-    count_ids ~min_zoom ~max_zoom ~min_lon:a ~min_lat:b ~max_lon:c ~max_lat:d
+    match clip with
+    | None ->
+        count_ids ~min_zoom ~max_zoom ~min_lon:a ~min_lat:b ~max_lon:c
+          ~max_lat:d
+    | Some clip ->
+        count_ids_clipped ~min_zoom ~max_zoom ~min_lon:a ~min_lat:b ~max_lon:c
+          ~max_lat:d ~clip
   in
   let bisect (a, b, c, d) =
     let z = max_zoom in
@@ -209,16 +308,23 @@ let split ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ~limit
    pieces than [max_parts] allows; pretending otherwise would grind the
    server for hours, so it falls back to a depth that plans in a couple of
    seconds, and the caller says "pick a state" instead. *)
-let download_parts ~min_zoom ~requested ~min_lon ~min_lat ~max_lon ~max_lat
-    ~full_limit ~quick_limit ~max_parts =
+let download_parts ?clip ~min_zoom ~requested ~min_lon ~min_lat ~max_lon
+    ~max_lat ~full_limit ~quick_limit ~max_parts () =
   match
-    split ~min_zoom ~max_zoom:requested ~min_lon ~min_lat ~max_lon ~max_lat
-      ~limit:full_limit ~max_parts
+    split ?clip ~min_zoom ~max_zoom:requested ~min_lon ~min_lat ~max_lon
+      ~max_lat ~limit:full_limit ~max_parts ()
   with
   | Some parts -> (parts, requested, false)
   | None ->
       let depth =
-        depth_for ~min_zoom ~max_zoom:requested ~min_lon ~min_lat ~max_lon
-          ~max_lat ~limit:quick_limit
+        match clip with
+        | None ->
+            depth_for ~min_zoom ~max_zoom:requested ~min_lon ~min_lat ~max_lon
+              ~max_lat ~limit:quick_limit
+        | Some clip ->
+            depth_within ~min_zoom ~max_zoom:requested ~limit:quick_limit
+              ~count_at:(fun z ->
+                count_ids_clipped ~min_zoom:z ~max_zoom:z ~min_lon ~min_lat
+                  ~max_lon ~max_lat ~clip)
       in
       ([ (min_lon, min_lat, max_lon, max_lat) ], depth, true)

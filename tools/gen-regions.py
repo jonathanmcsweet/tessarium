@@ -31,6 +31,95 @@ import math
 import sys
 
 
+def perp_dist(pt, a, b):
+    (px, py), (ax, ay), (bx, by) = pt, a, b
+    dx, dy = bx - ax, by - ay
+    if dx == dy == 0:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def douglas_peucker(points, eps):
+    if len(points) < 3:
+        return points
+    keep = [False] * len(points)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(points) - 1)]
+    while stack:
+        lo, hi = stack.pop()
+        best, idx = 0.0, None
+        for i in range(lo + 1, hi):
+            d = perp_dist(points[i], points[lo], points[hi])
+            if d > best:
+                best, idx = d, i
+        if idx is not None and best > eps:
+            keep[idx] = True
+            stack.append((lo, idx))
+            stack.append((idx, hi))
+    return [pt for pt, k in zip(points, keep) if k]
+
+
+def outer_rings(geometry):
+    if geometry["type"] == "Polygon":
+        return [geometry["coordinates"][0]]
+    return [part[0] for part in geometry["coordinates"]]
+
+
+def simplify_rings(geometry, budget):
+    """Outer rings only -- holes (Lesotho) download a sliver extra, which is
+    harmless where missing an enclave would not be -- simplified until the
+    whole multipolygon fits the point budget, then quantised to 2 decimals
+    (~1 km), which is the fidelity the 110m source has anyway."""
+    rings = [[(round(x, 2), round(y, 2)) for x, y in ring] for ring in outer_rings(geometry)]
+    eps = 0.01
+    while True:
+        out = []
+        for ring in rings:
+            slim = douglas_peucker(ring, eps)
+            dedup = [pt for i, pt in enumerate(slim) if i == 0 or pt != slim[i - 1]]
+            if len(dedup) > 1 and dedup[0] == dedup[-1]:
+                dedup = dedup[:-1]
+            if len(dedup) >= 3:
+                out.append(dedup)
+        if sum(len(r) for r in out) <= budget or eps > 20:
+            return [[[x, y] for x, y in ring] for ring in out]
+        eps *= 1.6
+
+
+def part_boxes(geometry):
+    boxes = []
+    for ring in outer_rings(geometry):
+        box = [180.0, 90.0, -180.0, -90.0]
+        walk(ring, box)
+        boxes.append([round(v, 3) for v in box])
+    return boxes
+
+
+def merge_boxes(boxes):
+    a = [180.0, 90.0, -180.0, -90.0]
+    for b in boxes:
+        a = [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+    return a
+
+
+def clustered_boxes(geometry):
+    """One box normally; two when the geometry straddles the antimeridian.
+    Natural Earth splits geometry at 180, so parts sit cleanly on one side;
+    clustering them east/west turns the US or Russia near-world-wide box
+    into two honest ones. The download API takes several regions, so a
+    multi-box country is simply several requests sharing one polygon."""
+    boxes = part_boxes(geometry)
+    merged = merge_boxes(boxes)
+    if merged[2] - merged[0] <= 180:
+        return [merged]
+    west = [b for b in boxes if b[0] < 0]
+    east = [b for b in boxes if b[0] >= 0]
+    if not west or not east:
+        return [merged]
+    return [merge_boxes(west), merge_boxes(east)]
+
+
 def walk(coords, box):
     if isinstance(coords[0], (int, float)):
         lon, lat = coords[0], coords[1]
@@ -73,7 +162,12 @@ def main(countries_path, states_path, places_path):
     for f in json.load(open(countries_path))["features"]:
         p = f["properties"]
         countries.append(
-            {"code": iso2(p), "name": p["NAME"], "bbox": bbox(f)}
+            {
+                "code": iso2(p),
+                "name": p["NAME"],
+                "boxes": clustered_boxes(f["geometry"]),
+                "polygon": simplify_rings(f["geometry"], 300),
+            }
         )
     countries.sort(key=lambda c: c["name"])
 
@@ -85,7 +179,7 @@ def main(countries_path, states_path, places_path):
         if not code or not name:
             continue
         subdivisions.setdefault(code, []).append(
-            {"name": name, "bbox": bbox(f)}
+            {"name": name, "boxes": clustered_boxes(f["geometry"])}
         )
     for entries in subdivisions.values():
         entries.sort(key=lambda e: e["name"])
@@ -119,14 +213,15 @@ def main(countries_path, states_path, places_path):
         entries.sort(key=lambda e: e["name"])
 
     out = {
-        "attribution": "Natural Earth, public domain: 110m admin-0 countries, 50m admin-1 states and provinces, 50m populated places",
+        "attribution": "Natural Earth, public domain: 110m admin-0 countries (boxes and simplified border polygons), 50m admin-1 states and provinces, 50m populated places",
         "countries": countries,
         "subdivisions": subdivisions,
         "cities": cities,
     }
     json.dump(out, open("ui/src/regions.json", "w"), separators=(",", ":"))
+    points = sum(len(r) for c in countries for r in c["polygon"])
     print(
-        f"ui/src/regions.json: {len(countries)} countries, "
+        f"ui/src/regions.json: {len(countries)} countries ({points} polygon points), "
         f"{sum(len(v) for v in subdivisions.values())} subdivisions in {len(subdivisions)}, "
         f"{sum(len(v) for v in cities.values())} cities in {len(cities)} "
         f"({dropped} places dropped: no matching country)"
