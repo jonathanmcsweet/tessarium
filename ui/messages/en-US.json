@@ -33,7 +33,7 @@
   "map_download_world_estimate": "Start with the whole world at country level — about {size}.",
   "map_download_world_confirm": "Download world map",
   "map_download_covered": "You already have the maps for this view.",
-  "map_download_depth_hint": "That covers a large area, so this download stops at regional detail. Zoom in and download again for street level.",
+  "map_download_depth_hint": "This area is too large for full detail in one download, so it stops at regional detail. Zoom in, or pick a state or province, for street level.",
   "map_download_region_label": "Or pick a country or state",
   "map_download_region_placeholder": "Choose a country…",
   "map_download_region_whole": "The whole country",

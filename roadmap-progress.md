@@ -1056,3 +1056,32 @@ answer to "most open source android maps have this option".
 
 **Follow-on:** full-depth country downloads (yieldful planning, resume) and
 polygon-clipped regions, both on the roadmap.
+
+### 2026-08-18 — Full-depth country and state downloads
+
+**Phase:** 6
+
+**What:** An explicit country or state pick now downloads the WHOLE thing at
+street level, on user direction ("if a person picks a whole country, they
+need to literally get the entire country down to the lowest level of
+detail"). `Tile_id.download_depth` replaces the flat 8,192-tile clamp with
+two tiers: any request that plans within 6,000,000 tile ids gets its full
+depth — verified live: France 9.4 GB / 2.3M tiles / z15 (estimate in 16 s),
+California 1.5 GB / z15 — and only boxes beyond the ceiling (Brazil, a
+world-spanning viewport) fall back to a quick 131,072-id regional plan, with
+the card's hint now saying to zoom in or pick a state or province. The
+million-id planning loops yield to the scheduler (`Extract.plan ?on_tile`,
+`Merge.plan ?on_entry`, injected closures with cancel polling), proven live:
+healthz answered in 34 ms while a second France plan was mid-flight, and
+planning is now cancellable. Depth-decision mutation-tested in the pmtiles
+suite (France/California unclamped at 15, Brazil clamped, world quick).
+67 e2e checks (UK now merges at true z15 against the fixture), 53 pmtiles
+checks, 938 message checks, all suites green.
+
+**Rationale:** "It keeps tailoring the view to this level of detail and then
+when I zoom in more, I have to download again." Tailoring is now the
+exception with an honest explanation, not the rule.
+
+**Follow-on:** the giants (Brazil-scale boxes, Alaska's antimeridian bbox)
+need chunked resumable downloads; the final directory build blocks briefly;
+a country plan holds ~300–400 MB transiently. All in the roadmap item.

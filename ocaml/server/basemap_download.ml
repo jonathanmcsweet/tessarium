@@ -74,30 +74,46 @@ let friendly = function Failure m -> m | e -> Printexc.to_string e
 
 (* ------------------------------------------------------------------ plan *)
 
-(* The most tiles one download may plan. Depth follows area under this
-   budget: a city view still gets street level, a continent view stops at
-   regional detail, and the whole world lands exactly on the overview zoom.
-   Without it, "download this view" over half a continent meant planning
-   tens of millions of tile ids -- minutes during which a single-domain
-   server answers nothing at all, and memory to match. *)
-let tile_budget = 8192
+(* How deep a download goes. An explicit ask that plans within [full_limit]
+   tile ids gets its full depth -- whole-France street level is ~2.2 million
+   ids and qualifies, as does every US state. A box beyond that (Brazil, a
+   whole-world viewport) falls back to a quick [quick_limit] regional plan
+   and the UI says to pick a state; without the ceiling, half a continent at
+   street level meant planning tens of millions of ids -- minutes of
+   grinding and memory to match. *)
+let full_limit = 6_000_000
+let quick_limit = 131_072
 
-let plan_region ~sw ~fs ~net ~source (req : Basemap_job.request) =
+(* Million-id loops must share the scheduler: yield every so often, and a
+   download also polls its cancel flag, so even the planning phase of a
+   country-sized job stops when asked. *)
+let breathe ?cancel () =
+  let n = ref 0 in
+  fun () ->
+    incr n;
+    if !n land 4095 = 0 then begin
+      Eio.Fiber.yield ();
+      match cancel with Some t -> check_cancel t | None -> ()
+    end
+
+let plan_region ?cancel ~sw ~fs ~net ~source (req : Basemap_job.request) =
   let src = Pmtiles_source.open_url ~sw ~fs ~net source in
   let archive = Pmtiles.Archive.open_ src in
   let h = archive.Pmtiles.Archive.header in
   (* All zooms from the top: the world-context tiles are a rounding error next
      to the deep ones and are what keeps zooming out from hitting blank. *)
   let min_zoom = h.Pmtiles.Header.min_zoom in
-  let max_zoom =
-    Pmtiles.Tile_id.depth_for ~min_zoom
-      ~max_zoom:(min req.max_zoom h.Pmtiles.Header.max_zoom)
+  let max_zoom, _clamped =
+    Pmtiles.Tile_id.download_depth ~min_zoom
+      ~requested:(min req.max_zoom h.Pmtiles.Header.max_zoom)
       ~min_lon:req.min_lon ~min_lat:req.min_lat ~max_lon:req.max_lon
-      ~max_lat:req.max_lat ~limit:tile_budget
+      ~max_lat:req.max_lat ~full_limit ~quick_limit
   in
   let plan =
-    Pmtiles.Extract.plan archive ~min_zoom ~max_zoom ~min_lon:req.min_lon
-      ~min_lat:req.min_lat ~max_lon:req.max_lon ~max_lat:req.max_lat
+    Pmtiles.Extract.plan
+      ~on_tile:(breathe ?cancel ())
+      archive ~min_zoom ~max_zoom ~min_lon:req.min_lon ~min_lat:req.min_lat
+      ~max_lon:req.max_lon ~max_lat:req.max_lat
   in
   (src, h, min_zoom, max_zoom, plan)
 
@@ -111,9 +127,9 @@ let open_base ~sw ~fs ~basemap_dir =
            (Pmtiles_source.file_source (Eio.Path.open_in ~sw path)))
   | _ -> None
 
-let merge_plan ~sw ~fs ~net ~source ~basemap_dir req =
+let merge_plan ?cancel ~sw ~fs ~net ~source ~basemap_dir req =
   let src, h, min_zoom, max_zoom, fresh =
-    plan_region ~sw ~fs ~net ~source req
+    plan_region ?cancel ~sw ~fs ~net ~source req
   in
   let base = open_base ~sw ~fs ~basemap_dir in
   (match base with
@@ -124,7 +140,13 @@ let merge_plan ~sw ~fs ~net ~source ~basemap_dir req =
         "the basemap on disk and the tile source disagree on compression; \
          delete the basemap directory and download again"
   | _ -> ());
-  (src, h, base, min_zoom, max_zoom, Pmtiles.Merge.plan ~base fresh, fresh)
+  ( src,
+    h,
+    base,
+    min_zoom,
+    max_zoom,
+    Pmtiles.Merge.plan ~on_entry:(breathe ?cancel ()) ~base fresh,
+    fresh )
 
 (* The estimate is what the user will actually pay for over the network:
    tiles the base already holds are excluded, so re-asking for an area you
@@ -203,7 +225,7 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir (req : Basemap_job.requ
   match
     Eio.Switch.run @@ fun sw ->
     let src, h, base, min_zoom, max_zoom, mp, _fresh =
-      merge_plan ~sw ~fs ~net ~source ~basemap_dir req
+      merge_plan ~cancel:t ~sw ~fs ~net ~source ~basemap_dir req
     in
     if Array.length mp.Pmtiles.Merge.tiles = 0 then
       failwith "the source has no tiles in that area";
