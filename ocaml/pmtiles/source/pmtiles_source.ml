@@ -18,8 +18,14 @@ let file_source path =
 (* Range requests, with a small amount of coalescing left to the caller: this
    issues exactly the reads it is asked for, and the extract planner is what
    keeps that number sane by resolving directories before tiles. *)
-let http_source ~client ~sw ~uri =
+let http_source ~client ~sw:_ ~uri =
   let fetch ~offset ~length =
+    (* One switch PER REQUEST, so the connection closes when its body has
+       been read. Scoped to the download's switch, every request's socket
+       stayed open until the whole download ended -- ~6,400 sockets for a
+       6 GB country at one per megabyte window, dead at the default
+       4,096-fd limit around 86%. France, live, was the failing case. *)
+    Eio.Switch.run @@ fun sw ->
     let headers =
       Http.Header.of_list
         [
@@ -123,7 +129,9 @@ let open_url ~sw ~fs ~net url =
 
 (* A GET of a whole body, for the glyph/sprite tarball, which is one download
    rather than many ranges. *)
-let get_body ~sw ~net url =
+let get_body ~sw:_ ~net url =
+  (* Same per-request scoping as [http_source], for the same reason. *)
+  Eio.Switch.run @@ fun sw ->
   let client = https_client net in
   let uri = with_default_port (Uri.of_string url) in
   let response, body = Cohttp_eio.Client.get ~sw client uri in

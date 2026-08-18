@@ -1475,3 +1475,23 @@ sequences is untested end to end (it requires a fixed clock; the ledger's
 own byte-determinism is pinned); the resume-tail fallback path
 (last part held, earlier parts fetched) has no dedicated test.
 
+### 2026-08-18 — Range-request sockets leaked until the download ended
+
+**Phase:** 5 (offline basemap)
+
+**What:** Every HTTP range request opened a connection scoped to the
+download's switch, so it stayed open until the whole download finished --
+~6,400 sockets for a 6 GB country at one request per megabyte readahead
+window, dead at the default 4,096-fd limit at about 86%. The live failing
+case was France: 5.5 GB in, "Too many open files" out, and the .part
+discarded. Each fetch now runs in its own switch, closing its connection
+with its body; get_body (assets tarball, build listing) is scoped the same
+way. New suite: test_source_fds drives the real http_source against a
+loopback server for 80 window-missing reads and counts /proc/self/fd --
+shown failing first (167 fds after, from 7) and flat after the fix.
+
+**Rationale:** the readahead comment already recorded that each read is its
+own connection and TLS handshake; the leak was that nothing ever closed
+them. Closing per request keeps that accepted cost and removes the
+unbounded one.
+
