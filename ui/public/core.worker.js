@@ -83,7 +83,7 @@ async function deriveKey(mnemonic, passphrase) {
   const words = mnemonic.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const seed = await pbkdf2(
     enc.encode(words.join(" ").normalize("NFKD")),
-    enc.encode(("mnemonic" + passphrase).normalize("NFKD")),
+    enc.encode(`mnemonic${passphrase}`.normalize("NFKD")),
     2048,
     512,
   );
