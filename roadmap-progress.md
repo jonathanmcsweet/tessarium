@@ -1249,3 +1249,25 @@ contrast checks, 80 e2e checks green.
 
 **Rationale:** an audit that runs once rots; this one runs on every check.
 
+### 2026-08-18 — FE1 security write-up
+
+**Phase:** 4
+
+**What:** docs/fe1-security.md, linked from the README: the construction's
+exact parameters (a ≈ 2^22.6, b ≈ 2^23.6, 16 rounds, HMAC-SHA256, fixed
+tweak); the two oracles and their arithmetic (raw encode ~53 µs, so the
+1/s-burst-10 limiter is load-bearing: a million queries ≈ 11.6 days, the
+full codebook ≈ 2.7 million years); Bellare–Hoang–Tessaro 2016,
+Durak–Vaudenay 2017 and Hoang–Miller–Trieu 2019 each named with why it
+does not reach these parameters (small-domain data requirements; chosen
+tweaks against a compile-time tweak constant; 8-round FF3 structure); the
+codebook-is-not-the-key endgame; the two key-search spaces stated together
+(KDF prices phrase guessing only; the raw 2^256 keyspace needs no pricing
+and yields no phrase); the quantum dismissal with citations
+(Kuwakado–Morii needs superposition queries; offline-Simon targets
+Even–Mansour/FX, not 16-round PRF Feistel). Every number cross-checked
+against the source before writing.
+
+**Rationale:** the roadmap demanded the dismissal read as informed, with
+the load-bearing role of the rate limiter written down rather than assumed.
+

@@ -256,42 +256,6 @@ The theorem set is complete and in the ledger. What is left is narrower.
       against this project's grain — or waiting for a browser-native
       memory-hard KDF, which does not exist. Revisit if one appears.
 
-- [ ] **Check the FE1 parameters against the published attack literature.**
-      The construction is the family underlying FF1/FF3, which has a real
-      attack literature (Bellare–Hoang–Tessaro 2016; Durak–Vaudenay 2017 on
-      FF3; Hoang–Miller–Trieu 2019). Those attacks need very large query
-      counts, and this threat model exposes almost none — a user reveals the
-      addresses they choose to share, not millions.
-
-      Two things make that argument load-bearing rather than comfortable, and
-      both should be written down properly: the `--api` mode turns the server
-      into an encryption oracle for whoever can reach it, and the UI itself
-      answers "what is the address of this point" on demand.
-
-      **"The attacks need many queries" is not, by itself, a defence — the
-      write-up must put numbers on it.** Raw encode is 53 µs, so without the
-      rate limiter a million queries is under a minute; the limiter (1/s
-      sustained, burst 10, applied to every API call) is therefore
-      load-bearing, and the write-up must say so: with it, a million queries
-      is ~12 days of continuous hammering and the full codebook ~2.7 million
-      years. The API is also opt-in and loopback-only, so an attacker who can
-      query it at all is already on the user's machine. The write-up must
-      give the query complexity of each published attack at our parameters
-      (a ~ 2^22.6, b ~ 2^23.6, 16 rounds) against those caps — and state the
-      endgame plainly: even the complete codebook is not key recovery. The
-      key stays behind 2^128 post-Grover however many (address, place) pairs
-      the attacker holds; the codebook is only the map, which an attacker
-      with oracle access could already query point by point.
-
-      One more claim to state precisely: the KDF hardening gates PHRASE-space
-      search only. Searching raw 32-byte keys skips the KDF entirely -- 16
-      HMACs per try instead of 202,048 iterations -- and makes a single-pair
-      match cheap again. It is harmless only because the search yields a key
-      and not a phrase: nothing accepts raw keys, and the KDF cannot be run
-      backwards to find a phrase for one. The write-up must present these two
-      facts together; the hardening claim is false without the second.
-      Rounds were raised 10 -> 16 as margin in the meantime.
-
 ## Phase 4 — Performance
 
 - [ ] **Consider injecting a native round function.** An encode costs 53 µs,

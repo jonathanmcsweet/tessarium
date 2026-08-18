@@ -149,6 +149,10 @@ that does decode lands hundreds of kilometres away, where it is obviously
 wrong. Measured: of 1,289 single-word typos that decoded at all, none landed
 within 100 km.
 
+The mapping's cipher, its parameters, and why the published attacks on its
+family (FF1/FF3) do not reach it are written up with numbers in
+[docs/fe1-security.md](docs/fe1-security.md).
+
 ## Seed phrases
 
 **24 words only.** 12-word phrases carry 128 bits of entropy, which Grover's
