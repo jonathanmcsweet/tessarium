@@ -15,8 +15,9 @@
     "format": "dprint fmt",
     "format:check": "dprint check",
     "messages": "node test/messages.mjs",
-    "check": "npm run paraglide && npm run lint && npm run format:check && npm run typecheck && npm run messages",
-    "paraglide": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide"
+    "check": "npm run paraglide && npm run lint && npm run format:check && npm run typecheck && npm run messages && npm run regions",
+    "paraglide": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide",
+    "regions": "node test/regions.mjs"
   },
   "dependencies": {
     "@protomaps/basemaps": "5.7.2",

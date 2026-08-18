@@ -38,7 +38,8 @@ import { m } from "../paraglide/messages";
 import {
   citiesOf,
   countries,
-  type Subdivision,
+  countryRegions,
+  subdivisionRegions,
   subdivisionsOf,
   toRegion,
 } from "../regions";
@@ -110,9 +111,12 @@ function Offer({ regions, names, describe, confirmLabel, className }: {
       }))
       .filter((r) => r.granted < r.asked)
     : [];
-  const clampedNames = clamped
-    .map((r) => r.name)
-    .filter((n): n is string => n !== undefined);
+  /* Deduplicated: a two-box country would otherwise be named twice. */
+  const clampedNames = [
+    ...new Set(
+      clamped.map((r) => r.name).filter((n): n is string => n !== undefined),
+    ),
+  ];
   const showClamped = clamped.length > 0 && estimate.isSuccess
     && !estimate.data.covered && estimate.data.tiles > 0;
   return (
@@ -138,7 +142,7 @@ function Offer({ regions, names, describe, confirmLabel, className }: {
       )}
       {showClamped && (
         <p className="hint">
-          {clampedNames.length === clamped.length
+          {names !== undefined && clampedNames.length > 0
             ? m.map_download_clamped({ names: formatList(clampedNames) })
             : m.map_download_depth_hint()}
         </p>
@@ -158,9 +162,10 @@ function Offer({ regions, names, describe, confirmLabel, className }: {
   );
 }
 
-/* A pick: a whole country, one of its states, or a city. The label is what
-   the selection count and the depth warning speak of. */
-type Choice = { key: string; label: string; region: Region; };
+/* A pick: a whole country, one of its states, or a city. One pick can mean
+   several regions -- a country astride the antimeridian is two boxes -- and
+   the label is what the selection count and the depth warning speak of. */
+type Choice = { key: string; label: string; regions: Region[]; };
 
 /* The estimate is a real planning job server-side. Waiting for the
    selection to settle turns five quick taps into one request instead of
@@ -236,13 +241,8 @@ function RegionPicker() {
           const whole: Choice = {
             key: `country:${code}`,
             label,
-            region: toRegion(country.bbox),
+            regions: countryRegions(country),
           };
-          const named = (kind: string, entry: Subdivision): Choice => ({
-            key: `${kind}:${code}:${entry.name}`,
-            label: entry.name,
-            region: toRegion(entry.bbox),
-          });
           return (
             <li key={code}>
               {
@@ -262,7 +262,11 @@ function RegionPicker() {
                   </p>
                 )}
                 {subs.map((entry) => {
-                  const choice = named("state", entry);
+                  const choice: Choice = {
+                    key: `state:${code}:${entry.name}`,
+                    label: entry.name,
+                    regions: subdivisionRegions(entry),
+                  };
                   return (
                     <CheckRow
                       key={choice.key}
@@ -278,7 +282,11 @@ function RegionPicker() {
                   </p>
                 )}
                 {cities.map((entry) => {
-                  const choice = named("city", entry);
+                  const choice: Choice = {
+                    key: `city:${code}:${entry.name}`,
+                    label: entry.name,
+                    regions: [toRegion(entry.bbox)],
+                  };
                   return (
                     <CheckRow
                       key={choice.key}
@@ -295,8 +303,8 @@ function RegionPicker() {
       </ul>
       {(selected.size > 0 || picks.length > 0) && (
         <Offer
-          regions={picks.length > 0 ? picks.map((p) => p.region) : null}
-          names={picks.map((p) => p.label)}
+          regions={picks.length > 0 ? picks.flatMap((p) => p.regions) : null}
+          names={picks.flatMap((p) => p.regions.map(() => p.label))}
           describe={(size) =>
             m.map_download_region_selected({ count: picks.length, size })}
           confirmLabel={m.map_download_confirm()}

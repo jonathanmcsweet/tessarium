@@ -208,15 +208,15 @@ let () =
     && J.progress ~done_bytes:0 ~total_bytes:1 ~part:0 ~parts:0
        = J.Fetching { done_bytes = 0; total_bytes = 1; part = 1; parts = 1 });
   check "a reversed box is refused"
-    (Result.is_error (J.validate ~min_lon:1. ~min_lat:0. ~max_lon:0. ~max_lat:1. ~max_zoom:15));
+    (Result.is_error (J.validate ~min_lon:1. ~min_lat:0. ~max_lon:0. ~max_lat:1. ~max_zoom:15 ()));
   check "an out-of-range box is refused"
-    (Result.is_error (J.validate ~min_lon:(-181.) ~min_lat:0. ~max_lon:0. ~max_lat:1. ~max_zoom:15));
+    (Result.is_error (J.validate ~min_lon:(-181.) ~min_lat:0. ~max_lon:0. ~max_lat:1. ~max_zoom:15 ()));
   check "a NaN is refused"
-    (Result.is_error (J.validate ~min_lon:Float.nan ~min_lat:0. ~max_lon:1. ~max_lat:1. ~max_zoom:15));
+    (Result.is_error (J.validate ~min_lon:Float.nan ~min_lat:0. ~max_lon:1. ~max_lat:1. ~max_zoom:15 ()));
   check "zoom 16 is refused"
-    (Result.is_error (J.validate ~min_lon:0. ~min_lat:0. ~max_lon:1. ~max_lat:1. ~max_zoom:16));
+    (Result.is_error (J.validate ~min_lon:0. ~min_lat:0. ~max_lon:1. ~max_lat:1. ~max_zoom:16 ()));
   check "an honest box is accepted"
-    (Result.is_ok (J.validate ~min_lon:(-0.25) ~min_lat:51.45 ~max_lon:0. ~max_lat:51.55 ~max_zoom:15));
+    (Result.is_ok (J.validate ~min_lon:(-0.25) ~min_lat:51.45 ~max_lon:0. ~max_lat:51.55 ~max_zoom:15 ()));
 
   (* ------------------------------------------------------------------ untar *)
   (* A ustar archive built by hand, because the reader must be tested against
@@ -365,6 +365,47 @@ let () =
      = []);
   check "one bad box poisons the whole request"
     (run ~endpoint:"basemap-download" ~body:(wrap [ box; "{}" ]) = []);
+  let with_polygon =
+    {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15,"polygon":[[[-0.2,51.46],[-0.05,51.46],[-0.1,51.54]]]}|}
+  in
+  (match run ~endpoint:"basemap-download" ~body:(wrap [ with_polygon ]) with
+  | [ `Start [ (req : Tessarium_server.Basemap_job.request) ] ] ->
+      check "a polygon rides in with its region"
+        (match req.polygon with
+        | Some [| ring |] -> Array.length ring = 3 && fst ring.(0) = -0.2
+        | _ -> false)
+  | _ -> check "a polygon rides in with its region" false);
+  check "a malformed polygon reaches nothing"
+    (run ~endpoint:"basemap-download"
+       ~body:
+         (wrap
+            [
+              {|{"min_lon":0,"min_lat":0,"max_lon":1,"max_lat":1,"max_zoom":15,"polygon":[[[0,0],[1]]]}|};
+            ])
+     = []);
+  check "a two-point ring reaches nothing"
+    (run ~endpoint:"basemap-download"
+       ~body:
+         (wrap
+            [
+              {|{"min_lon":0,"min_lat":0,"max_lon":1,"max_lat":1,"max_zoom":15,"polygon":[[[0,0],[1,1]]]}|};
+            ])
+     = []);
+  check "an oversized polygon reaches nothing"
+    (let points =
+       List.init 2100 (fun i ->
+           Printf.sprintf "[%f,%f]" (float_of_int (i mod 100) /. 100.)
+             (float_of_int (i / 100) /. 100.))
+       |> String.concat ","
+     in
+     run ~endpoint:"basemap-download"
+       ~body:
+         (wrap
+            [
+              {|{"min_lon":0,"min_lat":0,"max_lon":1,"max_lat":1,"max_zoom":15,"polygon":[[|}
+              ^ points ^ {|]]}|};
+            ])
+     = []);
   check "a missing field reaches nothing"
     (run ~endpoint:"basemap-download"
        ~body:(wrap [ {|{"min_lon":1,"min_lat":0,"max_lon":2,"max_zoom":15}|} ])

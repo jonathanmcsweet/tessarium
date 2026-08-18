@@ -51,9 +51,36 @@ type request = {
   max_lon : float;
   max_lat : float;
   max_zoom : int;
+  (* Outer rings of the region's polygon, when the picker knows one: the
+     download is clipped to it, so a country stops at its border instead of
+     its bounding box. Optional -- a viewport is honestly a box. *)
+  polygon : (float * float) array array option;
 }
 
-let validate ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom =
+(* Bounded, because the server walks every ring segment per quadtree node:
+   a pathological polygon must die at the door, not in the planner. The
+   catalogue's simplified countries sit far under both caps. *)
+let max_polygon_rings = 64
+let max_polygon_points = 2048
+
+let valid_polygon = function
+  | None -> true
+  | Some rings ->
+      Array.length rings >= 1
+      && Array.length rings <= max_polygon_rings
+      && Array.fold_left (fun acc r -> acc + Array.length r) 0 rings
+         <= max_polygon_points
+      && Array.for_all
+           (fun ring ->
+             Array.length ring >= 3
+             && Array.for_all
+                  (fun (lon, lat) ->
+                    Float.is_finite lon && Float.is_finite lat
+                    && lon >= -180. && lon <= 180. && lat >= -90. && lat <= 90.)
+                  ring)
+           rings
+
+let validate ?polygon ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom () =
   let finite v = Float.is_finite v in
   if not (finite min_lon && finite min_lat && finite max_lon && finite max_lat)
   then Error "bounds must be numbers"
@@ -63,7 +90,9 @@ let validate ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom =
   then Error "bounds must be within -180..180 and -90..90"
   else if max_zoom < 0 || max_zoom > 15 then
     Error "max_zoom must be between 0 and 15"
-  else Ok { min_lon; min_lat; max_lon; max_lat; max_zoom }
+  else if not (valid_polygon polygon) then
+    Error "polygon must be 1..64 rings of 3+ in-range points, 2048 total"
+  else Ok { min_lon; min_lat; max_lon; max_lat; max_zoom; polygon }
 
 let to_json = function
   | Idle -> `Assoc [ ("state", `String "idle") ]

@@ -312,7 +312,7 @@ let () =
      so. Limits here are the server's real ones. *)
   let dp ~min_lon ~min_lat ~max_lon ~max_lat =
     T.download_parts ~min_zoom:0 ~requested:15 ~min_lon ~min_lat ~max_lon
-      ~max_lat ~full_limit:6_000_000 ~quick_limit:131_072 ~max_parts:8
+      ~max_lat ~full_limit:6_000_000 ~quick_limit:131_072 ~max_parts:8 ()
   in
   check "France gets street level in one piece"
     (dp ~min_lon:(-5.1) ~min_lat:41.3 ~max_lon:9.6 ~max_lat:51.1
@@ -454,7 +454,7 @@ let () =
   let dp ~full_limit ~max_parts =
     let a, b, c, d = europe in
     T.download_parts ~min_zoom:0 ~requested:8 ~min_lon:a ~min_lat:b ~max_lon:c
-      ~max_lat:d ~full_limit ~quick_limit:64 ~max_parts
+      ~max_lat:d ~full_limit ~quick_limit:64 ~max_parts ()
   in
   let parts, depth, clamped = dp ~full_limit:limit ~max_parts:8 in
   check "a giant box splits rather than clamps"
@@ -477,6 +477,85 @@ let () =
   check "too big for the part budget falls back to a quick clamp"
     (let parts, depth, clamped = dp ~full_limit:(limit / 64) ~max_parts:2 in
      clamped && depth < 8 && List.length parts = 1);
+
+  (* -------------------------------------------------------------- clip *)
+  (* The quadtree walk must agree exactly with the definition it optimises:
+     a tile is kept iff its box is not Outside the polygon. Brute force at
+     modest zooms is the oracle. *)
+  let module C = Pmtiles.Clip in
+  let triangle =
+    C.of_rings [| [| (-8.0, 42.0); (6.0, 43.5); (-1.0, 53.0) |] |]
+  in
+  let clip_box = (-12.0, 40.0, 9.0, 55.0) in
+  let brute ~min_zoom ~max_zoom (a, b, c, d) clip =
+    T.covering ~min_zoom ~max_zoom ~min_lon:a ~min_lat:b ~max_lon:c ~max_lat:d
+    |> List.filter (fun id ->
+           let z, x, y = T.to_zxy id in
+           let bx0, by0, bx1, by1 = T.tile_box ~z ~x ~y in
+           C.classify clip ~min_x:bx0 ~min_y:by0 ~max_x:bx1 ~max_y:by1
+           <> C.Outside)
+  in
+  let clipped ~min_zoom ~max_zoom (a, b, c, d) clip =
+    T.covering_clipped ~min_zoom ~max_zoom ~min_lon:a ~min_lat:b ~max_lon:c
+      ~max_lat:d ~clip ()
+  in
+  check "clipped covering equals the per-tile definition"
+    (clipped ~min_zoom:0 ~max_zoom:7 clip_box triangle
+    = brute ~min_zoom:0 ~max_zoom:7 clip_box triangle);
+  check "clipping strictly shrinks a box that outgrows the polygon"
+    (let all =
+       T.covering ~min_zoom:0 ~max_zoom:7 ~min_lon:(-12.0) ~min_lat:40.0
+         ~max_lon:9.0 ~max_lat:55.0
+     in
+     let kept = clipped ~min_zoom:0 ~max_zoom:7 clip_box triangle in
+     List.length kept > 0 && List.length kept < List.length all);
+  check "clipped count agrees with clipped covering"
+    (let a, b, c, d = clip_box in
+     T.count_ids_clipped ~min_zoom:0 ~max_zoom:7 ~min_lon:a ~min_lat:b
+       ~max_lon:c ~max_lat:d ~clip:triangle ()
+     = List.length (clipped ~min_zoom:0 ~max_zoom:7 clip_box triangle));
+  let unit_square = C.of_rings [| [| (0., 0.); (10., 0.); (10., 10.); (0., 10.) |] |] in
+  check "a box wholly inside the ring is Inside"
+    (C.classify unit_square ~min_x:4. ~min_y:4. ~max_x:6. ~max_y:6. = C.Inside);
+  check "a box wholly outside the ring is Outside"
+    (C.classify unit_square ~min_x:14. ~min_y:4. ~max_x:16. ~max_y:6.
+     = C.Outside);
+  check "a box the border passes through is Boundary"
+    (C.classify unit_square ~min_x:8. ~min_y:4. ~max_x:12. ~max_y:6.
+     = C.Boundary);
+  check "a ring wholly inside the box is Boundary, never Outside"
+    (C.classify unit_square ~min_x:(-5.) ~min_y:(-5.) ~max_x:15. ~max_y:15.
+     = C.Boundary);
+  check "a multipolygon is the union of its rings"
+    (let two =
+       C.of_rings
+         [|
+           [| (-8.0, 42.0); (-4.0, 42.0); (-6.0, 46.0) |];
+           [| (2.0, 48.0); (6.0, 48.0); (4.0, 52.0) |];
+         |]
+     in
+     clipped ~min_zoom:2 ~max_zoom:7 clip_box two
+     = brute ~min_zoom:2 ~max_zoom:7 clip_box two);
+  (* Zoom 9, not 7: at toy scales every part re-counts its shared low-zoom
+     ancestors, which swamps the limit and forbids any split -- a modelling
+     artifact of tiny numbers, not of production, where ancestors are noise
+     against millions of deep ids. *)
+  check "a clipped split still covers exactly the clipped ids"
+    (let a, b, c, d = clip_box in
+     let full = clipped ~min_zoom:0 ~max_zoom:9 clip_box triangle in
+     match
+       T.split ~clip:triangle ~min_zoom:0 ~max_zoom:9 ~min_lon:a ~min_lat:b
+         ~max_lon:c ~max_lat:d
+         ~limit:(List.length full / 3)
+         ~max_parts:8 ()
+     with
+     | None -> false
+     | Some parts ->
+         List.length parts > 1
+         && List.concat_map
+              (fun box -> clipped ~min_zoom:0 ~max_zoom:9 box triangle)
+              parts
+            |> List.sort_uniq compare = full);
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "pmtiles round-trips"

@@ -1169,3 +1169,55 @@ continental US 19.1 GB / 21.7M tiles / z15; healthz under 1 s mid-plan.
 machinery -- resume falls out of base-wins dedup rather than a new on-disk
 format. The write amplification that buys is recorded on the roadmap item.
 
+### 2026-08-18 — Polygon-clipped countries and honest antimeridian boxes
+
+**Phase:** 6
+
+**What:** Country downloads now stop at the border instead of the bounding
+box. The catalogue carries each country's outer rings (Natural Earth 110m,
+Douglas-Peucker simplified to a 300-point budget, 2-decimal quantised;
+229 KB total), and the picker sends them with each region. The server
+validates polygons at the door (64 rings / 2048 points / in-range, tested),
+plans them with a quadtree walk (`Tile_id.clip_walk`: prune outside
+subtrees, enumerate inside subtrees arithmetically, per-tile tests only on
+the border -- proven equal to the per-tile definition by brute force in the
+pmtiles suite), and budgets and splits giants with clipped counts.
+Antimeridian countries become two honest boxes clustered from polygon
+parts (Russia: 19..180 plus -180..-169.9; Fiji likewise) riding the
+existing multi-region API -- no server change at all. Live: France
+polygon-clipped is 5.23 GB / 1.14M tiles / z15 in 12.9 s, versus 9.36 GB
+for the metropolitan box alone, and now includes Guiana and Corsica;
+clipped Canada (~36M ids) fits the giant ceiling its 112M-id box never
+could. 79 e2e / 66 pmtiles / 110 server / 974 message checks green.
+
+**Rationale:** clipping in the planner (quadtree, O(border)) rather than
+per-tile keeps a z15 country affordable -- a ray cast per candidate tile
+would be billions of tests. Holes deliberately unmodelled: downloading the
+Lesotho-shaped sliver inside South Africa is harmless; missing an enclave
+would not be.
+
+### 2026-08-18 — Polygon branch review findings fixed
+
+**Phase:** 6
+
+**What:** Adversarial review found the border simplifier silently dropping
+rings (Canada lost Vancouver Island; the US lost Molokai; 122 cities in all
+fell outside their simplified borders) and the clipped planner burning
+unyielding, unbounded CPU (a within-caps sawtooth polygon could wedge the
+server for hours). Fixed: ring simplification is anchored on a real chord
+and a collapsed ring survives as its bounding quad; the generator escalates
+each country's point budget until every catalogued city sits inside the
+simplified border, appending a city's drawn box as an extra ring when its
+point sits off the coarse 110m coastline; a committed data-invariant suite
+(ui/test/regions.mjs, 1,691 checks, in npm run check) ray-casts every city
+against its country's polygon -- it failed 122 ways against the old data.
+The quadtree walk gained a yield hook wired to the server's breathe/cancel
+closure and a work budget (2^28 ring-point operations) that kills
+pathological polygons cleanly. Antarctica, which encircles a pole and
+defeats lon/lat ray casting, ships no polygon and two hemisphere boxes.
+Plus: polygon null and [lon,lat,elev] positions accepted; classify gets
+direct unit checks; a multi-box country's depth warning stays named.
+
+**Rationale:** cities are the acceptance test for a border because they are
+exactly what a country download must contain.
+
