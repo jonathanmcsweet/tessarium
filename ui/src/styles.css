@@ -145,7 +145,10 @@ button {
 }
 
 button:disabled {
-  background: #c3ccd4;
+  /* Inactive controls are exempt from WCAG contrast, but 1.6:1 white-on-grey
+     was illegible, not just muted. This pair reads at ~4.6:1. */
+  background: #e3e8ed;
+  color: #4c5b69;
   cursor: not-allowed;
 }
 

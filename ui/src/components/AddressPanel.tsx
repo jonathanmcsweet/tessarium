@@ -12,6 +12,7 @@ import { useDecodeAddress, useLock } from "../core/queries";
 import { formatCoord } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
+import { toastError } from "../toast";
 import { IconButton } from "./IconButton";
 import { LanguagePicker } from "./LanguagePicker";
 
@@ -40,7 +41,7 @@ export function AddressPanel() {
     } catch {
       /* Clipboard access is refused in some contexts. The address is on
          screen and selectable, so say so rather than failing silently. */
-      toast.error(m.panel_copy_failed());
+      toastError(m.panel_copy_failed());
     }
   }
 
@@ -54,7 +55,7 @@ export function AddressPanel() {
       },
       onError: (error) => {
         setInvalid(true);
-        toast.error(error instanceof Error ? error.message : String(error));
+        toastError(error instanceof Error ? error.message : String(error));
       },
     });
   }

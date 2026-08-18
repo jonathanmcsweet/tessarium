@@ -379,13 +379,6 @@ not cover.
       review cannot supply: whether the copy sounds like a person. `fr-CA` now
       differs from `fr-FR` in terminology, punctuation spacing and dash
       convention, but a Quebec reader should still confirm it.
-- [ ] **A colour-contrast audit has not been done.** The palette was checked by
-      eye against WCAG AA for the text that changed, not measured across every
-      state. `--accent` on white is about 3.9:1, which passes for the address
-      only because it is large and bold.
-- [ ] **Toast timing is not tuned for screen readers.** Sonner announces via a
-      live region and the toasts auto-dismiss after five seconds, which is
-      short for a long error message read aloud.
 - [ ] Decide what happens outside the downloaded region. The grid and
       addressing work everywhere, but the basemap is blank, and the app
       currently gives no indication of where coverage ends.

@@ -22,7 +22,6 @@
 
 import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
 import {
   isRunning,
   type Job,
@@ -44,13 +43,14 @@ import {
   toRegion,
 } from "../regions";
 import { useAppStore } from "../store";
+import { toastError } from "../toast";
 import { IconButton } from "./IconButton";
 
 /* A refused start -- another download already running, a server gone away
    -- must be audible, not swallowed. */
 const loudly = {
   onError: (e: unknown) =>
-    toast.error(e instanceof Error ? e.message : String(e)),
+    toastError(e instanceof Error ? e.message : String(e)),
 };
 
 function Progress({ job }: { job: Job; }) {
