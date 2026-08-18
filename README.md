@@ -208,7 +208,7 @@ in the F\* extraction by disagreeing with it — the extraction pipeline is
 trusted, not verified, so an independently written implementation checks
 something no second extraction target could.
 
-It has been run against **512,298 points with zero disagreements**, and a
+It has been run against **10,061,490 points across five keys with zero disagreements (tools/differential-deep.sh)**, and a
 14,298-point version runs in CI. The corpus is deliberately unbalanced towards
 band seams: uniformly random points essentially never land on one, and seams
 are where two bands could both claim a point or leave a gap. Every run,

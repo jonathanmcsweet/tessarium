@@ -240,10 +240,10 @@ The theorem set is complete and in the ledger. What is left is narrower.
       key-varying), and a recorded 10-million-point sweep across four seeds
       and a passphrase variant with zero disagreements (ledger,
       2026-08-18). Rerun the deep sweep after any change to the extraction
-      pipeline or the toolchain: five invocations of
-      ocaml/tools/differential.exe with distinct --mnemonic/--seed piped to
-      js/differential.mjs. The only structural fix remains Low\* → C with
-      its own audit trail.
+      pipeline or the toolchain: `tools/differential-deep.sh` (about 50
+      minutes; the exact five configurations, counts and seeds of the
+      recorded run). The only structural fix remains Low\* → C with its
+      own audit trail.
 - [ ] **`theorem_containment` excludes exactly +90°.** Latitude is clamped
       there rather than bucketed, so the theorem carries
       `requires lat < lat_min + lat_span` and a separate `lemma_pole_clamp`

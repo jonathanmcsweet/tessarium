@@ -81,7 +81,15 @@ for (const line of lines) {
 
   /* And back. The address must resolve to a point in the same square, which is
      the property a user would state. */
-  const back = w.decode(key, address);
+  let back;
+  try {
+    back = w.decode(key, address);
+  } catch {
+    /* Different keys decode to out-of-range cells, which this
+       implementation throws on. That IS the disagreement the sweep hunts;
+       it must be reported like one, not crash the reporter. */
+    back = null;
+  }
   if (back === null) {
     if (failures.length < MAX_REPORTED)
       failures.push(`decode ${address}: resolved to nothing`);
@@ -103,4 +111,11 @@ console.log(
   `${checked} points checked (${seams} straddling band seams), ` +
     `${failures.length} disagreements`,
 );
+if (checked === 0) {
+  /* An empty corpus is a failed sweep, not a clean one. A dead generator
+     upstream of a plain shell pipe looks exactly like this, and it once
+     read as four passing configurations that had checked nothing. */
+  console.error("differential: the corpus was empty; nothing was checked");
+  process.exit(1);
+}
 process.exit(failures.length ? 1 : 0);
