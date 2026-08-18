@@ -1577,3 +1577,43 @@ manually, not in e2e -- the fixture areas the main test server can browse
 are already downloaded by earlier checks; recorded here rather than
 hidden.
 
+
+### 2026-08-18 — Browse cache review fixes
+
+**Phase:** 5 (offline basemap)
+
+**What:** Adversarial review of the browse cache, all findings fixed. Two
+majors on the server: the browse and compaction merge paths skipped the
+compression guard (a source switching schemes would have relabelled every
+archived tile as the wrong compression in one silent rename -- both paths
+now refuse loudly), and the cache prune ran only on the success path (a
+cancelled or failed download now prunes too, since every renamed part
+already owns its region; the prune itself is no longer cancellable, so the
+cancel path cannot abort the very cleanup it depends on). One major in the
+UI: the browse fetched Math.round(zoom) where MapLibre displays floor(zoom)
+-- half of all zoom positions fetched tiles the screen never asks for --
+and a browse deeper than the source's pinned maxzoom now rebuilds the style
+so tiles.json advertises the new depth, instead of refreshing tiles MapLibre
+will never request. Minors: compaction now unlinks the cache before the
+rename (a crash between the two costs re-fetchable browsed tiles, never a
+permanent duplicate cache shadowing the archive); settings writes are
+serialized under a mutex (two quick clicks could lose a field or corrupt
+the file unrecoverably); the prune's wait on a live browse is a condition
+wait, not a hot spin; a failed compaction-trigger check no longer tears
+down the browse response; browse failures discard cache.pmtiles.part; a
+browse that starts a compaction wakes the status poll so the UI can see it,
+and a failure seen in the compacting state gets its own toast. Privacy:
+turning the browse setting off now deletes the cache -- off means gone, and
+the hint says so. Float-spelled whole zooms (15.0) are accepted.
+
+**Rationale:** the review's tenth finding was the sharpest: the central
+coherence rule (prune-on-download) had zero automated coverage, because the
+only server that browses in e2e compacts instantly. The suite now removes a
+deep entry on the default-threshold server to open a hole, browses it back
+into a persisting cache, proves the cache serves, proves toggle-off erases
+it, then downloads the same region and proves the prune empties the cache
+while the tile keeps serving -- 13 new e2e checks, 4 new unit checks.
+
+**Follow-on:** an antimeridian viewport still browses only its western
+half (the box clamps at 180 rather than splitting in two); recorded as a
+known limit, not worth two sequential requests today.

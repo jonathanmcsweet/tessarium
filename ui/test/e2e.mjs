@@ -1335,6 +1335,88 @@ check(
 
 await browser.close();
 
+/* ------------------ browse cache prune coherence (main) -------------------
+
+   The rule the browse cache lives by: a completed download OWNS its region
+   and prunes any browsed copy of the tiles it covers, because the tile
+   endpoint consults the cache first and a stale browsed tile would shadow
+   freshly downloaded bytes forever. Testable only HERE: this server runs
+   the real compaction threshold, so the cache genuinely persists between
+   operations; the multipart server's one-byte threshold folds it away the
+   moment it exists. Driven over the API -- the page is gone, so nothing
+   auto-browses underneath these steps. */
+const awaitRemoved = async (generation) => {
+  for (let i = 0; i < 120; i++) {
+    const status = await (await postJson("basemap-status")).json();
+    if (status.generation === generation && status.job?.state === "removed") {
+      return true;
+    }
+    if (status.job?.state === "failed") return false;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
+};
+const cacheStatus = async () =>
+  (await fetch(`${base}/basemap/cache.pmtiles`, { method: "HEAD" })).status;
+const deepTile = async () =>
+  (await fetch(`${base}/tiles/15/${lt.x}/${lt.y}.mvt`)).status;
+
+/* Open a hole: removing the UK entry drops the deep London tiles no kept
+   entry fetched, which is exactly what a browse can then fill. */
+const mainLedger = await (await postJson("basemap-ledger")).json();
+const ukLedgerId = mainLedger.entries
+  ?.find((e) => e.name === "United Kingdom and London")?.id;
+await postJson("basemap-remove", { id: ukLedgerId });
+check("removing the deep entry terminates", await awaitRemoved(7));
+check("its deep tile is gone from the archive", (await deepTile()) === 204);
+
+await postJson("basemap-settings", { browse_cache: true });
+const mainBrowse = await (await postJson("basemap-browse", { ...lb, zoom: 15 }))
+  .json();
+check("a browse refills the hole into the cache", mainBrowse.fetched > 0);
+check(
+  "the cache persists below the real threshold",
+  (await cacheStatus()) === 200,
+);
+check("the browsed tile serves from the cache", (await deepTile()) === 200);
+
+/* Off means gone: the toggle is also the eraser. */
+await postJson("basemap-settings", { browse_cache: false });
+check("turning browsing off deletes the cache", (await cacheStatus()) === 404);
+check(
+  "and closes the endpoint again",
+  (await postJson("basemap-browse", { ...lb, zoom: 15 })).status === 403,
+);
+
+/* Refill, then download the same region: completion must prune the cache
+   -- emptied entirely here, so the file itself goes -- and the tile must
+   keep serving, now from bytes the download fetched fresh. */
+await postJson("basemap-settings", { browse_cache: true });
+const refill = await (await postJson("basemap-browse", { ...lb, zoom: 15 }))
+  .json();
+check("the cleared cache re-fetches on the next browse", refill.fetched > 0);
+check("and exists again", (await cacheStatus()) === 200);
+await postJson("basemap-download", {
+  name: "London borrowed back",
+  regions: [{ ...lb, max_zoom: 15 }],
+});
+check("downloading the browsed region completes", await awaitDone(8));
+check(
+  "the download prunes its region out of the cache",
+  (await cacheStatus()) === 404,
+);
+check(
+  "the tile survives the prune, served from the archive",
+  (await deepTile()) === 200,
+);
+const prunedLedger = await (await postJson("basemap-ledger")).json();
+check(
+  "the download is recorded; the browses never were",
+  prunedLedger.entries?.some((e) => e.name === "London borrowed back")
+    && prunedLedger.entries?.length === 3,
+);
+await postJson("basemap-settings", { browse_cache: false });
+
 for (const p of problems) console.log(`  PAGE  ${p}`);
 check(
   "no console errors, CSP violations or failed requests",

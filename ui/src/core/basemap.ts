@@ -269,6 +269,7 @@ export function useSaveBasemapSettings() {
    purpose: this fires on pan-stop, and neither its errors nor its progress
    deserve a toast -- being offline is a normal state, not a failure. */
 export function useBasemapBrowse() {
+  const client = useQueryClient();
   return useMutation({
     mutationFn: (view: {
       min_lon: number;
@@ -282,6 +283,15 @@ export function useBasemapBrowse() {
         "basemap-browse",
         view,
       ),
+    /* A browse that fetched something may have pushed the cache past its
+       threshold and started a compaction -- a real running job. Wake the
+       status poll so the progress shows and a Download click during it
+       gets a comprehensible refusal, not a mystery. */
+    onSuccess: ({ fetched }) => {
+      if (fetched > 0) {
+        client.invalidateQueries({ queryKey: ["basemap-status"] });
+      }
+    },
   });
 }
 

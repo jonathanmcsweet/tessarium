@@ -333,6 +333,10 @@ let () =
         (fun req ->
           calls := `Browse req :: !calls;
           Ok 7);
+      clear_cache =
+        (fun () ->
+          calls := `Clear_cache :: !calls;
+          true);
     }
   in
   let settings_calls = ref [] in
@@ -541,6 +545,16 @@ let () =
     = [ `Set (None, Some true) ]);
   check "a non-boolean browse toggle reaches nothing"
     (run_settings ~body:{|{"browse_cache":"yes"}|} = []);
+  (* Off means gone: turning the toggle off also clears the browse cache;
+     turning it on touches nothing. *)
+  calls := [];
+  check "the browse toggle off clears the cache"
+    (run_settings ~body:{|{"browse_cache":false}|} = [ `Set (None, Some false) ]
+    && !calls = [ `Clear_cache ]);
+  calls := [];
+  check "the browse toggle on clears nothing"
+    (run_settings ~body:{|{"browse_cache":true}|} = [ `Set (None, Some true) ]
+    && !calls = []);
 
   (* The browse endpoint: a viewport box and a zoom, gated server-side on
      the opt-in setting -- the page must not be able to make this server
@@ -561,6 +575,22 @@ let () =
     (run ~endpoint:"basemap-browse"
        ~body:
          {|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56,"zoom":16}|}
+     = []);
+  (* JSON has one number type: a serializer spelling 15 as 15.0 is not
+     asking for a fractional zoom, and a real fraction still is. *)
+  (match
+     run ~endpoint:"basemap-browse"
+       ~body:
+         {|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56,"zoom":15.0}|}
+   with
+  | [ `Browse (req : Tessarium_server.Basemap_job.request) ] ->
+      check "a decimal spelling of a whole zoom is still that zoom"
+        (req.max_zoom = 15)
+  | _ -> check "a decimal spelling of a whole zoom is still that zoom" false);
+  check "a fractional zoom reaches nothing"
+    (run ~endpoint:"basemap-browse"
+       ~body:
+         {|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56,"zoom":14.5}|}
      = []);
   browse_on := false;
   check "browsing off means the endpoint is off, server-side"

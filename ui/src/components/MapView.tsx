@@ -387,6 +387,27 @@ export function MapView() {
     };
   }, [ready, refreshGrid, styleEpoch]);
 
+  /* -------------------------------------------------- offline downloads */
+
+  /* Swap in the freshly downloaded archive without reloading the page -- a
+     reload would drop the key and send the user back to the phrase gate. */
+  const rebuildBasemap = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    styleVersion.current += 1;
+    /* Listener BEFORE setStyle. When MapLibre's style diff succeeds it
+       fires style.load synchronously inside the setStyle call, so a
+       listener registered after the call has already missed it -- which is
+       how the grid silently vanished after every download. When the diff
+       fails, MapLibre rebuilds the style from scratch and the event fires
+       asynchronously instead; registering first serves both timings. */
+    map.once("style.load", () => {
+      addOverlay(map);
+      setStyleEpoch((epoch) => epoch + 1);
+    });
+    map.setStyle(buildStyle(styleVersion.current));
+  }, []);
+
   /* ------------------------------------------------------ browse cache */
 
   /* When the user has opted in and is online, a settled pan fetches the
@@ -408,20 +429,36 @@ export function MapView() {
         if (!navigator.onLine || browseInFlight.current) return;
         browseInFlight.current = true;
         const view = regionOf(map);
+        /* Floor, not round: a vector source's displayed canonical zoom is
+           the floor of the camera zoom, so rounding would spend the fetch
+           on z+1 tiles the screen never asks for at any half-step. */
+        const zoom = Math.max(0, Math.min(15, Math.floor(map.getZoom())));
         browseMutate({
           min_lon: view.min_lon,
           min_lat: view.min_lat,
           max_lon: view.max_lon,
           max_lat: view.max_lat,
-          zoom: Math.max(0, Math.min(15, Math.round(map.getZoom()))),
+          zoom,
         }, {
           onSettled: () => {
             browseInFlight.current = false;
           },
           onSuccess: ({ fetched }) => {
-            /* The tiles on screen were 204s a moment ago; ask for them
-               again now that the cache holds them. */
-            if (fetched > 0) map.refreshTiles("protomaps");
+            if (fetched === 0) return;
+            /* The tiles on screen were 204s a moment ago. Below the
+               source's advertised depth, re-asking is enough; past it,
+               MapLibre will never ask -- the source's maxzoom was pinned
+               from tiles.json at style time -- so the style is rebuilt to
+               learn the deeper coverage the cache just gained. */
+            const source = map.getSource("protomaps");
+            const maxzoom = source
+              ? (source as unknown as { maxzoom?: number; }).maxzoom
+              : undefined;
+            if (typeof maxzoom === "number" && zoom > maxzoom) {
+              rebuildBasemap();
+            } else {
+              map.refreshTiles("protomaps");
+            }
           },
         });
       }, 1200);
@@ -432,28 +469,7 @@ export function MapView() {
       clearTimeout(timer);
       map.off("moveend", settle);
     };
-  }, [ready, browseEnabled, browseMutate]);
-
-  /* -------------------------------------------------- offline downloads */
-
-  /* Swap in the freshly downloaded archive without reloading the page -- a
-     reload would drop the key and send the user back to the phrase gate. */
-  const rebuildBasemap = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    styleVersion.current += 1;
-    /* Listener BEFORE setStyle. When MapLibre's style diff succeeds it
-       fires style.load synchronously inside the setStyle call, so a
-       listener registered after the call has already missed it -- which is
-       how the grid silently vanished after every download. When the diff
-       fails, MapLibre rebuilds the style from scratch and the event fires
-       asynchronously instead; registering first serves both timings. */
-    map.once("style.load", () => {
-      addOverlay(map);
-      setStyleEpoch((epoch) => epoch + 1);
-    });
-    map.setStyle(buildStyle(styleVersion.current));
-  }, []);
+  }, [ready, browseEnabled, browseMutate, rebuildBasemap]);
 
   /* The region is frozen when the card opens. Panning while it is open
      changes the next download, not the one being confirmed. */
@@ -519,7 +535,15 @@ export function MapView() {
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
       rebuildBasemap();
     } else if (job.state === "failed") {
-      toastError(m.map_download_failed({ reason: job.reason }));
+      /* Attributed when attribution is possible: a poll that saw the
+         compacting state knows this failure is the fold's, not a
+         download's. A fold that failed between two polls still reads as a
+         download failure -- the poll simply never knew better. */
+      toastError(
+        previous.state === "compacting"
+          ? m.map_compact_failed({ reason: job.reason })
+          : m.map_download_failed({ reason: job.reason }),
+      );
       /* A failure can still follow a successful archive write -- the entry
          lands with the last part's rename, before the assets fetch -- so
          the list must not keep showing the world before it. */

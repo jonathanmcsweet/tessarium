@@ -659,18 +659,29 @@ let handle_basemap cfg (ops : Basemap_download.ops)
               | Some (`Float f) -> Some f
               | _ -> None
             in
+            (* 15.0 means 15: JSON has one number type, and a client's
+               serializer choosing a decimal spelling is not a request for
+               a fractional zoom level. Genuine fractions stay refused. *)
+            let zoom =
+              match json_field "zoom" json with
+              | Some (`Int z) -> Some z
+              | Some (`Float f)
+                when Float.is_integer f && Float.abs f <= 32768. ->
+                  Some (int_of_float f)
+              | _ -> None
+            in
             match
               ( num "min_lon",
                 num "min_lat",
                 num "max_lon",
                 num "max_lat",
-                json_field "zoom" json )
+                zoom )
             with
             | ( Some min_lon,
                 Some min_lat,
                 Some max_lon,
                 Some max_lat,
-                Some (`Int zoom) )
+                Some zoom )
               when zoom >= 0 && zoom <= 15 -> (
                 match
                   Basemap_job.validate ~min_lon ~min_lat ~max_lon ~max_lat
@@ -709,7 +720,14 @@ let handle_basemap cfg (ops : Basemap_download.ops)
                 match browse with Some (`Bool b) -> Some b | _ -> None
               in
               match settings.set ~days ~browse with
-              | Ok payload -> respond_json cfg ~status:`OK payload
+              | Ok payload ->
+                  (* Off means gone: the browse cache is a record of where
+                     the user looked, so turning the setting off deletes it
+                     rather than leaving it dormant and still serving.
+                     Best-effort -- a running job keeps its seat, and the
+                     job's own prune or fold settles the file's fate. *)
+                  if browse = Some false then ignore (ops.clear_cache ());
+                  respond_json cfg ~status:`OK payload
               | Error e -> bad e))
   | "basemap-estimate" | "basemap-download" -> (
       match Yojson.Safe.from_string body with

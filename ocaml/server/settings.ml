@@ -98,10 +98,18 @@ type ops = {
 
 let ops ~fs ~basemap_dir =
   let get_t () = load ~fs ~basemap_dir in
+  (* One writer at a time. [set] is a read-modify-write of a shared file,
+     and the reminder select and the browse toggle are separate controls a
+     quick user can fire together: unserialized, the later save silently
+     reverts the earlier field, and two bodies interleaving through the
+     same .part file can leave settings.json unparseable -- which [load]
+     deliberately refuses to paper over. *)
+  let write_lock = Eio.Mutex.create () in
   {
     get = (fun () -> Result.map to_json (get_t ()));
     set =
       (fun ~days ~browse ->
+        Eio.Mutex.use_rw ~protect:true write_lock @@ fun () ->
         match days with
         | Some d when not (valid_days d) ->
             Error "update_reminder_days must be 0..3650"

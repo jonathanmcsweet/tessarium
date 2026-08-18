@@ -424,6 +424,14 @@ the one honest caveat.
 
 ## Phase 8 — Later, unscheduled
 
+- [ ] **Antimeridian browse fetches only the western half of the view.** The
+      browse-cache request clamps the viewport box at ±180 rather than
+      splitting a wrapped view into two boxes, so panning across the date
+      line caches half of what is on screen. Deferred because the fix costs
+      two sequential requests against a one-browse-at-a-time server for a
+      sliver of the Pacific; the halves fill in on the next pan. (Ledger,
+      2026-08-18, browse cache review fixes.)
+
 - [ ] **Phishing-resistant unlock: passkeys (WebAuthn PRF).** The typed phrase
       is the phishing surface: a user can be talked into typing 24 words into
       any page, and nothing the real page displays prevents it, because a fake
