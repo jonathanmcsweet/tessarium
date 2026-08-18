@@ -178,17 +178,19 @@ core's bignum arithmetic work in a browser, requires it.
 ## Things that are open, not decided
 
 Listed at the bottom of `roadmap.md`. Notably: whether `js/` survives now that
-it is the only independent check on the extracted core, and whether to keep
-depending on `demo-bucket.protomaps.com` for basemap tiles, which is a demo
-bucket with no availability promise. Don't quietly settle these — put the
+it is the only independent check on the extracted core, and whether basemap
+tiles need a self-hosted mirror rather than Protomaps' daily builds, which
+carry no availability promise. Don't quietly settle these — put the
 reasoning in a progress entry.
 
-Two questions that WERE here are now closed, and reopening either needs a note
-in the ledger: the server never sees a seed phrase by default (keys are derived
-in the browser; the opt-in API exists for scripting), and HMAC-SHA256 comes
+Questions that WERE here are now closed, and reopening one needs a note in
+the ledger: the server never sees a seed phrase by default (keys are derived
+in the browser; the opt-in API exists for scripting); HMAC-SHA256 comes
 from `digestif`'s pure-OCaml backend rather than HACL\*, because HACL\*'s C
 stubs do not cross into js_of_ocaml and taking it would force a second
-browser-side crypto implementation.
+browser-side crypto implementation; and basemap tiles come from the newest
+Protomaps daily build, resolved from the published listing at use time,
+because the stable demo-bucket URL was deleted upstream (ledger, 2026-08-18).
 
 ## UI / UX
 - All network state management needs to be in React Query
