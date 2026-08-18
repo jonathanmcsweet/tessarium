@@ -25,11 +25,17 @@ import { useEffect, useMemo, useState } from "react";
 import {
   isRunning,
   type Job,
+  type LedgerEntry,
   type Region,
   useBasemapCancel,
   useBasemapDownload,
   useBasemapEstimate,
+  useBasemapLedger,
   useBasemapPresent,
+  useBasemapRemove,
+  useBasemapSettings,
+  useBasemapUpdate,
+  useSaveBasemapSettings,
   WORLD,
 } from "../core/basemap";
 import { formatBytes, formatList, getLocale } from "../i18n";
@@ -60,6 +66,22 @@ function Progress({ job }: { job: Job; }) {
   if (job.state === "assets") {
     return <p className="hint">{m.map_download_assets()}</p>;
   }
+  if (job.state === "removing") {
+    const text = m.map_removing_progress({
+      done: formatBytes(job.done_bytes),
+      total: formatBytes(job.total_bytes),
+    });
+    return (
+      <>
+        <progress
+          value={job.done_bytes}
+          max={Math.max(1, job.total_bytes)}
+          aria-label={text}
+        />
+        <p className="hint">{text}</p>
+      </>
+    );
+  }
   if (job.state !== "fetching") return null;
   const done = formatBytes(job.done_bytes);
   const total = formatBytes(job.total_bytes);
@@ -86,19 +108,38 @@ function Progress({ job }: { job: Job; }) {
   );
 }
 
+/* What the ledger will call a download. The server caps names at 120 bytes
+   of printable UTF-8; a selection of many picks is clamped to "first + N"
+   rather than truncated mid-character. */
+const nameBytes = (s: string) => new TextEncoder().encode(s).length;
+
+function ledgerName(labels: string[]): string | undefined {
+  const distinct = [...new Set(labels)];
+  const first = distinct[0];
+  if (first === undefined) return undefined;
+  const joined = distinct.length === 1 ? first : formatList(distinct);
+  if (nameBytes(joined) <= 120) return joined;
+  const short = m.map_name_many({ first, count: distinct.length - 1 });
+  return nameBytes(short) <= 120 ? short : undefined;
+}
+
 /* One offer: its estimate, its caveats, its button. Shared by the world,
    the current view, and the picker's selection, so the three cannot
    drift. */
-function Offer({ regions, names, describe, confirmLabel, className }: {
-  regions: Region[] | null;
-  /* Aligned with regions. Lets the depth warning name the picks that are
+function Offer(
+  { regions, names, ledgerLabel, describe, confirmLabel, className }: {
+    regions: Region[] | null;
+    /* Aligned with regions. Lets the depth warning name the picks that are
      too big for street level; the world and the view have no names worth
      saying and get the generic wording. */
-  names?: string[];
-  describe: (size: string) => string;
-  confirmLabel: string;
-  className: string;
-}) {
+    names?: string[];
+    /* What the downloaded-maps list will call this, in the user's locale. */
+    ledgerLabel: string | undefined;
+    describe: (size: string) => string;
+    confirmLabel: string;
+    className: string;
+  },
+) {
   const estimate = useBasemapEstimate(regions);
   const download = useBasemapDownload();
   /* The picks granted less depth than they asked for. */
@@ -150,12 +191,25 @@ function Offer({ regions, names, describe, confirmLabel, className }: {
       <div className="download-actions">
         <button
           type="button"
-          onClick={() => regions && download.mutate(regions, loudly)}
+          onClick={() =>
+            regions
+            && download.mutate({
+              regions,
+              ...(ledgerLabel !== undefined ? { name: ledgerLabel } : {}),
+            }, loudly)}
           disabled={regions === null || !estimate.isSuccess
-            || estimate.data.tiles === 0 || estimate.data.covered
+            || (estimate.data.tiles === 0 && !estimate.data.covered)
             || download.isPending}
         >
-          {confirmLabel}
+          {
+            /* A covered area has nothing to fetch but can still be
+               RECORDED -- that is how an archive from before the ledger
+               gets its first entry. The server answers "you already have"
+               if it is recorded already. */
+            estimate.isSuccess && estimate.data.covered
+              ? m.map_download_adopt()
+              : confirmLabel
+          }
         </button>
       </div>
     </div>
@@ -305,12 +359,117 @@ function RegionPicker() {
         <Offer
           regions={picks.length > 0 ? picks.flatMap((p) => p.regions) : null}
           names={picks.flatMap((p) => p.regions.map(() => p.label))}
+          ledgerLabel={ledgerName(picks.map((p) => p.label))}
           describe={(size) =>
             m.map_download_region_selected({ count: picks.length, size })}
           confirmLabel={m.map_download_confirm()}
           className="download-region-offer"
         />
       )}
+    </div>
+  );
+}
+
+/* One downloaded region: what it is, how old it is, and its two verbs.
+   Staleness is decided here from the recorded date and the reminder
+   threshold; completed = 0 means the tiles predate the ledger and their
+   age is unknown, which is treated as stale rather than fresh. Remove is
+   two clicks -- the second press of the same button -- because it discards
+   gigabytes that took real time to fetch. */
+function LedgerRow({ entry, days, busy }: {
+  entry: LedgerEntry;
+  days: number;
+  busy: boolean;
+}) {
+  const update = useBasemapUpdate();
+  const remove = useBasemapRemove();
+  const [confirming, setConfirming] = useState(false);
+  useEffect(() => {
+    if (!confirming) return;
+    const id = setTimeout(() => setConfirming(false), 5000);
+    return () => clearTimeout(id);
+  }, [confirming]);
+  const ageUnknown = entry.completed === 0;
+  const stale = days > 0
+    && (ageUnknown
+      || Date.now() / 1000 - entry.completed > days * 86_400);
+  const size = formatBytes(entry.bytes);
+  const meta = ageUnknown
+    ? m.map_ledger_age_unknown({ size })
+    : m.map_ledger_meta({
+      size,
+      date: new Intl.DateTimeFormat(getLocale(), { dateStyle: "medium" })
+        .format(new Date(entry.completed * 1000)),
+    });
+  return (
+    <li className="ledger-row">
+      <div className="ledger-row-text">
+        <span className="ledger-name">{entry.name}</span>
+        <span className="hint">
+          {meta}
+          {stale && (
+            <>
+              {" "}
+              <span className="ledger-stale">{m.map_ledger_stale()}</span>
+            </>
+          )}
+        </span>
+      </div>
+      <div className="download-actions">
+        <button
+          type="button"
+          onClick={() => update.mutate(entry.id, loudly)}
+          disabled={busy || update.isPending || remove.isPending}
+        >
+          {m.map_ledger_update()}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (!confirming) setConfirming(true);
+            else remove.mutate(entry.id, loudly);
+          }}
+          disabled={busy || update.isPending || remove.isPending}
+        >
+          {confirming ? m.map_ledger_confirm() : m.map_ledger_remove()}
+        </button>
+      </div>
+    </li>
+  );
+}
+
+/* The downloaded-maps list and the one setting that governs it. Rendered
+   only when something is recorded: an empty list teaches nothing that the
+   offers above it do not. */
+function DownloadedMaps({ busy }: { busy: boolean; }) {
+  const ledger = useBasemapLedger();
+  const settings = useBasemapSettings();
+  const save = useSaveBasemapSettings();
+  if (!ledger.isSuccess || ledger.data.entries.length === 0) return null;
+  const days = settings.data?.update_reminder_days ?? 90;
+  return (
+    <div className="download-option download-ledger">
+      <p className="region-group">{m.map_ledger_title()}</p>
+      <ul className="ledger-rows">
+        {ledger.data.entries.map((entry) => (
+          <LedgerRow key={entry.id} entry={entry} days={days} busy={busy} />
+        ))}
+      </ul>
+      <label className="ledger-reminder">
+        {m.map_ledger_reminder()}
+        <select
+          value={String(days)}
+          onChange={(e) => save.mutate(Number(e.target.value), loudly)}
+          disabled={!settings.isSuccess || save.isPending}
+        >
+          <option value="30">{m.map_ledger_reminder_days({ days: 30 })}</option>
+          <option value="90">{m.map_ledger_reminder_days({ days: 90 })}</option>
+          <option value="180">
+            {m.map_ledger_reminder_days({ days: 180 })}
+          </option>
+          <option value="0">{m.map_ledger_reminder_never()}</option>
+        </select>
+      </label>
     </div>
   );
 }
@@ -359,6 +518,7 @@ export function DownloadCard({ region, job }: {
             {worldFirst && (
               <Offer
                 regions={[WORLD]}
+                ledgerLabel={m.map_name_world()}
                 describe={(size) => m.map_download_world_estimate({ size })}
                 confirmLabel={m.map_download_world_confirm()}
                 className="download-world"
@@ -366,11 +526,13 @@ export function DownloadCard({ region, job }: {
             )}
             <Offer
               regions={[region]}
+              ledgerLabel={m.map_name_view()}
               describe={(size) => m.map_download_estimate({ size })}
               confirmLabel={m.map_download_confirm()}
               className="download-view"
             />
             <RegionPicker />
+            <DownloadedMaps busy={running} />
           </>
         )}
     </section>

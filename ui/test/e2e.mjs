@@ -492,8 +492,10 @@ await page.waitForFunction(
 );
 check("re-asking for a held area says so instead of re-quoting", true);
 check(
-  "and its download button stays disabled",
-  await page.locator(".download-view button").isDisabled(),
+  "and its button turns into the record-only offer",
+  !(await page.locator(".download-view button").isDisabled())
+    && ((await page.locator(".download-view button").textContent()) ?? "")
+      .includes("Keep track"),
 );
 
 /* Third download: places picked by name from the tree -- and several at
@@ -595,6 +597,158 @@ await page.waitForFunction(() => !document.querySelector(".download-card"), {
   timeout: 10_000,
 });
 
+/* ------------------------- the download ledger ----------------------------
+
+   Every download above was recorded inside the archive itself -- name,
+   date, size -- and the list, the reminder setting, and Remove are all
+   driven through the real card. First, adoption: covered tiles with no
+   entry (here, a patch inside the world download; in the field, an archive
+   from before the ledger existed) are claimed by re-requesting them, and
+   the entry lands with "age unknown", which counts as stale. */
+await postJson("basemap-download", {
+  name: "Adopted patch",
+  regions: [{
+    min_lon: -0.2,
+    min_lat: 51.46,
+    max_lon: -0.1,
+    max_lat: 51.5,
+    max_zoom: 6,
+  }],
+});
+check(
+  "re-requesting covered tiles records them instead of failing",
+  await awaitDone(4),
+);
+const ledger1 = await (await postJson("basemap-ledger")).json();
+check(
+  "the archive records every download by name",
+  ledger1.entries?.length === 4
+    && [
+      "World overview",
+      "Map view",
+      "United Kingdom and London",
+      "Adopted patch",
+    ]
+      .every((n) => ledger1.entries.some((e) => e.name === n)),
+);
+const adoptedEntry = ledger1.entries?.find((e) => e.name === "Adopted patch");
+check(
+  "adopted tiles admit their age is unknown",
+  adoptedEntry?.completed === 0 && adoptedEntry?.bytes === 0,
+);
+check(
+  "real downloads record when and how much",
+  ledger1.entries?.filter((e) => e.completed > 0 && e.bytes > 0).length === 3,
+);
+
+await openButton.click();
+await page.waitForSelector(".download-ledger", { timeout: 10_000 });
+/* The list refetches on mount; wait for the adoption to be visible rather
+   than racing the request. */
+const fourRows = await page
+  .waitForFunction(
+    () => document.querySelectorAll(".ledger-row").length === 4,
+    { timeout: 30_000 },
+  )
+  .then(() => true, () => false);
+check("the card lists the downloaded maps", fourRows);
+check(
+  "only the age-unknown entry is flagged for update",
+  (await page.locator(".ledger-stale").count()) === 1
+    && (await page.locator(".ledger-row").filter({ hasText: "Adopted patch" })
+        .locator(".ledger-stale").count()) === 1,
+);
+check(
+  "a fresh download names its date",
+  ((await page.locator(".ledger-row").filter({ hasText: "World overview" })
+    .locator(".hint").textContent()) ?? "").includes("updated"),
+);
+
+/* The reminder threshold lives on the server, next to the archive it
+   describes -- localStorage stays empty, as asserted at the end -- so the
+   choice must survive closing the card. */
+const reminder = page.locator(".ledger-reminder select");
+check(
+  "the update reminder defaults to 90 days",
+  (await reminder.inputValue()) === "90",
+);
+await reminder.selectOption("30");
+/* The save is a request; let the server confirm it before the card closes,
+   or the reopened card can read the old value in perfect honesty. */
+let saved30 = false;
+for (let i = 0; i < 40 && !saved30; i++) {
+  const s = await (await postJson("basemap-settings")).json();
+  saved30 = s.update_reminder_days === 30;
+  if (!saved30) await new Promise((r) => setTimeout(r, 250));
+}
+check("the reminder write reaches the server", saved30);
+await page.locator(".download-card .icon-button").click();
+await page.waitForFunction(() => !document.querySelector(".download-card"), {
+  timeout: 10_000,
+});
+await openButton.click();
+await page.waitForSelector(".ledger-reminder select", { timeout: 10_000 });
+check(
+  "the reminder choice survives on the server",
+  (await page.locator(".ledger-reminder select").inputValue()) === "30",
+);
+
+/* Remove is two presses of the same button, because it discards gigabytes.
+   The view download's tiles sit inside the United Kingdom pick, so removing
+   it must keep the archive intact -- entries own records, not tiles. */
+const viewRow = page.locator(".ledger-row").filter({ hasText: "Map view" });
+await viewRow.locator("button").nth(1).click();
+check(
+  "remove asks to be sure",
+  ((await viewRow.locator("button").nth(1).textContent()) ?? "")
+    .includes("Really"),
+);
+await viewRow.locator("button").nth(1).click();
+const rowGone = await page
+  .waitForFunction(
+    () => document.querySelectorAll(".ledger-row").length === 3,
+    { timeout: 30_000 },
+  )
+  .then(() => true, () => false);
+check("the removed entry leaves the list", rowGone);
+const removedToast = await page
+  .waitForFunction(
+    () =>
+      [...document.querySelectorAll("[data-sonner-toast]")].some((t) => {
+        const text = t.textContent ?? "";
+        /* Either wording is correct: bytes freed, or all tiles shared. */
+        return text.includes("Maps removed") || text.includes("Map removed");
+      }),
+    { timeout: 10_000 },
+  )
+  .then(() => true, () => false);
+check("removal announces what it freed", removedToast);
+const ledger2 = await (await postJson("basemap-ledger")).json();
+check(
+  "the archive agrees the entry is gone",
+  ledger2.entries?.length === 3
+    && !ledger2.entries.some((e) => e.name === "Map view"),
+);
+check(
+  "the shared tiles survived the removal",
+  (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
+    === 200,
+);
+
+/* Update through the card, on the clipped country pick: the one deliberate
+   way to refresh held tiles, exercised over a polygon region. The card
+   closes itself when the job completes, like any download. */
+await page
+  .locator(".ledger-row")
+  .filter({ hasText: "United Kingdom" })
+  .locator("button")
+  .nth(0)
+  .click();
+check("an update of a clipped region completes", await awaitDone(6));
+await page.waitForFunction(() => !document.querySelector(".download-card"), {
+  timeout: 10_000,
+});
+
 /* ------------------- multi-part downloads and resume ----------------------
 
    A third server instance runs with a deliberately tiny tile budget
@@ -627,7 +781,9 @@ const finalJob3 = async (generation) => {
     const status = await (await post3("basemap-status")).json();
     if (
       status.generation === generation
-      && !["planning", "fetching", "assets"].includes(status.job?.state)
+      && !["planning", "fetching", "assets", "removing"].includes(
+        status.job?.state,
+      )
       && status.job?.state !== "idle"
     ) {
       return status.job;
@@ -652,6 +808,104 @@ const again3 = await finalJob3(2);
 check(
   "a re-download skips every held part and says so",
   again3?.state === "failed" && /already have/.test(again3.reason ?? ""),
+);
+
+/* The same ledger, driven over the API. The scripted download above carried
+   no name, so the server coined one from its box. */
+const led3 = await (await post3("basemap-ledger")).json();
+check(
+  "a scripted download is recorded under its box",
+  led3.entries?.length === 1
+    && led3.entries[0].name === "-179.90, -84.00 - 179.90, 84.00"
+    && led3.entries[0].completed > 0,
+);
+/* The accuracy claim on bytes: the entry records what the network
+   delivered, never archive-copy volume. For a multi-part download the
+   quote deliberately double-counts seam tiles the later parts then skip,
+   so fetched <= quoted; and the copy volume re-counts every earlier part,
+   so fetched < Done's total. The old bug recorded the latter. */
+check(
+  "the recorded bytes are network bytes, not copy volume",
+  led3.entries?.[0]?.bytes > 0
+    && led3.entries[0].bytes <= est3.total_bytes
+    && led3.entries[0].bytes < done3.total_bytes,
+);
+const id3 = led3.entries?.[0]?.id ?? "";
+/* Update re-fetches the region tile for tile -- the one deliberate way to
+   refresh stale tiles -- and, still over the tiny budget, in parts again. */
+await post3("basemap-update", { id: id3 });
+const upd3 = await finalJob3(3);
+check(
+  "an update re-downloads a recorded region in parts",
+  upd3?.state === "done" && upd3.parts >= 2 && upd3.total_bytes > 0,
+);
+const led3b = await (await post3("basemap-ledger")).json();
+check(
+  "an update replaces its entry rather than duplicating it",
+  led3b.entries?.length === 1 && led3b.entries[0].id === id3
+    && led3b.entries[0].completed >= led3.entries[0].completed,
+);
+/* Settings live beside the archive they govern. */
+const set3 = await (await post3("basemap-settings", {
+  update_reminder_days: 180,
+})).json();
+const got3 = await (await post3("basemap-settings")).json();
+check(
+  "the reminder setting persists server-side",
+  set3.update_reminder_days === 180 && got3.update_reminder_days === 180,
+);
+check(
+  "an out-of-range reminder is refused",
+  (await post3("basemap-settings", { update_reminder_days: 9999 })).status
+    === 400,
+);
+/* Removing the only entry removes the archive itself: an empty archive and
+   a missing one are the same state, spelled the honest way. */
+await post3("basemap-remove", { id: id3 });
+const rem3 = await finalJob3(4);
+check(
+  "removing the last region deletes the archive",
+  rem3?.state === "removed"
+    && (await fetch(`${base3}/basemap/map.pmtiles`, { method: "HEAD" }))
+        .status === 404,
+);
+const led3c = await (await post3("basemap-ledger")).json();
+check("and the ledger reads empty afterwards", led3c.entries?.length === 0);
+await post3("basemap-remove", { id: "abcdef012345" });
+const rem3b = await finalJob3(5);
+check(
+  "removing from a missing archive fails out loud",
+  rem3b?.state === "failed",
+);
+
+/* A giant beyond even the split ceiling is clamped to a shallower granted
+   depth -- and the ledger must record the depth that was FETCHED, not the
+   one asked for, or Remove and Update would speak of tiles that never
+   existed. */
+const deepWorld = { ...world, max_zoom: 10 };
+const estClamped = await (await post3("basemap-estimate", {
+  regions: [deepWorld],
+})).json();
+check(
+  "the tiny budget clamps a too-deep world",
+  typeof estClamped.max_zooms?.[0] === "number"
+    && estClamped.max_zooms[0] < 10,
+);
+await post3("basemap-download", {
+  name: "Clamped world",
+  regions: [deepWorld],
+});
+const clamped3 = await finalJob3(6);
+check("the clamped download completes", clamped3?.state === "done");
+const ledClamped = await (await post3("basemap-ledger")).json();
+check(
+  "the entry records the granted depth, not the request",
+  ledClamped.entries?.length === 1
+    && ledClamped.entries[0].max_zoom === estClamped.max_zooms[0],
+);
+check(
+  "and its bytes are again exactly the quote",
+  ledClamped.entries?.[0]?.bytes === estClamped.total_bytes,
 );
 
 /* Let the swapped style fetch and render its tiles; anything it logs from

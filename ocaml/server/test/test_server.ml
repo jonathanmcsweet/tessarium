@@ -289,8 +289,8 @@ let () =
           calls := `Estimate req :: !calls;
           Ok (`Assoc []));
       start =
-        (fun req ->
-          calls := `Start req :: !calls;
+        (fun ~name req ->
+          calls := `Start (name, req) :: !calls;
           Ok ());
       cancel =
         (fun () ->
@@ -300,6 +300,33 @@ let () =
         (fun () ->
           calls := `Status :: !calls;
           `Assoc []);
+      ledger =
+        (fun () ->
+          calls := `Ledger :: !calls;
+          Ok (`Assoc [ ("entries", `List []) ]));
+      update =
+        (fun ~id ->
+          calls := `Update id :: !calls;
+          Ok ());
+      remove =
+        (fun ~id ->
+          calls := `Remove id :: !calls;
+          Ok ());
+    }
+  in
+  let settings_calls = ref [] in
+  let settings =
+    {
+      Tessarium_server.Settings.get =
+        (fun () ->
+          settings_calls := `Get :: !settings_calls;
+          Ok (`Assoc [ ("update_reminder_days", `Int 90) ]));
+      set =
+        (fun days ->
+          settings_calls := `Set days :: !settings_calls;
+          if Tessarium_server.Settings.valid_days days then
+            Ok (`Assoc [ ("update_reminder_days", `Int days) ])
+          else Error "update_reminder_days must be 0..3650");
     }
   in
   (* Reading a request body must follow what the request declared. Both
@@ -318,7 +345,7 @@ let () =
 
   let run ~endpoint ~body =
     calls := [];
-    ignore (S.handle_basemap scfg ops ~endpoint ~body);
+    ignore (S.handle_basemap scfg ops settings ~endpoint ~body);
     !calls
   in
   check "status asks the job and needs no body"
@@ -328,7 +355,7 @@ let () =
   let box = {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15}|} in
   let wrap boxes = {|{"regions":[|} ^ String.concat "," boxes ^ "]}" in
   (match run ~endpoint:"basemap-download" ~body:(wrap [ box ]) with
-  | [ `Start [ (req : Tessarium_server.Basemap_job.request) ] ] ->
+  | [ `Start (_, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
       check "a good box starts a download with the parsed values"
         (req.min_lon = -0.25 && req.max_lat = 51.55 && req.max_zoom = 15);
       (* max_lon arrived as the JSON integer 0 and must still be a number. *)
@@ -340,7 +367,7 @@ let () =
   (* Several regions ride in one request, in order: the picker sends its
      whole selection at once and reads the depths back by position. *)
   (match run ~endpoint:"basemap-download" ~body:(wrap [ box; paris ]) with
-  | [ `Start [ (a : Tessarium_server.Basemap_job.request); b ] ] ->
+  | [ `Start (_, [ (a : Tessarium_server.Basemap_job.request); b ]) ] ->
       check "two regions arrive as one download, in order"
         (a.min_lon = -0.25 && b.min_lon = 2.1)
   | _ -> check "two regions arrive as one download, in order" false);
@@ -369,7 +396,7 @@ let () =
     {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15,"polygon":[[[-0.2,51.46],[-0.05,51.46],[-0.1,51.54]]]}|}
   in
   (match run ~endpoint:"basemap-download" ~body:(wrap [ with_polygon ]) with
-  | [ `Start [ (req : Tessarium_server.Basemap_job.request) ] ] ->
+  | [ `Start (_, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
       check "a polygon rides in with its region"
         (match req.polygon with
         | Some [| ring |] -> Array.length ring = 3 && fst ring.(0) = -0.2
@@ -443,6 +470,69 @@ let () =
        ~body:(wrap [ {|{"min_lon":1,"min_lat":0,"max_lon":2,"max_zoom":15}|} ])
      = []);
 
+  (* The ledger endpoints: list, update by id, remove by id, and the name a
+     download carries into its ledger row. *)
+  check "the ledger endpoint asks the ledger"
+    (run ~endpoint:"basemap-ledger" ~body:"" = [ `Ledger ]);
+  check "update names its entry by id"
+    (run ~endpoint:"basemap-update" ~body:{|{"id":"abc123"}|}
+    = [ `Update "abc123" ]);
+  check "remove names its entry by id"
+    (run ~endpoint:"basemap-remove" ~body:{|{"id":"abc123"}|}
+    = [ `Remove "abc123" ]);
+  check "a malformed or missing id reaches nothing"
+    (run ~endpoint:"basemap-update" ~body:{|{"id":"DROP TABLE"}|} = []
+    && run ~endpoint:"basemap-remove" ~body:{|{"id":""}|} = []
+    && run ~endpoint:"basemap-update" ~body:"{}" = []
+    && run ~endpoint:"basemap-remove" ~body:"not json" = []);
+  check "a download's name rides along to the ledger"
+    (match
+       run ~endpoint:"basemap-download"
+         ~body:({|{"name":"France","regions":[|} ^ box ^ "]}")
+     with
+    | [ `Start (Some "France", _) ] -> true
+    | _ -> false);
+  check "a download without a name still starts"
+    (match run ~endpoint:"basemap-download" ~body:(wrap [ box ]) with
+    | [ `Start (None, _) ] -> true
+    | _ -> false);
+  check "a name with control characters reaches nothing"
+    (run ~endpoint:"basemap-download"
+       ~body:({|{"name":"a\nb","regions":[|} ^ box ^ "]}")
+     = []);
+
+  (* Settings: an empty body reads, a value writes, junk reaches nothing. *)
+  let run_settings ~body =
+    settings_calls := [];
+    ignore (S.handle_basemap scfg ops settings ~endpoint:"basemap-settings" ~body);
+    !settings_calls
+  in
+  check "an empty settings body reads the current value"
+    (run_settings ~body:"{}" = [ `Get ]);
+  check "a settings value writes"
+    (run_settings ~body:{|{"update_reminder_days":30}|} = [ `Set 30 ]);
+  check "a non-integer setting reaches nothing"
+    (run_settings ~body:{|{"update_reminder_days":"soon"}|} = []
+    && run_settings ~body:"not json" = []);
+
+  (* The settings file format itself. *)
+  let module St = Tessarium_server.Settings in
+  check "settings round-trip"
+    (St.of_string (St.to_string { St.update_reminder_days = 30 })
+    = Ok { St.update_reminder_days = 30 });
+  check "the reminder default is 90 days"
+    (St.default = { St.update_reminder_days = 90 });
+  check "reminder bounds hold"
+    (St.valid_days 0 && St.valid_days 3650
+    && (not (St.valid_days (-1)))
+    && not (St.valid_days 3651));
+  check "corrupt settings are loud"
+    (match St.of_string "nope" with Error _ -> true | Ok _ -> false);
+  check "out-of-range stored settings are refused"
+    (match St.of_string {|{"update_reminder_days":9999}|} with
+    | Error _ -> true
+    | Ok _ -> false);
+
   (* The status envelope carries a generation alongside the job: a fast
      download can run idle-to-done between two polls, and only an identity
      lets a poller tell fresh news from stale. Under Eio_main because the
@@ -458,6 +548,241 @@ let () =
           ("job", `Assoc [ ("state", `String "idle") ]);
         ]);
   check "cancel with nothing running cancels nothing" (not (D.cancel runner));
+
+  (* --------------------------------------------------- download ledger *)
+  (* The ledger is the record of what the archive holds, kept inside the
+     archive. Its contract is exactness: canonical bytes for the same
+     content, an identity blind to everything but the regions, and loud
+     failure on anything it cannot read back perfectly. *)
+  let module L = Tessarium_server.Ledger in
+  let module J = Tessarium_server.Basemap_job in
+  let reg ?polygon ~z (a, b, c, d) =
+    Result.get_ok
+      (J.validate ?polygon ~min_lon:a ~min_lat:b ~max_lon:c ~max_lat:d
+         ~max_zoom:z ())
+  in
+  let france = reg ~z:15 (-5.1, 41.3, 9.6, 51.1) in
+  let georgia = reg ~z:15 (-85.6, 30.3, -80.8, 35.0) in
+  let entry ?(name = "France") ?(completed = 1_787_000_000)
+      ?(source = "https://build.protomaps.com/20260818.pmtiles")
+      ?(bytes = 123_456) regions =
+    L.make ~name ~regions ~completed ~source ~bytes
+  in
+
+  (* Serialization: exact round-trip, byte-stable, empty means absent. *)
+  let e1 = entry [ france ] in
+  let meta1 = Result.get_ok (L.to_metadata [ e1 ] ~previous:"{}") in
+  check "a ledger round-trips through archive metadata exactly"
+    (L.of_metadata meta1 = Ok [ e1 ]);
+  check "serialization is byte-stable across a parse cycle"
+    (Result.get_ok
+       (L.to_metadata (Result.get_ok (L.of_metadata meta1)) ~previous:"{}")
+    = meta1);
+  check "an empty ledger writes no metadata key at all"
+    (L.to_metadata [] ~previous:"{}" = Ok "{}");
+  check "removing the last entry leaves metadata as if none ever existed"
+    (L.to_metadata [] ~previous:meta1 = Ok "{}");
+  check "archives without a ledger read as empty" (L.of_metadata "{}" = Ok []);
+  check "foreign metadata keys survive a ledger write in place"
+    (match L.to_metadata [ e1 ] ~previous:{|{"author":"protomaps"}|} with
+    | Ok s ->
+        (match Yojson.Safe.from_string s with
+        | `Assoc (("author", `String "protomaps") :: _) ->
+            L.of_metadata s = Ok [ e1 ]
+        | _ -> false)
+    | Error _ -> false);
+
+  (* Identity: the regions and nothing else, in any order. *)
+  let polygon = [| [| (-5., 42.); (9., 42.); (2., 51.) |] |] in
+  let france_clipped = reg ~polygon ~z:15 (-5.1, 41.3, 9.6, 51.1) in
+  check "the same regions in a different order are the same entry"
+    (L.id (entry [ france; georgia ]) = L.id (entry [ georgia; france ]));
+  check "order-insensitive entries serialize to identical bytes"
+    (L.to_metadata [ entry [ france; georgia ] ] ~previous:"{}"
+    = L.to_metadata [ entry [ georgia; france ] ] ~previous:"{}");
+  check "name, time, source and size do not change identity"
+    (L.id (entry [ france ])
+    = L.id
+        (entry ~name:"Frankreich" ~completed:1 ~source:"other" ~bytes:9
+           [ france ]));
+  check "moving a box changes identity"
+    (L.id (entry [ france ]) <> L.id (entry [ reg ~z:15 (-5.1, 41.3, 9.6, 51.2) ]));
+  check "a deeper zoom changes identity"
+    (L.id (entry [ france ]) <> L.id (entry [ reg ~z:14 (-5.1, 41.3, 9.6, 51.1) ]));
+  check "a polygon changes identity"
+    (L.id (entry [ france ]) <> L.id (entry [ france_clipped ]));
+  check "a clipped region round-trips with its polygon intact"
+    (let m =
+       Result.get_ok (L.to_metadata [ entry [ france_clipped ] ] ~previous:"{}")
+     in
+     L.of_metadata m = Ok [ entry [ france_clipped ] ]);
+
+  (* Edits: same id replaces in place, new id appends, remove is exact. *)
+  let e2 = entry ~name:"Georgia" [ georgia ] in
+  check "recording a new region appends"
+    (L.record [ e1 ] e2 = [ e1; e2 ]);
+  check "recording the same regions replaces in place"
+    (L.record [ e1; e2 ] (entry ~bytes:999 [ france ])
+    = [ entry ~bytes:999 [ france ]; e2 ]);
+  check "remove returns the entry and the rest"
+    (L.remove [ e1; e2 ] ~id:(L.id e2) = Some (e2, [ e1 ]));
+  check "remove of an unknown id is None" (L.remove [ e1 ] ~id:"nope" = None);
+  check "find locates by id" (L.find [ e1; e2 ] ~id:(L.id e2) = Some e2);
+
+  (* Corruption is loud, never an empty ledger. *)
+  let unreadable = function Error _ -> true | Ok _ -> false in
+  check "non-JSON metadata is an error"
+    (unreadable (L.of_metadata "<html>"));
+  check "non-object metadata is an error" (unreadable (L.of_metadata "[]"));
+  let mentions sub s =
+    let n = String.length sub in
+    let rec go i =
+      i + n <= String.length s && (String.sub s i n = sub || go (i + 1))
+    in
+    go 0
+  in
+  check "a newer ledger version is refused, saying so"
+    (match L.of_metadata {|{"tessarium_ledger":{"v":2,"entries":[]}}|} with
+    | Error m -> mentions "newer" m
+    | Ok _ -> false);
+  check "a ledger without a version is refused"
+    (unreadable (L.of_metadata {|{"tessarium_ledger":{"entries":[]}}|}));
+  check "an entry with an invalid region is refused"
+    (unreadable
+       (L.of_metadata
+          {|{"tessarium_ledger":{"v":1,"entries":[{"name":"x","completed":0,"source":"s","bytes":0,"regions":[{"min_lon":9,"min_lat":0,"max_lon":2,"max_lat":1,"max_zoom":15}]}]}}|}));
+  check "an entry with no regions is refused"
+    (unreadable
+       (L.of_metadata
+          {|{"tessarium_ledger":{"v":1,"entries":[{"name":"x","completed":0,"source":"s","bytes":0,"regions":[]}]}}|}));
+  check "corrupt metadata does not blank the ledger on write either"
+    (unreadable (L.to_metadata [ e1 ] ~previous:"not json"));
+
+  (* Names: bounded, printable, UTF-8. *)
+  check "plain and accented names are valid"
+    (L.valid_name "France" && L.valid_name "Besançon, Québec");
+  check "the empty name is invalid" (not (L.valid_name ""));
+  check "control characters are invalid"
+    (not (L.valid_name "a\nb") && not (L.valid_name "a\x7f"));
+  check "broken UTF-8 is invalid" (not (L.valid_name "\xff\xfe"));
+  check "over-long names are invalid"
+    (not (L.valid_name (String.make 121 'x')));
+  check "names at the limit are valid" (L.valid_name (String.make 120 'x'));
+
+  (* Removal geometry, on exact tile boundaries. The rule: Remove undoes
+     the download. A tile goes exactly when the removed entry's download
+     would have fetched it -- everything its region touches, ancestors
+     included, down to the zoom it asked for -- and no kept entry's
+     download would fetch it too. *)
+  let tl, tb, tr, tt = Pmtiles.Tile_id.tile_box ~z:3 ~x:4 ~y:3 in
+  let cell = reg ~z:4 (tl, tb, tr, tt) in
+  let removed = entry ~name:"cell" [ cell ] in
+  let drops = L.drops ~removed ~kept:[] in
+  check "the exact tile of a box region is dropped" (drops ~z:3 ~x:4 ~y:3);
+  check "its children are dropped" (drops ~z:4 ~x:8 ~y:6);
+  check "the parent goes too -- the download fetched the whole pyramid"
+    (drops ~z:2 ~x:2 ~y:1);
+  check "a tile beyond the region is kept" (not (drops ~z:3 ~x:6 ~y:3));
+  check "tiles deeper than the entry ever fetched are kept"
+    (not (drops ~z:5 ~x:16 ~y:12));
+  let protected = L.drops ~removed ~kept:[ entry ~name:"same" [ cell ] ] in
+  check "a kept entry over the same box protects every tile"
+    ((not (protected ~z:3 ~x:4 ~y:3))
+    && (not (protected ~z:4 ~x:8 ~y:6))
+    && not (protected ~z:2 ~x:2 ~y:1));
+  let shallow = L.drops ~removed ~kept:[ entry [ reg ~z:3 (tl, tb, tr, tt) ] ] in
+  check "a shallower kept entry protects only the zooms it fetched"
+    ((not (shallow ~z:3 ~x:4 ~y:3)) && shallow ~z:4 ~x:8 ~y:6);
+  let pad = 0.01 in
+  let quad =
+    [| [| (tl -. pad, tb -. pad); (tr +. pad, tb -. pad);
+          (tr +. pad, tt +. pad); (tl -. pad, tt +. pad) |] |]
+  in
+  let clipped_cell = reg ~polygon:quad ~z:4 (tl -. pad, tb -. pad, tr +. pad, tt +. pad) in
+  let pdrops = L.drops ~removed:(entry [ clipped_cell ]) ~kept:[] in
+  check "a tile inside the polygon is dropped" (pdrops ~z:3 ~x:4 ~y:3);
+  check "a border tile goes too -- the clipped download fetched it"
+    (pdrops ~z:3 ~x:5 ~y:3);
+  check "a tile wholly outside the polygon is kept"
+    (not (pdrops ~z:3 ~x:6 ~y:3));
+
+  (* [Ledger.fetches] must be the covering's membership function EXACTLY --
+     the review that demanded this found a geometric edge-touch test
+     claiming the west and north neighbours of a tile-aligned box, which
+     the covering never fetches. Checked as a property: for boxes plain,
+     tile-aligned and clipped, every tile in a z0..5 universe is claimed by
+     [drops] iff the planner's covering lists it. *)
+  let module T = Pmtiles.Tile_id in
+  let universe f =
+    let ok = ref true in
+    for z = 0 to 5 do
+      let n = 1 lsl z in
+      for x = 0 to n - 1 do
+        for y = 0 to n - 1 do
+          if not (f ~z ~x ~y) then ok := false
+        done
+      done
+    done;
+    !ok
+  in
+  let agrees ?polygon ~z:max_zoom (a, b, c, d) =
+    let ids =
+      match polygon with
+      | None ->
+          T.covering ~min_zoom:0 ~max_zoom ~min_lon:a ~min_lat:b ~max_lon:c
+            ~max_lat:d
+      | Some rings ->
+          T.covering_clipped ~min_zoom:0 ~max_zoom ~min_lon:a ~min_lat:b
+            ~max_lon:c ~max_lat:d
+            ~clip:(Pmtiles.Clip.of_rings rings)
+            ()
+    in
+    let drops =
+      L.drops ~removed:(entry [ reg ?polygon ~z:max_zoom (a, b, c, d) ])
+        ~kept:[]
+    in
+    universe (fun ~z ~x ~y ->
+        drops ~z ~x ~y = List.mem (T.of_zxy ~z ~x ~y) ids)
+  in
+  check "drops = covering, on an ordinary box" (agrees ~z:4 (-5.1, 41.3, 9.6, 51.1));
+  check "drops = covering, on an exactly tile-aligned box"
+    (agrees ~z:4 (tl, tb, tr, tt));
+  check "drops = covering, on a sliver crossing a tile boundary"
+    (agrees ~z:5 (tl -. 0.001, tb, tl +. 0.001, tt));
+  check "drops = covering, clipped to a triangle"
+    (agrees ~polygon:[| [| (-5., 42.); (9., 42.); (2., 51.) |] |] ~z:4
+       (-5.1, 41.3, 9.6, 51.1));
+  check "drops = covering, clipped to the padded quad"
+    (agrees ~polygon:quad ~z:4 (tl -. pad, tb -. pad, tr +. pad, tt +. pad));
+
+  (* Signed zero is the same bound: one region, one identity, and ties in
+     the sort cannot reorder the bytes. *)
+  check "negative zero does not split an identity"
+    (L.id (entry [ reg ~z:15 (-0.0, 41.3, 9.6, 51.1) ])
+    = L.id (entry [ reg ~z:15 (0.0, 41.3, 9.6, 51.1) ]));
+
+  (* A ledger key that appears twice would make reads and writes resolve
+     differently; both refuse it. *)
+  let doubled =
+    {|{"tessarium_ledger":{"v":1,"entries":[]},"tessarium_ledger":{"v":1,"entries":[]}}|}
+  in
+  check "a duplicated ledger key is refused on read"
+    (unreadable (L.of_metadata doubled));
+  check "a duplicated ledger key is refused on write"
+    (unreadable (L.to_metadata [ e1 ] ~previous:doubled));
+
+  (* Invisible characters exist mostly to make one name display as another. *)
+  check "C1 controls are invalid" (not (L.valid_name "a\xc2\x85b"));
+  check "zero-width characters are invalid"
+    (not (L.valid_name "a\xe2\x80\x8bb"));
+  check "bidi overrides are invalid" (not (L.valid_name "a\xe2\x80\xaeb"));
+  check "ordinary multi-byte names stay valid" (L.valid_name "北京 – Beijing");
+
+  (* The Removing job state obeys the same one-writer rule as downloads. *)
+  check "nothing starts while a removal runs"
+    (not (J.can_start (J.Removing { done_bytes = 0; total_bytes = 1 })));
+  check "a removal is a running job"
+    (J.is_running (J.Removing { done_bytes = 0; total_bytes = 1 }));
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "server decisions hold"

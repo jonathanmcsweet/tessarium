@@ -66,10 +66,16 @@ const Job = z.discriminatedUnion("state", [
   }),
   z.object({ state: z.literal("assets") }),
   z.object({
+    state: z.literal("removing"),
+    done_bytes: z.number(),
+    total_bytes: z.number(),
+  }),
+  z.object({
     state: z.literal("done"),
     total_bytes: z.number(),
     parts: z.number().int().min(1),
   }),
+  z.object({ state: z.literal("removed"), freed_bytes: z.number() }),
   z.object({ state: z.literal("failed"), reason: z.string() }),
   z.object({ state: z.literal("cancelled") }),
 ]);
@@ -87,7 +93,28 @@ export type JobStatus = z.infer<typeof JobStatus>;
 
 export const isRunning = (job: Job): boolean =>
   job.state === "planning" || job.state === "fetching"
-  || job.state === "assets";
+  || job.state === "assets" || job.state === "removing";
+
+/* One row of the download ledger: a region the archive was asked to hold,
+   as recorded inside the archive itself. `completed` is epoch seconds;
+   zero means the tiles predate the ledger and their age is unknown --
+   which the UI treats as "probably stale" rather than "fresh". */
+const LedgerEntry = z.object({
+  id: z.string(),
+  name: z.string(),
+  completed: z.number().int().nonnegative(),
+  source: z.string(),
+  bytes: z.number().int().nonnegative(),
+  regions: z.number().int().positive(),
+  max_zoom: z.number().int().nonnegative(),
+});
+export type LedgerEntry = z.infer<typeof LedgerEntry>;
+const Ledger = z.object({ entries: z.array(LedgerEntry) });
+
+const Settings = z.object({
+  update_reminder_days: z.number().int().nonnegative(),
+});
+export type Settings = z.infer<typeof Settings>;
 
 async function post<T>(
   schema: z.ZodType<T>,
@@ -165,11 +192,64 @@ export function useBasemapStatus() {
 export function useBasemapDownload() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (regions: Region[]) =>
-      post(z.object({ ok: z.boolean() }), "basemap-download", { regions }),
+    /* The name is what the ledger will call this download; the server
+       validates it, so the picker never invents one it cannot store. */
+    mutationFn: ({ regions, name }: { regions: Region[]; name?: string; }) =>
+      post(z.object({ ok: z.boolean() }), "basemap-download", {
+        regions,
+        ...(name !== undefined ? { name } : {}),
+      }),
     /* Refetch immediately so the poll loop sees the running state and starts
        ticking; without this it would sleep until something else asked. */
     onSuccess: () => client.invalidateQueries({ queryKey: ["basemap-status"] }),
+  });
+}
+
+/* What the archive holds, straight from the archive: the list is read from
+   map.pmtiles metadata on every ask, so it can never disagree with the
+   tiles on disk. Invalidated when a job reaches a terminal state. */
+export function useBasemapLedger() {
+  return useQuery({
+    queryKey: ["basemap-ledger"],
+    queryFn: () => post(Ledger, "basemap-ledger"),
+  });
+}
+
+export function useBasemapUpdate() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      post(z.object({ ok: z.boolean() }), "basemap-update", { id }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["basemap-status"] }),
+  });
+}
+
+export function useBasemapRemove() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      post(z.object({ ok: z.boolean() }), "basemap-remove", { id }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["basemap-status"] }),
+  });
+}
+
+/* Server-side, deliberately: the browser persists nothing here (asserted in
+   the e2e suite), so the reminder threshold lives next to the archive it
+   describes. */
+export function useBasemapSettings() {
+  return useQuery({
+    queryKey: ["basemap-settings"],
+    queryFn: () => post(Settings, "basemap-settings"),
+    staleTime: Infinity,
+  });
+}
+
+export function useSaveBasemapSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (days: number) =>
+      post(Settings, "basemap-settings", { update_reminder_days: days }),
+    onSuccess: (data) => client.setQueryData(["basemap-settings"], data),
   });
 }
 

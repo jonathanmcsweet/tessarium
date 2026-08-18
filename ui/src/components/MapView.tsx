@@ -14,7 +14,7 @@ import {
   useBasemapStatus,
 } from "../core/basemap";
 import { fetchAddress, fetchGrid } from "../core/queries";
-import { getLocale } from "../i18n";
+import { formatBytes, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
 import { toastError } from "../toast";
@@ -374,13 +374,35 @@ export function MapView() {
          tiles just landed on disk that the numbers do not know about. */
       client.setQueryData(["basemap-present"], true);
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
+      client.invalidateQueries({ queryKey: ["basemap-ledger"] });
       clearBasemapFailed();
       closeDownload();
       rebuildBasemap();
+    } else if (job.state === "removed") {
+      toast.success(
+        job.freed_bytes === 0
+          ? m.map_removed_none()
+          : m.map_removed_done({ size: formatBytes(job.freed_bytes) }),
+      );
+      /* Tiles left the disk -- and removing the last region deletes the
+         archive outright, so "present" is a question again, not a fact. */
+      client.invalidateQueries({ queryKey: ["basemap-present"] });
+      client.invalidateQueries({ queryKey: ["basemap-estimate"] });
+      client.invalidateQueries({ queryKey: ["basemap-ledger"] });
+      rebuildBasemap();
     } else if (job.state === "failed") {
       toastError(m.map_download_failed({ reason: job.reason }));
+      /* A failure can still follow a successful archive write -- the entry
+         lands with the last part's rename, before the assets fetch -- so
+         the list must not keep showing the world before it. */
+      client.invalidateQueries({ queryKey: ["basemap-ledger"] });
+      client.invalidateQueries({ queryKey: ["basemap-estimate"] });
+      client.invalidateQueries({ queryKey: ["basemap-present"] });
     } else if (job.state === "cancelled") {
       toast(m.map_download_cancelled());
+      client.invalidateQueries({ queryKey: ["basemap-ledger"] });
+      client.invalidateQueries({ queryKey: ["basemap-estimate"] });
+      client.invalidateQueries({ queryKey: ["basemap-present"] });
       closeDownload();
     }
   }, [

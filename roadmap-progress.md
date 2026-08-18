@@ -1396,3 +1396,82 @@ builds are still tileset schema 4.x (4.15.2), which the UI style targets.
 roadmap: Protomaps promises nothing about the daily builds either, and a
 mirror is ~137 GB.
 
+### 2026-08-18 — The download ledger: list, update, remove, reminders
+
+**Phase:** 5 (offline basemap)
+
+**What:** Every completed download is now recorded — name, regions, date,
+resolved source build, bytes — inside map.pmtiles' own metadata section, in
+the same atomic rename that publishes its tiles, so the record can never
+describe tiles that are not on disk. The card lists the entries with per-row
+**Update** (re-fetches the region tile for tile: the merge tie inverted to
+fresh-wins, the one deliberate way to refresh stale tiles) and **Remove**
+(rewrites the archive without the entry's tiles; the rule is Remove undoes
+the download — a tile goes exactly when the removed download would have
+fetched it and no kept entry's would; removing the last entry deletes the
+file). Regions older than a threshold get an "update available" nudge; the
+threshold (30/90/180/never, default 90 days) persists server-side in
+basemap/settings.json because the browser deliberately stores nothing.
+Pre-ledger archives are adopted by re-requesting a covered area: the entry
+lands with completion time zero, displayed as "age unknown" and treated as
+stale. Scripted downloads without a name are recorded under their box.
+New suites: ledger serialization (canonical bytes, identity from regions
+alone and blind to their order, loud corruption failure — never a silently
+emptied ledger), removal geometry on exact tile boundaries, refresh and
+prune merge properties, endpoint dispatch, and the whole lifecycle driven
+through the real card and API in e2e (103 checks, run twice for
+determinism).
+
+**Rationale:** one merged archive plus a ledger, not per-region files —
+per-region archives must be self-contained, so overlapping picks would
+store and download shared tiles repeatedly, defeating skip-if-held; and
+the agreed browse-cache feature only makes sense in a merged store. The
+ledger lives in the archive rather than a sidecar for crash-consistency;
+the settings live in a sidecar rather than the archive because a
+preference toggle must not rewrite gigabytes. Determinism is load-bearing
+per the user's explicit requirement: fixed serialization order, an entry
+id derived only from its regions (%.7f canonical text, SHA-256), and the
+clock injected, never read.
+
+**Follow-on:** the opt-in browse cache (two-tier archive) and an
+update-price estimate, both on the roadmap.
+
+### 2026-08-18 — Ledger review findings fixed
+
+**Phase:** 5 (offline basemap)
+
+**What:** The adversarial review confirmed the pure core (byte-determinism,
+identity stability, atomicity, refresh correctness all survived attack) and
+found two accuracy bugs, both verified with probes and both fixed with the
+test that had been missing: the recorded `bytes` counted archive-copy
+volume instead of network bytes (a 40 MB city atop a 900 MB archive
+recorded ~940 MB; multi-part re-counted earlier parts) — entries now record
+accumulated fetch bytes, pinned in e2e against the estimate's quote; and
+entries recorded the REQUESTED zoom where a clamped giant only fetched the
+GRANTED depth, so Remove claimed tiles that never existed and protected
+tiles forever — entries now record granted depths, pinned in e2e by a
+clamped download whose ledger row must equal the estimate's granted zoom.
+The removal predicate was also aligned exactly with the planner's floor
+arithmetic (a geometric edge-touch test claimed west/north neighbours of
+tile-aligned boxes the covering never fetches; now pinned by a property
+test: drops = covering membership over a five-zoom universe, boxes plain,
+tile-aligned, sliver and clipped). Smaller findings, all fixed: adoption
+was unreachable from the UI (a covered offer now becomes "Keep track of
+this map"); ledger cache not invalidated on failed/cancelled though both
+can follow a successful write; an update after a budget change could leave
+two records claiming one place (updates now replace by id explicitly);
+duplicate ledger keys read/wrote inconsistently (now refused loudly);
+negative zero split identities (normalised); invisible characters passed
+the name filter (Uchar-level now); freed-bytes omitted header bytes;
+fr-CA punctuation; a dedicated message when a removal frees nothing
+because every tile is shared.
+
+**Rationale:** the review's framing stands as the spec: Remove undoes the
+download, so the entry must describe the download that happened — granted
+depth, network bytes — not the one that was asked for.
+
+**Follow-on:** archive-level byte determinism across identical download
+sequences is untested end to end (it requires a fixed clock; the ledger's
+own byte-determinism is pinned); the resume-tail fallback path
+(last part held, earlier parts fetched) has no dedicated test.
+
