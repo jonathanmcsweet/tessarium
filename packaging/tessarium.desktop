@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Tessarium
+Comment=Three words and a number address every ~3 m square on Earth, under a map private to your seed phrase
+Exec=tessarium-server
+Icon=tessarium
+Terminal=false
+Categories=Utility;Geography;Maps;
+Keywords=map;address;geocoding;offline;private;

@@ -15,7 +15,7 @@ PORT      ?= 7373
 FIXTURE_PORT ?= 7374
 MULTIPART_PORT ?= 7375
 
-.PHONY: all env verify extract build ui test test-core test-static test-ui run package clean
+.PHONY: all env verify extract build ui test test-core test-static test-ui run package package-deb package-appimage clean
 
 all: build ui
 
@@ -111,6 +111,12 @@ run: build
 
 package: build
 	tools/package.sh
+
+package-deb: build
+	tools/package-deb.sh
+
+package-appimage: build
+	tools/package-appimage.sh
 
 clean:
 	dune clean

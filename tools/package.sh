@@ -9,6 +9,9 @@
 
 set -euo pipefail
 
+# The artifact must not inherit the packager's umask.
+umask 022
+
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
@@ -96,12 +99,16 @@ basemap is fetched, no network is needed.
 Requirements
 ------------
 
-A 64-bit Linux system with libgmp (package `libgmp10` on Debian/Ubuntu,
-`gmp` on Fedora/Arch). It is almost always already present — Python, GnuPG
-and coreutils pull it in — but it is a real dependency, not none.
+A 64-bit Linux system. Nothing else: libgmp is linked in statically (GMP
+is LGPLv3+/GPLv2+; source at https://gmplib.org/, relink by rebuilding
+from this project's source), and there is no runtime, no Node, no browser
+engine bundled. The map opens in
+whichever browser you already use.
 
-Nothing else: no runtime, no Node, no browser engine bundled. The map opens
-in whichever browser you already use.
+To add Tessarium to your application menu, copy tessarium.desktop to
+~/.local/share/applications/ and tessarium.svg to
+~/.local/share/icons/hicolor/scalable/apps/ (edit Exec= to the full path
+of tessarium-server first).
 
 Source and licence
 ------------------
@@ -109,8 +116,17 @@ Source and licence
 Apache-2.0. See LICENSE. https://github.com/tessarium/tessarium
 TXT
 
+cp packaging/tessarium.desktop packaging/tessarium.svg "$out/"
+
 mkdir -p dist
-tar -czf "dist/${name}.tar.gz" -C dist "$name"
+# Deterministic: fixed order, owner, modes and timestamps, and gzip without
+# its name/mtime header -- the same toolchain must yield the same bytes,
+# which is what lets a release be verified by rebuilding it. (Cross-MACHINE
+# identity additionally needs the same opam root: the binaries embed
+# absolute build paths. Recorded on the verifiable-builds roadmap item.)
+find "$out" -exec touch -d "@1787011200" {} +
+tar --sort=name --owner=0 --group=0 --numeric-owner --mode='u+rw,go=rX' \
+  --mtime="@1787011200" -c -C dist "$name" | gzip -n > "dist/${name}.tar.gz"
 rm -rf "$out"
 
 echo
