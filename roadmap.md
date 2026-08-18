@@ -81,9 +81,12 @@ typo detection and is a feature, not waste.
   2026-08-17. Four rounds is distinguishable; do not economise here regardless
   of what has been proved. The count must be even — the halves swap domains
   each round, and the proof fails outright at an odd count.
-- **Key derivation:** mnemonic → BIP-39 seed (PBKDF2-HMAC-SHA512, standard) →
-  HKDF-SHA256 → 32-byte Feistel key. Derived once per session and cached;
-  PBKDF2 is deliberately slow and must not sit in the hot path.
+- **Key derivation:** mnemonic → BIP-39 seed (PBKDF2-HMAC-SHA512 × 2,048,
+  standard) → PBKDF2-HMAC-SHA512 × 200,000 over salt `tessarium-kdf-2` →
+  32-byte Feistel key. (Text corrected 2026-08-18: HKDF was replaced by the
+  hardened second PBKDF2 stage, as ledgered; this entry had not caught up.)
+  Derived once per session and cached; PBKDF2 is deliberately slow and must
+  not sit in the hot path.
 - **Tweak = grid version string** (`tessarium-grid-2`), and the HKDF salt
   and info strings are `tessarium/v1/salt` and `tessarium/v1/feistel-key`.
   Renamed from `w3wx/*` on 2026-08-15; since no address had been issued, this
@@ -256,47 +259,12 @@ The theorem set is complete and in the ledger. What is left is narrower.
       against this project's grain — or waiting for a browser-native
       memory-hard KDF, which does not exist. Revisit if one appears.
 
-- [ ] **Check the FE1 parameters against the published attack literature.**
-      The construction is the family underlying FF1/FF3, which has a real
-      attack literature (Bellare–Hoang–Tessaro 2016; Durak–Vaudenay 2017 on
-      FF3; Hoang–Miller–Trieu 2019). Those attacks need very large query
-      counts, and this threat model exposes almost none — a user reveals the
-      addresses they choose to share, not millions.
-
-      Two things make that argument load-bearing rather than comfortable, and
-      both should be written down properly: the `--api` mode turns the server
-      into an encryption oracle for whoever can reach it, and the UI itself
-      answers "what is the address of this point" on demand.
-
-      **"The attacks need many queries" is not, by itself, a defence — the
-      write-up must put numbers on it.** Raw encode is 53 µs, so without the
-      rate limiter a million queries is under a minute; the limiter (1/s
-      sustained, burst 10, applied to every API call) is therefore
-      load-bearing, and the write-up must say so: with it, a million queries
-      is ~12 days of continuous hammering and the full codebook ~2.7 million
-      years. The API is also opt-in and loopback-only, so an attacker who can
-      query it at all is already on the user's machine. The write-up must
-      give the query complexity of each published attack at our parameters
-      (a ~ 2^22.6, b ~ 2^23.6, 16 rounds) against those caps — and state the
-      endgame plainly: even the complete codebook is not key recovery. The
-      key stays behind 2^128 post-Grover however many (address, place) pairs
-      the attacker holds; the codebook is only the map, which an attacker
-      with oracle access could already query point by point.
-
-      One more claim to state precisely: the KDF hardening gates PHRASE-space
-      search only. Searching raw 32-byte keys skips the KDF entirely -- 16
-      HMACs per try instead of 202,048 iterations -- and makes a single-pair
-      match cheap again. It is harmless only because the search yields a key
-      and not a phrase: nothing accepts raw keys, and the KDF cannot be run
-      backwards to find a phrase for one. The write-up must present these two
-      facts together; the hardening claim is false without the second.
-      Rounds were raised 10 -> 16 as margin in the meantime.
-
 ## Phase 4 — Performance
 
-- [ ] **Consider injecting a native round function.** An encode costs 53 µs,
-      of which 51 µs is ten HMAC-SHA256 calls through `digestif`'s pure-OCaml
-      backend, at 5.1 µs each. The grid arithmetic is 0.06 µs, so Zarith is not
+- [ ] **Consider injecting a native round function.** An encode costs 81 µs
+      measured at 16 rounds (`ocaml/tools/bench_encode.ml`), almost all of
+      it sixteen HMAC-SHA256 calls through `digestif`'s pure-OCaml backend
+      at ~5.1 µs each. The grid arithmetic is 0.06 µs, so Zarith is not
       the cost and the extracted core needs no change.
 
       The round function is already a parameter and bijectivity holds for any

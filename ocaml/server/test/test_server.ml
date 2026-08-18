@@ -391,6 +391,38 @@ let () =
               {|{"min_lon":0,"min_lat":0,"max_lon":1,"max_lat":1,"max_zoom":15,"polygon":[[[0,0],[1,1]]]}|};
             ])
      = []);
+  (* Every key-touching endpoint shares one ceiling. Encode was once
+     unthrottled -- the security write-up's oracle arithmetic was false
+     until this held. Eleven calls against a burst of ten: the last must be
+     refused, and it must be the limiter refusing (the session id is bogus,
+     so an unthrottled server would answer 404, not 429). *)
+  Eio_main.run (fun _env ->
+      let sessions = S.Sessions.create () in
+      let module R = Tessarium_server.Rate_limit in
+      let limiter = ref (R.create R.default) in
+      let random = Eio.Flow.string_source (String.make 64 'x') in
+      (* Status is not observable through the response closure, but body
+         LENGTH is: the 404 for a bogus session is 38 bytes, the 429 with
+         its retry_after is over 50. *)
+      let body_length endpoint body =
+        snd (S.handle_api scfg sessions limiter random ~endpoint ~body ~now:1000.)
+      in
+      let body = {|{"session":"nope","lat_ns":"1","lon_ns":"1"}|} in
+      let not_limited = body_length "encode" body in
+      let rec drain n last =
+        if n = 0 then last else drain (n - 1) (body_length "encode" body)
+      in
+      let eleventh = drain 10 not_limited in
+      check "encode shares the key api's rate ceiling"
+        (eleventh > not_limited + 10);
+      check "decode shares it too"
+        (body_length "decode" {|{"session":"nope","address":"a.b.c.1"}|}
+        > not_limited + 10));
+  check "the key api is limited; the tile api is not"
+    (S.rate_limited_endpoint "session" && S.rate_limited_endpoint "encode"
+    && S.rate_limited_endpoint "decode"
+    && not (S.rate_limited_endpoint "basemap-status"));
+
   check "an oversized polygon reaches nothing"
     (let points =
        List.init 2100 (fun i ->
