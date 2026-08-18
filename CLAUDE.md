@@ -162,13 +162,13 @@ cd design && python3 grid_design.py    # regenerate the band table
 ```
 
 Regenerating the band table changes every address. The tweak string
-(`tessarium-grid-1`) must be bumped if it ever changes, and the vectors regenerated.
+(`tessarium-grid-2`) must be bumped if it ever changes, and the vectors regenerated.
 
 ## Where to start
 
 `roadmap.md`. The largest open gap is that nothing proves the extracted OCaml
-matches the F\* it came from — the extraction pipeline is trusted, and 199
-committed vectors are the only thing bridging it.
+matches the F\* it came from — the extraction pipeline is trusted, and the
+committed vectors plus the differential sweep are the only things bridging it.
 
 Toolchain: F\* 2026.08.09 with Z3 4.13.3 from a binary release in `$HOME`,
 OCaml 5.3.0 via the `tessarium` opam switch, Node 24.19.0 via nvm. OCaml
