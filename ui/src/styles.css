@@ -5,6 +5,15 @@
   --bg: #f4f6f8;
   --card: #ffffff;
   --accent: #e8452c;
+  /* The accent, dark enough to be TEXT: 4.84:1 on white, so the address
+     line passes AA at any size -- the 19px large-text exemption died the
+     day a mobile media query set it to 17px. Non-text accent uses (the
+     selection overlay, borders) keep --accent. */
+  --accent-text: #d13a22;
+  /* Borders that identify a control (inputs, selects) rather than decorate:
+     3.44:1 on white, past the 3:1 non-text minimum. Decorative hairlines
+     stay --line. */
+  --line-strong: #7f8c98;
   --ok: #0f7b4f;
   --warn: #8a5a00;
   --shadow: 0 1px 3px rgba(18, 33, 47, 0.12), 0 8px 24px rgba(18, 33, 47, 0.08);
@@ -82,7 +91,7 @@ input[type="password"] {
   font-size: 14px;
   line-height: 1.6;
   padding: 10px 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: #fbfcfd;
   color: var(--ink);
@@ -146,7 +155,7 @@ button {
 
 button:disabled {
   /* Inactive controls are exempt from WCAG contrast, but 1.6:1 white-on-grey
-     was illegible, not just muted. This pair reads at ~4.6:1. */
+     was illegible, not just muted. This pair reads at 5.66:1. */
   background: #e3e8ed;
   color: #4c5b69;
   cursor: not-allowed;
@@ -298,7 +307,7 @@ button:disabled {
   font-weight: 600;
   line-height: 1.35;
   word-break: break-word;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* Muted rather than accented: concealed is a resting state, not an alert. */
@@ -477,7 +486,7 @@ button:disabled {
   font-size: 13px;
   color: var(--ink);
   background: var(--card);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
   /* 44px so it is a comfortable touch target, not a 22px native select. */
   min-height: 44px;
@@ -589,7 +598,7 @@ button:disabled {
   font-size: 13px;
   padding: 8px 10px;
   min-height: 40px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: #fbfcfd;
   color: var(--ink);
@@ -742,4 +751,11 @@ button:disabled {
     /* biome-ignore lint/complexity/noImportantStyles: as above */
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Browser-default placeholder grey is marginal against the tinted input
+   fill and varies by engine; pin it to the audited hint colour. */
+::placeholder {
+  color: var(--ink-soft);
+  opacity: 1;
 }

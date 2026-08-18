@@ -46,8 +46,9 @@ const v = (name) => {
 };
 
 /* [description, foreground, background, required ratio]. 4.5 is AA for
-   normal text; 3.0 only where the text is always large -- the address line
-   is 19px at weight 600, nothing else earns the lower bar. */
+   normal text; 3.0 is the non-text minimum, used here only for component
+   borders and the accent's non-text roles. No large-text exemptions: the
+   last one (the 19px address) died when a mobile media query shrank it. */
 const pairs = [
   ["body text on the page", v("ink"), v("bg"), 4.5],
   ["body text on cards", v("ink"), v("card"), 4.5],
@@ -63,12 +64,16 @@ const pairs = [
   ["banner action labels", "#ffffff", v("warn"), 4.5],
   ["map warning note", v("warn"), "#fffaf0", 4.5],
   ["hover rows", v("ink"), "#eef1f4", 4.5],
+  ["the address line", v("accent-text"), v("card"), 4.5],
   [
-    "the address line (19px, weight 600: large text)",
+    "the accent as non-text (selection, checkboxes)",
     v("accent"),
     v("card"),
     3.0,
   ],
+  ["input borders on cards (non-text)", v("line-strong"), v("card"), 3.0],
+  ["input borders on their fill (non-text)", v("line-strong"), "#fbfcfd", 3.0],
+  ["placeholder text on inputs", v("ink-soft"), "#fbfcfd", 4.5],
 ];
 
 for (const [name, fg, bg, min] of pairs) {

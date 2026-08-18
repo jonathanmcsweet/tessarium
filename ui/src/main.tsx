@@ -31,9 +31,14 @@ createRoot(root).render(
             under a thumb on mobile. `closeButton` because a toast that can
             only be waited out is a trap for anyone using a keyboard. */
         }
+        {
+          /* No richColors: sonner's tinted palette puts 13px toast text
+            under AA (error red on pink is 4.35:1) and lives outside the
+            stylesheet where the contrast audit cannot see it. The default
+            theme is near-black on white. */
+        }
         <Toaster
           position="top-center"
-          richColors
           closeButton
           toastOptions={{ duration: 5000 }}
         />
