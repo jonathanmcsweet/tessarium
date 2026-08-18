@@ -50,8 +50,15 @@ let mvt_tile =
 
 let e7 v = int_of_float (Float.round (v *. 1e7))
 
-let pmtiles ?(compression = Pmtiles.Header.Gzip) ~min_lon ~min_lat ~max_lon
-    ~max_lat ~max_zoom () =
+(* [stride], when set, gives every tile id its OWN copy of the blob, that far
+   apart in the data section. The archive says the same thing either way --
+   the tiles are identical -- but the reads needed to fetch it are not: with
+   one shared blob a whole region is a single range request, and with a
+   stride wider than the reader's readahead window each tile costs its own.
+   That is the difference between a download that finishes instantly and one
+   that can be watched, and the cancellation test needs the latter. *)
+let pmtiles ?(compression = Pmtiles.Header.Gzip) ?(stride = 0) ~min_lon
+    ~min_lat ~max_lon ~max_lat ~max_zoom () =
   let ids =
     Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom ~min_lon ~min_lat ~max_lon
       ~max_lat
@@ -64,18 +71,31 @@ let pmtiles ?(compression = Pmtiles.Header.Gzip) ~min_lon ~min_lat ~max_lon
     | Pmtiles.Header.Gzip -> Gzip.compress mvt_tile
     | _ -> mvt_tile
   in
-  (* Every id points at the one blob at data offset 0. *)
+  (* Every id points at the one blob at data offset 0, unless a stride
+     spreads them out. *)
   let entries =
-    List.map
-      (fun id ->
+    List.mapi
+      (fun i id ->
         {
           Pmtiles.Directory.tile_id = id;
-          offset = 0;
+          offset = (if stride > 0 then i * stride else 0);
           length = String.length tile;
           run_length = 1;
         })
       ids
     |> Array.of_list
+  in
+  let data =
+    if stride = 0 then tile
+    else begin
+      let count = Array.length entries in
+      let b = Buffer.create (count * stride) in
+      for _ = 1 to count do
+        Buffer.add_string b tile;
+        Buffer.add_string b (String.make (stride - String.length tile) '\000')
+      done;
+      Buffer.contents b
+    end
   in
   let root = Pmtiles.Directory.serialize entries in
   let metadata = "{}" in
@@ -91,10 +111,10 @@ let pmtiles ?(compression = Pmtiles.Header.Gzip) ~min_lon ~min_lat ~max_lon
       leaf_offset = data_offset;
       leaf_length = 0;
       data_offset;
-      data_length = String.length tile;
+      data_length = String.length data;
       addressed_tiles = Array.length entries;
       tile_entries = Array.length entries;
-      tile_contents = 1;
+      tile_contents = (if stride > 0 then Array.length entries else 1);
       clustered = true;
       internal_compression = Pmtiles.Header.None_;
       tile_compression = compression;
@@ -110,7 +130,7 @@ let pmtiles ?(compression = Pmtiles.Header.Gzip) ~min_lon ~min_lat ~max_lon
       center_lat_e7 = e7 ((min_lat +. max_lat) /. 2.);
     }
   in
-  Pmtiles.Header.serialize header ^ root ^ metadata ^ tile
+  Pmtiles.Header.serialize header ^ root ^ metadata ^ data
 
 (* -------------------------------------------------------------------- tar *)
 
@@ -178,6 +198,14 @@ let () =
      level then genuinely wants tiles it does not hold, so refusing the
      differently compressed source is the only thing standing between the
      cache and bytes labelled as something they are not. *)
+  (* Deliberately expensive to fetch: a wide region whose every tile sits in
+     its own 64 KiB slot, so reading it costs hundreds of range requests
+     instead of one. Paired with a delaying proxy in the e2e harness, that is
+     what makes a download last long enough to be cancelled on purpose. *)
+  write
+    (Filename.concat dir "map-slow.pmtiles")
+    (pmtiles ~stride:65536 ~min_lon:(-0.6) ~min_lat:51.2 ~max_lon:0.4
+       ~max_lat:51.8 ~max_zoom:12 ());
   write
     (Filename.concat dir "map-shallow.pmtiles")
     (pmtiles ~min_lon:(-0.20) ~min_lat:51.46 ~max_lon:(-0.05) ~max_lat:51.56

@@ -10,6 +10,7 @@
    renders beautifully and computes the wrong answer still fails. */
 
 import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { chromium } from "playwright";
 
 const base = process.argv[2] ?? "http://127.0.0.1:7373";
@@ -37,6 +38,40 @@ const sampleMnemonic =
     ?? mnemonic;
 const sampleLat = sample.lat_ns / 1e9;
 const sampleLon = sample.lon_ns / 1e9;
+
+/* A deliberately slow view of the fixture server.
+
+   One test needs to cancel a download halfway, and against a local fixture
+   there is normally no halfway to catch: the archive shares one tile blob,
+   the reader fetches a megabyte at a time, and a whole region arrives in
+   about three requests and under half a second -- measured. So the cancel
+   server reads through this instead, which forwards every range request
+   after a pause. Paired with map-slow.pmtiles, whose tiles each sit in
+   their own 64 KiB slot so a read cannot be coalesced away, a download
+   becomes seconds long and cancelling it is deliberate rather than lucky. */
+const PROXY_DELAY_MS = 300;
+const fixtureBase = process.env.E2E_FIXTURE ?? "http://127.0.0.1:7374";
+const proxyPort = Number(process.env.E2E_PROXY_PORT ?? 7378);
+const slowProxy = createServer((req, res) => {
+  const headers = req.headers.range ? { range: req.headers.range } : {};
+  fetch(`${fixtureBase}${req.url}`, { method: req.method, headers })
+    .then(async (upstream) => {
+      const body = Buffer.from(await upstream.arrayBuffer());
+      await new Promise((done) => setTimeout(done, PROXY_DELAY_MS));
+      const pass = {};
+      for (const h of ["content-type", "content-range", "accept-ranges"]) {
+        const v = upstream.headers.get(h);
+        if (v) pass[h] = v;
+      }
+      res.writeHead(upstream.status, { ...pass, "content-length": body.length });
+      res.end(req.method === "HEAD" ? undefined : body);
+    })
+    .catch(() => {
+      res.writeHead(502);
+      res.end();
+    });
+});
+await new Promise((listening) => slowProxy.listen(proxyPort, "127.0.0.1", listening));
 
 const browser = await chromium.launch();
 const context = await browser.newContext({
@@ -1421,6 +1456,75 @@ check(
 );
 await postJson("basemap-settings", { browse_cache: false });
 
+/* ------------- a download that stops early still owns its region ----------
+
+   Every part renamed into the archive owns what it published from that
+   moment on, so the browse cache must lose those tiles whether the run
+   finished or not -- the tile endpoint reads the cache FIRST, and an older
+   browsed copy would shadow the fresh bytes forever. The completed case is
+   covered above; this is the cancelled one.
+
+   Its server reads through the delaying proxy, which is what makes "halfway"
+   a place that exists. */
+const base5 = process.argv[5] ?? "http://127.0.0.1:7377";
+const post5 = async (endpoint, body) =>
+  await fetch(`${base5}/api/${endpoint}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+const cancelHas = async (file) =>
+  (await fetch(`${base5}/basemap/${file}`, { method: "HEAD" })).status;
+
+/* A corner of the slow fixture, cached by browsing it. */
+const slowView = {
+  min_lon: -0.2,
+  min_lat: 51.46,
+  max_lon: -0.05,
+  max_lat: 51.56,
+};
+await post5("basemap-settings", { browse_cache: true });
+const slowBrowse = await (await post5("basemap-browse", { ...slowView, zoom: 12 }))
+  .json();
+check("the cancel server caches a browsed view", slowBrowse.fetched > 0);
+check("and keeps it -- its threshold is the real one", (await cancelHas("cache.pmtiles")) === 200);
+
+/* The whole fixture, which covers that corner, in pieces small enough that
+   the first lands early and several remain. */
+await post5("basemap-download", {
+  name: "Cancelled halfway",
+  regions: [{
+    min_lon: -0.6,
+    min_lat: 51.2,
+    max_lon: 0.4,
+    max_lat: 51.8,
+    max_zoom: 12,
+  }],
+});
+/* The archive file appearing IS a part having landed, which is the only
+   thing that makes the run own a region. */
+let landed = false;
+for (let i = 0; i < 600 && !landed; i++) {
+  landed = (await cancelHas("map.pmtiles")) === 200;
+  if (!landed) await new Promise((r) => setTimeout(r, 25));
+}
+check("a part of the download reached the archive", landed);
+check("cancelling it is accepted", (await (await post5("basemap-cancel")).json()).ok === true);
+let stopped = "";
+for (let i = 0; i < 300; i++) {
+  stopped = (await (await post5("basemap-status")).json()).job?.state ?? "";
+  if (["cancelled", "done", "failed"].includes(stopped)) break;
+  await new Promise((r) => setTimeout(r, 100));
+}
+/* Finishing first would make the next check vacuous rather than wrong, so
+   it fails loudly instead of passing quietly. */
+check(`the download stopped as cancelled (got ${stopped})`, stopped === "cancelled");
+check(
+  "a cancelled download still prunes the region it published",
+  (await cancelHas("cache.pmtiles")) === 404,
+);
+await post5("basemap-settings", { browse_cache: false });
+
 /* ------------------ a source that changed compression ---------------------
 
    Tile bytes are copied verbatim and the header says how to read them, so
@@ -1460,6 +1564,8 @@ check(
     === 404,
 );
 await post4("basemap-settings", { browse_cache: false });
+
+slowProxy.close();
 
 for (const p of problems) console.log(`  PAGE  ${p}`);
 check(

@@ -1675,3 +1675,28 @@ A French punctuation check was added after the space before a colon was
 spelled with the wrong character in both French locales -- 1286 catalogue
 checks had passed over it, and it also caught one stray that predated this
 work.
+
+### 2026-08-18 — The cancelled download's prune, tested
+
+**Phase:** 5 (offline basemap)
+
+**What:** The rule that a download owns its region from the moment a part
+lands -- and must drop that region from the browse cache whether it finishes
+or is cancelled -- now has an end-to-end test. Cancelling a download that has
+published a part leaves no browsed copy of its tiles behind; removing the
+prune from the cancel path fails exactly that check and nothing else,
+demonstrated before the test was kept.
+
+**Rationale:** the previous entry recorded this as untestable, because the
+fixture made every download finish in under half a second: all tile ids share
+one blob and the reader fetches a megabyte at a time, so a region of any size
+was about three range requests. Both halves of that had to go. The fixture
+generator can now give each tile its own 64 KiB slot, so reads cannot be
+coalesced away, and the cancel server reads through a delaying proxy in the
+e2e harness. A download is then seconds long, its first part lands early, and
+"halfway" is a place that exists. The cost is a 14 MB fixture archive and a
+fifth test server; the alternative was a race dressed as a test.
+
+**Follow-on:** the same slow-source machinery would make other timing-
+dependent paths testable -- resume after an interrupted part, and progress
+reporting -- neither of which has coverage today.
