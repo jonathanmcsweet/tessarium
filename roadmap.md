@@ -408,19 +408,15 @@ the one honest caveat.
          third party and an extension this project does not have. Recorded so
          the option is not re-derived from scratch.
 
-      Blocked on: a release key and somewhere to publish it, and the
-      double-build reproducibility check landing in CI first.
+      Blocked on: a release key and somewhere to publish it. The
+      double-build reproducibility check is in CI (the `reproducible` job),
+      and the tarball and .deb build bit-identically from clean with fixed
+      timestamps -- step 1 is standing; steps 2-4 wait on the key.
 
-- [ ] **`libgmp` is a real dependency.** Zarith links it dynamically, so the
-      tarball is not quite "needs nothing installed" — it needs `libgmp10`.
-      Almost always already present, since Python and GnuPG pull it in, but
-      the claim should be either fixed by static linking or stated. Currently
-      stated, in the tarball's README.
-- [ ] `.deb` and AppImage. The tarball covers the technically-minded; neither
-      of the others is hard once the binary is genuinely self-contained, which
-      it now is apart from libgmp.
-- [ ] A desktop entry and icon, so it appears in an application menu rather
-      than only as a command.
+- [ ] **The AppImage's final squash step needs `appimagetool`.**
+      `tools/package-appimage.sh` builds a complete AppDir and hands off;
+      CI images do not carry the tool. Fetch a pinned appimagetool in a
+      release workflow (not per-push CI) and produce the .AppImage there.
 
 ## Phase 8 — Later, unscheduled
 

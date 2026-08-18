@@ -1,5 +1,19 @@
+; libgmp is linked statically: it was the one library the tarball's "needs
+; nothing installed" claim tripped over. The mechanism is a search-path trick
+; rather than -l:libgmp.a, because zarith's cmxa carries its own -lgmp and
+; embedded flags precede command-line ones -- but every -L precedes the
+; system's default directories, and a directory holding ONLY the static
+; archive makes every -lgmp resolve to it. GMP is LGPL; the full source of
+; this repository alongside the binaries is what keeps that compliant.
+(rule
+ (targets libgmp.a)
+ (action
+  (run sh -c "cp \"$(gcc -print-file-name=libgmp.a)\" libgmp.a")))
+
 (executable
  (name main)
  (public_name tessarium-basemap)
  (package tessarium)
+ (link_deps libgmp.a)
+ (link_flags (-cclib -Locaml/pmtiles/bin))
  (libraries pmtiles pmtiles_source eio_main cmdliner))

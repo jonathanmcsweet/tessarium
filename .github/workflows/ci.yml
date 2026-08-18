@@ -140,3 +140,66 @@ jobs:
         with:
           name: tessarium-linux-x86_64
           path: dist/*.tar.gz
+
+  # The first rung of "verifiable builds" (roadmap, Phase 7): the same commit
+  # built twice from clean must yield bit-identical release artifacts. The
+  # tarball and .deb are built with fixed timestamps and ownership, so any
+  # difference here is nondeterminism creeping into the pipeline -- the thing
+  # that would make published checksums unverifiable.
+  reproducible:
+    name: Double-build reproducibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache the F* release
+        id: fstar-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/toolchain
+          key: fstar-${{ env.FSTAR_VERSION }}-z3-${{ env.Z3_VERSION }}
+
+      - name: Install F* and Z3
+        if: steps.fstar-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/toolchain && cd ~/toolchain
+          curl -fsSL -o fstar.tar.gz \
+            "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
+          tar -xzf fstar.tar.gz && mv fstar* fstar
+
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: ${{ env.OCAML_VERSION }}
+
+      - name: Install dependencies
+        run: opam install . --deps-only --with-test -y
+
+      - name: Vendor F*'s support modules
+        run: |
+          export PATH="$HOME/toolchain/fstar/bin:$PATH"
+          opam exec -- make -C fstar fstarlib
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Build and package twice from clean, compare
+        run: |
+          export PATH="$HOME/toolchain/fstar/bin:$PATH"
+          build_all() {
+            opam exec -- dune build
+            opam exec -- make ui
+            opam exec -- dune build
+            opam exec -- tools/package.sh
+            opam exec -- tools/package-deb.sh
+          }
+          build_all
+          sha256sum dist/*.tar.gz dist/*.deb > /tmp/first.sum
+          cat /tmp/first.sum
+          # -e _opam: the local switch is the toolchain, not build output.
+          git clean -xfd -e _opam
+          build_all
+          sha256sum dist/*.tar.gz dist/*.deb > /tmp/second.sum
+          cat /tmp/second.sum
+          diff /tmp/first.sum /tmp/second.sum
+          echo "bit-identical across clean builds"

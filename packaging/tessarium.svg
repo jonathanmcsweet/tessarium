@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- The app icon: a tessellation with one tessera set apart. Not a UI
+       glyph; the icon-set rule governs interface icons, not the brand mark. -->
+  <rect width="512" height="512" rx="96" fill="#12212f"/>
+  <g fill="#f4f6f8">
+    <rect x="88" y="88" width="100" height="100" rx="18"/>
+    <rect x="206" y="88" width="100" height="100" rx="18"/>
+    <rect x="324" y="88" width="100" height="100" rx="18"/>
+    <rect x="88" y="206" width="100" height="100" rx="18"/>
+    <rect x="324" y="206" width="100" height="100" rx="18"/>
+    <rect x="88" y="324" width="100" height="100" rx="18"/>
+    <rect x="206" y="324" width="100" height="100" rx="18"/>
+    <rect x="324" y="324" width="100" height="100" rx="18"/>
+  </g>
+  <rect x="206" y="206" width="100" height="100" rx="18" fill="#e8452c"/>
+</svg>

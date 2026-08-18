@@ -1297,3 +1297,29 @@ tessarium-grid-1 (code says -2); left for the user, per its own rule.
 **Rationale:** the write-up exists to be checked against the code; being
 falsified by its own review and forcing the code to match is that working.
 
+### 2026-08-18 — Desktop packaging: static gmp, .deb, AppDir, repro CI
+
+**Phase:** 7
+
+**What:** libgmp is now linked statically into both binaries -- via a
+search-path trick (a build directory holding only libgmp.a outranks the
+system's .so for every -lgmp), because zarith's cmxa embeds its own flag
+ahead of anything the command line can say -- so the tarball's "needs
+nothing installed" claim is finally true, and its README says so (GMP is
+LGPL; the repository's full source alongside is what keeps that
+compliant). tools/package.sh now emits a bit-deterministic tarball (sorted,
+root-owned, fixed mtimes, gzip -n) carrying the new desktop entry and icon;
+tools/package-deb.sh builds a deterministic .deb (SOURCE_DATE_EPOCH;
+depends on libc6 alone) with menu integration; tools/package-appimage.sh
+builds a complete AppDir and hands off to appimagetool, which CI images do
+not carry -- the residue is a roadmap line. Determinism proven locally:
+tarball and .deb hashes identical across rebuilds, the UI bundle identical
+across clean builds, and CI gained a `reproducible` job that builds and
+packages twice from clean and diffs the checksums -- the first rung of
+verifiable builds, leaving that item blocked on a release key only.
+`make package-deb` and `make package-appimage` wired. Full wall green
+(80 e2e / 51 contrast / 1691 catalogue / all 7 dune suites).
+
+**Rationale:** published checksums are worthless if the build is not
+bit-reproducible; the CI job is what keeps that property from rotting.
+
