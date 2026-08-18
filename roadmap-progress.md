@@ -1700,3 +1700,36 @@ fifth test server; the alternative was a race dressed as a test.
 **Follow-on:** the same slow-source machinery would make other timing-
 dependent paths testable -- resume after an interrupted part, and progress
 reporting -- neither of which has coverage today.
+
+### 2026-08-18 — Offline place search
+
+**Phase:** 6 (web UI)
+
+**What:** A search box over the map finds places, water and named roads inside
+the downloaded region, and flies to them. Nothing leaves the machine: the
+index is built from the archive's own vector tiles when a region lands, so a
+query -- which names where the user is going -- is answered from disk. New
+`Pmtiles.Mvt` reads just enough Mapbox Vector Tile to pull a feature's name,
+kind, population and a representative point, skipping unknown fields by wire
+type so a richer real tile still parses. `Place_index` walks the archive to
+zoom 12, dedups a label against the tiles and zooms that repeat it, and writes
+a sorted tab-separated sidecar; queries fold case and accents ("orleans" finds
+Orléans), rank exact over prefix over word-start over substring, and break
+ties on population then layer. Rebuilt on download, update and removal, with
+its own `Indexing` job state; removing a region takes its names with it.
+
+**Rationale:** the obvious build -- call a geocoder -- was rejected outright,
+not deferred: a search query names the destination in a way even tile
+requests do not, and the CSP allows no remote origin at all. Two bugs found by
+running it against the real 6.4 GB France archive rather than the fixture, and
+both would have looked fine in a unit test. Deduplicating a label by name and
+layer collapsed all eleven French places called Paris into whichever was seen
+last, so the first result for "Paris" was a hamlet; position is now part of
+the identity. And ranking by layer alone offered a village ahead of the
+capital, so population -- which the basemap already carries -- decides first.
+Measured after the fix: France indexes in 22 s to 1.1 M entries, "Paris"
+answers with Paris.
+
+**Follow-on:** street coverage, index size and query latency at greater depth
+are recorded in roadmap.md; the map's controls moved to a left-hand rail
+because search took the corner they were in.

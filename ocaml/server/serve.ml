@@ -706,6 +706,23 @@ let handle_basemap cfg (ops : Basemap_download.ops)
                     | Error e -> error cfg ~status:`Conflict e))
             | _ ->
                 bad "expected min_lon, min_lat, max_lon, max_lat and zoom 0..15")
+  | "basemap-search" ->
+      (* Names out of the region already on disk. No network, by design: a
+         search query names where the user is going, and handing that to a
+         geocoder is the leak this whole product is arranged to avoid. *)
+      with_json body (fun json ->
+          match json_field "q" json with
+          | Some (`String q)
+            when String.trim q <> "" && String.length q <= 120 ->
+              let limit =
+                match json_field "limit" json with
+                | Some (`Int n) when n > 0 && n <= 50 -> n
+                | _ -> 10
+              in
+              (match ops.search ~query:q ~limit with
+              | Ok payload -> respond_json cfg ~status:`OK payload
+              | Error e -> broken e)
+          | _ -> bad "expected q, a non-empty string of at most 120 characters")
   | "basemap-settings" ->
       with_json body (fun json ->
           (* An empty body reads; either field alone writes just itself. *)

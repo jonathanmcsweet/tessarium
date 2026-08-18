@@ -707,5 +707,78 @@ let () =
     | Error _ -> true
     | Ok _ -> false);
 
+  (* ------------------------------------------------------------- mvt *)
+  (* Names come off real tiles or the search index has nothing to offer, and
+     the failure mode of a protobuf reader is silence: a misread field and
+     the layer simply looks empty. Built here rather than fetched so the
+     expected answer is known exactly. *)
+  let varint n =
+    let b = Buffer.create 4 in
+    let rec go n =
+      if n < 0x80 then Buffer.add_char b (Char.chr n)
+      else begin
+        Buffer.add_char b (Char.chr (0x80 lor (n land 0x7f)));
+        go (n lsr 7)
+      end
+    in
+    go n;
+    Buffer.contents b
+  in
+  let key f w = varint ((f lsl 3) lor w) in
+  let vfield f v = key f 0 ^ varint v in
+  let bfield f s = key f 2 ^ varint (String.length s) ^ s in
+  (* One point at the tile's centre, named, with a kind and a population. *)
+  let geometry = varint 9 ^ varint 4096 ^ varint 4096 in
+  let feature =
+    vfield 3 1
+    ^ bfield 2 (varint 0 ^ varint 0 ^ varint 1 ^ varint 1 ^ varint 2 ^ varint 2)
+    ^ bfield 4 geometry
+  in
+  let layer =
+    vfield 15 2 ^ bfield 1 "places" ^ bfield 2 feature ^ bfield 3 "name"
+    ^ bfield 3 "kind" ^ bfield 3 "population"
+    ^ bfield 4 (bfield 1 "Fixtureville")
+    ^ bfield 4 (bfield 1 "locality")
+    ^ bfield 4 (vfield 4 4242)
+    ^ vfield 5 4096
+  in
+  let tile = bfield 3 layer in
+  (match Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0 tile with
+  | [ (layer_name, name, kind, weight, lon, lat) ] ->
+      check "a tile's named feature is read whole"
+        (layer_name = "places" && name = "Fixtureville" && kind = "locality"
+       && weight = 4242.);
+      (* Centre of the extent at z0 is the centre of the world. *)
+      check "and placed where the geometry says"
+        (Float.abs lon < 0.001 && Float.abs lat < 0.001)
+  | other ->
+      check
+        (Printf.sprintf "a tile's named feature is read whole (got %d)"
+           (List.length other))
+        false);
+  check "a feature with no name is not a place"
+    (Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0
+       (bfield 3 (vfield 15 2 ^ bfield 1 "roads"
+                  ^ bfield 2 (vfield 3 1 ^ bfield 4 geometry)
+                  ^ vfield 5 4096))
+    = []);
+  (* Unknown fields are the normal case against a real basemap, which carries
+     more than this reads; skipping them by wire type must not derail it. *)
+  let with_extra =
+    bfield 3
+      (vfield 15 2 ^ vfield 99 7 ^ bfield 1 "places" ^ bfield 2 feature
+     ^ bfield 3 "name" ^ bfield 3 "kind" ^ bfield 3 "population"
+     ^ bfield 4 (bfield 1 "Fixtureville")
+     ^ bfield 4 (bfield 1 "locality")
+     ^ bfield 4 (vfield 4 4242)
+     ^ vfield 5 4096)
+  in
+  check "a field this reader does not know is stepped over"
+    (List.length (Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0 with_extra) = 1);
+  check "rubbish is refused rather than guessed at"
+    (match Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0 "\xff\xff\xff" with
+    | _ -> false
+    | exception Pmtiles.Mvt.Malformed _ -> true);
+
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "pmtiles round-trips"

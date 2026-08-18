@@ -301,6 +301,36 @@ export function useBasemapBrowse() {
   });
 }
 
+/* A place name, from the index built when the region was downloaded. Never
+   a network geocoder: the query names where the user is going, and that is
+   the one thing this application is arranged not to tell anyone. */
+export const PlaceResult = z.object({
+  name: z.string(),
+  kind: z.string(),
+  layer: z.string(),
+  weight: z.number(),
+  lon: z.number(),
+  lat: z.number(),
+});
+export type PlaceResult = z.infer<typeof PlaceResult>;
+
+const PlaceResults = z.object({ results: z.array(PlaceResult) });
+
+export function usePlaceSearch(query: string) {
+  const trimmed = query.trim();
+  return useQuery({
+    queryKey: ["place-search", trimmed],
+    queryFn: () =>
+      post(PlaceResults, "basemap-search", { q: trimmed, limit: 8 }),
+    /* Two characters is where the answer stops being "most of the map". */
+    enabled: trimmed.length >= 2,
+    /* The index only changes when a region is downloaded or removed, so a
+       repeated query is genuinely the same answer. */
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
 export function useBasemapCancel() {
   const client = useQueryClient();
   return useMutation({

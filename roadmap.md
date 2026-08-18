@@ -290,40 +290,23 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
-- [ ] **Finding a place: search by name or street.** The map can only be
-      navigated by hand. Nothing lets a user type "Gare de Lyon" or a street
-      name and go there, so the core flow — find a place, read its address —
-      is a manual hunt anywhere the user does not already know by sight. This
-      is the largest missing capability in the product.
+- [ ] **Search reaches places and main roads, not every street.** The index
+      is built from tiles at zoom 12, where the basemap starts naming roads --
+      so towns, villages, lakes, POIs and major roads are findable, and a
+      residential street usually is not. Measured on France: zoom 12 is 33,767
+      tiles and 18 seconds; zoom 13 quadruples the tiles; zoom 14 is 303,662
+      tiles and minutes, for an index of millions of entries that a linear
+      scan can no longer answer in a keystroke. Going deeper therefore needs
+      both a background build and a real index structure (sorted blocks with
+      binary search, or a prefix trie) rather than the scan that is honest at
+      this size. House numbers need OpenAddresses and are a separate decision.
 
-      The obvious implementation is the one this project cannot take. A hosted
-      geocoder — Nominatim, Photon, any commercial API — is handed the single
-      thing the app exists not to leak: the place the user is looking for. It
-      is the satellite-layer objection, but worse, because a search query
-      names the destination outright rather than implying it. The CSP allows
-      no remote origin at all today, and that is load-bearing.
-
-      The shape that fits: search what is already on disk. Protomaps basemap
-      tiles carry place, street and POI names in their vector layers, so a
-      downloaded region already contains its own gazetteer — it simply has no
-      index. Building one at download time (one pass over the tiles the
-      download already fetched, emitting names and centroids beside
-      map.pmtiles) keeps every query local, works offline, and covers exactly
-      the regions the user chose to keep. Size before building: the index for
-      a country-sized region, the cost of that extra pass, and how the index
-      stays coherent when a region is updated or removed — the same ownership
-      rule the browse cache needed, and the ledger already records which
-      regions exist.
-
-      What that route does NOT give is house numbers: the vector basemap
-      carries street geometry and names, not address points, so a street name
-      resolves to the street rather than the door. Address-level geocoding
-      needs a separate dataset (OpenAddresses) and its own download; treat it
-      as a later decision, not a blocker for name search.
-
-      Interacts with the coverage item below — a search cannot return results
-      from a region that was never downloaded, which is one more reason the
-      app has to say where its coverage ends.
+      Two smaller costs recorded with it: a country's index is ~74 MB beside a
+      6.4 GB archive, and a query against it takes ~260 ms, which the UI hides
+      behind a 250 ms debounce but which would not survive a much larger
+      index. And browsed tiles are not indexed -- the fold that merges them
+      does not rebuild -- so a place only reachable through the browse cache
+      is not findable until the next download.
 
 - [ ] **Giant downloads pay real overheads that a leaner design would not.**
       Brazil-sized regions now download at full street level, split into at

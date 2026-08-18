@@ -21,6 +21,7 @@ import { useAppStore } from "../store";
 import { toastError } from "../toast";
 import { DownloadCard } from "./DownloadCard";
 import { IconButton } from "./IconButton";
+import { PlaceSearch } from "./PlaceSearch";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 /* The end-to-end test's handle on the live map. The map holds tiles and
@@ -673,6 +674,24 @@ export function MapView() {
           "which one am I about to pick" feedback the pointer gets. */
       }
       <div className="reticle" aria-hidden />
+      {
+        /* Search sits over the map rather than in the panel: it moves the
+          map, and the panel is about the square already chosen. */
+      }
+      <div className="map-search">
+        <PlaceSearch
+          onPick={(lon, lat) => {
+            const map = mapRef.current;
+            if (!map) return;
+            /* Close enough to read streets, not so close that a town
+              centre fills the screen with one building. */
+            map.flyTo({
+              center: [lon, lat],
+              zoom: Math.max(map.getZoom(), 15),
+            });
+          }}
+        />
+      </div>
       <div className="map-actions">
         <IconButton
           label={m.map_download_open()}
