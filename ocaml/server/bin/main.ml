@@ -144,23 +144,33 @@ let tile_budget =
      refused here -- downstream they silently degrade every download to the
      minimum zoom. *)
   let budget_conv =
+    (* Three values, or four to override the browse-cache compaction
+       threshold too -- the fourth exists mostly so the test servers can
+       force compaction on tiny caches. *)
+    let build full quick max_parts compact =
+      if full > 0 && quick > 0 && max_parts > 0 && compact > 0 then
+        Ok Basemap_download.{ full; quick; max_parts; compact }
+      else Error (`Msg "tile budget values must all be positive")
+    in
     let parse s =
       try
-        Scanf.sscanf s "%d,%d,%d%!" (fun full quick max_parts ->
-            if full > 0 && quick > 0 && max_parts > 0 then
-              Ok Basemap_download.{ full; quick; max_parts }
-            else Error (`Msg "tile budget values must all be positive"))
-      with _ -> Error (`Msg "expected FULL,QUICK,PARTS as three integers")
+        Scanf.sscanf s "%d,%d,%d,%d%!" (fun f q p c -> build f q p c)
+      with _ -> (
+        try
+          Scanf.sscanf s "%d,%d,%d%!" (fun f q p ->
+              build f q p Basemap_download.default_budget.compact)
+        with _ ->
+          Error (`Msg "expected FULL,QUICK,PARTS[,COMPACT] as integers"))
     in
     let print ppf (b : Basemap_download.budget) =
-      Format.fprintf ppf "%d,%d,%d" b.full b.quick b.max_parts
+      Format.fprintf ppf "%d,%d,%d,%d" b.full b.quick b.max_parts b.compact
     in
-    Arg.conv ~docv:"F,Q,P" (parse, print)
+    Arg.conv ~docv:"F,Q,P[,C]" (parse, print)
   in
   Arg.(
     value
     & opt budget_conv Basemap_download.default_budget
-    & info [ "tile-budget" ] ~docv:"F,Q,P" ~doc)
+    & info [ "tile-budget" ] ~docv:"F,Q,P[,C]" ~doc)
 
 let cmd =
   let doc = "serve the Tessarium map on localhost" in

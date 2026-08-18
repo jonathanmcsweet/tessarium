@@ -9,7 +9,9 @@ import { toast } from "sonner";
 import {
   type Job,
   type Region,
+  useBasemapBrowse,
   useBasemapPresent,
+  useBasemapSettings,
   useBasemapStatus,
 } from "../core/basemap";
 import { fetchAddress, fetchGrid } from "../core/queries";
@@ -406,6 +408,69 @@ export function MapView() {
     map.setStyle(buildStyle(styleVersion.current));
   }, []);
 
+  /* ------------------------------------------------------ browse cache */
+
+  /* When the user has opted in and is online, a settled pan fetches the
+     viewport's missing tiles into the cache. Debounced past the pan, one
+     in flight at a time, and silent: offline is a normal state here, not
+     an error to toast about. The server enforces the setting again -- this
+     gate is UX, that one is policy. */
+  const settings = useBasemapSettings();
+  const browseMutate = useBasemapBrowse().mutate;
+  const browseInFlight = useRef(false);
+  const browseEnabled = settings.data?.browse_cache === true;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || !browseEnabled) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!navigator.onLine || browseInFlight.current) return;
+        browseInFlight.current = true;
+        const view = regionOf(map);
+        /* Floor, not round: a vector source's displayed canonical zoom is
+           the floor of the camera zoom, so rounding would spend the fetch
+           on z+1 tiles the screen never asks for at any half-step. */
+        const zoom = Math.max(0, Math.min(15, Math.floor(map.getZoom())));
+        browseMutate({
+          min_lon: view.min_lon,
+          min_lat: view.min_lat,
+          max_lon: view.max_lon,
+          max_lat: view.max_lat,
+          zoom,
+        }, {
+          onSettled: () => {
+            browseInFlight.current = false;
+          },
+          onSuccess: ({ fetched }) => {
+            if (fetched === 0) return;
+            /* The tiles on screen were 204s a moment ago. Below the
+               source's advertised depth, re-asking is enough; past it,
+               MapLibre will never ask -- the source's maxzoom was pinned
+               from tiles.json at style time -- so the style is rebuilt to
+               learn the deeper coverage the cache just gained. */
+            const source = map.getSource("protomaps");
+            const maxzoom = source
+              ? (source as unknown as { maxzoom?: number; }).maxzoom
+              : undefined;
+            if (typeof maxzoom === "number" && zoom > maxzoom) {
+              rebuildBasemap();
+            } else {
+              map.refreshTiles("protomaps");
+            }
+          },
+        });
+      }, 1200);
+    };
+    map.on("moveend", settle);
+    settle();
+    return () => {
+      clearTimeout(timer);
+      map.off("moveend", settle);
+    };
+  }, [ready, browseEnabled, browseMutate, rebuildBasemap]);
+
   /* The region is frozen when the card opens. Panning while it is open
      changes the next download, not the one being confirmed. */
   const [region, setRegion] = useState<Region | null>(null);
@@ -470,7 +535,15 @@ export function MapView() {
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
       rebuildBasemap();
     } else if (job.state === "failed") {
-      toastError(m.map_download_failed({ reason: job.reason }));
+      /* Attributed when attribution is possible: a poll that saw the
+         compacting state knows this failure is the fold's, not a
+         download's. A fold that failed between two polls still reads as a
+         download failure -- the poll simply never knew better. */
+      toastError(
+        previous.state === "compacting"
+          ? m.map_compact_failed({ reason: job.reason })
+          : m.map_download_failed({ reason: job.reason }),
+      );
       /* A failure can still follow a successful archive write -- the entry
          lands with the last part's rename, before the assets fetch -- so
          the list must not keep showing the world before it. */

@@ -645,18 +645,90 @@ let handle_basemap cfg (ops : Basemap_download.ops)
           match parse_id json with
           | Error e -> bad e
           | Ok id -> started (ops.remove ~id))
+  | "basemap-browse" ->
+      (* Gated on the opt-in setting server-side, not just in the UI: the
+         page must not be able to make this server fetch from the network
+         when the user has said no. *)
+      if not (settings.browse_enabled ()) then
+        error cfg ~status:`Forbidden "the browsing cache is off"
+      else
+        with_json body (fun json ->
+            let num name =
+              match json_field name json with
+              | Some (`Int i) -> Some (float_of_int i)
+              | Some (`Float f) -> Some f
+              | _ -> None
+            in
+            (* 15.0 means 15: JSON has one number type, and a client's
+               serializer choosing a decimal spelling is not a request for
+               a fractional zoom level. Genuine fractions stay refused. *)
+            let zoom =
+              match json_field "zoom" json with
+              | Some (`Int z) -> Some z
+              | Some (`Float f)
+                when Float.is_integer f && Float.abs f <= 32768. ->
+                  Some (int_of_float f)
+              | _ -> None
+            in
+            match
+              ( num "min_lon",
+                num "min_lat",
+                num "max_lon",
+                num "max_lat",
+                zoom )
+            with
+            | ( Some min_lon,
+                Some min_lat,
+                Some max_lon,
+                Some max_lat,
+                Some zoom )
+              when zoom >= 0 && zoom <= 15 -> (
+                match
+                  Basemap_job.validate ~min_lon ~min_lat ~max_lon ~max_lat
+                    ~max_zoom:zoom ()
+                with
+                | Error e -> bad e
+                | Ok req -> (
+                    match ops.browse req with
+                    | Ok fetched ->
+                        respond_json cfg ~status:`OK
+                          (`Assoc
+                             [ ("ok", `Bool true); ("fetched", `Int fetched) ])
+                    | Error e -> error cfg ~status:`Conflict e))
+            | _ ->
+                bad "expected min_lon, min_lat, max_lon, max_lat and zoom 0..15")
   | "basemap-settings" ->
       with_json body (fun json ->
-          match json_field "update_reminder_days" json with
-          | None -> (
+          (* An empty body reads; either field alone writes just itself. *)
+          match
+            ( json_field "update_reminder_days" json,
+              json_field "browse_cache" json )
+          with
+          | None, None -> (
               match settings.get () with
               | Ok payload -> respond_json cfg ~status:`OK payload
               | Error e -> broken e)
-          | Some (`Int days) -> (
-              match settings.set days with
-              | Ok payload -> respond_json cfg ~status:`OK payload
-              | Error e -> bad e)
-          | Some _ -> bad "update_reminder_days must be an integer")
+          | Some j, _ when (match j with `Int _ -> false | _ -> true) ->
+              bad "update_reminder_days must be an integer"
+          | _, Some j when (match j with `Bool _ -> false | _ -> true) ->
+              bad "browse_cache must be a boolean"
+          | days, browse -> (
+              let days =
+                match days with Some (`Int d) -> Some d | _ -> None
+              in
+              let browse =
+                match browse with Some (`Bool b) -> Some b | _ -> None
+              in
+              match settings.set ~days ~browse with
+              | Ok payload ->
+                  (* Off means gone: the browse cache is a record of where
+                     the user looked, so turning the setting off deletes it
+                     rather than leaving it dormant and still serving.
+                     Best-effort -- a running job keeps its seat, and the
+                     job's own prune or fold settles the file's fate. *)
+                  if browse = Some false then ignore (ops.clear_cache ());
+                  respond_json cfg ~status:`OK payload
+              | Error e -> bad e))
   | "basemap-estimate" | "basemap-download" -> (
       match Yojson.Safe.from_string body with
       | exception _ -> bad "body is not valid JSON"

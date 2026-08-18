@@ -71,6 +71,11 @@ const Job = z.discriminatedUnion("state", [
     total_bytes: z.number(),
   }),
   z.object({
+    state: z.literal("compacting"),
+    done_bytes: z.number(),
+    total_bytes: z.number(),
+  }),
+  z.object({
     state: z.literal("done"),
     total_bytes: z.number(),
     parts: z.number().int().min(1),
@@ -93,7 +98,8 @@ export type JobStatus = z.infer<typeof JobStatus>;
 
 export const isRunning = (job: Job): boolean =>
   job.state === "planning" || job.state === "fetching"
-  || job.state === "assets" || job.state === "removing";
+  || job.state === "assets" || job.state === "removing"
+  || job.state === "compacting";
 
 /* One row of the download ledger: a region the archive was asked to hold,
    as recorded inside the archive itself. `completed` is epoch seconds;
@@ -113,6 +119,10 @@ const Ledger = z.object({ entries: z.array(LedgerEntry) });
 
 const Settings = z.object({
   update_reminder_days: z.number().int().nonnegative(),
+  /* Whether missing viewport tiles are fetched and kept while browsing
+     online. Off by default: an offline-first tool must not phone home on
+     every pan without being asked. */
+  browse_cache: z.boolean(),
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -247,9 +257,41 @@ export function useBasemapSettings() {
 export function useSaveBasemapSettings() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (days: number) =>
-      post(Settings, "basemap-settings", { update_reminder_days: days }),
+    /* A partial patch: either field alone writes just itself. */
+    mutationFn: (
+      patch: { update_reminder_days?: number; browse_cache?: boolean; },
+    ) => post(Settings, "basemap-settings", patch),
     onSuccess: (data) => client.setQueryData(["basemap-settings"], data),
+  });
+}
+
+/* One viewport's missing tiles, fetched into the browse cache. Quiet on
+   purpose: this fires on pan-stop, and neither its errors nor its progress
+   deserve a toast -- being offline is a normal state, not a failure. */
+export function useBasemapBrowse() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (view: {
+      min_lon: number;
+      min_lat: number;
+      max_lon: number;
+      max_lat: number;
+      zoom: number;
+    }) =>
+      post(
+        z.object({ ok: z.boolean(), fetched: z.number().int().nonnegative() }),
+        "basemap-browse",
+        view,
+      ),
+    /* A browse that fetched something may have pushed the cache past its
+       threshold and started a compaction -- a real running job. Wake the
+       status poll so the progress shows and a Download click during it
+       gets a comprehensible refusal, not a mystery. */
+    onSuccess: ({ fetched }) => {
+      if (fetched > 0) {
+        client.invalidateQueries({ queryKey: ["basemap-status"] });
+      }
+    },
   });
 }
 

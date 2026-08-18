@@ -962,6 +962,68 @@ check(
   ledClamped.entries?.[0]?.bytes === estClamped.total_bytes,
 );
 
+/* ------------------------------ browse cache -------------------------------
+
+   Opt in, look at a place, and its tiles are cached -- server-side gate,
+   anonymous tiles, and (on this server's one-byte compaction threshold)
+   folded straight into the main archive. */
+const tileAt = (lon, lat, z) => {
+  const n = 2 ** z;
+  const x = Math.floor((lon + 180) / 360 * n);
+  const r = lat * Math.PI / 180;
+  const y = Math.floor(
+    (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n,
+  );
+  return { x, y };
+};
+const lb = { min_lon: -0.2, min_lat: 51.46, max_lon: -0.05, max_lat: 51.56 };
+const lt = tileAt(-0.12, 51.5, 15);
+check(
+  "browsing while the setting is off is refused server-side",
+  (await post3("basemap-browse", { ...lb, zoom: 15 })).status === 403,
+);
+const setBrowse = await (await post3("basemap-settings", {
+  browse_cache: true,
+})).json();
+check(
+  "the browse toggle persists without touching the reminder",
+  setBrowse.browse_cache === true && setBrowse.update_reminder_days === 180,
+);
+check(
+  "a deep tile is absent before browsing",
+  (await fetch(`${base3}/tiles/15/${lt.x}/${lt.y}.mvt`)).status === 204,
+);
+const browsed = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
+  .json();
+check("a settled view fetches its missing tiles", browsed.fetched > 0);
+/* The one-byte threshold compacts immediately; wait for the writer to rest. */
+let compacted = false;
+for (let i = 0; i < 120 && !compacted; i++) {
+  const st = await (await post3("basemap-status")).json();
+  if (
+    !["planning", "fetching", "assets", "removing", "compacting"]
+      .includes(st.job?.state)
+  ) {
+    compacted = (await fetch(`${base3}/basemap/cache.pmtiles`, {
+      method: "HEAD",
+    })).status === 404;
+  }
+  if (!compacted) await new Promise((r) => setTimeout(r, 250));
+}
+check("the cache folds into the main archive past the threshold", compacted);
+check(
+  "the browsed tile serves after compaction",
+  (await fetch(`${base3}/tiles/15/${lt.x}/${lt.y}.mvt`)).status === 200,
+);
+const ledAfterBrowse = await (await post3("basemap-ledger")).json();
+check(
+  "browsed tiles stay anonymous -- no ledger entry",
+  ledAfterBrowse.entries?.length === 1,
+);
+const browsedAgain = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
+  .json();
+check("a second look fetches nothing", browsedAgain.fetched === 0);
+
 /* Let the swapped style fetch and render its tiles; anything it logs from
    here on fails the final console check. */
 await page.waitForTimeout(2500);
@@ -1272,6 +1334,88 @@ check(
 );
 
 await browser.close();
+
+/* ------------------ browse cache prune coherence (main) -------------------
+
+   The rule the browse cache lives by: a completed download OWNS its region
+   and prunes any browsed copy of the tiles it covers, because the tile
+   endpoint consults the cache first and a stale browsed tile would shadow
+   freshly downloaded bytes forever. Testable only HERE: this server runs
+   the real compaction threshold, so the cache genuinely persists between
+   operations; the multipart server's one-byte threshold folds it away the
+   moment it exists. Driven over the API -- the page is gone, so nothing
+   auto-browses underneath these steps. */
+const awaitRemoved = async (generation) => {
+  for (let i = 0; i < 120; i++) {
+    const status = await (await postJson("basemap-status")).json();
+    if (status.generation === generation && status.job?.state === "removed") {
+      return true;
+    }
+    if (status.job?.state === "failed") return false;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
+};
+const cacheStatus = async () =>
+  (await fetch(`${base}/basemap/cache.pmtiles`, { method: "HEAD" })).status;
+const deepTile = async () =>
+  (await fetch(`${base}/tiles/15/${lt.x}/${lt.y}.mvt`)).status;
+
+/* Open a hole: removing the UK entry drops the deep London tiles no kept
+   entry fetched, which is exactly what a browse can then fill. */
+const mainLedger = await (await postJson("basemap-ledger")).json();
+const ukLedgerId = mainLedger.entries
+  ?.find((e) => e.name === "United Kingdom and London")?.id;
+await postJson("basemap-remove", { id: ukLedgerId });
+check("removing the deep entry terminates", await awaitRemoved(7));
+check("its deep tile is gone from the archive", (await deepTile()) === 204);
+
+await postJson("basemap-settings", { browse_cache: true });
+const mainBrowse = await (await postJson("basemap-browse", { ...lb, zoom: 15 }))
+  .json();
+check("a browse refills the hole into the cache", mainBrowse.fetched > 0);
+check(
+  "the cache persists below the real threshold",
+  (await cacheStatus()) === 200,
+);
+check("the browsed tile serves from the cache", (await deepTile()) === 200);
+
+/* Off means gone: the toggle is also the eraser. */
+await postJson("basemap-settings", { browse_cache: false });
+check("turning browsing off deletes the cache", (await cacheStatus()) === 404);
+check(
+  "and closes the endpoint again",
+  (await postJson("basemap-browse", { ...lb, zoom: 15 })).status === 403,
+);
+
+/* Refill, then download the same region: completion must prune the cache
+   -- emptied entirely here, so the file itself goes -- and the tile must
+   keep serving, now from bytes the download fetched fresh. */
+await postJson("basemap-settings", { browse_cache: true });
+const refill = await (await postJson("basemap-browse", { ...lb, zoom: 15 }))
+  .json();
+check("the cleared cache re-fetches on the next browse", refill.fetched > 0);
+check("and exists again", (await cacheStatus()) === 200);
+await postJson("basemap-download", {
+  name: "London borrowed back",
+  regions: [{ ...lb, max_zoom: 15 }],
+});
+check("downloading the browsed region completes", await awaitDone(8));
+check(
+  "the download prunes its region out of the cache",
+  (await cacheStatus()) === 404,
+);
+check(
+  "the tile survives the prune, served from the archive",
+  (await deepTile()) === 200,
+);
+const prunedLedger = await (await postJson("basemap-ledger")).json();
+check(
+  "the download is recorded; the browses never were",
+  prunedLedger.entries?.some((e) => e.name === "London borrowed back")
+    && prunedLedger.entries?.length === 3,
+);
+await postJson("basemap-settings", { browse_cache: false });
 
 for (const p of problems) console.log(`  PAGE  ${p}`);
 check(
