@@ -88,7 +88,7 @@ test-ui:
 	  echo $$! > .server.pid; \
 	  ./_build/default/ocaml/server/bin/main.exe \
 	  --port $(MULTIPART_PORT) --basemap _build/e2e-multipart --no-open \
-	  --tile-budget 1024,256,8 \
+	  --tile-budget 1024,256,8,1 \
 	  --basemap-source http://127.0.0.1:$(FIXTURE_PORT)/basemap/map.pmtiles \
 	  --basemap-assets http://127.0.0.1:$(FIXTURE_PORT)/basemap/assets.tar.gz & \
 	  echo $$! > .multipart.pid; \

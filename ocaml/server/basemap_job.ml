@@ -17,6 +17,8 @@ type t =
   | Assets  (** tiles written; glyphs and sprites downloading *)
   | Removing of { done_bytes : int; total_bytes : int }
       (** the archive is being rewritten without one ledger entry's tiles *)
+  | Compacting of { done_bytes : int; total_bytes : int }
+      (** browsed tiles are being folded into the main archive *)
   | Done of { total_bytes : int; parts : int }
   | Removed of { freed_bytes : int }
       (** a removal finished; its own terminal state so the UI can say
@@ -28,10 +30,10 @@ type t =
    two fibers writing one map.pmtiles is corruption with extra steps. *)
 let can_start = function
   | Idle | Done _ | Removed _ | Failed _ | Cancelled -> true
-  | Planning | Fetching _ | Assets | Removing _ -> false
+  | Planning | Fetching _ | Assets | Removing _ | Compacting _ -> false
 
 let is_running = function
-  | Planning | Fetching _ | Assets | Removing _ -> true
+  | Planning | Fetching _ | Assets | Removing _ | Compacting _ -> true
   | Idle | Done _ | Removed _ | Failed _ | Cancelled -> false
 
 (* Progress is clamped rather than trusted. The copier reports raw byte
@@ -116,6 +118,13 @@ let to_json = function
       `Assoc
         [
           ("state", `String "removing");
+          ("done_bytes", `Int done_bytes);
+          ("total_bytes", `Int total_bytes);
+        ]
+  | Compacting { done_bytes; total_bytes } ->
+      `Assoc
+        [
+          ("state", `String "compacting");
           ("done_bytes", `Int done_bytes);
           ("total_bytes", `Int total_bytes);
         ]

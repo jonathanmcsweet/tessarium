@@ -329,9 +329,14 @@ let () =
         (fun ~id ->
           calls := `Remove id :: !calls;
           Ok ());
+      browse =
+        (fun req ->
+          calls := `Browse req :: !calls;
+          Ok 7);
     }
   in
   let settings_calls = ref [] in
+  let browse_on = ref true in
   let settings =
     {
       Tessarium_server.Settings.get =
@@ -339,11 +344,13 @@ let () =
           settings_calls := `Get :: !settings_calls;
           Ok (`Assoc [ ("update_reminder_days", `Int 90) ]));
       set =
-        (fun days ->
-          settings_calls := `Set days :: !settings_calls;
-          if Tessarium_server.Settings.valid_days days then
-            Ok (`Assoc [ ("update_reminder_days", `Int days) ])
-          else Error "update_reminder_days must be 0..3650");
+        (fun ~days ~browse ->
+          settings_calls := `Set (days, browse) :: !settings_calls;
+          match days with
+          | Some d when not (Tessarium_server.Settings.valid_days d) ->
+              Error "update_reminder_days must be 0..3650"
+          | _ -> Ok (`Assoc []));
+      browse_enabled = (fun () -> !browse_on);
     }
   in
   (* Reading a request body must follow what the request declared. Both
@@ -527,7 +534,47 @@ let () =
   check "an empty settings body reads the current value"
     (run_settings ~body:"{}" = [ `Get ]);
   check "a settings value writes"
-    (run_settings ~body:{|{"update_reminder_days":30}|} = [ `Set 30 ]);
+    (run_settings ~body:{|{"update_reminder_days":30}|}
+    = [ `Set (Some 30, None) ]);
+  check "the browse toggle writes alone, leaving the reminder be"
+    (run_settings ~body:{|{"browse_cache":true}|}
+    = [ `Set (None, Some true) ]);
+  check "a non-boolean browse toggle reaches nothing"
+    (run_settings ~body:{|{"browse_cache":"yes"}|} = []);
+
+  (* The browse endpoint: a viewport box and a zoom, gated server-side on
+     the opt-in setting -- the page must not be able to make this server
+     reach the network when the user said no. *)
+  let browse_body =
+    {|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56,"zoom":15}|}
+  in
+  (match run ~endpoint:"basemap-browse" ~body:browse_body with
+  | [ `Browse (req : Tessarium_server.Basemap_job.request) ] ->
+      check "a browse request carries its box at its zoom"
+        (req.min_lon = -0.2 && req.max_zoom = 15 && req.polygon = None)
+  | _ -> check "a browse request carries its box at its zoom" false);
+  check "a browse without a zoom reaches nothing"
+    (run ~endpoint:"basemap-browse"
+       ~body:{|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56}|}
+     = []);
+  check "a browse past the source's depth reaches nothing"
+    (run ~endpoint:"basemap-browse"
+       ~body:
+         {|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56,"zoom":16}|}
+     = []);
+  browse_on := false;
+  check "browsing off means the endpoint is off, server-side"
+    (run ~endpoint:"basemap-browse" ~body:browse_body = []);
+  browse_on := true;
+
+  (* Compaction obeys the one-writer rule like everything else. *)
+  check "nothing starts while a compaction runs"
+    (not
+       (Tessarium_server.Basemap_job.can_start
+          (Compacting { done_bytes = 0; total_bytes = 1 })));
+  check "a compaction is a running job"
+    (Tessarium_server.Basemap_job.is_running
+       (Compacting { done_bytes = 0; total_bytes = 1 }));
   check "a non-integer setting reaches nothing"
     (run_settings ~body:{|{"update_reminder_days":"soon"}|} = []
     && run_settings ~body:"not json" = []);
@@ -535,10 +582,14 @@ let () =
   (* The settings file format itself. *)
   let module St = Tessarium_server.Settings in
   check "settings round-trip"
-    (St.of_string (St.to_string { St.update_reminder_days = 30 })
-    = Ok { St.update_reminder_days = 30 });
-  check "the reminder default is 90 days"
-    (St.default = { St.update_reminder_days = 90 });
+    (St.of_string
+       (St.to_string { St.update_reminder_days = 30; browse_cache = true })
+    = Ok { St.update_reminder_days = 30; browse_cache = true });
+  check "the defaults are 90 days and no browsing cache"
+    (St.default = { St.update_reminder_days = 90; browse_cache = false });
+  check "settings written before the browse cache read as off"
+    (St.of_string {|{"update_reminder_days":30}|}
+    = Ok { St.update_reminder_days = 30; browse_cache = false });
   check "reminder bounds hold"
     (St.valid_days 0 && St.valid_days 3650
     && (not (St.valid_days (-1)))

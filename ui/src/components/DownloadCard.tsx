@@ -66,6 +66,22 @@ function Progress({ job }: { job: Job; }) {
   if (job.state === "assets") {
     return <p className="hint">{m.map_download_assets()}</p>;
   }
+  if (job.state === "compacting") {
+    const text = m.map_compacting_progress({
+      done: formatBytes(job.done_bytes),
+      total: formatBytes(job.total_bytes),
+    });
+    return (
+      <>
+        <progress
+          value={job.done_bytes}
+          max={Math.max(1, job.total_bytes)}
+          aria-label={text}
+        />
+        <p className="hint">{text}</p>
+      </>
+    );
+  }
   if (job.state === "removing") {
     const text = m.map_removing_progress({
       done: formatBytes(job.done_bytes),
@@ -459,7 +475,11 @@ function DownloadedMaps({ busy }: { busy: boolean; }) {
         {m.map_ledger_reminder()}
         <select
           value={String(days)}
-          onChange={(e) => save.mutate(Number(e.target.value), loudly)}
+          onChange={(e) =>
+            save.mutate(
+              { update_reminder_days: Number(e.target.value) },
+              loudly,
+            )}
           disabled={!settings.isSuccess || save.isPending}
         >
           <option value="30">{m.map_ledger_reminder_days({ days: 30 })}</option>
@@ -470,6 +490,29 @@ function DownloadedMaps({ busy }: { busy: boolean; }) {
           <option value="0">{m.map_ledger_reminder_never()}</option>
         </select>
       </label>
+    </div>
+  );
+}
+
+/* The one setting that makes this tool reach the network without a click:
+   fetching the tiles you are looking at, as you look. Opt-in, server-gated,
+   and worded as what it does. */
+function BrowseToggle() {
+  const settings = useBasemapSettings();
+  const save = useSaveBasemapSettings();
+  return (
+    <div className="download-option download-browse">
+      <label className="region-check">
+        <input
+          type="checkbox"
+          checked={settings.data?.browse_cache ?? false}
+          disabled={!settings.isSuccess || save.isPending}
+          onChange={(e) =>
+            save.mutate({ browse_cache: e.target.checked }, loudly)}
+        />
+        <span>{m.map_browse_toggle()}</span>
+      </label>
+      <p className="hint">{m.map_browse_hint()}</p>
     </div>
   );
 }
@@ -533,6 +576,7 @@ export function DownloadCard({ region, job }: {
             />
             <RegionPicker />
             <DownloadedMaps busy={running} />
+            <BrowseToggle />
           </>
         )}
     </section>

@@ -1546,3 +1546,34 @@ quietly supplying source metadata, and replacing the transport without
 replacing the metadata was the regression. TileJSON replaces all of it in
 one endpoint and buys back bounds for free.
 
+### 2026-08-18 — The browse cache: opt-in tiles while panning online
+
+**Phase:** 5 (offline basemap)
+
+**What:** With the new setting on (off by default, gated server-side so a
+page cannot make the server reach the network against the user's choice),
+a settled pan fetches the viewport's missing tiles -- capped at 1,024 per
+request -- into cache.pmtiles, a second small archive the tile endpoint
+consults first. The map refreshes the visible tiles when a fetch lands.
+Past a compaction threshold (budget's fourth field; default 48 MB) the
+cache folds into the main archive under the job's one-writer rule, ledger
+carried forward untouched -- browsed tiles are anonymous by design, and
+never earn an entry. Two rules keep the tiers coherent: a completed
+download or update prunes its region out of the cache, so a stale browsed
+copy can never shadow bytes just fetched (the endpoint prefers the cache);
+and browsing is refused while the archive writer runs. End to end in the
+suite: gate off means 403, a browsed z15 tile 204s before and 200s after,
+the one-byte test threshold forces a real compaction whose ledger stays
+intact, and a second look fetches nothing.
+
+**Rationale:** the two-tier design was agreed with the user before
+building: per-gesture rewrites of a multi-gigabyte archive are absurd,
+per-gesture rewrites of a small cache are cheap, and one fold amortises
+them. The prune-on-download rule answers the one real coherence question
+(which copy wins where tiers overlap): recorded regions own their tiles.
+
+**Follow-on:** the UI browse trigger (pan-settled fetch) is exercised
+manually, not in e2e -- the fixture areas the main test server can browse
+are already downloaded by earlier checks; recorded here rather than
+hidden.
+

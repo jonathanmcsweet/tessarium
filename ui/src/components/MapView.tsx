@@ -9,7 +9,9 @@ import { toast } from "sonner";
 import {
   type Job,
   type Region,
+  useBasemapBrowse,
   useBasemapPresent,
+  useBasemapSettings,
   useBasemapStatus,
 } from "../core/basemap";
 import { fetchAddress, fetchGrid } from "../core/queries";
@@ -384,6 +386,53 @@ export function MapView() {
       map.off("zoomend", refreshGrid);
     };
   }, [ready, refreshGrid, styleEpoch]);
+
+  /* ------------------------------------------------------ browse cache */
+
+  /* When the user has opted in and is online, a settled pan fetches the
+     viewport's missing tiles into the cache. Debounced past the pan, one
+     in flight at a time, and silent: offline is a normal state here, not
+     an error to toast about. The server enforces the setting again -- this
+     gate is UX, that one is policy. */
+  const settings = useBasemapSettings();
+  const browseMutate = useBasemapBrowse().mutate;
+  const browseInFlight = useRef(false);
+  const browseEnabled = settings.data?.browse_cache === true;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || !browseEnabled) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!navigator.onLine || browseInFlight.current) return;
+        browseInFlight.current = true;
+        const view = regionOf(map);
+        browseMutate({
+          min_lon: view.min_lon,
+          min_lat: view.min_lat,
+          max_lon: view.max_lon,
+          max_lat: view.max_lat,
+          zoom: Math.max(0, Math.min(15, Math.round(map.getZoom()))),
+        }, {
+          onSettled: () => {
+            browseInFlight.current = false;
+          },
+          onSuccess: ({ fetched }) => {
+            /* The tiles on screen were 204s a moment ago; ask for them
+               again now that the cache holds them. */
+            if (fetched > 0) map.refreshTiles("protomaps");
+          },
+        });
+      }, 1200);
+    };
+    map.on("moveend", settle);
+    settle();
+    return () => {
+      clearTimeout(timer);
+      map.off("moveend", settle);
+    };
+  }, [ready, browseEnabled, browseMutate]);
 
   /* -------------------------------------------------- offline downloads */
 

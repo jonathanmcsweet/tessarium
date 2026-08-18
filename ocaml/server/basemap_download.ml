@@ -23,9 +23,13 @@ type t = {
      second poll is indistinguishable from stale news. *)
   mutable generation : int;
   mutable cancel_requested : bool;
+  (* One browse fetch at a time, separately from the job: browsing writes
+     cache.pmtiles, never map.pmtiles, so it may run beside a download --
+     but not beside itself. *)
+  mutable browsing : bool;
 }
 
-(* What the request handler sees: four closures, so the handler can be tested
+(* What the request handler sees: closures, so the handler can be tested
    with pure fakes and never needs the switch, the network or the clock. *)
 type ops = {
   estimate : Basemap_job.request list -> (Yojson.Safe.t, string) result;
@@ -36,6 +40,7 @@ type ops = {
   ledger : unit -> (Yojson.Safe.t, string) result;
   update : id:string -> (unit, string) result;
   remove : id:string -> (unit, string) result;
+  browse : Basemap_job.request -> (int, string) result;
 }
 
 let create () =
@@ -44,6 +49,7 @@ let create () =
     job = Basemap_job.Idle;
     generation = 0;
     cancel_requested = false;
+    browsing = false;
   }
 
 let set t job = Eio.Mutex.use_rw ~protect:true t.mutex (fun () -> t.job <- job)
@@ -72,6 +78,18 @@ let cancel t =
       end
       else false)
 
+let claim t =
+  (* Claiming the job and checking it are one critical section; two requests
+     arriving together must not both see a resting state. *)
+  Eio.Mutex.use_rw ~protect:true t.mutex (fun () ->
+      if Basemap_job.can_start t.job then begin
+        t.job <- Basemap_job.Planning;
+        t.generation <- t.generation + 1;
+        t.cancel_requested <- false;
+        true
+      end
+      else false)
+
 (* Exceptions out of Eio and cohttp arrive as their printed form; Failure
    carries the messages this codebase writes for humans. *)
 let friendly = function Failure m -> m | e -> Printexc.to_string e
@@ -88,9 +106,18 @@ let friendly = function Failure m -> m | e -> Printexc.to_string e
    Splitting is also what makes giants resumable: each piece merges and
    renames atomically, so an interruption keeps every finished piece and a
    re-request skips them. *)
-type budget = { full : int; quick : int; max_parts : int }
+type budget = { full : int; quick : int; max_parts : int; compact : int }
 
-let default_budget = { full = 6_000_000; quick = 131_072; max_parts = 8 }
+let default_budget =
+  {
+    full = 6_000_000;
+    quick = 131_072;
+    max_parts = 8;
+    (* When the browse cache outgrows this many bytes of tile data it is
+       folded into the main archive: past ~48 MB the per-browse rewrite of
+       the cache costs more than one fold of the big file amortises. *)
+    compact = 48_000_000;
+  }
 
 (* Million-id loops must share the scheduler: yield every so often, and a
    download also polls its cancel flag, so even the planning phase of a
@@ -180,14 +207,22 @@ let plan_box ?cancel ~archive ~min_zoom (seg : segment) =
 let segments_of = function `Batch segs -> segs | `Part seg -> [ seg ]
 
 (* The archive already on disk, if any -- the merge's base. *)
-let open_base ~sw ~fs ~basemap_dir =
-  let path = Eio.Path.(fs / basemap_dir / "map.pmtiles") in
+let open_archive ~sw ~fs ~basemap_dir name =
+  let path = Eio.Path.(fs / basemap_dir / name) in
   match Eio.Path.kind ~follow:true path with
   | `Regular_file ->
       Some
         (Pmtiles.Archive.open_
            (Pmtiles_source.file_source (Eio.Path.open_in ~sw path)))
   | _ -> None
+
+let open_base ~sw ~fs ~basemap_dir = open_archive ~sw ~fs ~basemap_dir "map.pmtiles"
+
+(* The browse cache: anonymous tiles picked up while panning online. Its own
+   file so a browse never rewrites the big archive; folded into it when it
+   outgrows the budget's compaction threshold. *)
+let open_cache ~sw ~fs ~basemap_dir =
+  open_archive ~sw ~fs ~basemap_dir "cache.pmtiles"
 
 (* The archive's ledger, read before anything rewrites the archive. An
    unreadable ledger stops the operation cold rather than being overwritten:
@@ -352,6 +387,54 @@ let copy_with_metadata t ~fs ~basemap_dir ~metadata ~on_progress
            ~max_lat:(e7f bh.Pmtiles.Header.max_lat_e7)
            ~append ~copy));
   Eio.Path.rename part_path Eio.Path.(dir / "map.pmtiles")
+
+(* A completed download owns its region: any browse-cache tiles it covers
+   are dropped, because the tile endpoint consults the cache FIRST and a
+   stale browsed copy must never shadow bytes an explicit download or
+   update just fetched. Waits out an in-flight browse -- none can start
+   while the job runs, so the wait is bounded by the one already going. *)
+let prune_cache t ~fs ~basemap_dir ~regions =
+  while Eio.Mutex.use_ro t.mutex (fun () -> t.browsing) do
+    Eio.Fiber.yield ()
+  done;
+  Eio.Switch.run @@ fun sw ->
+  match open_cache ~sw ~fs ~basemap_dir with
+  | None -> ()
+  | Some cache ->
+      let owner =
+        Ledger.make ~name:"-" ~regions ~completed:0 ~source:"-" ~bytes:0
+      in
+      let drop = Ledger.drops ~removed:owner ~kept:[] in
+      let pruned, dropped =
+        Pmtiles.Merge.prune ~on_entry:(breathe ~cancel:t ()) ~base:cache ~drop
+          ()
+      in
+      if dropped = 0 then ()
+      else if Array.length pruned.Pmtiles.Merge.tiles = 0 then
+        Eio.Path.unlink Eio.Path.(fs / basemap_dir / "cache.pmtiles")
+      else begin
+        let part = Eio.Path.(fs / basemap_dir / "cache.pmtiles.part") in
+        let ch = cache.Pmtiles.Archive.header in
+        let e7f v = float_of_int v /. 1e7 in
+        Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part (fun out ->
+            let append str = Eio.Flow.copy_string str out in
+            let copy ~origin:_ ~offset ~length =
+              Eio.Flow.copy_string
+                (cache.Pmtiles.Archive.src.Pmtiles.Archive.read ~offset
+                   ~length)
+                out
+            in
+            ignore
+              (Pmtiles.Merge.write pruned ch
+                 ~min_zoom:ch.Pmtiles.Header.min_zoom
+                 ~max_zoom:ch.Pmtiles.Header.max_zoom
+                 ~min_lon:(e7f ch.Pmtiles.Header.min_lon_e7)
+                 ~min_lat:(e7f ch.Pmtiles.Header.min_lat_e7)
+                 ~max_lon:(e7f ch.Pmtiles.Header.max_lon_e7)
+                 ~max_lat:(e7f ch.Pmtiles.Header.max_lat_e7)
+                 ~append ~copy));
+        Eio.Path.rename part Eio.Path.(fs / basemap_dir / "cache.pmtiles")
+      end
 
 (* Units run in order, each merged into the archive and renamed atomically
    before the next begins. That sequencing IS the resume story: cancel or a
@@ -555,6 +638,7 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
             ~on_progress:(fun _ _ -> ())
             b
     end;
+    prune_cache t ~fs ~basemap_dir ~regions:recorded;
     fetch_assets t ~sw ~net ~assets ~dir;
     (!written_total, parts_total)
   with
@@ -673,19 +757,247 @@ let run_remove t ~fs ~basemap_dir ~id =
       discard_part ();
       set t (Basemap_job.Failed (friendly e))
 
-(* ------------------------------------------------------------- lifecycle *)
+(* ----------------------------------------------------------------- browse *)
 
-let claim t =
-  (* Claiming the job and checking it are one critical section; two requests
-     arriving together must not both see a resting state. *)
-  Eio.Mutex.use_rw ~protect:true t.mutex (fun () ->
-      if Basemap_job.can_start t.job then begin
-        t.job <- Basemap_job.Planning;
-        t.generation <- t.generation + 1;
-        t.cancel_requested <- false;
-        true
-      end
-      else false)
+(* An archive's whole contents restated as an extract plan, blobs at their
+   absolute offsets -- what compaction feeds the merge as "fresh". *)
+let plan_of_archive (a : Pmtiles.Archive.t) : Pmtiles.Extract.plan =
+  let arr = Pmtiles.Merge.expand_base ~on_entry:(fun () -> ()) a in
+  {
+    Pmtiles.Extract.blobs =
+      Array.map (fun (_, offset, length) -> (offset, length)) arr;
+    tiles = Array.mapi (fun i (id, _, _) -> (id, i)) arr;
+  }
+
+(* Folds the browse cache into the main archive: one merge whose "fresh"
+   side is read from the cache file instead of the network, published under
+   the same rename discipline as a download, ledger carried forward
+   untouched -- browsed tiles stay anonymous. Claims the job (one
+   map.pmtiles writer at a time); the caller skips folding when a download
+   is running and tries again after a later browse. *)
+let run_compact t ~fs ~basemap_dir =
+  let dir = Eio.Path.(fs / basemap_dir) in
+  let part_path = Eio.Path.(dir / "map.pmtiles.part") in
+  let discard_part () = try Eio.Path.unlink part_path with _ -> () in
+  match
+    Eio.Switch.run @@ fun sw ->
+    match open_cache ~sw ~fs ~basemap_dir with
+    | None -> ()
+    | Some cache ->
+        let base = open_base ~sw ~fs ~basemap_dir in
+        let base_meta, _ = base_ledger base in
+        let fresh = plan_of_archive cache in
+        let mp =
+          Pmtiles.Merge.plan ~on_entry:(breathe ~cancel:t ()) ~base [ fresh ]
+        in
+        let total = mp.Pmtiles.Merge.total_bytes in
+        set t (Basemap_job.Compacting { done_bytes = 0; total_bytes = total });
+        let ch = cache.Pmtiles.Archive.header in
+        let e7f v = float_of_int v /. 1e7 in
+        let min_zoom', max_zoom', min_lon, min_lat, max_lon, max_lat =
+          match base with
+          | None ->
+              ( ch.Pmtiles.Header.min_zoom,
+                ch.Pmtiles.Header.max_zoom,
+                e7f ch.Pmtiles.Header.min_lon_e7,
+                e7f ch.Pmtiles.Header.min_lat_e7,
+                e7f ch.Pmtiles.Header.max_lon_e7,
+                e7f ch.Pmtiles.Header.max_lat_e7 )
+          | Some b ->
+              let bh = b.Pmtiles.Archive.header in
+              ( min ch.Pmtiles.Header.min_zoom bh.Pmtiles.Header.min_zoom,
+                max ch.Pmtiles.Header.max_zoom bh.Pmtiles.Header.max_zoom,
+                Float.min
+                  (e7f ch.Pmtiles.Header.min_lon_e7)
+                  (e7f bh.Pmtiles.Header.min_lon_e7),
+                Float.min
+                  (e7f ch.Pmtiles.Header.min_lat_e7)
+                  (e7f bh.Pmtiles.Header.min_lat_e7),
+                Float.max
+                  (e7f ch.Pmtiles.Header.max_lon_e7)
+                  (e7f bh.Pmtiles.Header.max_lon_e7),
+                Float.max
+                  (e7f ch.Pmtiles.Header.max_lat_e7)
+                  (e7f bh.Pmtiles.Header.max_lat_e7) )
+        in
+        Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part_path
+          (fun out ->
+            let written = ref 0 in
+            let append str = Eio.Flow.copy_string str out in
+            let copy ~origin ~offset ~length =
+              check_cancel t;
+              let bytes =
+                match origin with
+                | Pmtiles.Merge.Base -> (
+                    match base with
+                    | Some b ->
+                        b.Pmtiles.Archive.src.Pmtiles.Archive.read ~offset
+                          ~length
+                    | None -> assert false)
+                | Pmtiles.Merge.Fresh ->
+                    cache.Pmtiles.Archive.src.Pmtiles.Archive.read ~offset
+                      ~length
+              in
+              Eio.Flow.copy_string bytes out;
+              written := !written + length;
+              set t
+                (Basemap_job.Compacting
+                   { done_bytes = min !written total; total_bytes = total })
+            in
+            ignore
+              (Pmtiles.Merge.write ~metadata:base_meta mp ch
+                 ~min_zoom:min_zoom' ~max_zoom:max_zoom' ~min_lon ~min_lat
+                 ~max_lon ~max_lat ~append ~copy));
+        Eio.Path.rename part_path Eio.Path.(dir / "map.pmtiles");
+        Eio.Path.unlink Eio.Path.(dir / "cache.pmtiles")
+  with
+  | () -> set t Basemap_job.Idle
+  | exception Cancelled_by_user ->
+      discard_part ();
+      set t Basemap_job.Cancelled
+  | exception e ->
+      discard_part ();
+      set t (Basemap_job.Failed (friendly e))
+
+(* One viewport's missing tiles, fetched into the cache. Opt-in (gated in
+   the handler on the browse_cache setting), quiet, and bounded: a request
+   naming too many tiles is refused rather than becoming a download in
+   disguise -- the card is the place for those. *)
+let max_browse_tiles = 1_024
+
+let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
+    (req : Basemap_job.request) =
+  (* One browse at a time, and none while the archive writer is busy: a
+     download prunes its region out of the cache when it completes, and a
+     browse landing mid-prune would race the same file. *)
+  let claimed =
+    Eio.Mutex.use_rw ~protect:true t.mutex (fun () ->
+        if t.browsing || Basemap_job.is_running t.job then false
+        else begin
+          t.browsing <- true;
+          true
+        end)
+  in
+  if not claimed then Error "the map is busy; try again shortly"
+  else
+    Fun.protect
+      ~finally:(fun () ->
+        Eio.Mutex.use_rw ~protect:true t.mutex (fun () -> t.browsing <- false))
+      (fun () ->
+        match
+          Eio.Switch.run @@ fun bsw ->
+          let _resolved, src, archive = open_source ~sw:bsw ~fs ~net ~source in
+          let h = archive.Pmtiles.Archive.header in
+          let zoom =
+            max h.Pmtiles.Header.min_zoom
+              (min req.max_zoom h.Pmtiles.Header.max_zoom)
+          in
+          let ids =
+            Pmtiles.Tile_id.count_ids ~min_zoom:zoom ~max_zoom:zoom
+              ~min_lon:req.min_lon ~min_lat:req.min_lat ~max_lon:req.max_lon
+              ~max_lat:req.max_lat
+          in
+          if ids > max_browse_tiles then
+            failwith "the view is too wide to cache; zoom in"
+          else begin
+            let plan =
+              Pmtiles.Extract.plan
+                ~on_tile:(breathe ())
+                archive ~min_zoom:zoom ~max_zoom:zoom ~min_lon:req.min_lon
+                ~min_lat:req.min_lat ~max_lon:req.max_lon ~max_lat:req.max_lat
+            in
+            let main = open_base ~sw:bsw ~fs ~basemap_dir in
+            let cache = open_cache ~sw:bsw ~fs ~basemap_dir in
+            let held archive id =
+              match archive with
+              | None -> false
+              | Some a -> Pmtiles.Archive.locate a id <> None
+            in
+            (* Tiles either archive holds are not fetched again; the tile
+               endpoint already serves them. *)
+            let wanted =
+              Array.of_list
+                (List.filter
+                   (fun (id, _) -> not (held main id || held cache id))
+                   (Array.to_list plan.Pmtiles.Extract.tiles))
+            in
+            if Array.length wanted = 0 then 0
+            else begin
+              let filtered = { plan with Pmtiles.Extract.tiles = wanted } in
+              let mp =
+                Pmtiles.Merge.plan ~on_entry:(breathe ()) ~base:cache
+                  [ filtered ]
+              in
+              let part_path =
+                Eio.Path.(fs / basemap_dir / "cache.pmtiles.part")
+              in
+              ensure_dir Eio.Path.(fs / basemap_dir);
+              Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part_path
+                (fun out ->
+                  let append str = Eio.Flow.copy_string str out in
+                  let copy ~origin ~offset ~length =
+                    let bytes =
+                      match origin with
+                      | Pmtiles.Merge.Base -> (
+                          match cache with
+                          | Some c ->
+                              c.Pmtiles.Archive.src.Pmtiles.Archive.read
+                                ~offset ~length
+                          | None -> assert false)
+                      | Pmtiles.Merge.Fresh ->
+                          src.Pmtiles.Archive.read ~offset ~length
+                    in
+                    Eio.Flow.copy_string bytes out
+                  in
+                  let e7f v = float_of_int v /. 1e7 in
+                  let u_min_lon, u_min_lat, u_max_lon, u_max_lat =
+                    match cache with
+                    | None -> (req.min_lon, req.min_lat, req.max_lon, req.max_lat)
+                    | Some c ->
+                        let chh = c.Pmtiles.Archive.header in
+                        ( Float.min req.min_lon (e7f chh.Pmtiles.Header.min_lon_e7),
+                          Float.min req.min_lat (e7f chh.Pmtiles.Header.min_lat_e7),
+                          Float.max req.max_lon (e7f chh.Pmtiles.Header.max_lon_e7),
+                          Float.max req.max_lat (e7f chh.Pmtiles.Header.max_lat_e7) )
+                  in
+                  let min_zoom' =
+                    match cache with
+                    | None -> zoom
+                    | Some c -> min zoom c.Pmtiles.Archive.header.Pmtiles.Header.min_zoom
+                  in
+                  let max_zoom' =
+                    match cache with
+                    | None -> zoom
+                    | Some c -> max zoom c.Pmtiles.Archive.header.Pmtiles.Header.max_zoom
+                  in
+                  ignore
+                    (Pmtiles.Merge.write mp h ~min_zoom:min_zoom'
+                       ~max_zoom:max_zoom' ~min_lon:u_min_lon
+                       ~min_lat:u_min_lat ~max_lon:u_max_lon
+                       ~max_lat:u_max_lat ~append ~copy));
+              Eio.Path.rename part_path
+                Eio.Path.(fs / basemap_dir / "cache.pmtiles");
+              mp.Pmtiles.Merge.fresh_tiles
+            end
+          end
+        with
+        | fetched ->
+            (* Fold the cache into the main archive once it outgrows the
+               threshold -- unless a download holds the writer's seat, in
+               which case a later browse will try again. *)
+            (if fetched > 0 then
+               Eio.Switch.run @@ fun csw ->
+               match open_cache ~sw:csw ~fs ~basemap_dir with
+               | Some c
+                 when c.Pmtiles.Archive.header.Pmtiles.Header.data_length
+                      > budget.compact ->
+                   if claim t then
+                     Eio.Fiber.fork ~sw (fun () -> run_compact t ~fs ~basemap_dir)
+               | _ -> ());
+            Ok fetched
+        | exception e -> Error (friendly e))
+
+(* ------------------------------------------------------------- lifecycle *)
 
 let start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now reqs =
   if not (claim t) then Error "a download is already running"
@@ -777,4 +1089,6 @@ let ops t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now =
         start_update t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now
           ~id);
     remove = (fun ~id -> start_remove t ~sw ~fs ~basemap_dir ~id);
+    browse =
+      (fun req -> run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget req);
   }

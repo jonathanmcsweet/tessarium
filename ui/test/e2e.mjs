@@ -962,6 +962,68 @@ check(
   ledClamped.entries?.[0]?.bytes === estClamped.total_bytes,
 );
 
+/* ------------------------------ browse cache -------------------------------
+
+   Opt in, look at a place, and its tiles are cached -- server-side gate,
+   anonymous tiles, and (on this server's one-byte compaction threshold)
+   folded straight into the main archive. */
+const tileAt = (lon, lat, z) => {
+  const n = 2 ** z;
+  const x = Math.floor((lon + 180) / 360 * n);
+  const r = lat * Math.PI / 180;
+  const y = Math.floor(
+    (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n,
+  );
+  return { x, y };
+};
+const lb = { min_lon: -0.2, min_lat: 51.46, max_lon: -0.05, max_lat: 51.56 };
+const lt = tileAt(-0.12, 51.5, 15);
+check(
+  "browsing while the setting is off is refused server-side",
+  (await post3("basemap-browse", { ...lb, zoom: 15 })).status === 403,
+);
+const setBrowse = await (await post3("basemap-settings", {
+  browse_cache: true,
+})).json();
+check(
+  "the browse toggle persists without touching the reminder",
+  setBrowse.browse_cache === true && setBrowse.update_reminder_days === 180,
+);
+check(
+  "a deep tile is absent before browsing",
+  (await fetch(`${base3}/tiles/15/${lt.x}/${lt.y}.mvt`)).status === 204,
+);
+const browsed = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
+  .json();
+check("a settled view fetches its missing tiles", browsed.fetched > 0);
+/* The one-byte threshold compacts immediately; wait for the writer to rest. */
+let compacted = false;
+for (let i = 0; i < 120 && !compacted; i++) {
+  const st = await (await post3("basemap-status")).json();
+  if (
+    !["planning", "fetching", "assets", "removing", "compacting"]
+      .includes(st.job?.state)
+  ) {
+    compacted = (await fetch(`${base3}/basemap/cache.pmtiles`, {
+      method: "HEAD",
+    })).status === 404;
+  }
+  if (!compacted) await new Promise((r) => setTimeout(r, 250));
+}
+check("the cache folds into the main archive past the threshold", compacted);
+check(
+  "the browsed tile serves after compaction",
+  (await fetch(`${base3}/tiles/15/${lt.x}/${lt.y}.mvt`)).status === 200,
+);
+const ledAfterBrowse = await (await post3("basemap-ledger")).json();
+check(
+  "browsed tiles stay anonymous -- no ledger entry",
+  ledAfterBrowse.entries?.length === 1,
+);
+const browsedAgain = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
+  .json();
+check("a second look fetches nothing", browsedAgain.fetched === 0);
+
 /* Let the swapped style fetch and render its tiles; anything it logs from
    here on fails the final console check. */
 await page.waitForTimeout(2500);

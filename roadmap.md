@@ -321,16 +321,6 @@ not cover.
       shape). Clipping subdivisions is mechanical now the machinery exists:
       emit simplified 50m admin-1 polygons in the catalogue and let the
       picker send them, at maybe 300 KB of catalogue growth.
-- [ ] **Auto-download tiles while browsing, as an opt-in setting.** Agreed
-      and designed (ledger entry, 2026-08-18): when online and enabled,
-      missing viewport tiles are fetched through the existing range-request
-      path and kept. The engineering crux is that merging into the big
-      archive rewrites it, which is fine per country and absurd per zoom
-      gesture — so browsed tiles accumulate in a small second-tier archive
-      served alongside the main one and are compacted into it on a size
-      threshold. Skip-if-held already makes a later country download reuse
-      every browsed tile. Off by default: a privacy-focused offline tool
-      must not phone home while panning without being asked.
 - [ ] **An update estimate before the update.** The downloaded-maps list
       shows each region's recorded size, and Update re-fetches at least
       that; quoting the fresh price first (a fresh-wins estimate) would make
