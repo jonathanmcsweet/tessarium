@@ -11,6 +11,9 @@ type t =
   | Basemap of string list  (** under the basemap root *)
   | Tile of { z : int; x : int; y : int }
       (** one vector tile, looked up across the tile archives *)
+  | Tile_json
+      (** the source metadata MapLibre needs -- zoom range and bounds,
+          derived from the archive headers *)
   | Api of string  (** the API sub-path, e.g. "session" *)
   | Not_found
   | Method_not_allowed
@@ -50,6 +53,10 @@ let of_request ~meth ~target =
       | Some [] -> if readable then Health else Method_not_allowed
       | Some _ -> Not_found
       | None -> (
+          match segments with
+          | [ "tiles.json" ] ->
+              if readable then Tile_json else Method_not_allowed
+          | _ -> (
           match strip_prefix "api" segments with
           | Some [ endpoint ] ->
               if meth = `POST then Api endpoint else Method_not_allowed
@@ -69,7 +76,7 @@ let of_request ~meth ~target =
                       if readable then Basemap rest else Method_not_allowed
                   | None ->
                       if readable then Asset segments
-                      else Method_not_allowed))))
+                      else Method_not_allowed)))))
 
 (* The basemap endpoints are part of the UI, not the opt-in encode/decode API:
    they carry a bounding box and no key material, so they stay reachable when

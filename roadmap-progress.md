@@ -1495,3 +1495,54 @@ own connection and TLS handshake; the leak was that nothing ever closed
 them. Closing per request keeps that accepted cost and removes the
 unbounded one.
 
+### 2026-08-18 — Tiles served through /tiles, with TileJSON from the headers
+
+**Phase:** 5 (offline basemap)
+
+**What:** The map's tiles now come from the server's /tiles/{z}/{x}/{y}.mvt
+endpoint instead of reading map.pmtiles directly through the pmtiles JS
+protocol -- the server consults the archives in order (the browse cache
+first, once it exists, then the main archive), serves stored bytes with
+content-encoding from the archive's tile compression (inflating for
+clients that do not accept it, same policy as the embedded assets), and
+answers a tile nobody holds with a quiet 204 the map renders as nothing.
+Source metadata comes from a /tiles.json endpoint deriving zoom range and
+bounds from the archive headers. The pmtiles JS dependency is gone; the
+e2e fixture's tiles are now gzipped like the real planet build, so the
+content-encoding path the browser decodes is under test.
+
+**Rationale:** this is the structural half of the approved browse cache: a
+second archive can only be consulted by something that sees both, and that
+something is the server. 204 rather than 404 for absent tiles because past
+the coverage edge an empty tile is a normal answer, not an error to log on
+every pan.
+
+**Follow-on:** the browse cache itself (cache.pmtiles, the browse endpoint,
+compaction, the opt-in setting).
+
+### 2026-08-18 — Tile endpoint review findings fixed
+
+**Phase:** 5 (offline basemap)
+
+**What:** The adversarial review reproduced a high-severity regression in a
+live browser: the style hardcoded maxzoom 15, and MapLibre only overzooms
+past the SOURCE's stated depth -- so a world-at-z6 archive (the product's
+own recommended first download) rendered a blank basemap at street zoom
+over data it held. The pmtiles protocol used to supply that metadata from
+the archive header; the /tiles.json endpoint now restores it, plus bounds,
+and the e2e pins the source's effective maxzoom to the archive's. Also
+found and fixed: HEAD /tiles/ wrote the tile body after its headers,
+poisoning keep-alive connections (now an Expert response that writes
+nothing on HEAD); the 204 carried a content-length, which RFC 9110
+forbids (rebuilt without one, plus cache-control); tiles ignored
+Accept-Encoding where the asset path inflates for non-gzip clients (now
+mirrored); and the gzip branch was untested because the fixture was
+uncompressed (now gzipped). TileJSON tile URLs are absolute, built from
+the request's validated Host header -- MapLibre substitutes them inside a
+blob-URL worker where relative URLs have no base.
+
+**Rationale:** the reviewer's framing was right: the pmtiles protocol was
+quietly supplying source metadata, and replacing the transport without
+replacing the metadata was the regression. TileJSON replaces all of it in
+one endpoint and buys back bounds for free.
+

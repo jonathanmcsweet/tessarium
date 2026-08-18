@@ -85,88 +85,9 @@ let respond_json cfg ~status json =
 let error cfg ~status message =
   respond_json cfg ~status (`Assoc [ ("error", `String message) ])
 
-(* ------------------------------------------------------------------ tiles *)
-
-(* One vector tile, looked up across the tile archives in order -- the
-   browse cache first when it exists (newer wins), then the main archive.
-   Bytes go out exactly as stored, with content-encoding naming the
-   archive's tile compression, so the server never inflates what the
-   browser can. A tile nobody holds is 204, not 404: past the edge of what
-   was downloaded, an empty tile is a normal answer the map renders as
-   nothing, where an error would be logged as one -- on every pan. *)
-let tile_files = [ "cache.pmtiles"; "map.pmtiles" ]
-
-let serve_tile cfg ~basemap_root ~z ~x ~y =
-  let id = Pmtiles.Tile_id.of_zxy ~z ~x ~y in
-  let found =
-    Eio.Switch.run @@ fun sw ->
-    List.find_map
-      (fun name ->
-        let path = Eio.Path.(basemap_root / name) in
-        match Eio.Path.kind ~follow:true path with
-        | `Regular_file -> (
-            (* Opened per request and closed with it: the root directory is
-               capped at 16 KB by the format, so this is a header and a
-               handful of small reads against the page cache. A rename
-               cannot tear it -- the fd pins whichever inode it opened. *)
-            match
-              let archive =
-                Pmtiles.Archive.open_
-                  (Pmtiles_source.file_source (Eio.Path.open_in ~sw path))
-              in
-              Option.map
-                (fun bytes -> (bytes, archive.Pmtiles.Archive.header))
-                (Pmtiles.Archive.tile archive id)
-            with
-            | v -> v
-            | exception e ->
-                Logs.warn (fun m ->
-                    m "tile %d/%d/%d: unreadable %s: %s" z x y name
-                      (Printexc.to_string e));
-                None)
-        | _ -> None)
-      tile_files
-  in
-  match found with
-  | None ->
-      (* MapLibre treats 204 as an empty tile and asks no questions. *)
-      ( respond_string cfg ~status:`No_content
-          ~content_type:"application/x-protobuf" "",
-        `No_content )
-  | Some (bytes, header) ->
-      let encoding =
-        match header.Pmtiles.Header.tile_compression with
-        | Pmtiles.Header.Gzip -> [ ("content-encoding", "gzip") ]
-        | Pmtiles.Header.Brotli -> [ ("content-encoding", "br") ]
-        | Pmtiles.Header.Zstd -> [ ("content-encoding", "zstd") ]
-        | Pmtiles.Header.None_ | Pmtiles.Header.Unknown -> []
-      in
-      let headers =
-        Http.Header.of_list
-          (("content-type", "application/x-protobuf")
-          :: ("content-length", string_of_int (String.length bytes))
-          (* Revalidate, never trust: an update or removal changes tiles
-             under the same URL. MapLibre's own in-memory cache carries the
-             session; the style's ?v= carries the swaps. *)
-          :: ("cache-control", "no-cache")
-          :: (encoding @ security_headers cfg))
-      in
-      ( ( `Response
-            (Cohttp_eio.Server.respond ~headers ~status:`OK
-               ~body:(Cohttp_eio.Body.of_string bytes) ()),
-          String.length bytes ),
-        `OK )
-
-(* ------------------------------------------------------- embedded assets *)
-
-(* The built UI, compiled into the binary. This is what makes the desktop
-   target one file rather than a file plus a directory that has to travel with
-   it. Empty when the UI has not been built, in which case everything falls
-   through to the directory named by --ui.
-
-   Stored gzipped and normally served that way. A client that will not accept
-   gzip gets it decompressed rather than a 406: browsers all accept it, and the
-   exceptions are curl and scripts, which should still work. *)
+(* Used by tiles and embedded assets alike: gzip is served as-is to a client
+   that accepts it and inflated for one that does not -- browsers all accept
+   it, and the exceptions are curl and scripts, which should still work. *)
 let accepts_gzip headers =
   match Http.Header.get headers "accept-encoding" with
   | None -> false
@@ -178,6 +99,149 @@ let accepts_gzip headers =
       in
       contains 0
 
+(* ------------------------------------------------------------------ tiles *)
+
+(* Tile archives in lookup order: the browse cache first when it exists
+   (newer wins), then the main archive. Opened per request and closed with
+   it: the root directory is capped at 16 KB by the format, so this is a
+   header and a handful of small reads against the page cache, and a rename
+   cannot tear an open handle -- the fd pins whichever inode it opened. *)
+let tile_files = [ "cache.pmtiles"; "map.pmtiles" ]
+
+let open_tile_archives ~basemap_root ~sw =
+  List.filter_map
+    (fun name ->
+      let path = Eio.Path.(basemap_root / name) in
+      match Eio.Path.kind ~follow:true path with
+      | `Regular_file -> (
+          match
+            Pmtiles.Archive.open_
+              (Pmtiles_source.file_source (Eio.Path.open_in ~sw path))
+          with
+          | archive -> Some (name, archive)
+          | exception e ->
+              Logs.warn (fun m ->
+                  m "tile archive %s: unreadable: %s" name
+                    (Printexc.to_string e));
+              None)
+      | _ -> None)
+    tile_files
+
+(* The source metadata the pmtiles protocol used to hand MapLibre from the
+   archive header, restated as TileJSON. The zoom range is load-bearing:
+   MapLibre pins canonical tile requests at the source's maxzoom and
+   overzooms past it, so a hardcoded 15 over a world-at-z6 archive asked
+   for z15 tiles nobody holds and rendered blank at street zoom -- over
+   data the archive had. The bounds keep it from asking about the rest of
+   the planet at all. [query] is the style's ?v= cache-buster, threaded
+   into the tile URLs so a swap changes them. *)
+let serve_tilejson cfg ~basemap_root ~host ~query =
+  Eio.Switch.run @@ fun sw ->
+  let headers =
+    List.map
+      (fun (_, a) -> a.Pmtiles.Archive.header)
+      (open_tile_archives ~basemap_root ~sw)
+  in
+  let e7f v = float_of_int v /. 1e7 in
+  let min_zoom, max_zoom, bounds =
+    match headers with
+    | [] -> (0, 15, [ -180.; -85.; 180.; 85. ])
+    | h :: t ->
+        let fold f field = List.fold_left (fun acc h -> f acc (field h)) (field h) t in
+        ( fold min (fun (h : Pmtiles.Header.t) -> h.Pmtiles.Header.min_zoom),
+          fold max (fun h -> h.Pmtiles.Header.max_zoom),
+          [
+            e7f (fold min (fun h -> h.Pmtiles.Header.min_lon_e7));
+            e7f (fold min (fun h -> h.Pmtiles.Header.min_lat_e7));
+            e7f (fold max (fun h -> h.Pmtiles.Header.max_lon_e7));
+            e7f (fold max (fun h -> h.Pmtiles.Header.max_lat_e7));
+          ] )
+  in
+  respond_json cfg ~status:`OK
+    (`Assoc
+       [
+         ("tilejson", `String "3.0.0");
+         (* Absolute, as the TileJSON spec requires -- MapLibre substitutes
+            tile URLs inside a blob-URL worker, where a relative one has no
+            base to resolve against. The host is the client's own Host
+            header; this server is loopback-only plain HTTP. *)
+         ( "tiles",
+           `List
+             [ `String ("http://" ^ host ^ "/tiles/{z}/{x}/{y}.mvt" ^ query) ]
+         );
+         ("minzoom", `Int min_zoom);
+         ("maxzoom", `Int max_zoom);
+         ("bounds", `List (List.map (fun v -> `Float v) bounds));
+       ])
+
+(* One vector tile. Bytes go out exactly as stored when the client accepts
+   the archive's compression, inflated for one that does not -- same policy
+   as the embedded assets, for the same curl-and-scripts reason. A tile
+   nobody holds is 204, not 404: past the edge of what was downloaded, an
+   empty tile is a normal answer the map renders as nothing, where an error
+   would be logged as one -- on every pan. *)
+let serve_tile cfg ~basemap_root ~meth ~client_headers ~z ~x ~y =
+  let id = Pmtiles.Tile_id.of_zxy ~z ~x ~y in
+  let found =
+    Eio.Switch.run @@ fun sw ->
+    List.find_map
+      (fun (name, archive) ->
+        match Pmtiles.Archive.tile archive id with
+        | v -> Option.map (fun b -> (b, archive.Pmtiles.Archive.header)) v
+        | exception e ->
+            Logs.warn (fun m ->
+                m "tile %d/%d/%d: unreadable %s: %s" z x y name
+                  (Printexc.to_string e));
+            None)
+      (open_tile_archives ~basemap_root ~sw)
+  in
+  match found with
+  | None ->
+      (* No content-length on a 204 (RFC 9110), and nothing written --
+         cohttp's string-body path would add the length back, so this is an
+         Expert response like the found case. *)
+      let headers =
+        Http.Header.of_list
+          (("cache-control", "no-cache") :: security_headers cfg)
+      in
+      let response = Http.Response.make ~status:`No_content ~headers () in
+      (`Expert (response, fun _ic _oc -> ()), `No_content, 0, Http_range.Whole)
+  | Some (bytes, header) ->
+      let bytes, encoding =
+        match header.Pmtiles.Header.tile_compression with
+        | Pmtiles.Header.Gzip when accepts_gzip client_headers ->
+            (bytes, [ ("content-encoding", "gzip") ])
+        | Pmtiles.Header.Gzip -> (Gzip.decompress bytes, [])
+        | Pmtiles.Header.Brotli -> (bytes, [ ("content-encoding", "br") ])
+        | Pmtiles.Header.Zstd -> (bytes, [ ("content-encoding", "zstd") ])
+        | Pmtiles.Header.None_ | Pmtiles.Header.Unknown -> (bytes, [])
+      in
+      let headers =
+        Http.Header.of_list
+          (("content-type", "application/x-protobuf")
+          :: ("content-length", string_of_int (String.length bytes))
+          (* Revalidate, never trust: an update or removal changes tiles
+             under the same URL. MapLibre's own in-memory cache carries the
+             session; the style's ?v= carries the swaps. *)
+          :: ("cache-control", "no-cache")
+          :: ("vary", "accept-encoding")
+          :: (encoding @ security_headers cfg))
+      in
+      let response = Http.Response.make ~status:`OK ~headers () in
+      (* HEAD gets the headers and no body, or the tile bytes would be
+         parsed as the start of the next response on this connection. *)
+      let write _ic oc = if meth <> `HEAD then Write.string oc bytes in
+      (`Expert (response, write), `OK, String.length bytes, Http_range.Whole)
+
+(* ------------------------------------------------------- embedded assets *)
+
+(* The built UI, compiled into the binary. This is what makes the desktop
+   target one file rather than a file plus a directory that has to travel with
+   it. Empty when the UI has not been built, in which case everything falls
+   through to the directory named by --ui.
+
+   Stored gzipped and normally served that way; [accepts_gzip] above decides
+   whether a client takes them as stored. *)
 let serve_embedded cfg ~segments ~meth ~headers =
   match Embedded_assets.find (String.concat "/" segments) with
   | None -> None
@@ -675,8 +739,41 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
             let now = Eio.Time.now clock in
             simple (handle_api cfg sessions limiter random ~endpoint ~body ~now) `OK
       | Route.Tile { z; x; y } ->
-          let (result, sent), status = serve_tile cfg ~basemap_root ~z ~x ~y in
-          (result, status, sent, Http_range.Whole)
+          serve_tile cfg ~basemap_root ~meth
+            ~client_headers:(Http.Request.headers request) ~z ~x ~y
+      | Route.Tile_json ->
+          (* Only the style's own ?v= cache-buster is reflected into the
+             tile URLs; anything else is dropped rather than echoed. *)
+          let query =
+            match String.index_opt target '?' with
+            | Some i ->
+                let q = String.sub target i (String.length target - i) in
+                let n = String.length q in
+                if
+                  n > 3 && n <= 24
+                  && String.sub q 0 3 = "?v="
+                  && String.for_all
+                       (fun c -> c >= '0' && c <= '9')
+                       (String.sub q 3 (n - 3))
+                then q
+                else ""
+            | None -> ""
+          in
+          let host =
+            match Http.Header.get (Http.Request.headers request) "host" with
+            | Some h
+              when String.length h <= 260
+                   && String.for_all
+                        (function
+                          | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '.' | '-'
+                          | ':' | '[' | ']' ->
+                              true
+                          | _ -> false)
+                        h ->
+                h
+            | _ -> "127.0.0.1"
+          in
+          simple (serve_tilejson cfg ~basemap_root ~host ~query) `OK
       | Route.Basemap segments ->
           serve_file cfg ~root:basemap_root ~segments ~meth ~range_header
             ~immutable:false

@@ -448,6 +448,21 @@ const gridRefilled = await page
   .then(() => true, () => false);
 check("and the grid refills after the swap", gridRefilled);
 
+/* The archive holds the world at z6 and the map sits at street zoom, so
+   everything on screen is overzoomed -- and MapLibre only overzooms past
+   the SOURCE's stated maxzoom. The source must therefore carry the archive
+   header's depth, not a hardcoded number: a source pinned at 15 requested
+   z15 tiles nobody held and rendered a blank basemap over data the archive
+   had. (The fixture's tiles carry no styled layers, so this is asserted on
+   the source itself rather than on rendered features.) */
+const sourceDepth = await page
+  .waitForFunction(
+    () => window.__tessarium_map?.getSource("protomaps")?.maxzoom === 6,
+    { timeout: 30_000 },
+  )
+  .then(() => true, () => false);
+check("the map source takes its depth from the archive header", sourceDepth);
+
 /* From here on, basemap errors are real: the tiles on disk came from the
    fixture and MapLibre must parse every one of them cleanly. */
 basemapReady = true;
@@ -461,7 +476,14 @@ const worldTile = await fetch(`${base}/tiles/0/0/0.mvt`);
 check(
   "the world tile serves through the tile endpoint after the download",
   worldTile.status === 200
+    && worldTile.headers.get("content-encoding") === "gzip"
     && (await worldTile.arrayBuffer()).byteLength > 0,
+);
+const tilejson = await (await fetch(`${base}/tiles.json`)).json();
+check(
+  "tiles.json states the archive's real depth and bounds",
+  tilejson.maxzoom === 6 && tilejson.minzoom === 0
+    && Array.isArray(tilejson.bounds) && tilejson.bounds.length === 4,
 );
 check(
   "the sprite sheet arrived via the assets tarball",
@@ -506,6 +528,10 @@ const zooms = new Uint8Array(await zoomBytes.arrayBuffer());
 check(
   `the merged archive spans zoom 0 to 15 (got ${zooms[0]}-${zooms[1]})`,
   zooms[0] === 0 && zooms[1] === 15,
+);
+check(
+  "tiles.json follows the archive's growth",
+  (await (await fetch(`${base}/tiles.json`)).json()).maxzoom === 15,
 );
 
 /* Asking again for what is already on disk: the estimate must say "you have

@@ -150,6 +150,9 @@ let () =
   routes `GET "/tiles/-1/0/0.mvt" Route.Not_found;
   routes `GET "/tiles/27/0/0.mvt" Route.Not_found;
   routes `POST "/tiles/0/0/0.mvt" Route.Method_not_allowed;
+  routes `GET "/tiles.json" Route.Tile_json;
+  routes `GET "/tiles.json?v=4" Route.Tile_json;
+  routes `POST "/tiles.json" Route.Method_not_allowed;
 
   (* A single-page app owns its own routes: a deep link must survive a reload,
      but a missing script must stay a 404 or every typo looks like the app. *)

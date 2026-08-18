@@ -70,9 +70,12 @@ const buildStyle = (version: number): maplibregl.StyleSpecification => ({
   sources: {
     protomaps: {
       type: "vector",
-      tiles: [`${window.location.origin}/tiles/{z}/{x}/{y}.mvt?v=${version}`],
-      /* The planet build's depth; vector tiles overzoom crisply past it. */
-      maxzoom: 15,
+      /* TileJSON from the server, never hardcoded numbers: the zoom range
+         and bounds come from the archive headers, and the maxzoom is
+         load-bearing -- overzoom starts from the source's stated depth, so
+         a wrong 15 over a world-at-z6 archive renders blank at street
+         zoom over data the archive holds. */
+      url: `/tiles.json?v=${version}`,
       attribution:
         '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
     },
