@@ -1343,3 +1343,24 @@ scrubbed from the binaries first (recorded on the verifiable-builds item).
 **Rationale:** a reproducibility check that cannot pass, guarding a
 dependency floor that cannot hold, is worse than none -- it certifies.
 
+### 2026-08-18 — Ten-million-point differential sweep, key-varying corpus
+
+**Phase:** 1-3 (the extraction-trust gap)
+
+**What:** The differential corpus can now vary its key:
+ocaml/tools/differential.exe takes --mnemonic and --passphrase and stamps
+them into the corpus header, and js/differential.mjs derives its key from
+that header -- so a sweep now exercises the KDF chain and the Feistel
+schedule differentially, not just the grid under one fixed permutation.
+The CI sweep grew 16x (2,000 -> 20,000 random points; ~32,000 with seam
+weighting, ~15 s). The deep run: five configurations -- four distinct
+24-word seeds and one with a TREZOR passphrase, distinct RNG seeds --
+of 2,012,298 points each, 10,061,490 total, every one agreeing between
+the extracted OCaml and the independently written JS on cell, centre,
+address and round-trip: zero disagreements. Each configuration includes
+all 12,287 band-seam straddles, where an extraction bug would hide.
+
+**Rationale:** the extraction gap admits no cheap proof; what it admits is
+evidence at scale, and evidence that also spans keys is strictly stronger
+than the same points under one key.
+
