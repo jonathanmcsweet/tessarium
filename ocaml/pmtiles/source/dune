@@ -11,4 +11,5 @@
   mirage-crypto-rng.unix
   ca-certs-nss
   domain-name
-  uri))
+  uri
+  yojson))

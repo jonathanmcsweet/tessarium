@@ -33,11 +33,12 @@ let run source_desc url output bbox max_zoom min_zoom =
   Eio.Switch.run @@ fun sw ->
   let fs = Eio.Stdenv.fs env in
 
-  let src =
-    Pmtiles_source.open_url ~sw ~fs ~net:(Eio.Stdenv.net env) url
-  in
+  let net = Eio.Stdenv.net env in
+  let resolved = Pmtiles_source.resolve ~sw ~net url in
+  let src = Pmtiles_source.open_url ~sw ~fs ~net resolved in
 
-  Printf.printf "reading %s\n%!" source_desc;
+  if resolved <> url then Printf.printf "%s is %s\n%!" source_desc resolved;
+  Printf.printf "reading %s\n%!" resolved;
   let archive = Pmtiles.Archive.open_ src in
   let h = archive.Pmtiles.Archive.header in
   Printf.printf "  zooms %d-%d, %d tiles, %s\n%!" h.Pmtiles.Header.min_zoom
@@ -89,7 +90,10 @@ let run source_desc url output bbox max_zoom min_zoom =
 open Cmdliner
 
 let url =
-  let doc = "Source PMTiles archive: an https:// URL or a local path." in
+  let doc =
+    "Source PMTiles archive: an https:// URL, a local path, or 'latest' for \
+     the newest Protomaps daily planet build."
+  in
   Arg.(required & pos 0 (some string) None & info [] ~docv:"SOURCE" ~doc)
 
 let output =

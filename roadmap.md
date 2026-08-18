@@ -503,6 +503,9 @@ Deferred deliberately: web and Linux desktop first, both fully working.
 - **Basemap distribution.** Settled enough to ship: the extractor reads the
   Protomaps planet build directly over HTTP range requests, so no one has to
   host region extracts — a client pulls exactly the region it wants out of
-  someone else's already-public bucket. What remains open is whether to keep
-  depending on `demo-bucket.protomaps.com`, which is a demo bucket and carries
-  no availability promise. A self-hosted mirror of the planet build is ~128 GB.
+  someone else's already-public bucket. The demo-bucket half of this question
+  answered itself: the URL was deleted, and the default source now resolves
+  the newest dated daily build from the published listing at use time
+  (ledger, 2026-08-18). What remains open is independence: Protomaps promises
+  nothing about the daily builds either, and a self-hosted mirror of the
+  planet build is ~137 GB.

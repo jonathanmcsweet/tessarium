@@ -95,9 +95,9 @@ no runtime to install — the UI is compiled into the binary. It does link
 `libgmp` through Zarith, which is the one thing a target machine needs.
 
 `tools/fetch-basemap.sh -b min_lon,min_lat,max_lon,max_lat -z 15` fetches
-anywhere else. Tiles come out of the Protomaps planet build over HTTP range
-requests, so only the region asked for is transferred rather than the 128 GB
-archive.
+anywhere else. Tiles come out of the newest Protomaps daily planet build over
+HTTP range requests, so only the region asked for is transferred rather than
+the ~137 GB archive.
 
 Everything is served from one origin — tiles, glyphs and sprites included. A
 style that fetches its labels from a CDN looks perfect online and renders as

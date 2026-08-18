@@ -101,6 +101,7 @@ let breathe ?cancel () =
     end
 
 let open_source ~sw ~fs ~net ~source =
+  let source = Pmtiles_source.resolve ~sw ~net source in
   let src = Pmtiles_source.open_url ~sw ~fs ~net source in
   let archive = Pmtiles.Archive.open_ src in
   (src, archive)

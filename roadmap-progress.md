@@ -1370,3 +1370,29 @@ reporter, and check-suites.sh refuses a zero-point differential line.
 evidence at scale, and evidence that also spans keys is strictly stronger
 than the same points under one key.
 
+### 2026-08-18 — Basemap source: "latest" resolves the newest daily build
+
+**Phase:** 5 (offline basemap)
+
+**What:** `demo-bucket.protomaps.com/v4.pmtiles` — the default tile source —
+was deleted upstream, so every download and estimate failed with a bare
+"HTTP 404 fetching bytes 0-1048575". The default `--basemap-source` is now
+`latest`: at each estimate or download the server resolves the newest dated
+daily build from Protomaps' published listing
+(build-metadata.protomaps.dev/builds.json) and reads that. The CLI and
+fetch-basemap.sh accept the same sentinel; an explicit URL or path still
+passes through untouched. Range-request errors now name the URL they hit.
+Seven checks in the pmtiles suite pin the listing parsing (newest wins over
+listing order, junk entries skipped, empty/HTML/object listings are errors).
+
+**Rationale:** this was the roadmap's open "demo bucket carries no
+availability promise" question, settled by the bucket vanishing. Pinning a
+dated build instead would rot identically — only the last ~60 dated builds
+exist at any moment. Resolving per operation rather than at startup is
+deliberate: a long-running server outlives any single daily build. The daily
+builds are still tileset schema 4.x (4.15.2), which the UI style targets.
+
+**Follow-on:** the self-hosted-mirror half of the question stays open on the
+roadmap: Protomaps promises nothing about the daily builds either, and a
+mirror is ~137 GB.
+

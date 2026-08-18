@@ -557,5 +557,42 @@ let () =
               parts
             |> List.sort_uniq compare = full);
 
+  (* ------------------------------------------------ newest planet build *)
+  (* The default source resolves "latest" against the Protomaps build
+     listing, because the old stable URL was deleted from under the project
+     and only ~60 dated builds exist at a time. These pin the parsing: the
+     listing's own order is not trusted, and junk entries are skipped rather
+     than fatal. *)
+  let entry key = Printf.sprintf {|{"key":"%s","size":1}|} key in
+  let listing keys = "[" ^ String.concat "," (List.map entry keys) ^ "]" in
+  check "newest build wins regardless of listing order"
+    (Pmtiles_source.newest_build
+       (listing [ "20260817.pmtiles"; "20260818.pmtiles"; "20230918.pmtiles" ])
+    = Ok "https://build.protomaps.com/20260818.pmtiles");
+  check "non-dated keys are skipped"
+    (Pmtiles_source.newest_build
+       (listing [ "latest.pmtiles"; "20260801.pmtiles"; "readme.txt" ])
+    = Ok "https://build.protomaps.com/20260801.pmtiles");
+  check "entries without a key are skipped"
+    (Pmtiles_source.newest_build
+       {|[{"size":1},{"key":7},{"key":"20260801.pmtiles","size":1}]|}
+    = Ok "https://build.protomaps.com/20260801.pmtiles");
+  check "an empty listing is an error"
+    (match Pmtiles_source.newest_build "[]" with
+    | Error _ -> true
+    | Ok _ -> false);
+  check "a listing of only junk is an error"
+    (match Pmtiles_source.newest_build (listing [ "latest.pmtiles" ]) with
+    | Error _ -> true
+    | Ok _ -> false);
+  check "non-JSON is an error, not an exception"
+    (match Pmtiles_source.newest_build "<html>Not Found</html>" with
+    | Error _ -> true
+    | Ok _ -> false);
+  check "a JSON object is an error, not an exception"
+    (match Pmtiles_source.newest_build {|{"builds":[]}|} with
+    | Error _ -> true
+    | Ok _ -> false);
+
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "pmtiles round-trips"

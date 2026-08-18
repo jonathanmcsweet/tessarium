@@ -11,14 +11,15 @@
 #   tools/fetch-basemap.sh -b -74.05,40.68,-73.90,40.80 -z 15
 #
 # Tiles come from the Protomaps daily planet build over HTTP range requests --
-# only the requested region is transferred, not the 128 GB archive.
+# only the requested region is transferred, not the ~137 GB archive. The
+# newest build is resolved at fetch time; -s pins a URL or local path instead.
 
 set -euo pipefail
 
 BBOX="-0.25,51.45,0.0,51.55"
 MAX_ZOOM=15
 OUT_DIR="basemap"
-SOURCE="https://demo-bucket.protomaps.com/v4.pmtiles"
+SOURCE="latest"
 ASSETS="https://codeload.github.com/protomaps/basemaps-assets/tar.gz/refs/heads/main"
 
 usage() {

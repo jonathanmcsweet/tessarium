@@ -112,12 +112,13 @@ let connect_src =
    cannot point this server at an attacker's archive. *)
 let basemap_source =
   let doc =
-    "Where the in-app downloader reads tiles: a PMTiles URL or local path. \
-     The browser never supplies this."
+    "Where the in-app downloader reads tiles: a PMTiles URL, a local path, \
+     or 'latest' for the newest Protomaps daily planet build. The browser \
+     never supplies this."
   in
   Arg.(
     value
-    & opt string "https://demo-bucket.protomaps.com/v4.pmtiles"
+    & opt string Pmtiles_source.latest
     & info [ "basemap-source" ] ~docv:"URL" ~doc)
 
 let basemap_assets =

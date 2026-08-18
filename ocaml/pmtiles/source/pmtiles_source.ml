@@ -43,9 +43,14 @@ let http_source ~client ~sw ~uri =
                length (String.length data))
         else data
     | s ->
+        (* The URL matters in this message: a planet build that has been
+           pruned from its bucket 404s here, and "404" alone gives the person
+           reading the toast nothing to check. *)
         failwith
-          (Printf.sprintf "HTTP %d fetching bytes %d-%d"
-             (Http.Status.to_int s) offset (offset + length - 1))
+          (Printf.sprintf "HTTP %d fetching bytes %d-%d of %s"
+             (Http.Status.to_int s) offset
+             (offset + length - 1)
+             (Uri.to_string uri))
   in
   { Pmtiles.Archive.read = (fun ~offset ~length -> fetch ~offset ~length) }
 
@@ -125,3 +130,51 @@ let get_body ~sw ~net url =
   match Http.Response.status response with
   | `OK -> Eio.Flow.read_all body
   | s -> failwith (Printf.sprintf "HTTP %d fetching %s" (Http.Status.to_int s) url)
+
+(* ------------------------------------------------- the newest planet build *)
+
+(* Protomaps' stable demo-bucket URL disappeared one day with a 404, and only
+   the last ~60 dated daily builds exist at any moment, so a pinned date
+   would rot the same way. "latest" resolves the newest daily build from the
+   published listing at use time -- per operation, not at startup, because a
+   long-running server outlives any single build. *)
+let latest = "latest"
+let builds_listing = "https://build-metadata.protomaps.dev/builds.json"
+let build_base = "https://build.protomaps.com/"
+
+(* Daily builds are named YYYYMMDD.pmtiles, which makes string order date
+   order. Anything else in the listing is not a daily build and is skipped. *)
+let is_dated_key k =
+  match Filename.chop_suffix_opt ~suffix:".pmtiles" k with
+  | Some d when d <> "" -> String.for_all (fun c -> c >= '0' && c <= '9') d
+  | _ -> false
+
+let newest_build listing =
+  match Yojson.Safe.from_string listing with
+  | exception _ -> Error "the build listing is not JSON"
+  | `List entries ->
+      let newest =
+        List.fold_left
+          (fun best entry ->
+            match entry with
+            | `Assoc fields -> (
+                match List.assoc_opt "key" fields with
+                | Some (`String k) when is_dated_key k -> (
+                    match best with
+                    | Some b when b >= k -> best
+                    | _ -> Some k)
+                | _ -> best)
+            | _ -> best)
+          None entries
+      in
+      (match newest with
+      | Some k -> Ok (build_base ^ k)
+      | None -> Error "the build listing names no dated builds")
+  | _ -> Error "the build listing is not a JSON array"
+
+let resolve ~sw ~net url =
+  if url <> latest then url
+  else
+    match newest_build (get_body ~sw ~net builds_listing) with
+    | Ok resolved -> resolved
+    | Error m -> failwith (Printf.sprintf "%s: %s" builds_listing m)

@@ -58,8 +58,11 @@ Quick start
 
   1. Fetch a basemap for wherever you care about:
 
-       ./tessarium-basemap https://demo-bucket.protomaps.com/v4.pmtiles \
+       ./tessarium-basemap latest \
          --bbox=-0.25,51.45,0.0,51.55 --max-zoom 15 --out basemap/map.pmtiles
+
+     ("latest" is the newest Protomaps daily planet build; an https:// URL
+     or a local .pmtiles path works there too.)
 
      You also need glyphs and sprites, once:
 
