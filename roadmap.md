@@ -290,6 +290,41 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
+- [ ] **Finding a place: search by name or street.** The map can only be
+      navigated by hand. Nothing lets a user type "Gare de Lyon" or a street
+      name and go there, so the core flow — find a place, read its address —
+      is a manual hunt anywhere the user does not already know by sight. This
+      is the largest missing capability in the product.
+
+      The obvious implementation is the one this project cannot take. A hosted
+      geocoder — Nominatim, Photon, any commercial API — is handed the single
+      thing the app exists not to leak: the place the user is looking for. It
+      is the satellite-layer objection, but worse, because a search query
+      names the destination outright rather than implying it. The CSP allows
+      no remote origin at all today, and that is load-bearing.
+
+      The shape that fits: search what is already on disk. Protomaps basemap
+      tiles carry place, street and POI names in their vector layers, so a
+      downloaded region already contains its own gazetteer — it simply has no
+      index. Building one at download time (one pass over the tiles the
+      download already fetched, emitting names and centroids beside
+      map.pmtiles) keeps every query local, works offline, and covers exactly
+      the regions the user chose to keep. Size before building: the index for
+      a country-sized region, the cost of that extra pass, and how the index
+      stays coherent when a region is updated or removed — the same ownership
+      rule the browse cache needed, and the ledger already records which
+      regions exist.
+
+      What that route does NOT give is house numbers: the vector basemap
+      carries street geometry and names, not address points, so a street name
+      resolves to the street rather than the door. Address-level geocoding
+      needs a separate dataset (OpenAddresses) and its own download; treat it
+      as a later decision, not a blocker for name search.
+
+      Interacts with the coverage item below — a search cannot return results
+      from a region that was never downloaded, which is one more reason the
+      app has to say where its coverage ends.
+
 - [ ] **Giant downloads pay real overheads that a leaner design would not.**
       Brazil-sized regions now download at full street level, split into at
       most eight parts that each merge and rename atomically -- that
@@ -423,20 +458,6 @@ the one honest caveat.
       release workflow (not per-push CI) and produce the .AppImage there.
 
 ## Phase 8 — Later, unscheduled
-
-- [ ] **The cancelled-download prune has no automated test.** A download that
-      publishes a part and then stops -- cancelled, or failed inside the unit
-      loop -- prunes the browse cache from its terminal handler, because every
-      renamed part owns its region from that moment. The success path is
-      covered end to end; this one is not, and the reason is that the fixture
-      cannot produce a slow download: every tile id in it points at one shared
-      blob, so a region of any size is three HTTP requests and finishes in
-      under half a second -- measured, not assumed. Wider regions, smaller
-      budgets and more parts all stay inside that window, so a test would be
-      racing the download rather than testing it, and a flaky suite is worth
-      less than an honest gap. Closing it needs a deliberately slow source: a
-      fixture of genuinely distinct tile blobs, or a delaying proxy in the
-      harness the download must read through.
 
 - [ ] **Antimeridian browse fetches only the western half of the view.** The
       browse-cache request clamps the viewport box at ±180 rather than

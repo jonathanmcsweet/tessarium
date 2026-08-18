@@ -17,6 +17,11 @@ MULTIPART_PORT ?= 7375
 # Its source disagrees with its archive about tile compression, which the
 # server must refuse rather than write.
 MISMATCH_PORT ?= 7376
+# Downloads through a deliberately slow proxy, so one can be cancelled
+# halfway on purpose rather than by luck.
+CANCEL_PORT ?= 7377
+# The delaying proxy itself, run by the e2e script.
+PROXY_PORT ?= 7378
 
 .PHONY: all env verify extract build ui test test-core test-static test-ui run package package-deb package-appimage clean
 
@@ -79,8 +84,9 @@ test-static:
 test-ui:
 	@dune build ocaml/server/bin/main.exe ocaml/tools/gen_basemap_fixture.exe
 	@rm -rf _build/e2e-fixture _build/e2e-basemap _build/e2e-multipart \
-	  _build/e2e-mismatch \
-	  && mkdir -p _build/e2e-basemap _build/e2e-multipart _build/e2e-mismatch
+	  _build/e2e-mismatch _build/e2e-cancel \
+	  && mkdir -p _build/e2e-basemap _build/e2e-multipart _build/e2e-mismatch \
+	  _build/e2e-cancel
 	@./_build/default/ocaml/tools/gen_basemap_fixture.exe _build/e2e-fixture
 	@cp _build/e2e-fixture/map-shallow.pmtiles _build/e2e-mismatch/map.pmtiles
 	@./_build/default/ocaml/server/bin/main.exe \
@@ -102,18 +108,30 @@ test-ui:
 	  --basemap-source http://127.0.0.1:$(FIXTURE_PORT)/basemap/map-raw.pmtiles \
 	  --basemap-assets http://127.0.0.1:$(FIXTURE_PORT)/basemap/assets.tar.gz & \
 	  echo $$! > .mismatch.pid; \
+	  ./_build/default/ocaml/server/bin/main.exe \
+	  --port $(CANCEL_PORT) --basemap _build/e2e-cancel --no-open \
+	  --tile-budget 64,16,16 \
+	  --basemap-source http://127.0.0.1:$(PROXY_PORT)/basemap/map-slow.pmtiles \
+	  --basemap-assets http://127.0.0.1:$(FIXTURE_PORT)/basemap/assets.tar.gz & \
+	  echo $$! > .cancel.pid; \
 	  trap 'kill $$(cat .server.pid) $$(cat .fixture.pid) \
-	      $$(cat .multipart.pid) $$(cat .mismatch.pid) 2>/dev/null; \
-	    rm -f .server.pid .fixture.pid .multipart.pid .mismatch.pid' EXIT; \
+	      $$(cat .multipart.pid) $$(cat .mismatch.pid) \
+	      $$(cat .cancel.pid) 2>/dev/null; \
+	    rm -f .server.pid .fixture.pid .multipart.pid .mismatch.pid \
+	      .cancel.pid' EXIT; \
 	  for i in $$(seq 40); do \
 	    curl -sf -o /dev/null http://127.0.0.1:$(PORT)/healthz \
 	    && curl -sf -o /dev/null http://127.0.0.1:$(FIXTURE_PORT)/healthz \
 	    && curl -sf -o /dev/null http://127.0.0.1:$(MULTIPART_PORT)/healthz \
 	    && curl -sf -o /dev/null http://127.0.0.1:$(MISMATCH_PORT)/healthz \
+	    && curl -sf -o /dev/null http://127.0.0.1:$(CANCEL_PORT)/healthz \
 	    && break; sleep 0.25; \
 	  done; \
-	  ( cd ui && node test/e2e.mjs http://127.0.0.1:$(PORT) \
-	      http://127.0.0.1:$(MULTIPART_PORT) http://127.0.0.1:$(MISMATCH_PORT) )
+	  ( cd ui && E2E_PROXY_PORT=$(PROXY_PORT) \
+	      E2E_FIXTURE=http://127.0.0.1:$(FIXTURE_PORT) \
+	      node test/e2e.mjs http://127.0.0.1:$(PORT) \
+	      http://127.0.0.1:$(MULTIPART_PORT) http://127.0.0.1:$(MISMATCH_PORT) \
+	      http://127.0.0.1:$(CANCEL_PORT) )
 
 # No --ui: the binary serves the UI it was built with. Pass --ui to override
 # with a directory, which is what `npm run dev` wants.
