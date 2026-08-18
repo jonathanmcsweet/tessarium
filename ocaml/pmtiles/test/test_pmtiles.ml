@@ -748,7 +748,9 @@ let () =
       check "a tile's named feature is read whole"
         (layer_name = "places" && name = "Fixtureville" && kind = "locality"
        && weight = 4242.);
-      (* Centre of the extent at z0 is the centre of the world. *)
+      (* Deliberately NOT the centre of the world: at z0 the middle of the
+         extent is (0, 0), which a swapped axis, a flipped y or a missing
+         projection all still produce. *)
       check "and placed where the geometry says"
         (Float.abs lon < 0.001 && Float.abs lat < 0.001)
   | other ->
@@ -775,7 +777,47 @@ let () =
   in
   check "a field this reader does not know is stepped over"
     (List.length (Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0 with_extra) = 1);
-  check "rubbish is refused rather than guessed at"
+  (* Off-centre, in a tile that is not the world: this is the assertion that
+     a swapped axis or a dropped projection fails. Tile (1,0) at z2 spans
+     lon -90..-45 and lat 66.51..85.05. The geometry is zigzag-encoded, so
+     the stored 2048 is a delta of 1024 -- a quarter into the tile, which
+     both coordinates have to agree on. *)
+  let quarter = varint 9 ^ varint (2 * 1024) ^ varint (2 * 1024) in
+  let off_centre =
+    bfield 3
+      (vfield 15 2 ^ bfield 1 "places"
+      ^ bfield 2
+          (vfield 3 1
+          ^ bfield 2 (varint 0 ^ varint 0)
+          ^ bfield 4 quarter)
+      ^ bfield 3 "name"
+      ^ bfield 4 (bfield 1 "Corner")
+      ^ vfield 5 4096)
+  in
+  (match Pmtiles.Mvt.named ~z:2 ~x:1 ~y:0 off_centre with
+  | [ (_, _, _, _, lon, lat) ] ->
+      check
+        (Printf.sprintf "a point off the tile's centre projects back (%.3f, %.3f)"
+           lon lat)
+        (Float.abs (lon -. (-67.5)) < 0.01 && Float.abs (lat -. 82.676) < 0.01)
+  | _ -> check "a point off the tile's centre projects back" false);
+  (* A length that would overflow the bounds check it must fail. *)
+  check "a length near max_int is refused, not wrapped"
+    (match
+       Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0
+         ("\x1a" ^ "\xff\xff\xff\xff\xff\xff\xff\xff\x3f" ^ "pad")
+     with
+    | _ -> false
+    | exception Pmtiles.Mvt.Malformed _ -> true);
+  check "a truncated fixed32 value is refused"
+    (match
+       Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0
+         (bfield 3
+            (vfield 15 2 ^ bfield 1 "p" ^ bfield 4 (key 2 5 ^ "\x01\x02")))
+     with
+    | _ -> false
+    | exception Pmtiles.Mvt.Malformed _ -> true);
+    check "rubbish is refused rather than guessed at"
     (match Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0 "\xff\xff\xff" with
     | _ -> false
     | exception Pmtiles.Mvt.Malformed _ -> true);

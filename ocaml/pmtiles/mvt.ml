@@ -38,7 +38,10 @@ let varint s pos =
 (* A length-delimited field: its bytes, and where the next field starts. *)
 let bytes_of s pos =
   let len, pos = varint s pos in
-  if len < 0 || pos + len > String.length s then fail "length past the end";
+  (* Written as a subtraction because a varint can carry a length near
+     max_int, and [pos + len] would wrap past the check it is meant to
+     fail. *)
+  if len < 0 || len > String.length s - pos then fail "length past the end";
   (String.sub s pos len, pos + len)
 
 let skip s pos wire =
@@ -63,9 +66,11 @@ let fields s f =
   go 0
 
 let float_of_bits32 s pos =
+  if pos + 4 > String.length s then fail "fixed32 past the end";
   Int32.float_of_bits (String.get_int32_le s pos)
 
 let float_of_bits64 s pos =
+  if pos + 8 > String.length s then fail "fixed64 past the end";
   Int64.float_of_bits (String.get_int64_le s pos)
 
 (* zigzag, as protobuf sint and MVT geometry both use *)
@@ -189,28 +194,34 @@ let parse_layer s =
     go tags
   in
   let parse_feature s =
-    let tags = ref [] and geometry = ref "" in
+    (* Accumulated reversed and flipped once. Appending to the end per tag
+       is quadratic, and protobuf permits the unpacked spelling: a feature
+       with forty thousand tags took seven seconds that way, inside a job
+       fiber with no suspension point in it. *)
+    let rev_tags = ref [] and geometry = ref "" in
     fields s (fun ~field ~wire ~pos ->
         match (field, wire) with
         | 2, 2 ->
             let packed, pos = bytes_of s pos in
-            let rec unpack p acc =
-              if p >= String.length packed then List.rev acc
-              else
+            let rec unpack p =
+              if p < String.length packed then begin
                 let v, p = varint packed p in
-                unpack p (v :: acc)
+                rev_tags := v :: !rev_tags;
+                unpack p
+              end
             in
-            tags := unpack 0 [];
+            unpack 0;
             pos
         | 2, 0 ->
             let v, pos = varint s pos in
-            tags := !tags @ [ v ];
+            rev_tags := v :: !rev_tags;
             pos
         | 4, 2 ->
             let v, pos = bytes_of s pos in
             geometry := v;
             pos
         | _ -> skip s pos wire);
+    let tags = ref (List.rev !rev_tags) in
     match first_point !geometry with
     | None -> None
     | Some (x, y) ->

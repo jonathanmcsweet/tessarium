@@ -696,18 +696,43 @@ await page.waitForFunction(() => !document.querySelector(".download-card"), {
    The downloaded region carries its own names, and searching them must never
    leave the machine. Driven through the real box, because the claim is that a
    person can type a place and land on it. */
-const searched = await (await postJson("basemap-search", { q: "fixtu" })).json();
+const searched = await (await postJson("basemap-search", { q: "fixtu" }))
+  .json();
 check(
   "the index built from the download finds a place in it",
   searched.results?.[0]?.name === "Fixtureville"
     && searched.results[0].layer === "places",
 );
+/* The coordinates have to be real, not merely present: a swapped axis or a
+   dropped projection still returns a row, and the fixture's tiles are
+   identical everywhere, so only a bounds check catches it. */
+check(
+  "and places it somewhere on Earth",
+  Math.abs(searched.results[0].lon) <= 180
+    && Math.abs(searched.results[0].lat) <= 85.06,
+);
+/* limit is the server's to enforce, and the scan stops early because of it. */
+const limited = await (await postJson("basemap-search", { q: "fixtu", limit: 3 }))
+  .json();
+check("the result limit is honoured", limited.results?.length === 3);
+check(
+  "a limit outside 1..50 falls back to the default rather than being obeyed",
+  (await (await postJson("basemap-search", { q: "fixtu", limit: 9999 })).json())
+      .results?.length <= 10,
+);
+check(
+  "a one-character query is refused rather than scanned",
+  (await (await postJson("basemap-search", { q: "f" })).json()).results
+    ?.length === 0,
+);
 check(
   "and carries what ranks it",
-  searched.results[0].weight === 4242 && searched.results[0].kind === "locality",
+  searched.results[0].weight === 4242
+    && searched.results[0].kind === "locality",
 );
-const searchedFolded = await (await postJson("basemap-search", { q: "FIXTUREVILLE" }))
-  .json();
+const searchedFolded =
+  await (await postJson("basemap-search", { q: "FIXTUREVILLE" }))
+    .json();
 check(
   "case does not decide whether a place can be found",
   searchedFolded.results?.[0]?.name === "Fixtureville",
@@ -728,8 +753,10 @@ const beforeSearch = await page.evaluate(() => {
   return map ? [map.getCenter().lng, map.getCenter().lat] : null;
 });
 await page.locator("#place-search-input").fill("fixtu");
-await page.waitForSelector(".place-option", { timeout: 10_000 });
-check("typing a place name offers it", true);
+const offered = await page
+  .waitForSelector(".place-option", { timeout: 10_000 })
+  .then(() => true, () => false);
+check("typing a place name offers it", offered);
 await page.locator(".place-option").first().click();
 /* Waited for rather than slept through: flying across the world takes as
    long as the distance says, and a fixed pause is a race either way. */

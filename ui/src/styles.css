@@ -844,12 +844,12 @@ button:disabled {
   align-items: center;
   gap: 0.5rem;
   padding: 0 0.6rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--card);
+  border: 1px solid var(--line-strong);
   border-radius: 0.5rem;
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.15);
 }
-.place-search-field svg { color: var(--muted-text); flex: none; }
+.place-search-field svg { color: var(--ink-soft); flex: none; }
 .place-search-field input {
   border: 0;
   background: none;
@@ -860,7 +860,7 @@ button:disabled {
 }
 .place-search-field input:focus { outline: none; }
 .place-search-field:focus-within {
-  outline: 2px solid var(--focus);
+  outline: 2px solid var(--accent-text);
   outline-offset: 1px;
 }
 .place-results {
@@ -869,13 +869,13 @@ button:disabled {
   padding: 0.25rem;
   max-height: 18rem;
   overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--card);
+  border: 1px solid var(--line-strong);
   border-radius: 0.5rem;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
 }
-.place-option.active { background: var(--hover); }
-.place-option:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.place-option.active { background: #eef2f6; }
+.place-option:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
 .place-option {
   display: flex;
   border: 0;
@@ -893,5 +893,5 @@ button:disabled {
   cursor: pointer;
 }
 .place-name { font-weight: 600; }
-.place-kind { font-size: 0.8rem; color: var(--muted-text); }
-.place-empty { padding: 0.5rem 0.6rem; color: var(--muted-text); font-size: 0.9rem; }
+.place-kind { font-size: 0.8rem; color: var(--ink-soft); }
+.place-empty { padding: 0.5rem 0.6rem; color: var(--ink-soft); font-size: 0.9rem; }

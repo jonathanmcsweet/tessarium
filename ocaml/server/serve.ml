@@ -722,7 +722,7 @@ let handle_basemap cfg (ops : Basemap_download.ops)
               (match ops.search ~query:q ~limit with
               | Ok payload -> respond_json cfg ~status:`OK payload
               | Error e -> broken e)
-          | _ -> bad "expected q, a non-empty string of at most 120 characters")
+          | _ -> bad "expected q, a non-empty string of at most 120 bytes")
   | "basemap-settings" ->
       with_json body (fun json ->
           (* An empty body reads; either field alone writes just itself. *)

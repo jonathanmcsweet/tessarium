@@ -76,6 +76,11 @@ const Job = z.discriminatedUnion("state", [
     total_bytes: z.number(),
   }),
   z.object({
+    state: z.literal("indexing"),
+    done_tiles: z.number(),
+    total_tiles: z.number(),
+  }),
+  z.object({
     state: z.literal("done"),
     total_bytes: z.number(),
     parts: z.number().int().min(1),
@@ -99,7 +104,7 @@ export type JobStatus = z.infer<typeof JobStatus>;
 export const isRunning = (job: Job): boolean =>
   job.state === "planning" || job.state === "fetching"
   || job.state === "assets" || job.state === "removing"
-  || job.state === "compacting";
+  || job.state === "compacting" || job.state === "indexing";
 
 /* One row of the download ledger: a region the archive was asked to hold,
    as recorded inside the archive itself. `completed` is epoch seconds;

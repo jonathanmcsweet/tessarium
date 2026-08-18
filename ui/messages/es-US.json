@@ -72,6 +72,7 @@
   "map_removed_done": "Mapas eliminados — {size} liberados.",
   "map_download_adopt": "Registrar este mapa",
   "map_removed_none": "Mapa eliminado de la lista. Sus teselas se comparten con otras descargas y se conservan.",
+  "map_indexing_progress": "Leyendo los nombres del mapa — {done} de {total} teselas",
   "map_compacting_progress": "Ordenando los mapas guardados — {done} de {total}",
   "map_browse_toggle": "Completar el mapa mientras navegas en línea",
   "search_label": "Buscar un lugar",

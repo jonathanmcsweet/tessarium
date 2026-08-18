@@ -1730,6 +1730,25 @@ capital, so population -- which the basemap already carries -- decides first.
 Measured after the fix: France indexes in 22 s to 1.1 M entries, "Paris"
 answers with Paris.
 
+A review of the first cut found it shipped broken in ways the suite could not
+see, and those are fixed here. The UI parses the job state as a tagged union
+and throws on an unknown tag, so the new `indexing` state broke status polling
+on every download -- the fixture is too small to ever reach that state, so
+nothing caught it; the wire shape is now pinned by its own checks. The index
+walk ignored `run_length`, so run-compressed entries were read once and the
+tiles after them skipped, and progress could never reach its own total. The
+tag reader appended to a list per tag, which is quadratic: forty thousand
+unpacked tags took seven seconds inside a job fiber with no suspension point.
+A search collected and sorted every match before applying the limit -- a
+one-character query allocated 305 MB and sorted for 1.2 s without yielding --
+and now keeps only the best few as it scans. Five CSS variables did not exist,
+so the search box had no background, no border and no focus ring at all.
+Cancelling during the post-download index reported the finished download as
+cancelled. Names from tiles could carry a tab or newline and forge an index
+row with coordinates of their choosing. And the keyboard stayed live under a
+closed list, so Enter after Escape flew the map to something invisible.
+
 **Follow-on:** street coverage, index size and query latency at greater depth
 are recorded in roadmap.md; the map's controls moved to a left-hand rail
-because search took the corner they were in.
+because search took the corner they were in. Compaction now reindexes, so
+browsed places become findable.

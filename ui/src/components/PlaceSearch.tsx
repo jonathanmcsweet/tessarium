@@ -21,7 +21,7 @@ export function PlaceSearch(
   const [text, setText] = useState("");
   const [debounced, setDebounced] = useState("");
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
+  const [rawActive, setActive] = useState(0);
   const listId = useId();
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -32,6 +32,11 @@ export function PlaceSearch(
 
   const search = usePlaceSearch(debounced);
   const results = search.data?.results ?? [];
+  /* Clamped on read: a refetch can return fewer rows than the highlight was
+     sitting on, and a dangling aria-activedescendant points a screen reader
+     at an element that no longer exists. */
+  const active = Math.min(rawActive, Math.max(0, results.length - 1));
+  const listOpen = open && debounced.trim().length >= 2;
 
   /* Clicking away closes the list; the input keeps what was typed, because
      losing it would mean retyping to see the same answers. */
@@ -69,10 +74,10 @@ export function PlaceSearch(
           id="place-search-input"
           type="text"
           role="combobox"
-          aria-expanded={open && results.length > 0}
-          aria-controls={listId}
+          aria-expanded={listOpen}
+          aria-controls={listOpen ? listId : undefined}
           aria-autocomplete="list"
-          aria-activedescendant={open && results.length > 0
+          aria-activedescendant={listOpen && results.length > 0
             ? `${listId}-${active}`
             : undefined}
           autoComplete="off"
@@ -84,9 +89,27 @@ export function PlaceSearch(
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
+          /* Tabbing away closes it; without this the list hangs over the
+             map with focus somewhere else entirely. */
+          onBlur={(e) => {
+            if (!boxRef.current?.contains(e.relatedTarget as Node)) {
+              setOpen(false);
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               setOpen(false);
+              return;
+            }
+            /* Closed means closed. Without this the widget stays live under
+               a list nobody can see: Enter would fly the map to a result
+               that is not on screen, and the arrows would move an invisible
+               cursor. Down reopens, which is what a combobox does. */
+            if (!listOpen) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setOpen(true);
+              }
               return;
             }
             if (results.length === 0) return;
@@ -104,43 +127,49 @@ export function PlaceSearch(
           }}
         />
       </div>
-      {open && debounced.trim().length >= 2 && (
+      {listOpen && (
         /* Roles on divs rather than ul/li: a list is not interactive, and
            dressing one up as a listbox is what assistive technology has to
            un-guess. The options never take focus -- the input keeps it and
            points at the active one, which is what makes a combobox behave
            for both a keyboard and a screen reader. */
-        <div className="place-results" id={listId} role="listbox">
+        <div className="place-results">
           {results.length === 0
             ? (
-              <p className="place-empty">
+              /* Outside the listbox: a paragraph is not an option, and a
+                 listbox may only contain options. Announced instead. */
+              <p className="place-empty" role="status">
                 {search.isFetching ? m.search_searching() : m.search_none()}
               </p>
             )
-            : results.map((r, i) => (
-              /* A button, not a styled div: it is a thing you press, so it
+            : (
+              <div id={listId} role="listbox" aria-label={m.search_label()}>
+                {results.map((r, i) => (
+                  /* A button, not a styled div: it is a thing you press, so it
                  should be the element that already knows how -- focusable,
                  Enter and Space for free, and nothing to re-implement. The
                  input keeps focus and points here with
                  aria-activedescendant, which is what makes arrow keys work
                  without the options stealing it. */
-              <button
-                type="button"
-                key={`${r.name}-${r.lon}-${r.lat}`}
-                id={`${listId}-${i}`}
-                role="option"
-                tabIndex={-1}
-                aria-selected={i === active}
-                className={i === active
-                  ? "place-option active"
-                  : "place-option"}
-                onClick={() => pick(r)}
-                onMouseEnter={() => setActive(i)}
-              >
-                <span className="place-name">{r.name}</span>
-                <span className="place-kind">{describe(r)}</span>
-              </button>
-            ))}
+                  <button
+                    type="button"
+                    key={`${r.name}-${r.lon}-${r.lat}`}
+                    id={`${listId}-${i}`}
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={i === active}
+                    className={i === active
+                      ? "place-option active"
+                      : "place-option"}
+                    onClick={() => pick(r)}
+                    onMouseEnter={() => setActive(i)}
+                  >
+                    <span className="place-name">{r.name}</span>
+                    <span className="place-kind">{describe(r)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
         </div>
       )}
     </div>

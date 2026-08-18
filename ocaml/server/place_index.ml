@@ -79,8 +79,23 @@ let fold s =
       (match plain with
       | Some p -> Buffer.add_char buf p
       | None ->
+          (* Æ Ø Þ Ð and friends keep their letter but not their case, so
+             "ørsta" still finds "Ørsta". *)
           Buffer.add_char buf c;
-          Buffer.add_char buf s.[!i + 1]);
+          Buffer.add_char buf
+            (if d >= 0x80 && d <= 0x9e then Char.chr (d + 0x20)
+             else s.[!i + 1]));
+      i := !i + 2
+    end
+    else if (Char.code c = 0xc4 || Char.code c = 0xc5) && !i + 1 < n then begin
+      (* Latin Extended-A: Č, Ł, ő and the rest. Only the case bit is
+         folded -- stripping these to ASCII needs a table this does not
+         carry, and a Polish name still matches itself exactly. *)
+      let d = Char.code s.[!i + 1] in
+      Buffer.add_char buf c;
+      Buffer.add_char buf
+        (if d land 1 = 0 && d >= 0x80 && d <= 0xbe then Char.chr (d + 1)
+         else s.[!i + 1]);
       i := !i + 2
     end
     else begin
@@ -96,9 +111,17 @@ let fold s =
    build is deterministic, and a corrupt line costs one name rather than the
    index. The folded name leads the line because it is what every query
    compares against; the display name follows it. *)
+(* Names come out of tiles this project did not write, and the record
+   separator must not be forgeable: a name carrying a newline would split
+   its row, and one carrying a tab could re-form a whole valid row with
+   attacker-chosen coordinates. Both become spaces on the way in. *)
+let sanitise s =
+  String.map (function '\t' | '\n' | '\r' -> ' ' | c -> c) s
+
 let to_line e =
-  Printf.sprintf "%s\t%s\t%s\t%s\t%.0f\t%.6f\t%.6f" (fold e.name) e.name
-    e.kind e.layer e.weight e.lon e.lat
+  let name = sanitise e.name in
+  Printf.sprintf "%s\t%s\t%s\t%s\t%.0f\t%.6f\t%.6f" (fold name) name
+    (sanitise e.kind) (sanitise e.layer) e.weight e.lon e.lat
 
 let of_line line =
   match String.split_on_char '\t' line with
@@ -160,13 +183,19 @@ let build ?(max_zoom = index_zoom) ~on_tile (archive : Pmtiles.Archive.t) =
   let done_ = ref 0 in
   List.iter
     (fun (e : Pmtiles.Directory.entry) ->
-      let z, x, y = Pmtiles.Tile_id.to_zxy e.Pmtiles.Directory.tile_id in
-      if z <= max_zoom then begin
-        incr done_;
-        on_tile !done_ total;
-        match Pmtiles.Archive.tile archive e.Pmtiles.Directory.tile_id with
-        | None -> ()
-        | Some raw -> (
+      (* A run is one blob shared by consecutive tile ids, so it is read once
+         and re-projected per id. Walking the entry alone would skip every
+         id after the first -- and leave the progress total, which counts
+         ids, permanently unreachable. *)
+      for k = 0 to e.Pmtiles.Directory.run_length - 1 do
+        let id = e.Pmtiles.Directory.tile_id + k in
+        let z, x, y = Pmtiles.Tile_id.to_zxy id in
+        if z <= max_zoom then begin
+          incr done_;
+          on_tile !done_ total;
+          match Pmtiles.Archive.tile archive id with
+          | None -> ()
+          | Some raw -> (
             match if gz then Gzip.decompress raw else raw with
             | exception _ -> ()  (* one unreadable tile is not a failed index *)
             | plain -> (
@@ -192,7 +221,8 @@ let build ?(max_zoom = index_zoom) ~on_tile (archive : Pmtiles.Archive.t) =
                             Hashtbl.replace seen key
                               (z, { name; kind; layer; weight; lon; lat }))
                       named))
-      end)
+        end
+      done)
     entries;
   let out = Hashtbl.fold (fun _ (_, e) acc -> e :: acc) seen [] in
   List.sort compare_entry out
@@ -200,6 +230,14 @@ let build ?(max_zoom = index_zoom) ~on_tile (archive : Pmtiles.Archive.t) =
 let save ~fs ~basemap_dir entries =
   let dir = Eio.Path.(fs / basemap_dir) in
   let part = Eio.Path.(dir / (filename ^ ".part")) in
+  (* The directory is served over HTTP, so a half-written index left behind
+     is fetchable, not merely untidy. *)
+  Fun.protect
+    ~finally:(fun () ->
+      match Eio.Path.kind ~follow:true part with
+      | `Regular_file -> ( try Eio.Path.unlink part with _ -> ())
+      | _ | (exception _) -> ())
+  @@ fun () ->
   Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part (fun out ->
       let buf = Buffer.create 65536 in
       List.iter
@@ -243,63 +281,94 @@ let word_start folded at =
   | ' ' | '-' | '\'' | '(' | '/' | ',' | '.' -> true
   | _ -> false
 
+(* The BEST occurrence decides, not the first: "ork" inside "yorkshire ork
+   lane" starts a word later in the string, and stopping at the first hit
+   would score it as buried. Compares bytes in place rather than cutting a
+   substring per position -- this runs over every line of a file that can be
+   tens of megabytes. *)
 let score_of ~needle folded =
   let n = String.length needle and h = String.length folded in
   if n = 0 || n > h then None
   else begin
-    let rec find i =
-      if i + n > h then None
-      else if String.sub folded i n = needle then Some i
-      else find (i + 1)
+    let matches_at i =
+      let rec go k = k = n || (folded.[i + k] = needle.[k] && go (k + 1)) in
+      go 0
     in
-    match find 0 with
-    | None -> None
-    | Some at ->
-        let base =
-          if n = h then 0 else if at = 0 then 1 else if word_start folded at then 2 else 3
-        in
-        (* Shorter names win within a band: "York" over "Yorkshire Road". *)
-        Some (base)
+    let best = ref max_int in
+    let i = ref 0 in
+    while !i + n <= h && !best > 0 do
+      (if matches_at !i then
+         let band =
+           if n = h then 0
+           else if !i = 0 then 1
+           else if word_start folded !i then 2
+           else 3
+         in
+         if band < !best then best := band);
+      incr i
+    done;
+    if !best = max_int then None
+      (* Shorter names win within a band: "York" over "Yorkshire Road". *)
+    else Some ((!best * 100_000) + min 99_999 h)
   end
 
 let search ~fs ~basemap_dir ~query ~limit =
   let needle = fold (String.trim query) in
-  if needle = "" then []
+  (* Same floor the UI applies. One character matches most of a country, and
+     the answer is not useful at that length in any case. *)
+  if String.length needle < 2 then []
   else begin
     let path = Eio.Path.(fs / basemap_dir / filename) in
-    match Eio.Path.kind ~follow:true path with
-    | exception _ -> []
-    | `Regular_file ->
-        let hits = ref [] and count = ref 0 in
-        let consider line =
-          match String.index_opt line '\t' with
+    (* Only the best [limit] are kept as the file is read. Collecting every
+       match and sorting afterwards is what made a one-letter query allocate
+       three hundred megabytes and sort ten million comparisons without ever
+       yielding -- on a single-domain server that answers nothing else
+       meanwhile. *)
+    let best = ref [] and held = ref 0 and worst = ref max_int in
+    let insert hit =
+      let rec place = function
+        | [] -> [ hit ]
+        | h :: rest when compare_hit hit h < 0 -> hit :: h :: rest
+        | h :: rest -> h :: place rest
+      in
+      best := place !best;
+      if !held < limit then incr held
+      else best := List.filteri (fun i _ -> i < limit) !best;
+      match List.rev !best with
+      | last :: _ when !held >= limit -> worst := last.score
+      | _ -> ()
+    in
+    let seen = ref 0 in
+    let consider line =
+      (* The scan is the only long-running part left, so it yields: a search
+         must not hold the domain against every other request. *)
+      incr seen;
+      if !seen land 8191 = 0 then Eio.Fiber.yield ();
+      match String.index_opt line '\t' with
+      | None -> ()
+      | Some tab -> (
+          let folded = String.sub line 0 tab in
+          match score_of ~needle folded with
           | None -> ()
-          | Some tab -> (
-              let folded = String.sub line 0 tab in
-              match score_of ~needle folded with
+          | Some score when !held >= limit && score > !worst -> ()
+          | Some score -> (
+              match of_line line with
               | None -> ()
-              | Some score -> (
-                  match of_line line with
-                  | None -> ()
-                  | Some entry ->
-                      incr count;
-                      hits := { entry; score } :: !hits))
-        in
-        (* Streamed: a country's index is tens of megabytes and holding it
-           all as lines to filter afterwards would cost more than the scan. *)
-        Eio.Path.with_open_in path (fun flow ->
-            let buf = Eio.Buf_read.of_flow ~max_size:(1 lsl 30) flow in
-            try
-              while true do
-                consider (Eio.Buf_read.line buf)
-              done
-            with End_of_file -> ());
-        ignore !count;
-        List.filteri
-          (fun i _ -> i < limit)
-          (List.stable_sort compare_hit !hits)
-        |> List.map (fun h -> h.entry)
-    | _ -> []
+              | Some entry -> insert { entry; score }))
+    in
+    match
+      Eio.Path.with_open_in path (fun flow ->
+          let buf = Eio.Buf_read.of_flow ~max_size:(1 lsl 24) flow in
+          try
+            while true do
+              consider (Eio.Buf_read.line buf)
+            done
+          with End_of_file -> ())
+    with
+    | () -> List.map (fun h -> h.entry) !best
+    (* A missing or half-written index is "nothing found", not a 500: the
+       archive it describes may have been removed a moment ago. *)
+    | exception _ -> []
   end
 
 let to_json (entries : entry list) : Yojson.Safe.t =

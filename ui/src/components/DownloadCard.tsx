@@ -82,6 +82,24 @@ function Progress({ job }: { job: Job; }) {
       </>
     );
   }
+  if (job.state === "indexing") {
+    /* Tiles, not bytes: what is being read is the archive's labels, and a
+       byte count of that would mean nothing to anyone. */
+    const text = m.map_indexing_progress({
+      done: job.done_tiles.toLocaleString(),
+      total: job.total_tiles.toLocaleString(),
+    });
+    return (
+      <>
+        <progress
+          value={job.done_tiles}
+          max={Math.max(1, job.total_tiles)}
+          aria-label={text}
+        />
+        <p className="hint">{text}</p>
+      </>
+    );
+  }
   if (job.state === "removing") {
     const text = m.map_removing_progress({
       done: formatBytes(job.done_bytes),

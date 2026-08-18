@@ -758,8 +758,20 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
     pruned := true;
     fetch_assets t ~sw ~net ~assets ~dir;
     (* Last, because it reads the finished archive: the names a region can
-       offer are only knowable once its tiles are on disk. *)
-    reindex t ~fs ~basemap_dir;
+       offer are only knowable once its tiles are on disk.
+
+       Its failure -- including a cancel arriving while it runs -- must not
+       reach the terminal handlers below. By this point every tile is on
+       disk and the ledger entry is published: the download DID happen, and
+       reporting it as cancelled because the index was interrupted would be
+       a lie the ledger immediately contradicts. A missing index costs
+       search, not the map. *)
+    (try reindex t ~fs ~basemap_dir with
+    | Cancelled_by_user ->
+        Logs.info (fun m -> m "search index skipped: cancelled")
+    | e ->
+        Logs.warn (fun m ->
+            m "search index build failed: %s" (Printexc.to_string e)));
     (!written_total, parts_total)
   with
   | total_bytes, parts ->
@@ -883,8 +895,13 @@ let run_remove t ~fs ~basemap_dir ~id =
          hit flying the map to tiles that are gone is worse than no hit. *)
       (try reindex t ~fs ~basemap_dir
        with e ->
+         (* Keeping the old index would leave the removed region's names
+            findable, and a result flying the map to tiles that are gone is
+            worse than no result. Better nothing than stale. *)
          Logs.warn (fun m ->
-             m "search index rebuild failed: %s" (Printexc.to_string e)));
+             m "search index rebuild failed, dropping it: %s"
+               (Printexc.to_string e));
+         Place_index.remove ~fs ~basemap_dir);
       set t (Basemap_job.Removed { freed_bytes })
   | exception Cancelled_by_user ->
       discard_part ();
@@ -1010,7 +1027,15 @@ let run_compact t ~fs ~basemap_dir =
         (* The fold is published; the leftover cache is the benign duplicate
            argued for above, so failing to remove it must not be reported as
            a failed compaction. *)
-        (try Eio.Path.unlink Eio.Path.(dir / "cache.pmtiles") with _ -> ())
+        (try Eio.Path.unlink Eio.Path.(dir / "cache.pmtiles") with _ -> ());
+        (* Browsed tiles carry labels too, and they have just become part of
+           the archive: without this, a place the user browsed to is on the
+           map but not findable. *)
+        (try reindex t ~fs ~basemap_dir with
+        | Cancelled_by_user -> ()
+        | e ->
+            Logs.warn (fun m ->
+                m "search index build failed: %s" (Printexc.to_string e)))
   with
   | () ->
       honor_clear t ~fs ~basemap_dir;
