@@ -4,4 +4,13 @@
  (name main)
  (public_name tessarium-server)
  (package tessarium)
+ ; Static libgmp via the same search-path trick as ocaml/pmtiles/bin/dune,
+ ; where the rationale lives.
+ (link_deps libgmp.a)
+ (link_flags (-cclib -Locaml/server/bin))
  (libraries tessarium_server eio_main cmdliner logs logs.cli logs.fmt fmt fmt.tty))
+
+(rule
+ (targets libgmp.a)
+ (action
+  (run sh -c "cp \"$(gcc -print-file-name=libgmp.a)\" libgmp.a")))
