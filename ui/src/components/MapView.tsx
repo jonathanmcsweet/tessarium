@@ -116,13 +116,72 @@ const addOverlay = (map: maplibregl.Map) => {
     id: "selection-fill",
     type: "fill",
     source: "selection",
+    filter: ["==", ["geometry-type"], "Polygon"],
     paint: { "fill-color": "#e8452c", "fill-opacity": 0.35 },
   });
   map.addLayer({
     id: "selection-outline",
     type: "line",
     source: "selection",
+    filter: ["==", ["geometry-type"], "Polygon"],
     paint: { "line-color": "#e8452c", "line-width": 2 },
+  });
+  /* A ~3 m square is sub-pixel until street level, so zoomed out the
+     selection would be invisible -- exactly when someone has just looked an
+     address up and is watching the map fly. A pin marks the square until
+     the square itself is big enough to see, then fades out as the grid
+     fades in. Declarative on purpose: the style owns visibility, and a
+     style swap re-adds it with everything else. */
+  map.addLayer({
+    id: "selection-pin-halo",
+    type: "circle",
+    source: "selection",
+    filter: ["==", ["geometry-type"], "Point"],
+    maxzoom: GRID_MIN_ZOOM + 1,
+    paint: {
+      "circle-radius": 11,
+      "circle-color": "#e8452c",
+      "circle-opacity": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        GRID_MIN_ZOOM,
+        0.25,
+        GRID_MIN_ZOOM + 1,
+        0,
+      ],
+    },
+  });
+  map.addLayer({
+    id: "selection-pin",
+    type: "circle",
+    source: "selection",
+    filter: ["==", ["geometry-type"], "Point"],
+    maxzoom: GRID_MIN_ZOOM + 1,
+    paint: {
+      "circle-radius": 5,
+      "circle-color": "#e8452c",
+      "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 2,
+      "circle-opacity": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        GRID_MIN_ZOOM,
+        1,
+        GRID_MIN_ZOOM + 1,
+        0,
+      ],
+      "circle-stroke-opacity": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        GRID_MIN_ZOOM,
+        1,
+        GRID_MIN_ZOOM + 1,
+        0,
+      ],
+    },
   });
 };
 
@@ -159,6 +218,24 @@ const cellPolygon = (cell: {
         [cell.lonLo, cell.latHi],
         [cell.lonLo, cell.latLo],
       ],
+    ],
+  },
+});
+
+/* The square's centre, for the zoomed-out pin. */
+const cellCenter = (cell: {
+  latLo: number;
+  latHi: number;
+  lonLo: number;
+  lonHi: number;
+}): GeoJSON.Feature => ({
+  type: "Feature",
+  properties: {},
+  geometry: {
+    type: "Point",
+    coordinates: [
+      (cell.lonLo + cell.lonHi) / 2,
+      (cell.latLo + cell.latHi) / 2,
     ],
   },
 });
@@ -480,7 +557,10 @@ export function MapView() {
       | undefined;
     source?.setData(
       selection
-        ? { type: "FeatureCollection", features: [cellPolygon(selection.cell)] }
+        ? {
+          type: "FeatureCollection",
+          features: [cellPolygon(selection.cell), cellCenter(selection.cell)],
+        }
         : emptyGeoJson,
     );
   }, [selection, ready, styleEpoch]);

@@ -940,6 +940,47 @@ await page.waitForTimeout(1500);
    with under ANY key -- a wrong key simply decodes it to a different place on
    Earth and re-encodes that place back to the same words. The coordinates are
    the only output that differs. */
+/* Coordinates start hidden, exactly like the address -- they name where
+   someone is. The mask must be in the DOM in place of the value, not over
+   it, and the eye reveals. */
+const maskedCoords = await page.locator(".coords dd").allTextContents();
+check(
+  "coordinates are hidden by default -- mask instead of value, not over it",
+  maskedCoords.length === 2
+    && maskedCoords.every((t) => t.includes("•") && !/\d/.test(t)),
+);
+const coordsEye = page.locator(".coords-row .icon-button").first();
+await coordsEye.click();
+const shownCoords = await page.locator(".coords dd").allTextContents();
+check(
+  "the coordinates eye reveals them",
+  shownCoords.length === 2 && shownCoords.every((t) => /\d/.test(t)),
+);
+
+/* Zoomed out, a ~3 m square is sub-pixel; a pin has to mark it or a fresh
+   lookup shows an empty map. Checked by rendering, not by layer presence:
+   the layer existing and drawing nothing was the failure mode. */
+const pinVisible = await page.evaluate(async () => {
+  const map = window.__tessarium_map;
+  if (!map) return false;
+  /* Bounded: a hang here should fail one check, not wedge the suite. */
+  const settle = () =>
+    Promise.race([
+      new Promise((resolve) => map.once("idle", () => resolve(true))),
+      new Promise((resolve) => setTimeout(() => resolve(false), 10_000)),
+    ]);
+  const zoomWas = map.getZoom();
+  map.setZoom(12);
+  if (!(await settle())) return false;
+  const pins = map.queryRenderedFeatures(undefined, {
+    layers: ["selection-pin"],
+  }).length;
+  map.setZoom(zoomWas);
+  await settle();
+  return pins > 0;
+});
+check("a pin marks the selected square when zoomed out", pinVisible);
+
 const panelCoords = async () => {
   const cells = await page.locator(".coords dd").allTextContents();
   return cells.map((t) => Number.parseFloat(t.replace(/[^0-9.-]/g, "")));
@@ -1157,6 +1198,16 @@ await page.mouse.click(
 );
 await page.waitForTimeout(1500);
 await page.locator(".address-row .icon-button").first().click();
+/* Locking must have hidden the coordinates again; assert it, or a broken
+   reset would make this click CONCEAL them and fail later with a message
+   about NFKD normalisation instead of this one. */
+check(
+  "locking hides the coordinates again",
+  (await page.locator(".coords dd").allTextContents()).every((t) =>
+    t.includes("•")
+  ),
+);
+await page.locator(".coords-row .icon-button").first().click();
 const [nfkdLat, nfkdLon] = await panelCoords();
 check(
   `a precomposed passphrase is normalised before derivation (got ${nfkdLat}, ${nfkdLon} want ${
