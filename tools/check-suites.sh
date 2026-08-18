@@ -27,7 +27,7 @@ suites=(
   "server decisions|server decisions hold"
   "pmtiles round-trip|pmtiles round-trips"
   "vector regeneration|vectors reproduce exactly from the verified core"
-  "differential sweep|points checked"
+  "differential sweep|[1-9][0-9]* points checked"
 )
 
 out="$(dune build @runtest --force 2>&1)"

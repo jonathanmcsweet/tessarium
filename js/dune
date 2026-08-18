@@ -27,5 +27,5 @@
  ; test that quietly stops running.
  (action
   (pipe-stdout
-   (run %{exe:../ocaml/tools/differential.exe} --count 2000)
+   (run %{exe:../ocaml/tools/differential.exe} --count 20000)
    (run node %{dep:differential.mjs} -))))

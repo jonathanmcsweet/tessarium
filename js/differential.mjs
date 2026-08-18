@@ -25,12 +25,15 @@ if (!path) {
   process.exit(2);
 }
 
-const MNEMONIC =
+/* The corpus header names its mnemonic and passphrase, so a sweep can vary
+   the key -- which drags the KDF and the round schedule into the
+   differential. The fixed default matches the generator's. */
+let mnemonic =
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon " +
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon " +
   "abandon abandon abandon abandon abandon art";
-
-const key = w.deriveKey(MNEMONIC);
+let passphrase = "";
+let key = null;
 
 let checked = 0;
 let seams = 0;
@@ -42,10 +45,13 @@ const MAX_REPORTED = 10;
 const lines = readFileSync(path === "-" ? 0 : path, "utf8").split("\n");
 for (const line of lines) {
   if (line === "" || line.startsWith("#")) {
+    if (line.startsWith("# mnemonic: ")) mnemonic = line.slice(12).trim();
+    if (line.startsWith("# passphrase: ")) passphrase = line.slice(14);
     const m = /(\d+) at band seams/.exec(line);
     if (m) seams = Number(m[1]);
     continue;
   }
+  key ??= w.deriveKey(mnemonic, passphrase);
   const [latS, lonS, cellS, clatS, clonS, address] = line.split(" ");
   const lat = BigInt(latS);
   const lon = BigInt(lonS);
@@ -75,7 +81,15 @@ for (const line of lines) {
 
   /* And back. The address must resolve to a point in the same square, which is
      the property a user would state. */
-  const back = w.decode(key, address);
+  let back;
+  try {
+    back = w.decode(key, address);
+  } catch {
+    /* Different keys decode to out-of-range cells, which this
+       implementation throws on. That IS the disagreement the sweep hunts;
+       it must be reported like one, not crash the reporter. */
+    back = null;
+  }
   if (back === null) {
     if (failures.length < MAX_REPORTED)
       failures.push(`decode ${address}: resolved to nothing`);
@@ -97,4 +111,11 @@ console.log(
   `${checked} points checked (${seams} straddling band seams), ` +
     `${failures.length} disagreements`,
 );
+if (checked === 0) {
+  /* An empty corpus is a failed sweep, not a clean one. A dead generator
+     upstream of a plain shell pipe looks exactly like this, and it once
+     read as four passing configurations that had checked nothing. */
+  console.error("differential: the corpus was empty; nothing was checked");
+  process.exit(1);
+}
 process.exit(failures.length ? 1 : 0);
