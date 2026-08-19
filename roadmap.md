@@ -299,7 +299,16 @@ not cover.
       scan can no longer answer in a keystroke. Going deeper therefore needs
       both a background build and a real index structure (sorted blocks with
       binary search, or a prefix trie) rather than the scan that is honest at
-      this size. House numbers need OpenAddresses and are a separate decision.
+      this size. Organic Maps carries a trie per map file with
+      error-tolerant traversal, which is what buys it typo tolerance as a
+      side effect of the structure rather than as a second pass.
+
+      Two capabilities that structure also buys and this has none of:
+      searching by CATEGORY rather than name (their `categories.txt` is
+      637 KB of multilingual synonyms, so "pharmacy", "apotheke" and
+      "pharmacie" all find chemists -- here, none of them find anything
+      because only names are indexed), and ranking by distance from the
+      view, which their model treats as a first-class term. House numbers need OpenAddresses and are a separate decision.
 
       Nor can it tell two places of the same name apart by the region a
       query names: an index entry knows its own name, kind and position,
@@ -308,9 +317,17 @@ not cover.
       larger Springfield (169,176). What a comma adds is a tiebreak among
       names that already answer equally well -- it cannot filter and it
       cannot promote, because "IL" is written nowhere in the entry.
-      Fixing it means recording each place's containing region when the
-      index is built, which is a point-in-polygon test per entry against
-      the admin boundaries the tiles already carry.
+      Fixing it means resolving the context to a REGION and testing
+      candidates against its geometry. Organic Maps (Apache-2.0, read for
+      architecture only) does this with a `CitiesBoundariesTable`: city
+      boundary polygons stored beside the map, keyed by feature, with a
+      point-in-polygon test at query time, and a geocoder that partitions
+      the query into country / state / city / street / house and connects
+      the layers by containment rather than by string matching. The cheap
+      version here is the same trick applied to the candidates rather than
+      the corpus: the scan already keeps only the best few dozen, so
+      containment need only be tested on those -- microseconds -- instead
+      of baking a parent into all 1.1M entries and growing the index.
 
       One smaller gap of the same kind: a query is normalised for the
       punctuation people paste -- a non-breaking space, a curly apostrophe
@@ -395,6 +412,17 @@ not cover.
       Either the extractor should write an entry, or the list should offer
       the unclaimed remainder as one row.
 
+- [ ] **The coverage note should name the region it is offering.** It
+      says "no map downloaded at this zoom" and offers the current
+      viewport box. Organic Maps answers the same question by name --
+      "Download map of Georgia" -- because it ships every downloadable
+      region's boundary polygons (`packed_polygons.bin`, 5.8 MB) and can
+      therefore say which region a blank point belongs to WITHOUT that
+      region's map. This project already ships the same thing:
+      `ui/src/regions.json` carries simplified country polygons for the
+      picker, so the note could name the region and offer the canonical
+      download instead of an arbitrary rectangle. Cheap, and it reuses
+      data already on disk.
 - [ ] **The coverage note cannot say whether you downloaded a place, only
       that no tiles are here at this zoom.** The mask reads the archives,
       which is what makes it agree with the map, but the archives cannot
