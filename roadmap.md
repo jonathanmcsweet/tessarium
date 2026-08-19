@@ -301,6 +301,24 @@ not cover.
       binary search, or a prefix trie) rather than the scan that is honest at
       this size. House numbers need OpenAddresses and are a separate decision.
 
+      Nor can it tell two places of the same name apart by the region a
+      query names: an index entry knows its own name, kind and position,
+      and nothing about what contains it, so "Springfield, IL" and
+      "Springfield, MA" ask the same question and both answer with the
+      larger Springfield (169,176). What a comma adds is a tiebreak among
+      names that already answer equally well -- it cannot filter and it
+      cannot promote, because "IL" is written nowhere in the entry.
+      Fixing it means recording each place's containing region when the
+      index is built, which is a point-in-polygon test per entry against
+      the admin boundaries the tiles already carry.
+
+      One smaller gap of the same kind: a query is normalised for the
+      punctuation people paste -- a non-breaking space, a curly apostrophe
+      -- but the names in the index are not, because they were folded when
+      it was written. A place whose own name contains a non-breaking space
+      is therefore found only by a query containing one. Fixing it is a
+      one-line change to the fold and a rebuild of every index.
+
       Two smaller costs recorded with it: a country's index is ~74 MB beside a
       6.4 GB archive, and a query against it takes ~260 ms, which the UI hides
       behind a 250 ms debounce but which would not survive a much larger
@@ -366,6 +384,17 @@ not cover.
       review cannot supply: whether the copy sounds like a person. `fr-CA` now
       differs from `fr-FR` in terminology, punctuation spacing and dash
       convention, but a Quebec reader should still confirm it.
+- [ ] **Tiles fetched outside the app leave no record, so they cannot be
+      managed by it.** The download ledger lives inside the archive and is
+      written by the in-app downloader; the command-line extractor writes
+      tiles without one. An archive can therefore hold a region at full
+      street detail that the downloaded-maps list does not mention, which
+      means it cannot be updated or removed from the UI, and its size is
+      not accounted for -- observed on the development machine, which holds
+      Georgia at zoom 14 and a world overview, with only France recorded.
+      Either the extractor should write an entry, or the list should offer
+      the unclaimed remainder as one row.
+
 - [ ] **The coverage note cannot say whether you downloaded a place, only
       that no tiles are here at this zoom.** The mask reads the archives,
       which is what makes it agree with the map, but the archives cannot

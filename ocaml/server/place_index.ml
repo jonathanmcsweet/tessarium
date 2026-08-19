@@ -261,14 +261,14 @@ let remove ~fs ~basemap_dir =
 
 (* -------------------------------------------------------------- querying *)
 
-(* Ranked, best first. Exact beats prefix beats a match at a word boundary
-   beats one in the middle of a word, because "york" should offer York before
-   every street with "york" buried in it. *)
+(* Ranked, best first. [score] is a whole ranking key rather than a single
+   band -- see [rank_key], which builds it -- and lower is better. *)
 type hit = { entry : entry; score : int }
 
-(* Match quality decides the band; importance decides within it. Ordering
-   the other way round would bury an exact hit under a populous partial
-   one -- "York" would answer with New York. *)
+(* How the query was answered decides first; how important the place is
+   decides among equal answers. The other way round would bury an exact
+   hit under a populous partial one -- "York" would answer with New
+   York. *)
 let compare_hit a b =
   match compare a.score b.score with
   | 0 -> compare_entry a.entry b.entry
@@ -312,11 +312,169 @@ let score_of ~needle folded =
     else Some ((!best * 100_000) + min 99_999 h)
   end
 
+(* A query is a name, and sometimes the context someone gave it.
+
+   People write both, and they separate them with a comma: "Atlanta, GA",
+   "Paris, France". Everything before the first comma is the name being
+   asked for and every word of it counts; everything after is context that
+   ranks but never decides, because it is usually not written in the name
+   at all -- no entry for Atlanta contains "GA" anywhere.
+
+   Two wrong versions preceded this one, both measured against a real
+   country-sized index. Matching the whole query as one run of characters
+   answered "Atlanta, GA" with nothing found, because that string is inside
+   no name on Earth. Then treating every word alike answered "Los Angeles"
+   with a hamlet of 100 people called Los -- "Los" is a name exactly, and
+   "Los Angeles" merely begins with the word, so exactness beat
+   completeness. Completeness comes first now: the entry carrying more of
+   the name wins, and how exactly it carries the first word only settles
+   ties. The comma is what separates the two questions, which is what a
+   person means by it. *)
+
+(* Enough words for the longest real place name, and enough context for a
+   town, a region and a country. Past that, more words are noise rather
+   than refinement, and each one is another look at every line. *)
+let max_head = 6
+let max_context = 2
+
+(* Bytes at or above 0x80 are the middle of a UTF-8 character and stay in
+   the term: folding leaves other scripts alone, and splitting on them
+   would cut a character in half. Every ASCII byte that is not a letter or
+   a digit separates -- spaces, hyphens, apostrophes -- because a name
+   written "Saint-Etienne" and a query typed "saint etienne" are the same
+   request. *)
+let term_byte c =
+  Char.code c >= 0x80 || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+
+(* The punctuation people paste rather than type. A query copied off a web
+   page arrives with a non-breaking space or a curly apostrophe in it, and
+   those are separators to a reader, so they are separators here. The
+   fullwidth and ideographic commas mean the same thing their ASCII cousin
+   does and are treated the same. Names are folded when the index is
+   built, so this normalises the QUERY only; a name that itself contains a
+   non-breaking space is recorded in roadmap.md. *)
+let ascii_punctuation s =
+  let b = Buffer.create (String.length s) in
+  let n = String.length s in
+  let i = ref 0 in
+  while !i < n do
+    let three = if !i + 3 <= n then String.sub s !i 3 else "" in
+    let two = if !i + 2 <= n then String.sub s !i 2 else "" in
+    match (two, three) with
+    | "\xc2\xa0", _ ->
+        Buffer.add_char b ' ';
+        i := !i + 2
+    | _, "\xe2\x80\xaf" (* narrow no-break space *)
+    | _, "\xe2\x80\x98" (* left single quote *)
+    | _, "\xe2\x80\x99" (* right single quote, the pasted apostrophe *)
+    | _, "\xe2\x80\x93" (* en dash *)
+    | _, "\xe2\x80\x94" (* em dash *) ->
+        Buffer.add_char b ' ';
+        i := !i + 3
+    | _, "\xef\xbc\x8c" (* fullwidth comma *)
+    | _, "\xe3\x80\x81" (* ideographic comma *) ->
+        Buffer.add_char b ',';
+        i := !i + 3
+    | _ ->
+        Buffer.add_char b s.[!i];
+        incr i
+  done;
+  Buffer.contents b
+
+let terms_of ~limit text =
+  let out = ref [] and buf = Buffer.create 16 in
+  let flush () =
+    if Buffer.length buf > 0 then begin
+      out := Buffer.contents buf :: !out;
+      Buffer.clear buf
+    end
+  in
+  String.iter
+    (fun c -> if term_byte c then Buffer.add_char buf c else flush ())
+    text;
+  flush ();
+  List.filteri (fun i _ -> i < limit) (List.rev !out)
+
+type query = { head : string list; context : string list }
+
+let parse_query q =
+  let folded = ascii_punctuation (fold q) in
+  let head = Buffer.create 16 and context = Buffer.create 16 in
+  let past_comma = ref false in
+  String.iter
+    (fun c ->
+      if c = ',' then past_comma := true
+      else Buffer.add_char (if !past_comma then context else head) c)
+    folded;
+  {
+    head = terms_of ~limit:max_head (Buffer.contents head);
+    context = terms_of ~limit:max_context (Buffer.contents context);
+  }
+
+(* Presence, stopping at the first hit. [score_of] scans the whole name for
+   its BEST occurrence, which is the right answer for the word the ranking
+   is built on and wasted work for the rest. *)
+let contains ~needle folded =
+  let n = String.length needle and h = String.length folded in
+  n > 0 && n <= h
+  &&
+  let rec at i =
+    i + n <= h
+    &&
+    let rec same k = k = n || (folded.[i + k] = needle.[k] && same (k + 1)) in
+    same 0 || at (i + 1)
+  in
+  at 0
+
+let carried terms folded =
+  List.fold_left (fun n t -> if contains ~needle:t folded then n + 1 else n) 0 terms
+
+(* How this name answers the query: how many words of the NAME it carries,
+   how exactly it carries the first of them, and how much of the CONTEXT it
+   happens to carry as well. The first word is required -- a name with none
+   of what was asked for is not a worse answer, it is not an answer. *)
+type quality = { head_depth : int; band : int; context_depth : int; length : int }
+
+let match_of ~(query : query) folded =
+  match query.head with
+  | [] -> None
+  | first :: _ -> (
+      match score_of ~needle:first folded with
+      | None -> None
+      | Some score ->
+          Some
+            {
+              head_depth = carried query.head folded;
+              band = score / 100_000;
+              context_depth = carried query.context folded;
+              length = score mod 100_000;
+            })
+
+(* One number to rank by, low is best, computed from the name alone so the
+   scan can drop a line before it is parsed.
+
+   Order of significance, and every step of it was learned from an answer
+   that was wrong on a real index: more of the name carried beats a more
+   exact match on its first word ("Los Angeles" over "Los"); a more exact
+   match beats carrying the context ("Atlanta" over "Atlanta Gas Light
+   Lake", where "ga" hides inside "Gas"); carrying the context beats
+   nothing; and a shorter name breaks what is left. Population and layer
+   settle true ties, as before, in [compare_entry]. *)
+let rank_key q =
+  let depth = max 0 (max_head - q.head_depth) in
+  let context = max 0 (max_context - q.context_depth) in
+  ((((depth * 4) + q.band) * (max_context + 1)) + context) * 100_000
+  + q.length
+
 let search ~fs ~basemap_dir ~query ~limit =
-  let needle = fold (String.trim query) in
-  (* Same floor the UI applies. One character matches most of a country, and
-     the answer is not useful at that length in any case. *)
-  if String.length needle < 2 then []
+  let q = parse_query query in
+  let size = List.fold_left (fun n t -> n + String.length t) 0 q.head in
+  (* Same floor the UI applies, counted over the query's own characters
+     rather than the typing: one character matches most of a country, and
+     the answer is not useful at that length in any case. Bytes, so one
+     character of a script that spends three of them clears it -- which is
+     the right answer for a language where one character is a word. *)
+  if size < 2 then []
   else begin
     let path = Eio.Path.(fs / basemap_dir / filename) in
     (* Only the best [limit] are kept as the file is read. Collecting every
@@ -348,13 +506,15 @@ let search ~fs ~basemap_dir ~query ~limit =
       | None -> ()
       | Some tab -> (
           let folded = String.sub line 0 tab in
-          match score_of ~needle folded with
+          match match_of ~query:q folded with
           | None -> ()
-          | Some score when !held >= limit && score > !worst -> ()
-          | Some score -> (
-              match of_line line with
-              | None -> ()
-              | Some entry -> insert { entry; score }))
+          | Some quality -> (
+              let key = rank_key quality in
+              if !held >= limit && key > !worst then ()
+              else
+                match of_line line with
+                | None -> ()
+                | Some entry -> insert { entry; score = key }))
     in
     match
       Eio.Path.with_open_in path (fun flow ->
