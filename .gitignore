@@ -22,3 +22,4 @@ ocaml/lib/wordlist.ml
 ocaml/server/ui_dist/
 ocaml/server/embedded_assets.ml
 dist/
+fstar/low/out/

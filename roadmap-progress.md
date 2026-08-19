@@ -1964,3 +1964,55 @@ lat_min in band 0.
 **Follow-on:** the evaluator leg checks the test round function, not the real
 HMAC injection, and seven grid points is a floor -- both recorded in the
 roadmap item, which stays open for the structural fix (Low* → C).
+
+## 2026-08-19: the Low* spike — the Feistel as proved-equal C
+
+The migration route is decided (roadmap item 3) and its riskiest step is
+demonstrated end to end. fstar/low/ holds the Feistel re-expressed over
+64-bit machine integers with a machine-checked proof of bit-for-bit
+agreement with the spec, plus the bijection theorems transferred by one
+appeal each to the originals. The agreement theorem covers the Feistel
+stage, for any round function -- address stability through the migration
+becomes a theorem stage by stage as the grid, table and codec ports land,
+and is a theorem for none of them until then. KaRaMeL (which ships in the
+F* toolchain) emits C that reads like the spec; make test-lowstar compiles
+it and replays the same Feistel vectors the extracted OCaml generated and
+the evaluator leg re-derives, making the C the THIRD implementation to
+answer for those numbers (js/ answers for the real-HMAC vectors, never
+these) and the second leg sharing neither zarith nor ocamlopt with what it
+checks -- though --codegen krml does share the extraction pipeline's
+erasure and ML translation with the OCaml, so that class stays on the
+evaluator leg's watch. CI diffs the committed vectors header exactly as it
+diffs Expected.fst. BOUNDS.md surveys the whole core: everything fits unsigned
+64-bit, no 128-bit arithmetic anywhere — the HMAC reduction decomposes into
+U64 via per-modulus constants, and the one tight spot (grid midpoint,
+9.61e18, a 1.92x margin) merely has to stay unsigned.
+
+Falsified four ways: formula drift in the F* port fails VERIFICATION before
+C exists (the refinement is the alarm); a tampered C constant, swapped
+modulus constants, and a tampered vectors header (against correct C) each
+fail the harness.
+
+An adversarial review then found three majors, all fixed: the leg's
+independence was overclaimed ("nothing after the front end") -- --codegen
+krml shares the extraction pipeline's erasure and ML translation with the
+OCaml it checks, diverging only at the final emitter, so that failure class
+stays on the evaluator leg's watch; krml's exit code, the sole carrier of
+its fatal-warning gate, was swallowed by a `| tail -1` pipe in the Makefile
+recipe -- a failing krml did not fail make (now logged and gated, falsified
+with a stub krml that exits 1); and this ledger itself inflated the wall
+("fourth implementation" -- js/ never computes these vectors; "address
+stability is now a theorem" -- only the Feistel stage is, so far). Minors,
+also fixed: BOUNDS.md's edge side condition said i < k where cell_bounds
+reaches i = k; the README absolutized js/'s independence ("no tooling at
+all" -- it consumes the same generated bands.json and wordlist as the
+core); test-lowstar side-effected the committed Expected.fst and could race
+test-extraction under make -j (gen_check grew a "-" mode; the root wall is
+.NOTPARALLEL); the harness gained a _Static_assert(FE_COUNT > 0) floor; and
+the emitted C's recursion shape and erased refinements are recorded in
+BOUNDS.md rather than assumed. Toolchain dead ends recorded in BOUNDS.md: ulib's own
+admits trip --report_assumes error unless codegen is narrowed to our
+namespace; a value-dependent type abbreviation as a declared type makes
+KaRaMeL silently drop the definition (explicit binders extract cleanly);
+the ghost-erased round-function index is the pattern the HACL* HMAC phase
+reuses.

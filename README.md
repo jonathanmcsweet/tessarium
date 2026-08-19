@@ -84,8 +84,30 @@ stated as proved, preconditions and longitude fold included — in the
 composed binary with the real HMAC round function; that is a self-consistency
 check against the proved laws, not a second computation of any value. And
 `js/`, written independently, must agree point for point — the only leg that
-shares neither zarith nor `ocamlopt` with what it checks. None of this
-verifies the pipeline, and that is the honest description.
+shares neither zarith nor `ocamlopt` nor any stage of F\*'s extraction with
+what it checks. (It does consume the same generated `bands.json` and
+wordlist, so the generators of those two files are the one thing no leg
+cross-checks.) None of this verifies the pipeline, and that is the honest
+description.
+
+The structural fix is now underway (`fstar/low/`): the Feistel re-expressed
+over 64-bit machine integers, with a machine-checked proof of bit-for-bit
+agreement with the spec, emitted as C by KaRaMeL, the small translator
+behind the verified crypto in Firefox, the Linux kernel and Python's
+hashlib. That proof is the pattern that pins addresses through the
+migration — discharged here for the Feistel stage, for any round function;
+the grid, table and codec stages earn the same theorem as they port
+(`fstar/low/BOUNDS.md` is the survey saying the whole core fits 64-bit
+arithmetic). The emitted C replays the extracted binary's own vectors
+(`make test-lowstar`). Sharing, stated honestly: `--codegen krml` runs the
+same F\* extraction pipeline — erasure, ghost elimination, ML translation —
+as the OCaml it checks, diverging only at the final emitter, so a bug in
+those shared stages could fool this leg and its vectors together; the
+evaluator leg, which never extracts, is the one watching that class. What
+this leg does not share is `ocamlopt` and zarith; what its harness tests at
+runtime beyond the proof is F\*'s `.krml` emission, krml itself and the C
+compiler. HMAC-SHA256 moves inside the proof via HACL\* in a later phase,
+and the browser core becomes WebAssembly from the same source.
 
 Proof establishes that the grid is *consistent*, not that it is *well
 designed*. No theorem here says a 3 m square is the right size.
@@ -225,10 +247,12 @@ to the Python's, which is the whole reason for doing it in that order.
 
 `js/` **stays**: the extraction pipeline is trusted, not verified, so an
 independently written implementation checks something no second extraction
-target could. It is one of three legs that watch the extraction — see
+target could. It is one of four legs that watch the extraction — see
 `fstar/check/` for the leg where F\*'s own evaluator recomputes the extracted
-binary's answers, and the differential tool's runtime law assertions for the
-third — and it remains the only one whose oracle is not F\* itself.
+binary's answers, the differential tool's runtime law assertions for the
+third, and `fstar/low/` for the machine-integer port whose C must reproduce
+the same vectors — and it remains the only one whose oracle is not F\*
+itself.
 
 It has been run against **10,061,490 points across five keys with zero disagreements (tools/differential-deep.sh)**, and a
 32,298-point version runs in CI. The corpus is deliberately unbalanced towards
