@@ -45,7 +45,18 @@ adding `lo mod m` stays < 2^49. And since m only ever takes two values,
 assert_norm. **No 128-bit division, no 128-bit type** -- plain U64 on the
 two halves.
 
-## Grid (later phase -- surveyed, not yet ported)
+## Grid -- PORTED AND PROVED (Tessarium.Low.Grid)
+
+Every bound below is now a discharged refinement. Coordinates cross the C
+boundary as unsigned offsets from the domain corner (the spec subtracts
+the corner first anyway; signed machine ints would drag in library
+internals the zero-admit flag rejects). The band table crosses as a
+function parameter (`cum_low`) whose result refinement pins it to T.cum --
+the round-function pattern again -- so every grid theorem holds for any
+conforming lookup; the C side's three-line const-array lookup is the one
+unproved seam, its array contents cross-examined against the proved
+source by check/Tessarium.Check.Table and its answers by the vectors. A
+proved in-memory table (LowStar buffer) is the recorded upgrade path.
 
 `bucket(v, v_min, span, k) = (v - v_min) * k / span`, always with
 `0 <= v - v_min <= span`:

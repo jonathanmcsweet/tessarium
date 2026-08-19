@@ -16,8 +16,16 @@
 #include "Tessarium_Low_Check.h"
 #include "check_vectors.h"
 
-/* A harness that can pass on nothing is not a harness. */
+/* A harness that can pass on nothing is not a harness, and a table of the
+   wrong size is not the table. Both counts pinned HERE, by hand. */
 _Static_assert(FE_COUNT > 0, "vector table must not be empty");
+_Static_assert(GRID_COUNT > 0, "grid vector table must not be empty");
+_Static_assert(CUM_COUNT == 4097, "the band table has 4096 bands");
+
+/* The table lookup handed to the extracted grid: the one unproved seam on
+   this path (three lines, and the array contents are cross-examined
+   against the proved source by check/Tessarium.Check.Table). */
+static uint64_t cum_lookup(uint64_t b) { return cum_table[b]; }
 
 int main(void) {
   int bad = 0;
@@ -35,7 +43,30 @@ int main(void) {
       bad = 1;
     }
   }
+  for (int i = 0; i < GRID_COUNT; i++) {
+    uint64_t cell =
+        Tessarium_Low_Check_check_point_to_cell(cum_lookup, gvec_dlat[i], gvec_dlon[i]);
+    if (cell != gvec_cell[i]) {
+      fprintf(stderr, "grid vector %d: cell got %" PRIu64 ", want %" PRIu64 "\n",
+              i, cell, gvec_cell[i]);
+      bad = 1;
+    }
+    K___uint64_t_uint64_t p =
+        Tessarium_Low_Check_check_cell_to_point(cum_lookup, gvec_cell[i]);
+    if (p.fst != gvec_cdlat[i] || p.snd != gvec_cdlon[i]) {
+      fprintf(stderr, "grid vector %d: centre mismatch\n", i);
+      bad = 1;
+    }
+    K___uint64_t_uint64_t_uint64_t_uint64_t b =
+        Tessarium_Low_Check_check_cell_bounds(cum_lookup, gvec_cell[i]);
+    if (b.fst != gvec_blatlo[i] || b.snd != gvec_blathi[i] ||
+        b.thd != gvec_blonlo[i] || b.f3 != gvec_blonhi[i]) {
+      fprintf(stderr, "grid vector %d: bounds mismatch\n", i);
+      bad = 1;
+    }
+  }
   if (bad) return 1;
-  printf("the C core agrees on %d feistel vectors, both directions\n", FE_COUNT);
+  printf("the C core agrees on %d feistel vectors and %d grid points, "
+         "both directions\n", FE_COUNT, GRID_COUNT);
   return 0;
 }

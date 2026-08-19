@@ -120,9 +120,16 @@ check-extraction: verify
 
 LOW_FLAGS := $(FSTAR_FLAGS) --include low --include check
 
+# Derived from the directory, not listed by hand -- the same discipline
+# as CHECK_MODULES: a new Low module dropped in but forgotten here would
+# silently never verify. F* rechecks dependencies inline, so order within
+# the list does not matter.
+LOW_MODULES := $(wildcard low/Tessarium.Low.*.fst)
+
 low-verify: verify
-	$(FSTAR) $(LOW_FLAGS) --cache_checked_modules low/Tessarium.Low.Feistel.fst
-	$(FSTAR) $(LOW_FLAGS) --cache_checked_modules low/Tessarium.Low.Check.fst
+	@for m in $(LOW_MODULES); do \
+	  $(FSTAR) $(LOW_FLAGS) --cache_checked_modules $$m || exit 1; \
+	done
 
 # --extract narrows codegen to our namespace: elaborating ulib's machine-int
 # internals for extraction trips --report_assumes error on THEIR admits,

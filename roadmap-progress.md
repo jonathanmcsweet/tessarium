@@ -2016,3 +2016,33 @@ namespace; a value-dependent type abbreviation as a declared type makes
 KaRaMeL silently drop the definition (explicit binders extract cleanly);
 the ghost-erased round-function index is the pattern the HACL* HMAC phase
 reuses.
+
+
+## 2026-08-19: the Low* grid -- all three grid maps as proved-equal C
+
+Phase two of the migration, same day as the spike. fstar/low/ now holds
+the grid: point_to_cell, cell_to_point and cell_bounds over 64-bit machine
+integers, each with the ensures equating it to Tessarium.Grid on the
+same inputs, plus the transferred round-trip theorem. The two
+representation choices both serve the C boundary: coordinates travel as
+unsigned offsets from the domain corner (F*'s signed machine integers
+carry library admits the zero-admit flag rejects), and the 4,097-entry
+band table travels as a function parameter whose result refinement pins
+it to T.cum -- the round-function pattern -- so every theorem holds for
+any conforming lookup. The unproved seam is three lines of C (the
+const-array lookup); the array contents are the same 4,097 entries
+check/Tessarium.Check.Table cross-examines against the proved source,
+and gen_check emits them into check_vectors.h beside 12 grid vectors (the
+seven e2e points, both seam neighbours and the pole among them, plus five
+generated) checked through all three maps. The tightest number in the
+core -- the (2c+1)*lon_span midpoint product at 9.61e18, unsigned-only --
+is now a discharged refinement rather than a survey line. The Makefile
+derives the Low module list from the directory rather than a hand list,
+the same discipline check-extraction uses.
+
+Falsified four ways: a bucketing-formula drift in the F* port fails
+verification before any C exists; a single bumped table entry fails the
+harness; a tampered rows_per_band constant in the emitted C fails the
+harness; an emptied grid vector table refuses to COMPILE
+(_Static_assert count pins in the hand-written harness -- the vacuity
+lesson from the extraction-check review, applied in advance this time).

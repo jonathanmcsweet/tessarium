@@ -223,6 +223,48 @@ let () =
     arr "vec_t" fe_ts;
     arr "vec_x" fe_xs;
     arr "vec_y" fe_ys;
+
+    (* The cumulative table as a C array. The C grid's lookup answers from
+       this; Check.Table cross-examines the same 4097 entries against the
+       proved source, and the harness pins the count. *)
+    let cum = Tessarium_Table_Data.cumcols_list in
+    addh "#define CUM_COUNT %d\n\n" (List.length cum);
+    addh "static const uint64_t cum_table[CUM_COUNT] = {\n  %s\n};\n\n"
+      (String.concat ",\n  " (List.map (fun v -> Z.to_string v ^ "ULL") cum));
+
+    (* Grid vectors: the e2e points plus five generated, all THREE grid
+       maps per point (cell, centre, bounds), as offsets from the domain
+       corner -- the representation the C boundary speaks. *)
+    let gpts =
+      pts
+      @ List.init 5 (fun _ ->
+            ( Z.add lat_min (next (Z.succ lat_span)),
+              Z.add lon_min (next (Z.succ lon_span)) ))
+    in
+    let grows =
+      List.map
+        (fun (la, lo) ->
+          let cell = Tessarium_Grid.point_to_cell la lo in
+          let cla, clo = Tessarium_Grid.cell_to_point cell in
+          if Tessarium_Grid.point_to_cell cla clo <> cell then
+            failwith "a cell centre did not round-trip: extraction is broken";
+          let blat_lo, blat_hi, blon_lo, blon_hi =
+            Tessarium_Grid.cell_bounds cell
+          in
+          [ Z.sub la lat_min; Z.sub lo lon_min; cell;
+            Z.sub cla lat_min; Z.sub clo lon_min;
+            Z.sub blat_lo lat_min; Z.sub blat_hi lat_min;
+            Z.sub blon_lo lon_min; Z.sub blon_hi lon_min ])
+        gpts
+    in
+    addh "#define GRID_COUNT %d\n\n" (List.length grows);
+    List.iteri
+      (fun fi name ->
+        addh "static const uint64_t %s[GRID_COUNT] = {\n  %s\n};\n\n" name
+          (String.concat ",\n  "
+             (List.map (fun row -> Z.to_string (List.nth row fi) ^ "ULL") grows)))
+      [ "gvec_dlat"; "gvec_dlon"; "gvec_cell"; "gvec_cdlat"; "gvec_cdlon";
+        "gvec_blatlo"; "gvec_blathi"; "gvec_blonlo"; "gvec_blonhi" ];
     let oc = open_out Sys.argv.(2) in
     output_string oc (Buffer.contents hb);
     close_out oc;
