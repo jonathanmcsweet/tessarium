@@ -1752,3 +1752,52 @@ closed list, so Enter after Escape flew the map to something invisible.
 are recorded in roadmap.md; the map's controls moved to a left-hand rail
 because search took the corner they were in. Compaction now reindexes, so
 browsed places become findable.
+
+### 2026-08-19 — Saying where coverage ends
+
+**Phase:** 6 (web UI)
+
+**What:** Outside the downloaded region the map is blank, and until now the
+app said nothing about it -- a user panning east out of France could not tell
+a missing download from a broken program. The blank ground is now washed grey
+with a line along its edge, and a note under the middle of the view says the
+map is not downloaded here and offers the downloader. New `basemap-coverage`
+endpoint answers one viewport with one character per tile plus the deepest
+zoom the archives reach under its centre; `ui/src/core/coverage.ts` merges the
+missing tiles into rectangles, traces the boundary where missing meets held,
+and projects both back to degrees.
+
+**Rationale:** the mask reads the ARCHIVES, not the download ledger, and that
+was the load-bearing decision. The ledger records what was asked for, which is
+a different thing from what is on disk: this machine's archive was seeded by
+the extraction tool with a world overview no ledger entry claims, browsed
+tiles belong to no entry at all, and compaction folds them into the main
+archive without one. A ledger-drawn mask would therefore grey out ground the
+user can plainly see drawn -- worse than the silence it replaces. Asking the
+same archives the tile endpoint asks, in the same order, makes the mask agree
+with the map by construction, and the end-to-end test checks exactly that
+agreement cell by cell rather than trusting the code that drew it. Presence is
+a directory lookup with no tile body read, so a viewport costs about 30 ms
+against the 6.4 GB France archive.
+
+The boundary is drawn from the tile edges where missing meets held, not from
+the outlines of the merged rectangles: two rectangles splitting one blank area
+share a seam, and drawing that seam would put a line through the middle of
+nothing. Nothing is drawn along the edge of the query itself, because the map
+simply stops knowing there and a box around the viewport would be a claim
+nobody made.
+
+One bug the suite caught before it shipped: MapLibre reports a vector source's
+spec default maxzoom of 22 until tiles.json arrives, so the first query after
+every style swap asked about zoom 19 over an archive cut to 15 and was
+refused, four times a run. The clamp is to the tile grid's own depth rather
+than to whatever the source currently claims.
+
+**Follow-on:** a wrapped viewport is still not a box -- recorded with the
+antimeridian browse gap, which shares the same `regionOf` clamp and now has
+two callers to fix at once. And the note can only say "not downloaded at this
+zoom", never "you have never downloaded this place", because a world overview
+covers every point on Earth; the stronger sentence needs the ledger and is
+recorded as its own item. Separately, `ui/test/e2e.mjs` merged unformatted
+with the place-search branch, so `make test-static` was failing on master for
+a day; the formatter ran here.

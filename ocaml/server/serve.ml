@@ -706,6 +706,45 @@ let handle_basemap cfg (ops : Basemap_download.ops)
                     | Error e -> error cfg ~status:`Conflict e))
             | _ ->
                 bad "expected min_lon, min_lat, max_lon, max_lat and zoom 0..15")
+  | "basemap-coverage" ->
+      (* Where the map goes blank. Reads the archives on disk and nothing
+         else -- no network, no setting to gate, and no key material -- so
+         it answers while a download runs and while browsing is off. *)
+      with_json body (fun json ->
+          let num name =
+            match json_field name json with
+            | Some (`Int i) -> Some (float_of_int i)
+            | Some (`Float f) -> Some f
+            | _ -> None
+          in
+          (* Integer-valued floats are accepted for the same reason browse
+             accepts them: JSON has one number type, and a client whose
+             serializer writes 12.0 is not asking for a fractional zoom. *)
+          let zoom =
+            match json_field "zoom" json with
+            | Some (`Int z) -> Some z
+            | Some (`Float f) when Float.is_integer f && Float.abs f <= 32768.
+              ->
+                Some (int_of_float f)
+            | _ -> None
+          in
+          match (num "min_lon", num "min_lat", num "max_lon", num "max_lat", zoom)
+          with
+          | Some min_lon, Some min_lat, Some max_lon, Some max_lat, Some zoom
+            -> (
+              match
+                Basemap_job.validate ~min_lon ~min_lat ~max_lon ~max_lat
+                  ~max_zoom:zoom ()
+              with
+              | Error e -> bad e
+              | Ok req -> (
+                  match ops.coverage req with
+                  | Ok payload -> respond_json cfg ~status:`OK payload
+                  (* A viewport too large for one query is the caller
+                     asking for too much, not this server being broken. *)
+                  | Error e -> bad e))
+          | _ ->
+              bad "expected min_lon, min_lat, max_lon, max_lat and zoom 0..15")
   | "basemap-search" ->
       (* Names out of the region already on disk. No network, by design: a
          search query names where the user is going, and handing that to a

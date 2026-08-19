@@ -338,6 +338,10 @@ let () =
         (fun ~query ~limit ->
           calls := `Search (query, limit) :: !calls;
           Ok (`Assoc [ ("results", `List []) ]));
+      coverage =
+        (fun req ->
+          calls := `Coverage req :: !calls;
+          Ok (`Assoc [ ("present", `String "1") ]));
     }
   in
   let settings_calls = ref [] in
@@ -597,6 +601,35 @@ let () =
   check "browsing off means the endpoint is off, server-side"
     (run ~endpoint:"basemap-browse" ~body:browse_body = []);
   browse_on := true;
+
+  (* Coverage: the same viewport shape as browse, and deliberately NOT
+     gated on the browse setting -- it reads the archives on disk, which
+     is a question about this machine, not a reason to touch the
+     network. Turning browsing off must not blind the map to where its
+     own tiles end. *)
+  let view =
+    {|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56,"zoom":12}|}
+  in
+  (match run ~endpoint:"basemap-coverage" ~body:view with
+  | [ `Coverage (req : Tessarium_server.Basemap_job.request) ] ->
+      check "a coverage query carries the displayed zoom, not a depth"
+        (req.max_zoom = 12 && req.min_lon = -0.2 && req.polygon = None)
+  | _ -> check "a coverage query carries the displayed zoom, not a depth" false);
+  browse_on := false;
+  check "coverage answers with browsing off"
+    (match run ~endpoint:"basemap-coverage" ~body:view with
+     | [ `Coverage _ ] -> true
+     | _ -> false);
+  browse_on := true;
+  check "a coverage query without a zoom reaches nothing"
+    (run ~endpoint:"basemap-coverage"
+       ~body:{|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56}|}
+     = []);
+  check "a coverage query with inverted bounds reaches nothing"
+    (run ~endpoint:"basemap-coverage"
+       ~body:
+         {|{"min_lon":0.5,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56,"zoom":12}|}
+     = []);
 
   (* Compaction obeys the one-writer rule like everything else. *)
   check "nothing starts while a compaction runs"

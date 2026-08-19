@@ -25,6 +25,7 @@ suites=(
   "js_of_ocaml bundle|js_of_ocaml bundle: [0-9]+ checks"
   "independent js implementation|checks passed, 0 failed"
   "server decisions|server decisions hold"
+  "coverage answers|coverage answers (hold|FAILED)"
   "pmtiles round-trip|pmtiles round-trips"
   "vector regeneration|vectors reproduce exactly from the verified core"
   "differential sweep|[1-9][0-9]* points checked"

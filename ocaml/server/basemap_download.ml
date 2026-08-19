@@ -61,6 +61,10 @@ type ops = {
      go. Browsing is already off by the time this is called, so nothing new
      can arrive in the meantime. *)
   clear_cache : unit -> unit;
+  (* Which of a viewport's tiles this server can actually serve. The
+     request's [max_zoom] is the zoom the map is displaying, not a depth to
+     download. *)
+  coverage : Basemap_job.request -> (Yojson.Safe.t, string) result;
 }
 
 let create () =
@@ -1312,6 +1316,105 @@ let ledger_json ~fs ~basemap_dir =
   | json -> Ok json
   | exception e -> Error (friendly e)
 
+(* ------------------------------------------------------------- coverage *)
+
+(* Where the map goes blank, and how deep it goes where it does not.
+
+   One question about one viewport: which of its tiles this server can
+   actually serve, answered with a directory lookup each and no tile bytes
+   read at all. The map draws whatever the tile endpoint returns, so this
+   asks the same archives in the same order -- browse cache first, then the
+   main one -- rather than reading the ledger. The ledger is a different
+   thing: it records what was ASKED for. An archive seeded by the
+   extraction tool holds tiles no entry claims, browsed tiles belong to no
+   entry at all, and a mask drawn from the ledger would grey out places the
+   user can plainly see drawn -- which is worse than saying nothing, the
+   state this replaces.
+
+   Bounded by construction: a viewport is a few dozen tiles at its own
+   zoom, and a query for more than [max_coverage_tiles] is refused rather
+   than answered slowly. *)
+
+let max_coverage_tiles = 4096
+
+let coverage ~fs ~basemap_dir (req : Basemap_job.request) =
+  (* The zoom the map is DISPLAYING -- what MapLibre asks the tile endpoint
+     for, which is the camera zoom floored and clamped to the source's own
+     depth. Carried in [max_zoom] because that is the field a validated
+     request has; nothing here downloads. *)
+  let z = req.max_zoom in
+  let last = (1 lsl z) - 1 in
+  let grid v = max 0 (min last v) in
+  (* The same floor arithmetic [Tile_id.covering] plans with, so a cell
+     means the tile the map will ask for rather than its neighbour. *)
+  let x0 = grid (Pmtiles.Tile_id.tile_x ~z ~lon:req.min_lon)
+  and x1 = grid (Pmtiles.Tile_id.tile_x ~z ~lon:req.max_lon)
+  and y0 = grid (Pmtiles.Tile_id.tile_y ~z ~lat:req.max_lat)
+  and y1 = grid (Pmtiles.Tile_id.tile_y ~z ~lat:req.min_lat) in
+  let w = x1 - x0 + 1 and h = y1 - y0 + 1 in
+  if w * h > max_coverage_tiles then
+    Error
+      (Printf.sprintf "a coverage query covers at most %d tiles"
+         max_coverage_tiles)
+  else
+    match
+      Eio.Switch.run @@ fun sw ->
+      let archives =
+        List.filter_map
+          (open_archive ~sw ~fs ~basemap_dir)
+          [ "cache.pmtiles"; "map.pmtiles" ]
+      in
+      let held ~z ~x ~y =
+        let id = Pmtiles.Tile_id.of_zxy ~z ~x ~y in
+        List.exists (fun a -> Pmtiles.Archive.locate a id <> None) archives
+      in
+      (* Row-major from the north-west corner, one character per tile: the
+         client draws rectangles from it, and a string survives a JSON
+         round trip without a base64 step on either side. *)
+      let present = Buffer.create (w * h) in
+      for y = y0 to y1 do
+        for x = x0 to x1 do
+          Buffer.add_char present (if held ~z ~x ~y then '1' else '0')
+        done
+      done;
+      (* How deep the archive goes under the middle of the view, which is
+         what separates "you never downloaded this place" from "you have
+         this place, but not this close". Deepest first, so the first hit
+         is the answer. *)
+      let lon = (req.min_lon +. req.max_lon) /. 2.
+      and lat = (req.min_lat +. req.max_lat) /. 2. in
+      let deepest =
+        List.fold_left
+          (fun acc a ->
+            max acc a.Pmtiles.Archive.header.Pmtiles.Header.max_zoom)
+          0 archives
+      in
+      let rec depth_at zd =
+        if zd < 0 then -1
+        else
+          let n = (1 lsl zd) - 1 in
+          let clamp v = max 0 (min n v) in
+          if
+            held ~z:zd
+              ~x:(clamp (Pmtiles.Tile_id.tile_x ~z:zd ~lon))
+              ~y:(clamp (Pmtiles.Tile_id.tile_y ~z:zd ~lat))
+          then zd
+          else depth_at (zd - 1)
+      in
+      `Assoc
+        [
+          ("zoom", `Int z);
+          ("x", `Int x0);
+          ("y", `Int y0);
+          ("w", `Int w);
+          ("h", `Int h);
+          ("present", `String (Buffer.contents present));
+          ("depth", `Int (depth_at deepest));
+        ]
+    with
+    | json -> Ok json
+    | exception e -> Error (friendly e)
+
 let ops t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now =
   {
     estimate = (fun reqs -> estimate ~fs ~net ~source ~basemap_dir ~budget reqs);
@@ -1330,6 +1433,7 @@ let ops t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now =
     browse =
       (fun req -> run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget req);
     clear_cache = (fun () -> clear_cache t ~fs ~basemap_dir);
+    coverage = (fun req -> coverage ~fs ~basemap_dir req);
     search =
       (fun ~query ~limit ->
         match Place_index.search ~fs ~basemap_dir ~query ~limit with

@@ -228,11 +228,26 @@ button:disabled {
   inset: 0;
 }
 
-.map-note {
+/* The notes over the map, stacked from the bottom up. The container is
+   what is positioned; the notes themselves are ordinary blocks in it, so
+   two showing at once cannot land on each other. */
+.map-notes {
   position: absolute;
   left: 50%;
   bottom: 28px;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 8px;
+  /* The container spans the map; only the notes inside it take the
+     pointer, or it would swallow clicks meant for the map itself. */
+  pointer-events: none;
+  width: max-content;
+  max-width: 80%;
+}
+
+.map-note {
   background: rgba(255, 255, 255, 0.94);
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -240,8 +255,31 @@ button:disabled {
   font-size: 13px;
   box-shadow: var(--shadow);
   pointer-events: none;
-  max-width: 80%;
+  max-width: 100%;
   text-align: center;
+}
+
+/* A note that offers something to do has to be reachable, so it takes the
+   pointer back and lays its text and action out in a row -- which wraps on
+   a narrow screen rather than pushing the button off the map. */
+.map-note.action {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 10px;
+  text-align: left;
+  padding: 7px 8px 7px 16px;
+}
+
+.note-action {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  /* Big enough to hit with a thumb: the note is over the map, where a
+     mis-tap pans instead. */
+  min-height: 32px;
 }
 
 .map-note.warn {

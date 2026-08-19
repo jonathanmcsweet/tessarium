@@ -7,6 +7,8 @@ import maplibregl from "maplibre-gl";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+  fetchCoverage,
+  isRunning,
   type Job,
   type Region,
   useBasemapBrowse,
@@ -14,6 +16,12 @@ import {
   useBasemapSettings,
   useBasemapStatus,
 } from "../core/basemap";
+import {
+  absentRects,
+  blankEdges,
+  centreIsBlank,
+  rectsToFeatures,
+} from "../core/coverage";
 import { fetchAddress, fetchGrid } from "../core/queries";
 import { formatBytes, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
@@ -35,6 +43,12 @@ declare global {
 /* Below this the squares are smaller than a fingertip and the overlay is
    noise. A 3 m cell is about 5 px at z18 and 20 px at z20. */
 const GRID_MIN_ZOOM = 18;
+
+/* The deepest tile the basemap is cut to, and the deepest this server will
+   answer a coverage query about. Past it the map overzooms the tiles it
+   has rather than asking for more, so this is the zoom a question about
+   what is on disk has to be asked at. */
+const MAX_TILE_ZOOM = 15;
 
 /* A ceiling on cells per viewport. Reached only when the viewport is unusually
    large for the zoom; truncation is drawn as a warning rather than silently
@@ -97,8 +111,32 @@ const addOverlay = (map: maplibregl.Map) => {
   /* Adding twice throws. Cannot happen today, but the callers are event
      listeners around a style swap whose timing MapLibre does not promise. */
   if (map.getSource("grid")) return;
+  map.addSource("coverage", { type: "geojson", data: emptyGeoJson });
+  map.addSource("coverage-edge", { type: "geojson", data: emptyGeoJson });
   map.addSource("grid", { type: "geojson", data: emptyGeoJson });
   map.addSource("selection", { type: "geojson", data: emptyGeoJson });
+
+  /* Added before the grid and the selection so those draw on top of it:
+     this says where the BASEMAP stops, and the grid works past that edge
+     -- an address is arithmetic, not a lookup, so covering it up would
+     say the opposite of what is true. Muted rather than alarming for the
+     same reason: outside coverage is a normal place to be. */
+  map.addLayer({
+    id: "coverage-blank",
+    type: "fill",
+    source: "coverage",
+    paint: { "fill-color": "#5f7183", "fill-opacity": 0.16 },
+  });
+  map.addLayer({
+    id: "coverage-line",
+    type: "line",
+    source: "coverage-edge",
+    paint: {
+      "line-color": "#5f7183",
+      "line-width": 1.5,
+      "line-opacity": 0.85,
+    },
+  });
 
   map.addLayer({
     id: "grid-lines",
@@ -255,6 +293,11 @@ export function MapView() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
   const [truncated, setTruncated] = useState(false);
+  /* Null when the middle of the view has a tile: the note is about where
+     the user is looking, not about a corner of the screen. [depth] is the
+     deepest zoom the archives hold there, -1 for nothing at all, which is
+     a different sentence. */
+  const [blank, setBlank] = useState<{ depth: number; } | null>(null);
   const [zoom, setZoom] = useState(0);
   /* Bumped after every style swap so the effects that draw onto the style
      (grid, selection) know their sources were just recreated empty. */
@@ -388,6 +431,89 @@ export function MapView() {
     };
   }, [ready, refreshGrid, styleEpoch]);
 
+  /* ------------------------------------------------------- coverage edge */
+
+  /* Where the basemap stops. Asked of the server after every settled move,
+     because the honest answer is "which tiles are on disk right now" and
+     that changes under the map: a download adds them, a removal takes them
+     away, and browsing fills them in while the user pans.
+
+     The zoom asked about is the one MapLibre will REQUEST -- the camera
+     zoom floored, clamped to the source's own depth -- not the camera
+     zoom. Past the source's maxzoom the map overzooms the deepest tiles it
+     has rather than asking for more, so a query at the camera zoom would
+     report a blank that is not on screen. */
+  const refreshCoverage = useCallback(async () => {
+    const map = mapRef.current;
+    if (!map) return;
+    const fill = map.getSource("coverage") as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    const edge = map.getSource("coverage-edge") as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    if (!fill || !edge) return;
+
+    const source = map.getSource("protomaps") as unknown as {
+      maxzoom?: number;
+    } | undefined;
+    /* Clamped to the depth the tile grid is cut to, not just to what the
+       source says: MapLibre reports a vector source's spec default of 22
+       until tiles.json arrives, so the first query after every style swap
+       asked about zoom 19 over an archive that stops at 15 -- which the
+       server refused, four times a run. */
+    const deepest = Math.min(
+      MAX_TILE_ZOOM,
+      typeof source?.maxzoom === "number" ? source.maxzoom : MAX_TILE_ZOOM,
+    );
+    const view = regionOf(map);
+    const zoom = Math.max(0, Math.min(deepest, Math.floor(map.getZoom())));
+
+    /* A failure here must leave the map alone rather than claim the world
+       is blank: the server is on loopback, but a query can still be cut
+       off mid-style-swap or refused for asking about too much at once. */
+    const answer = await fetchCoverage(client, {
+      min_lon: view.min_lon,
+      min_lat: view.min_lat,
+      max_lon: view.max_lon,
+      max_lat: view.max_lat,
+      zoom,
+    }).catch(() => null);
+    if (!answer) return;
+
+    fill.setData({
+      type: "FeatureCollection",
+      features: rectsToFeatures(absentRects(answer), answer.zoom),
+    });
+    edge.setData({
+      type: "FeatureCollection",
+      features: blankEdges(answer, answer.zoom),
+    });
+    setBlank(centreIsBlank(answer) ? { depth: answer.depth } : null);
+  }, [client]);
+
+  /* Nothing to say when there is no archive at all -- the missing-basemap
+     banner already says it, and a grey wash under it would be a second
+     voice saying the same thing worse. */
+  const coverageOff = basemapPresent.data === false;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: styleEpoch is deliberate -- a style swap recreates the coverage sources empty, so the effect must re-run to refill them
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    if (coverageOff) {
+      setBlank(null);
+      return;
+    }
+    const refresh = () => void refreshCoverage();
+    map.on("moveend", refresh);
+    map.on("zoomend", refresh);
+    refresh();
+    return () => {
+      map.off("moveend", refresh);
+      map.off("zoomend", refresh);
+    };
+  }, [ready, refreshCoverage, styleEpoch, coverageOff]);
+
   /* -------------------------------------------------- offline downloads */
 
   /* Swap in the freshly downloaded archive without reloading the page -- a
@@ -469,6 +595,12 @@ export function MapView() {
             } else {
               map.refreshTiles("protomaps");
             }
+            /* Tiles just landed where there were none, so the grey wash
+               over them is now a lie. Invalidated rather than refetched
+               blindly: the cached answer for this exact view is what
+               would otherwise be handed back. */
+            client.invalidateQueries({ queryKey: ["basemap-coverage"] });
+            void refreshCoverage();
           },
         });
       }, 1200);
@@ -479,7 +611,14 @@ export function MapView() {
       clearTimeout(timer);
       map.off("moveend", settle);
     };
-  }, [ready, browseEnabled, browseMutate, rebuildBasemap]);
+  }, [
+    ready,
+    browseEnabled,
+    browseMutate,
+    rebuildBasemap,
+    client,
+    refreshCoverage,
+  ]);
 
   /* The region is frozen when the card opens. Panning while it is open
      changes the next download, not the one being confirmed. */
@@ -529,6 +668,7 @@ export function MapView() {
       client.setQueryData(["basemap-present"], true);
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
+      client.invalidateQueries({ queryKey: ["basemap-coverage"] });
       clearBasemapFailed();
       closeDownload();
       rebuildBasemap();
@@ -543,6 +683,7 @@ export function MapView() {
       client.invalidateQueries({ queryKey: ["basemap-present"] });
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
+      client.invalidateQueries({ queryKey: ["basemap-coverage"] });
       rebuildBasemap();
     } else if (job.state === "failed") {
       /* Attributed when attribution is possible: a poll that saw the
@@ -558,21 +699,29 @@ export function MapView() {
          lands with the last part's rename, before the assets fetch -- so
          the list must not keep showing the world before it. */
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
+      client.invalidateQueries({ queryKey: ["basemap-coverage"] });
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-present"] });
     } else if (job.state === "cancelled") {
       toast(m.map_download_cancelled());
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
+      client.invalidateQueries({ queryKey: ["basemap-coverage"] });
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-present"] });
       closeDownload();
     }
+    /* Every ending above may have changed what is on disk -- a download
+       that finished, a removal, or a failure after some parts had already
+       landed -- so the mask is asked again here rather than left stale
+       until the next pan. */
+    if (!isRunning(job)) void refreshCoverage();
   }, [
     basemapJob.data,
     client,
     clearBasemapFailed,
     closeDownload,
     rebuildBasemap,
+    refreshCoverage,
   ]);
 
   /* --------------------------------------------------------- selecting */
@@ -703,16 +852,39 @@ export function MapView() {
       {downloadOpen && region && (
         <DownloadCard region={region} job={basemapJob.data?.job} />
       )}
-      {zoom < GRID_MIN_ZOOM && (
-        <div className="map-note" role="status">
-          {m.map_zoom_for_grid()}
-        </div>
-      )}
-      {truncated && (
-        <div className="map-note warn" role="status">
-          {m.map_too_many_squares()}
-        </div>
-      )}
+      {
+        /* One column, because these are not mutually exclusive: a view can
+          be outside coverage AND too far out for the grid, and two notes
+          pinned to the same corner would sit on top of each other. */
+      }
+      <div className="map-notes">
+        {blank && (
+          <div className="map-note action" role="status">
+            <span>
+              {blank.depth < 0
+                ? m.map_coverage_none()
+                : m.map_coverage_shallow()}
+            </span>
+            <button
+              type="button"
+              className="note-action"
+              onClick={() => openDownload()}
+            >
+              {m.map_coverage_download()}
+            </button>
+          </div>
+        )}
+        {zoom < GRID_MIN_ZOOM && (
+          <div className="map-note" role="status">
+            {m.map_zoom_for_grid()}
+          </div>
+        )}
+        {truncated && (
+          <div className="map-note warn" role="status">
+            {m.map_too_many_squares()}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

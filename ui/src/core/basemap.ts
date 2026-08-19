@@ -10,7 +10,12 @@
    every response is parsed with zod rather than cast, same as the worker
    boundary and for the same reason. */
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { z } from "zod";
 
 export type Region = {
@@ -343,3 +348,51 @@ export function useBasemapCancel() {
     onSuccess: () => client.invalidateQueries({ queryKey: ["basemap-status"] }),
   });
 }
+
+/* ------------------------------------------------------------- coverage */
+
+/* Which of a viewport's tiles this server can actually serve, so the map
+   can draw the edge of what is on disk instead of leaving a blank screen
+   to be read as a broken application.
+
+   The answer describes the ARCHIVES, not the download ledger: a browsed
+   tile is a tile the map draws, and an archive can hold tiles no ledger
+   entry claims. `present` is one character per tile, north-west first,
+   west to east and then south. */
+const Coverage = z.object({
+  zoom: z.number().int().nonnegative(),
+  x: z.number().int().nonnegative(),
+  y: z.number().int().nonnegative(),
+  w: z.number().int().positive(),
+  h: z.number().int().positive(),
+  present: z.string().regex(/^[01]*$/),
+  /* Deepest zoom with a tile under the middle of the view; -1 for none at
+     any zoom, which is a different sentence to say. */
+  depth: z.number().int().min(-1),
+});
+export type Coverage = z.infer<typeof Coverage>;
+
+/* Driven from the map's own move handlers, so fetched imperatively -- the
+   same arrangement the grid uses, and for the same reason: a drag fires
+   several settled events at one position and the query client answers the
+   repeats from cache.
+
+   The staleness window is short rather than infinite: tiles arrive while
+   browsing and leave when a region is removed, and the mask must not
+   outlive either. */
+export const fetchCoverage = (
+  client: QueryClient,
+  view: {
+    min_lon: number;
+    min_lat: number;
+    max_lon: number;
+    max_lat: number;
+    zoom: number;
+  },
+): Promise<Coverage> =>
+  client.fetchQuery({
+    queryKey: ["basemap-coverage", view],
+    queryFn: () => post(Coverage, "basemap-coverage", view, 15_000),
+    staleTime: 10_000,
+    retry: false,
+  });
