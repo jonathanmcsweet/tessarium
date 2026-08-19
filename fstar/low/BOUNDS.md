@@ -53,10 +53,19 @@ the corner first anyway; signed machine ints would drag in library
 internals the zero-admit flag rejects). The band table crosses as a
 function parameter (`cum_low`) whose result refinement pins it to T.cum --
 the round-function pattern again -- so every grid theorem holds for any
-conforming lookup; the C side's three-line const-array lookup is the one
-unproved seam, its array contents cross-examined against the proved
-source by check/Tessarium.Check.Table and its answers by the vectors. A
-proved in-memory table (LowStar buffer) is the recorded upgrade path.
+conforming lookup. The unproved plumbing on this path, all of it: the C
+lookup and harness lines, gen_check's emission of the table and vectors
+(including the signed-to-offset shift), krml and the C compiler. What
+watches each: gen_check re-parses every literal it writes and compares it
+against memory (the emission); the harness sweeps the whole table's shape
+-- base 0, strictly increasing, steps <= max_col_count, the hand-pinned
+grand total -- and replays 13 vectors that read ~2% of the entries
+directly (the values Check.Table pins are Expected.fst's copy of the same
+list, a DIFFERENT serialization from cum_table's); CI's byte diff pins
+stability. band_search extracts as genuine C recursion, depth <= 12 --
+measured, closing the spike's emission-shape obligation for this walk. A
+proved in-memory table (LowStar buffer) remains the recorded upgrade
+path.
 
 `bucket(v, v_min, span, k) = (v - v_min) * k / span`, always with
 `0 <= v - v_min <= span`:

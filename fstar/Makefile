@@ -114,7 +114,7 @@ check-extraction: verify
 # --------------------------------------------------------- the KaRaMeL leg
 # The machine-integer core: proved equal to the spec (low/), then emitted
 # as C by krml. low/out is a build artifact, regenerated on every run; the
-# committed sources are only the two .fst files. check/ is on the include
+# committed sources are only the .fst files. check/ is on the include
 # path because the Check instantiation ties itself to the harness round
 # function from there.
 

@@ -14,7 +14,7 @@
 (executable
  (name gen_check)
  (modules gen_check)
- (libraries tessarium_extracted fstarlib zarith))
+ (libraries tessarium_extracted fstarlib zarith str))
 
 (executable
  (name gen_wordlist)

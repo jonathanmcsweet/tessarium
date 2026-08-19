@@ -4,8 +4,9 @@ module Tessarium.Low.Grid
 ///
 /// Same discipline as Tessarium.Low.Feistel: nothing is re-proved, every
 /// function's ensures equates its machine answer with Tessarium.Grid's on
-/// the same inputs, and the spec theorems (containment, injectivity, round
-/// trip) transfer by rewriting.
+/// the same inputs. Round trip is restated below as a corollary; the other
+/// spec theorems transfer the same way whenever a consumer needs them
+/// stated on machine types.
 ///
 /// Two representation choices, both to keep the C boundary honest:
 ///
@@ -13,7 +14,8 @@ module Tessarium.Low.Grid
 /// dlat = lat - lat_min in [0, lat_span], dlon likewise -- because the
 /// spec's arithmetic subtracts the corner first anyway, and F*'s signed
 /// machine integers drag in library internals our zero-admit flag rejects.
-/// The OCaml FFI shim does the one add/subtract at the boundary.
+/// The OCaml FFI shim (a later phase; today only gen_check speaks to this
+/// boundary) will do the one add/subtract at the edge.
 ///
 /// The band table travels as a FUNCTION PARAMETER (`cum_low`), the same
 /// pattern as the Feistel's round function: the refinement on its result
