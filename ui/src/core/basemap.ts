@@ -366,9 +366,17 @@ const Coverage = z.object({
   w: z.number().int().positive(),
   h: z.number().int().positive(),
   present: z.string().regex(/^[01]*$/),
-  /* Deepest zoom with a tile under the middle of the view; -1 for none at
-     any zoom, which is a different sentence to say. */
+  /* Deepest zoom with a tile under the middle cell of the rectangle above;
+     -1 for none at any zoom. It is what decides whether the middle of the
+     view is blank, so it is measured server-side at that same cell rather
+     than re-derived here from the mask. */
   depth: z.number().int().min(-1),
+}).refine((c) => c.present.length === c.w * c.h, {
+  /* The one invariant that spans fields, and so the one zod would not
+     check on its own. A short string reads as "covered" for every tile it
+     does not mention -- silently under-reporting the blank, which is the
+     failure this feature exists to prevent. */
+  message: "present must carry one character per tile of w x h",
 });
 export type Coverage = z.infer<typeof Coverage>;
 

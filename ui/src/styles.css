@@ -259,11 +259,13 @@ button:disabled {
   text-align: center;
 }
 
-/* A note that offers something to do has to be reachable, so it takes the
-   pointer back and lays its text and action out in a row -- which wraps on
-   a narrow screen rather than pushing the button off the map. */
+/* A note that offers something to do lays its text and action out in a
+   row, wrapping on a narrow screen rather than pushing the button off the
+   map. The pill itself stays transparent to the pointer and only the
+   button takes it back: on a phone this sits over the bottom of the map,
+   which is exactly where a thumb starts a pan, and a pill that swallowed
+   that drag made the map feel broken. */
 .map-note.action {
-  pointer-events: auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -274,12 +276,14 @@ button:disabled {
 }
 
 .note-action {
-  padding: 6px 12px;
+  pointer-events: auto;
+  padding: 6px 14px;
   border-radius: 999px;
   font-size: 13px;
-  /* Big enough to hit with a thumb: the note is over the map, where a
-     mis-tap pans instead. */
-  min-height: 32px;
+  /* The same 44px target as every other touch control here. It is over a
+     map, where a miss pans instead of doing nothing, so this is the last
+     place to shave a few pixels. */
+  min-height: 44px;
 }
 
 .map-note.warn {

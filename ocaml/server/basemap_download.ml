@@ -37,6 +37,13 @@ type t = {
   mutable clear_requested : bool;
 }
 
+(* Why a coverage query failed, kept apart because the two answers are
+   different HTTP statuses: a viewport larger than the cap is the caller
+   asking for more than a viewport, and an archive this server cannot read
+   is this server's own data gone wrong. Reporting both as one string once
+   meant a corrupt archive was blamed on the page that asked. *)
+type coverage_error = Too_large of string | Unreadable of string
+
 (* What the request handler sees: closures, so the handler can be tested
    with pure fakes and never needs the switch, the network or the clock. *)
 type ops = {
@@ -64,7 +71,7 @@ type ops = {
   (* Which of a viewport's tiles this server can actually serve. The
      request's [max_zoom] is the zoom the map is displaying, not a depth to
      download. *)
-  coverage : Basemap_job.request -> (Yojson.Safe.t, string) result;
+  coverage : Basemap_job.request -> (Yojson.Safe.t, coverage_error) result;
 }
 
 let create () =
@@ -273,6 +280,20 @@ let open_archive ~sw ~fs ~basemap_dir name =
   | _ -> None
 
 let open_base ~sw ~fs ~basemap_dir = open_archive ~sw ~fs ~basemap_dir "map.pmtiles"
+
+(* For readers that must survive a bad file rather than fail the request:
+   an archive that will not open is skipped with a warning, exactly as the
+   tile endpoint skips it. A half-written map.pmtiles must not take the
+   browse cache's answers down with it, and a query about tiles has to
+   describe the same archives the tile endpoint will actually serve
+   from. *)
+let open_readable ~sw ~fs ~basemap_dir name =
+  match open_archive ~sw ~fs ~basemap_dir name with
+  | a -> a
+  | exception e ->
+      Logs.warn (fun m ->
+          m "coverage: %s is unreadable: %s" name (Printexc.to_string e));
+      None
 
 (* The browse cache: anonymous tiles picked up while panning online. Its own
    file so a browse never rewrites the big archive; folded into it when it
@@ -1354,14 +1375,20 @@ let coverage ~fs ~basemap_dir (req : Basemap_job.request) =
   let w = x1 - x0 + 1 and h = y1 - y0 + 1 in
   if w * h > max_coverage_tiles then
     Error
-      (Printf.sprintf "a coverage query covers at most %d tiles"
-         max_coverage_tiles)
+      (Too_large
+         (Printf.sprintf "a coverage query covers at most %d tiles"
+            max_coverage_tiles))
   else
     match
       Eio.Switch.run @@ fun sw ->
+      (* Cache first, then the main archive -- the tile endpoint's order,
+         though an existence test cannot tell the difference. What makes
+         this agree with what the map is served is not the order but that
+         [Archive.tile] IS [locate] followed by a read: the same directory
+         walk, the same run-length entries, the same nested leaves. *)
       let archives =
         List.filter_map
-          (open_archive ~sw ~fs ~basemap_dir)
+          (open_readable ~sw ~fs ~basemap_dir)
           [ "cache.pmtiles"; "map.pmtiles" ]
       in
       let held ~z ~x ~y =
@@ -1377,18 +1404,24 @@ let coverage ~fs ~basemap_dir (req : Basemap_job.request) =
           Buffer.add_char present (if held ~z ~x ~y then '1' else '0')
         done
       done;
-      (* How deep the archive goes under the middle of the view, which is
-         what separates "you never downloaded this place" from "you have
-         this place, but not this close". Deepest first, so the first hit
-         is the answer. *)
-      let lon = (req.min_lon +. req.max_lon) /. 2.
-      and lat = (req.min_lat +. req.max_lat) /. 2. in
-      let deepest =
-        List.fold_left
-          (fun acc a ->
-            max acc a.Pmtiles.Archive.header.Pmtiles.Header.max_zoom)
-          0 archives
-      in
+      (* How deep the archive goes under the middle of the view.
+
+         Measured at the centre of the middle CELL of the rectangle above,
+         not at the midpoint of the requested degrees. Those are different
+         tiles surprisingly often -- Mercator is not linear in latitude and
+         the viewport's edges fall at arbitrary points inside their tiles --
+         and when they disagreed, the client could be told the middle of
+         its view was blank while the depth described the tile next door.
+         The descent starts at the zoom asked about rather than at the
+         archive's own depth, which makes the answer an exact statement
+         about the middle cell: depth = zoom means that cell is held, and
+         anything less means it is not, with the number saying how far out
+         the map still has something. Starting deeper would let a partial
+         archive report a depth ABOVE a zoom it has no tile at, and the
+         client would then have a blank middle and a depth denying it. *)
+      let cx = x0 + (w / 2) and cy = y0 + (h / 2) in
+      let cl, cb, cr, ct = Pmtiles.Tile_id.tile_box ~z ~x:cx ~y:cy in
+      let lon = (cl +. cr) /. 2. and lat = (cb +. ct) /. 2. in
       let rec depth_at zd =
         if zd < 0 then -1
         else
@@ -1409,11 +1442,11 @@ let coverage ~fs ~basemap_dir (req : Basemap_job.request) =
           ("w", `Int w);
           ("h", `Int h);
           ("present", `String (Buffer.contents present));
-          ("depth", `Int (depth_at deepest));
+          ("depth", `Int (depth_at z));
         ]
     with
     | json -> Ok json
-    | exception e -> Error (friendly e)
+    | exception e -> Error (Unreadable (friendly e))
 
 let ops t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now =
   {

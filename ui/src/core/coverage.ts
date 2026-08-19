@@ -178,14 +178,19 @@ export function blankEdges(c: Coverage, zoom: number): GeoJSON.Feature[] {
 }
 
 /* Whether the middle of the view -- where the reticle sits, and what any
-   note is about -- has no tile. Rounds toward the centre cell rather than
-   averaging: an even-width viewport has no middle column, and either
-   neighbour is the honest answer. */
+   note is about -- has no tile.
+
+   Read off the depth rather than out of the mask, because the server
+   measures that depth at the middle cell of this very rectangle: if the
+   deepest tile under the middle is shallower than the zoom being drawn,
+   there is no tile there at this zoom, and if it is not, there is. Both
+   spellings were here at once for a while and they are not the same
+   sentence -- the mask's middle CELL and the viewport's middle DEGREE fall
+   in different tiles for a few hundred viewports in every few thousand,
+   and the pair then said "blank here" and "covered at this zoom" about the
+   same place. One authority, and it is the one the note quotes. */
 export function centreIsBlank(c: Coverage): boolean {
-  if (c.w <= 0 || c.h <= 0) return false;
-  const x = Math.floor(c.w / 2);
-  const y = Math.floor(c.h / 2);
-  return c.present[y * c.w + x] === "0";
+  return c.depth < c.zoom;
 }
 
 /* Nothing missing means nothing to draw, and the whole overlay stays off

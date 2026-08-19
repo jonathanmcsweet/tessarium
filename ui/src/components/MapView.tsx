@@ -4,7 +4,13 @@ import { layers, namedFlavor } from "@protomaps/basemaps";
 import { useQueryClient } from "@tanstack/react-query";
 import { Download } from "lucide-react";
 import maplibregl from "maplibre-gl";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import {
   fetchCoverage,
@@ -49,6 +55,12 @@ const GRID_MIN_ZOOM = 18;
    has rather than asking for more, so this is the zoom a question about
    what is on disk has to be asked at. */
 const MAX_TILE_ZOOM = 15;
+
+/* How long a pan is left to settle before the browse cache fetches what is
+   missing. Named once because the coverage note has to outwait it: saying
+   "not downloaded" about tiles that are already on their way is worse than
+   saying nothing for a moment. */
+const BROWSE_SETTLE_MS = 1200;
 
 /* A ceiling on cells per viewport. Reached only when the viewport is unusually
    large for the zoom; truncation is drawn as a warning rather than silently
@@ -110,7 +122,7 @@ const buildStyle = (version: number): maplibregl.StyleSpecification => ({
 const addOverlay = (map: maplibregl.Map) => {
   /* Adding twice throws. Cannot happen today, but the callers are event
      listeners around a style swap whose timing MapLibre does not promise. */
-  if (map.getSource("grid")) return;
+  if (map.getSource("coverage")) return;
   map.addSource("coverage", { type: "geojson", data: emptyGeoJson });
   map.addSource("coverage-edge", { type: "geojson", data: emptyGeoJson });
   map.addSource("grid", { type: "geojson", data: emptyGeoJson });
@@ -125,7 +137,13 @@ const addOverlay = (map: maplibregl.Map) => {
     id: "coverage-blank",
     type: "fill",
     source: "coverage",
-    paint: { "fill-color": "#5f7183", "fill-opacity": 0.16 },
+    /* Heavier than a hint on purpose. It only ever covers tiles the map
+       draws nothing for, so there is no cartography underneath to obscure,
+       and a wash faint enough to be tasteful over a drawn map was
+       invisible over a blank one -- 1.2:1 against the background, which
+       is no signal at all. The note carries the meaning in words; this
+       carries the shape. */
+    paint: { "fill-color": "#41505f", "fill-opacity": 0.42 },
   });
   map.addLayer({
     id: "coverage-line",
@@ -443,9 +461,18 @@ export function MapView() {
      zoom. Past the source's maxzoom the map overzooms the deepest tiles it
      has rather than asking for more, so a query at the camera zoom would
      report a blank that is not on screen. */
+  const coverageSeq = useRef(0);
   const refreshCoverage = useCallback(async () => {
     const map = mapRef.current;
     if (!map) return;
+    /* Only the newest question gets to answer. React Query hands back a
+       cached view in a microtask while a fresh one is still in flight, so
+       returning to somewhere you were ten seconds ago resolves BEFORE the
+       place you passed through -- and the older answer then painted over
+       the newer one. Sitting on blank ground, that cleared the wash and
+       the note and left the app saying nothing at all, which is the state
+       this whole feature exists to replace. */
+    const mine = ++coverageSeq.current;
     const fill = map.getSource("coverage") as
       | maplibregl.GeoJSONSource
       | undefined;
@@ -479,7 +506,7 @@ export function MapView() {
       max_lat: view.max_lat,
       zoom,
     }).catch(() => null);
-    if (!answer) return;
+    if (!answer || mine !== coverageSeq.current) return;
 
     fill.setData({
       type: "FeatureCollection",
@@ -496,6 +523,10 @@ export function MapView() {
      banner already says it, and a grey wash under it would be a second
      voice saying the same thing worse. */
   const coverageOff = basemapPresent.data === false;
+  /* Read here rather than reaching for [browseEnabled], which is declared
+     with the browse effect further down: the same fact, and this effect
+     must not depend on the order the two happen to be written in. */
+  const browseSettles = useBasemapSettings().data?.browse_cache === true;
   // biome-ignore lint/correctness/useExhaustiveDependencies: styleEpoch is deliberate -- a style swap recreates the coverage sources empty, so the effect must re-run to refill them
   useEffect(() => {
     const map = mapRef.current;
@@ -504,15 +535,30 @@ export function MapView() {
       setBlank(null);
       return;
     }
-    const refresh = () => void refreshCoverage();
+    /* Browsing fetches the viewport's missing tiles 1.2 s after a pan
+       settles, so asking immediately would wash the screen grey and offer
+       a download for the tiles the app is already fetching -- every pan,
+       for over a second. When browsing is on the question waits until
+       after that fetch would have landed; the browse's own success
+       refreshes this sooner when tiles really do arrive. */
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = () => {
+      clearTimeout(timer);
+      if (!browseSettles) {
+        void refreshCoverage();
+        return;
+      }
+      timer = setTimeout(() => void refreshCoverage(), BROWSE_SETTLE_MS + 400);
+    };
     map.on("moveend", refresh);
     map.on("zoomend", refresh);
     refresh();
     return () => {
+      clearTimeout(timer);
       map.off("moveend", refresh);
       map.off("zoomend", refresh);
     };
-  }, [ready, refreshCoverage, styleEpoch, coverageOff]);
+  }, [ready, refreshCoverage, styleEpoch, coverageOff, browseSettles]);
 
   /* -------------------------------------------------- offline downloads */
 
@@ -603,7 +649,7 @@ export function MapView() {
             void refreshCoverage();
           },
         });
-      }, 1200);
+      }, BROWSE_SETTLE_MS);
     };
     map.on("moveend", settle);
     settle();
@@ -810,6 +856,43 @@ export function MapView() {
     });
   }, [flyTo, ready]);
 
+  /* The note can go away without the user doing anything -- browsed tiles
+     land, a fly-to settles -- and if its button held the keyboard the page
+     would drop to <body>, where arrow keys and Enter do nothing at all.
+     Handed back to the map, which is what the note was covering.
+
+     Whether focus was inside is RECORDED while the note is alive rather
+     than read when it goes: by the time an effect's cleanup runs, React
+     has already mutated the DOM and the answer is always "no" -- which is
+     how the first version of this passed review and failed the test. And
+     focus leaving to nowhere (a null relatedTarget, which is what removing
+     a focused element looks like) is not the user moving on, so it does
+     not clear the flag. */
+  const notesRef = useRef<HTMLDivElement>(null);
+  const noteHeldFocus = useRef(false);
+  const noteShown = blank !== null && !downloadOpen;
+  useLayoutEffect(() => {
+    const node = notesRef.current;
+    if (!noteShown || !node) return;
+    const took = () => {
+      noteHeldFocus.current = true;
+    };
+    const gave = (event: FocusEvent) => {
+      const next = event.relatedTarget as Node | null;
+      if (next && !node.contains(next)) noteHeldFocus.current = false;
+    };
+    node.addEventListener("focusin", took);
+    node.addEventListener("focusout", gave);
+    return () => {
+      node.removeEventListener("focusin", took);
+      node.removeEventListener("focusout", gave);
+      if (noteHeldFocus.current) {
+        noteHeldFocus.current = false;
+        mapRef.current?.getCanvas().focus();
+      }
+    };
+  }, [noteShown]);
+
   return (
     <div className="map-wrap">
       <div ref={container} className="map" />
@@ -857,18 +940,20 @@ export function MapView() {
           be outside coverage AND too far out for the grid, and two notes
           pinned to the same corner would sit on top of each other. */
       }
-      <div className="map-notes">
-        {blank && (
+      <div className="map-notes" ref={notesRef}>
+        {
+          /* Hidden while the card is open: the note's whole purpose is to
+            open that card, and leaving it on top of the thing it just
+            opened puts a pill over the controls and wins the hit test. */
+        }
+        {blank && !downloadOpen && (
           <div className="map-note action" role="status">
-            <span>
-              {blank.depth < 0
-                ? m.map_coverage_none()
-                : m.map_coverage_shallow()}
-            </span>
+            <span>{m.map_coverage_gap()}</span>
             <button
               type="button"
               className="note-action"
-              onClick={() => openDownload()}
+              onClick={() =>
+                openDownload()}
             >
               {m.map_coverage_download()}
             </button>

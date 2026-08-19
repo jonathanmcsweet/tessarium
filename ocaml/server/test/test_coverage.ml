@@ -86,8 +86,14 @@ let query ~fs ~dir ~min_lon ~min_lat ~max_lon ~max_lat ~zoom =
     Tessarium_server.Basemap_job.validate ~min_lon ~min_lat ~max_lon
       ~max_lat ~max_zoom:zoom ()
   with
-  | Error e -> Error e
-  | Ok req -> Tessarium_server.Basemap_download.coverage ~fs ~basemap_dir:dir req
+  | Error e -> Error (Tessarium_server.Basemap_download.Unreadable e)
+  | Ok req ->
+      Tessarium_server.Basemap_download.coverage ~fs ~basemap_dir:dir req
+
+let why = function
+  | Tessarium_server.Basemap_download.Too_large e
+  | Tessarium_server.Basemap_download.Unreadable e ->
+      e
 
 let field name = function
   | `Assoc fields -> List.assoc_opt name fields
@@ -127,7 +133,7 @@ let () =
      query ~fs ~dir:dir_name ~min_lon:(-0.2) ~min_lat:51.45 ~max_lon:(-0.05)
        ~max_lat:51.55 ~zoom:12
    with
-  | Error e -> check ("a view inside coverage answers: " ^ e) false
+  | Error e -> check ("a view inside coverage answers: " ^ why e) false
   | Ok json ->
       let present = string_field "present" json in
       check "every tile of a view inside the downloaded box is present"
@@ -149,7 +155,7 @@ let () =
      query ~fs ~dir:dir_name ~min_lon:139.6 ~min_lat:35.6 ~max_lon:139.8
        ~max_lat:35.8 ~zoom:12
    with
-  | Error e -> check ("a view outside coverage answers: " ^ e) false
+  | Error e -> check ("a view outside coverage answers: " ^ why e) false
   | Ok json ->
       check "a view outside every downloaded box is blank at street zoom"
         (String.for_all (fun c -> c = '0') (string_field "present" json));
@@ -160,33 +166,40 @@ let () =
      query ~fs ~dir:dir_name ~min_lon:139.6 ~min_lat:35.6 ~max_lon:139.8
        ~max_lat:35.8 ~zoom:2
    with
-  | Error e -> check ("a view at overview zoom answers: " ^ e) false
+  | Error e -> check ("a view at overview zoom answers: " ^ why e) false
   | Ok json ->
       check "the same place at overview zoom is covered"
         (String.for_all (fun c -> c = '1') (string_field "present" json)));
 
   (* --------------------------------------------------- the edge itself *)
-  (* A view straddling the eastern edge of the London box at zoom 8, which
-     is the case the mask exists to draw. The expected string is computed
-     from the box the archive was built from, so a change to the row order
-     or the starting corner fails here rather than in a screenshot. *)
+  (* A view over the north-east corner of the London box, which is the case
+     the mask exists to draw. The expected string is computed from the box
+     the archive was built from, so the starting corner and both directions
+     of travel are pinned here rather than in a screenshot.
+
+     Both axes only get pinned if the mask is asymmetric in both, which a
+     view over a straight edge is not: the first version of this check used
+     one, and reversing the ROWS passed it. The two guards below fail if
+     this fixture ever drifts back into a shape that cannot tell. *)
   (match
-     query ~fs ~dir:dir_name ~min_lon:0. ~min_lat:51.35 ~max_lon:1.6
-       ~max_lat:51.65 ~zoom:8
+     query ~fs ~dir:dir_name ~min_lon:0. ~min_lat:51.55 ~max_lon:1.2
+       ~max_lat:52.1 ~zoom:10
    with
-  | Error e -> check ("a straddling view answers: " ^ e) false
+  | Error e -> check ("a straddling view answers: " ^ why e) false
   | Ok json ->
       let x0 = int_field "x" json and y0 = int_field "y" json in
       let w = int_field "w" json and h = int_field "h" json in
       let present = string_field "present" json in
+      let row i = String.sub present (i * w) w in
+      let rows = List.init h row in
       let expected = Buffer.create (w * h) in
       for y = y0 to y0 + h - 1 do
         for x = x0 to x0 + w - 1 do
           let inside =
-            x >= Pmtiles.Tile_id.tile_x ~z:8 ~lon:(-0.5)
-            && x <= Pmtiles.Tile_id.tile_x ~z:8 ~lon:0.3
-            && y >= Pmtiles.Tile_id.tile_y ~z:8 ~lat:51.7
-            && y <= Pmtiles.Tile_id.tile_y ~z:8 ~lat:51.3
+            x >= Pmtiles.Tile_id.tile_x ~z:10 ~lon:(-0.5)
+            && x <= Pmtiles.Tile_id.tile_x ~z:10 ~lon:0.3
+            && y >= Pmtiles.Tile_id.tile_y ~z:10 ~lat:51.7
+            && y <= Pmtiles.Tile_id.tile_y ~z:10 ~lat:51.3
           in
           Buffer.add_char expected (if inside then '1' else '0')
         done
@@ -194,7 +207,83 @@ let () =
       check "the mask runs west to east, north to south"
         (present = Buffer.contents expected);
       check "the edge is actually in this view -- otherwise it proves nothing"
-        (String.contains present '0' && String.contains present '1'));
+        (String.contains present '0' && String.contains present '1');
+      check "this view can tell north from south -- otherwise it proves less"
+        (rows <> List.rev rows);
+      check "and west from east"
+        (List.exists
+           (fun r ->
+             let reversed = String.init w (fun i -> r.[w - 1 - i]) in
+             r <> reversed)
+           rows));
+
+  (* The middle of the view is where the note speaks about, so the depth
+     reported has to be the depth of THAT tile. When it was measured at the
+     midpoint of the requested degrees instead, the two named different
+     tiles often enough to matter -- and the client could then be told its
+     middle was blank while being handed a depth saying otherwise, which
+     reads on screen as "zoom out to see it" over ground already at this
+     zoom. *)
+  let blank_centre_is_shallow ~min_lon ~min_lat ~max_lon ~max_lat ~zoom =
+    match query ~fs ~dir:dir_name ~min_lon ~min_lat ~max_lon ~max_lat ~zoom with
+    | Error _ -> false
+    | Ok json ->
+        let w = int_field "w" json and h = int_field "h" json in
+        let present = string_field "present" json in
+        let middle = present.[(h / 2 * w) + (w / 2)] in
+        (* Either the middle holds a tile, or the depth is below the zoom
+           asked about. Never "blank here, but covered at this zoom". *)
+        middle = '1' || int_field "depth" json < zoom
+  in
+  (* Swept rather than sampled. The two ways of naming "the middle" agree
+     for most viewports and disagree for a few hundred in every few
+     thousand, so three hand-picked boxes proved nothing: measuring the
+     depth at the degree midpoint again passed them all. This walks
+     viewports across the edge of the London box at every zoom the archive
+     holds, which finds the disagreement in the first handful. *)
+  let swept = ref 0 and broke = ref 0 in
+  for zoom = 6 to 12 do
+    for i = 0 to 19 do
+      for j = 0 to 5 do
+        let lon = -0.8 +. (float_of_int i *. 0.0731) in
+        let lat = 51.13 +. (float_of_int j *. 0.0917) in
+        incr swept;
+        if
+          not
+            (blank_centre_is_shallow ~min_lon:lon ~min_lat:lat
+               ~max_lon:(lon +. 0.211) ~max_lat:(lat +. 0.083) ~zoom)
+        then incr broke
+      done
+    done
+  done;
+  check
+    (Printf.sprintf
+       "a blank middle always reports a depth below the zoom asked about \
+        (%d of %d viewports disagreed)" !broke !swept)
+    (!broke = 0 && !swept = 840);
+
+  (* The edges of the world, where the tile grid runs out.
+
+     [tile_x] at exactly 180 returns 2^z -- one past the last column, which
+     [of_zxy] refuses -- so a view against the date line raises rather than
+     answers without the clamp on the rectangle. [tile_y] cannot do the
+     same at the pole because it clamps the latitude itself first, which is
+     why the clamp inside the depth probe is insurance rather than load
+     bearing: the centre of a tile is never on the edge of the world. *)
+  check "a view against the date line answers instead of raising"
+    (match
+       query ~fs ~dir:dir_name ~min_lon:179. ~min_lat:0. ~max_lon:180.
+         ~max_lat:1. ~zoom:6
+     with
+    | Ok json -> String.length (string_field "present" json) > 0
+    | Error _ -> false);
+  check "and so does one against the pole"
+    (match
+       query ~fs ~dir:dir_name ~min_lon:(-1.) ~min_lat:85.0 ~max_lon:1.
+         ~max_lat:85.06 ~zoom:6
+     with
+    | Ok json -> String.length (string_field "present" json) > 0
+    | Error _ -> false);
 
   (* ------------------------------------------------------- the cache wins *)
   (* The browse cache is consulted first by the tile endpoint, so a tile it
@@ -209,24 +298,46 @@ let () =
      query ~fs ~dir:dir_name ~min_lon:139.6 ~min_lat:35.6 ~max_lon:139.8
        ~max_lat:35.8 ~zoom:12
    with
-  | Error e -> check ("a browsed view answers: " ^ e) false
+  | Error e -> check ("a browsed view answers: " ^ why e) false
   | Ok json ->
       check "a tile only the browse cache holds counts as coverage"
         (String.for_all (fun c -> c = '1') (string_field "present" json));
       check "the cache's depth counts too" (int_field "depth" json = 12));
   Eio.Path.unlink Eio.Path.(dir / "cache.pmtiles");
 
+  (* ------------------------------------------------- a broken archive *)
+  (* A half-written map.pmtiles is what a crashed download leaves behind.
+     The tile endpoint skips such a file and serves what it can; coverage
+     has to do the same, or the mask disappears exactly where someone most
+     wants to know whether they hold tiles -- and it must not blame the
+     page that asked. The browse cache beside it still answers. *)
+  write dir "cache.pmtiles" (archive_of ~max_zoom:12 tokyo_z12);
+  let good = Eio.Path.load Eio.Path.(dir / "map.pmtiles") in
+  write dir "map.pmtiles" "";
+  (match
+     query ~fs ~dir:dir_name ~min_lon:139.6 ~min_lat:35.6 ~max_lon:139.8
+       ~max_lat:35.8 ~zoom:12
+   with
+  | Error e ->
+      check ("an unreadable archive still answers from the other: " ^ why e)
+        false
+  | Ok json ->
+      check "an archive that will not open is skipped, not fatal"
+        (String.for_all (fun c -> c = '1') (string_field "present" json)));
+  write dir "map.pmtiles" good;
+  Eio.Path.unlink Eio.Path.(dir / "cache.pmtiles");
+
   (* ------------------------------------------------------------- bounds *)
   (* A viewport is dozens of tiles; a request for a continent at street
      zoom is not a viewport, and answering it slowly would be worse than
      refusing it. *)
-  check "a query too large to be a viewport is refused"
+  check "a query too large to be a viewport is refused, as the caller's error"
     (match
        query ~fs ~dir:dir_name ~min_lon:(-10.) ~min_lat:40. ~max_lon:10.
          ~max_lat:55. ~zoom:12
      with
-    | Error _ -> true
-    | Ok _ -> false);
+    | Error (Tessarium_server.Basemap_download.Too_large _) -> true
+    | Error (Tessarium_server.Basemap_download.Unreadable _) | Ok _ -> false);
 
   (* An empty basemap directory is the state before the first download, and
      it must answer rather than fail: the map is blank everywhere, which is
@@ -237,7 +348,7 @@ let () =
      query ~fs ~dir:empty ~min_lon:(-0.2) ~min_lat:51.45 ~max_lon:(-0.05)
        ~max_lat:51.55 ~zoom:12
    with
-  | Error e -> check ("an empty basemap directory answers: " ^ e) false
+  | Error e -> check ("an empty basemap directory answers: " ^ why e) false
   | Ok json ->
       check "with no archive at all, nothing is covered"
         (String.for_all (fun c -> c = '0') (string_field "present" json));

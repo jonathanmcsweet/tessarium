@@ -889,6 +889,46 @@ await page.waitForFunction(() => !document.querySelector(".download-card"), {
   timeout: 10_000,
 });
 
+/* An answer that arrives late must not paint over a newer one.
+
+   React Query hands back a cached view in a microtask while a fresh
+   request is still in flight, so returning to a place you left seconds ago
+   resolves BEFORE the place you passed through. The older answer then
+   landed last and won, which cleared the wash and the note while the
+   camera sat on blank ground -- the app saying nothing at all, which is
+   the state this feature exists to replace. Delayed here on purpose, but
+   the ordering needs no help in the field. */
+await page.route("**/api/basemap-coverage", async (route) => {
+  await new Promise((done) => setTimeout(done, 2000));
+  await route.continue();
+});
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
+);
+await page.waitForSelector(".map-note.action", { timeout: 20_000 });
+/* Out to covered ground, whose answer is now 2 s away. The pause is what
+   makes this a race at all: two jumps back to back settle as one move, so
+   the request being outrun would never be sent. */
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [-0.12, 51.5], zoom: 12 })
+);
+await new Promise((done) => setTimeout(done, 700));
+/* And straight back, where the answer is already cached and returns at
+   once -- so the older question is still in flight behind it. */
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
+);
+await new Promise((done) => setTimeout(done, 4000));
+check(
+  "an answer for a view already left cannot wipe the current one",
+  await page.locator(".map-note.action").count() === 1,
+);
+await page.unroute("**/api/basemap-coverage");
+
+/* Focused first: the note goes away on its own when tiles land or a
+   fly-to settles, and if its button still had focus the page would drop
+   to <body>, where the keyboard does nothing at all. */
+await page.locator(".map-note.action .note-action").focus();
 await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [-0.12, 51.5], zoom: 12 })
 );
@@ -899,6 +939,12 @@ check(
     undefined,
     { timeout: 15_000 },
   ).then(() => true, () => false),
+);
+check(
+  "and hands the keyboard back to the map rather than dropping it",
+  await page.evaluate(() =>
+    document.activeElement?.classList.contains("maplibregl-canvas") ?? false
+  ),
 );
 
 /* ------------------------- the download ledger ----------------------------

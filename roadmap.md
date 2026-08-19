@@ -366,16 +366,17 @@ not cover.
       review cannot supply: whether the copy sounds like a person. `fr-CA` now
       differs from `fr-FR` in terminology, punctuation spacing and dash
       convention, but a Quebec reader should still confirm it.
-- [ ] **The coverage mask cannot say whether you downloaded a place, only
-      whether the tiles are there.** It reads the archives, which is what
-      makes it agree with the map, but it means the note under a blank
-      view says "downloaded at less detail" whenever anything at all
-      covers the point -- and a world overview covers every point on
-      Earth, so that is nearly always the sentence. The stronger claim,
-      "you have never downloaded this place", needs the download ledger's
-      regions tested against the view's centre, which is a second read per
-      query and a decision about what an unreadable ledger should say.
-      Worth doing when the note earns more copy than it has now.
+- [ ] **The coverage note cannot say whether you downloaded a place, only
+      that no tiles are here at this zoom.** The mask reads the archives,
+      which is what makes it agree with the map, but the archives cannot
+      distinguish "you never downloaded this place" from "you downloaded
+      it and the detail stops higher up": a world overview covers every
+      point on Earth, so something is almost always underneath. The note
+      therefore ships one sentence, true in both cases, where two would
+      be more useful. The stronger claim needs the download ledger's
+      regions tested against the view's centre -- a second read per query,
+      plus a decision about what an unreadable ledger should say, since
+      guessing either way puts a false sentence on screen.
 - [ ] **Choose a component library, then adopt it.** Today there is none:
       hand-written components over one plain CSS file, with Radix Tooltip and
       sonner as the only vetted primitives, and the region picker on native
@@ -454,16 +455,19 @@ the one honest caveat.
       ±180 independently, which is wrong in two ways once the camera pans
       past the date line into a repeated world. The browse cache fetches
       only the western half of what is on screen. The coverage mask asks
-      about a box whose west is greater than its east, which the server
-      rightly refuses, so the mask silently disappears exactly where
-      someone would most want to know whether they have tiles. One fix
-      serves both: wrap the bounds to a real box and split a crossing view
-      into two requests. Deferred because it costs two sequential requests
-      against a one-browse-at-a-time server for a sliver of the Pacific,
-      and because neither failure is destructive -- the halves fill in on
-      the next pan, and the mask returns as soon as the view is a box
-      again. (Ledger, 2026-08-18 browse cache review; 2026-08-19 coverage
-      edge.)
+      about that same clamped half and answers confidently about it:
+      measured at zoom 6 centred on 180°, the screen spans 176.375° to
+      183.625° and the query covers 176.375° to 180°, one tile column of
+      the two on screen -- so the eastern half is neither drawn as blank
+      nor drawn as covered, and the note speaks about the middle of the
+      clamped box rather than the middle of the screen. Only a full world
+      of panning pushes west past 180 outright, where the query is
+      refused and the mask disappears instead. One fix serves both
+      callers: wrap the bounds to a real box and split a crossing view
+      into two requests. Deferred because it costs two sequential
+      requests against a one-browse-at-a-time server for a sliver of the
+      Pacific, and because neither failure loses data. (Ledger,
+      2026-08-18 browse cache review; 2026-08-19 coverage edge.)
 
 - [ ] **Phishing-resistant unlock: passkeys (WebAuthn PRF).** The typed phrase
       is the phishing surface: a user can be talked into typing 24 words into

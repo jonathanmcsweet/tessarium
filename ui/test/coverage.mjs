@@ -144,17 +144,19 @@ check(
 );
 
 check(
-  "a rectangle becomes a closed box, north above south",
+  "a rectangle becomes a closed box, corner by corner",
   (() => {
+    /* Vertex by vertex rather than by min and max: those are the same set
+       whichever way round north and south are, so the earlier spelling of
+       this check could not see a rectangle drawn upside down. */
     const [f] = rectsToFeatures([{ x: 0, y: 0, w: 1, h: 1 }], 1);
     const ring = f.geometry.coordinates[0];
-    const lats = ring.map((p) => p[1]);
-    const lons = ring.map((p) => p[0]);
+    const top = 85.0511287798066;
+    const want = [[-180, 0], [0, 0], [0, top], [-180, top], [-180, 0]];
     return ring.length === 5
-      && ring[0][0] === ring[4][0] && ring[0][1] === ring[4][1]
-      && Math.min(...lons) === -180 && Math.max(...lons) === 0
-      && near(Math.min(...lats), 0)
-      && Math.abs(Math.max(...lats) - 85.0511287798066) < 1e-9;
+      && want.every(([lon, lat], i) =>
+        near(ring[i][0], lon) && Math.abs(ring[i][1] - lat) < 1e-9
+      );
   })(),
 );
 
@@ -194,6 +196,19 @@ check(
 );
 
 check(
+  "a horizontal edge sits on the tile row it separates",
+  (() => {
+    /* Nothing pinned this before: every edge check used a vertical
+       boundary or counted features, so moving each horizontal edge one row
+       south passed the whole suite while drawing the coverage line
+       kilometres away from the coverage. */
+    const [e] = blankEdges(from(["..", "##"], 0, 0, 3), 3);
+    const [[, y1], [, y2]] = e.geometry.coordinates;
+    return near(y1, tileLat(1, 3)) && near(y2, tileLat(1, 3));
+  })(),
+);
+
+check(
   "a hole in coverage is outlined on all four sides",
   (() => {
     /* One missing tile surrounded by held ones: two horizontal edges and two
@@ -218,17 +233,25 @@ check(
 
 /* ---------------------------------------------------------------- centre */
 
+/* The middle is decided by the depth the server measured at that very
+   cell, not by re-reading the mask here: the two spellings disagree about
+   which tile is "the middle" often enough to put a false sentence on
+   screen, so there is one authority and this is it. */
 check(
-  "the middle of a blank view is blank",
-  centreIsBlank(from(["###", "###", "###"])),
+  "a middle shallower than the zoom on screen is blank",
+  centreIsBlank({ ...from(["###"]), zoom: 12, depth: 6 }),
 );
 check(
-  "the middle of a covered view is not",
-  !centreIsBlank(from(["###", "#.#", "###"])),
+  "a middle as deep as the zoom on screen is not",
+  !centreIsBlank({ ...from(["###"]), zoom: 12, depth: 12 }),
 );
 check(
-  "an even-width view takes a cell next to the middle",
-  centreIsBlank(from([".#"])) && !centreIsBlank(from(["#."])),
+  "nor is one deeper still -- an archive can hold more than is drawn",
+  !centreIsBlank({ ...from(["###"]), zoom: 10, depth: 15 }),
+);
+check(
+  "an archive with nothing here at all is blank",
+  centreIsBlank({ ...from(["..."]), zoom: 0, depth: -1 }),
 );
 
 console.log(`\n${checks} checks, ${failures} failures`);

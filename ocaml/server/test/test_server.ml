@@ -381,6 +381,7 @@ let () =
     ignore (S.handle_basemap scfg ops settings ~endpoint ~body);
     !calls
   in
+
   check "status asks the job and needs no body"
     (run ~endpoint:"basemap-status" ~body:"" = [ `Status ]);
   check "cancel reaches the job"
@@ -625,6 +626,18 @@ let () =
     (run ~endpoint:"basemap-coverage"
        ~body:{|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56}|}
      = []);
+  (* The two ways a coverage query fails are two different statuses, and
+     the message survives either way. A viewport bigger than the cap is the
+     caller asking for too much; an archive this server cannot read is this
+     server's own data gone wrong, and answering that with a 400 blamed the
+     page for it. *)
+  check "too large a viewport is the caller's mistake"
+    (S.coverage_status (D.Too_large "too big") = `Bad_request);
+  check "an archive this server cannot read is this server's mistake"
+    (S.coverage_status (D.Unreadable "End_of_file") = `Internal_server_error);
+  check "and either way the reason reaches the client"
+    (S.coverage_message (D.Too_large "too big") = "too big"
+    && S.coverage_message (D.Unreadable "End_of_file") = "End_of_file");
   check "a coverage query with inverted bounds reaches nothing"
     (run ~endpoint:"basemap-coverage"
        ~body:
