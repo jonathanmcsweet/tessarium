@@ -1850,3 +1850,47 @@ covers every point on Earth; the stronger sentence needs the ledger and is
 recorded as its own item. Separately, `ui/test/e2e.mjs` merged unformatted
 with the place-search branch, so `make test-static` was failing on master for
 a day; the formatter ran here.
+
+### 2026-08-19 — A place named the way people name places
+
+**Phase:** 6 (web UI)
+
+**What:** Search matched the whole query as one run of characters inside a
+single name, so "Atlanta, GA" -- which appears in no name anywhere --
+answered with nothing found, while "Atlanta" answered correctly. Naming a
+place more precisely made the search worse. A query is now read the way it is
+written: everything before the first comma is the name being asked for, and
+every word of it counts; everything after is context that ranks but never
+decides. Entries are ordered by how much of the name they carry, then how
+exactly they carry its first word, then how much of the context they happen
+to carry, then the shorter name, then population and layer as before.
+
+**Rationale:** two wrong designs came first, both caught against the real
+6.4 GB archive rather than the fixture, and the second was caught only by
+review. Letting the deepest match win outright is wrong because a two-letter
+qualifier hides inside ordinary words -- "ga" sits in "Gas", "Gardens" and
+"Maçons" -- so "Atlanta, GA" answered with Atlanta Gas Light Lake and
+"Savannah, GA" with Savannah Gardens. Ranking the first word'"'"'s exactness
+above completeness is worse: "Los" is a name exactly and "Los Angeles" merely
+begins with the word, so "Los Angeles" answered with a hamlet of 100 people,
+"Las Vegas" with three places called Las, and "L'"'"'Haÿ-les-Roses" with an
+aeroway called L. Ten of nineteen common two-word city queries regressed that
+way, and the fixture -- which holds exactly one name -- could not see any of
+it. Completeness first, exactness second, context last is what survives all
+three query shapes.
+
+Measured after the change against the real archive: Los Angeles (3,863,148),
+San Francisco (873,965), Las Vegas (678,922), Kansas City (508,090) and Rio de
+Janeiro (6,211,223) all answer with themselves; "Atlanta, GA" gives Atlanta
+(506,804), "Savannah, GA" gives Savannah (147,780), and "Macon, GA" gives
+Georgia'"'"'s Macon (152,663) ahead of France'"'"'s Mâcon (34,448). Latency over the
+74 MB index is 274 ms for an ordinary query and 440 ms for a deliberately
+pathological one (six one-letter words); depth terms are tested with a
+first-hit scan rather than the best-occurrence scan the ranked word needs.
+
+**Follow-on:** the context cannot disambiguate two places of the same name,
+and a name containing pasted punctuation is not normalised the way a query
+is -- both recorded in roadmap.md, along with a third gap this turned up:
+this archive holds Georgia at street detail with no ledger entry claiming
+it, because tiles fetched by the command-line extractor leave no record, so
+they cannot be updated or removed from the downloaded-maps list.

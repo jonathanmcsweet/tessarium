@@ -748,6 +748,30 @@ check(
   (await postJson("basemap-search", { q: "" })).status === 400,
 );
 
+/* A place named the way people name places. "Fixtureville, ZZ" appears
+   inside no name in any archive, and matching the query as one run of
+   characters answered it with nothing found -- so being more specific made
+   the search worse.
+
+   The fixture holds one distinct name, so these prove the query SHAPE is
+   accepted and nothing about ranking between names; the ordering rules are
+   pinned in the server suite, where the corpus is written by the test. */
+check(
+  "a place named with a qualifier after a comma is still found",
+  (await (await postJson("basemap-search", { q: "Fixtureville, ZZ" })).json())
+    .results?.[0]?.name === "Fixtureville",
+);
+check(
+  "and so is one named with a comma and nothing after it",
+  (await (await postJson("basemap-search", { q: "Fixtureville," })).json())
+    .results?.[0]?.name === "Fixtureville",
+);
+check(
+  "a name given as separate words is found as well",
+  (await (await postJson("basemap-search", { q: "fixture ville" })).json())
+    .results?.[0]?.name === "Fixtureville",
+);
+
 /* Through the UI: type, pick the first result, and the map should move. */
 const beforeSearch = await page.evaluate(() => {
   const map = window.__tessarium_map;

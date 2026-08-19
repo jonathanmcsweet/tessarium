@@ -1033,6 +1033,69 @@ let () =
     (P.score_of ~needle:"york" (P.fold "Yorkshire")
     < P.score_of ~needle:"york" (P.fold "Yorkshire Road"));
 
+  (* A query is how a person names a place, not a substring of one row.
+
+     "Atlanta, GA" appears inside no name anywhere, so matching the query
+     as one run of characters answered a perfectly good question with
+     nothing found -- and got worse the more precisely the place was
+     named, which is backwards. *)
+  let q = P.parse_query in
+  check "the comma separates the name from its context"
+    ((q "Atlanta, GA").P.head = [ "atlanta" ]
+    && (q "Atlanta, GA").P.context = [ "ga" ]
+    && (q "Paris,France").P.context = [ "france" ]);
+  check "with no comma, every word is part of the name"
+    ((q "Los Angeles").P.head = [ "los"; "angeles" ]
+    && (q "Los Angeles").P.context = []);
+  check "punctuation inside a name splits it into its words"
+    ((q "Saint-Étienne").P.head = [ "saint"; "etienne" ]
+    && (q "L'Haÿ-les-Roses").P.head = [ "l"; "hay"; "les"; "roses" ]);
+  check "letters in other scripts stay whole"
+    ((q "Энурмино").P.head = [ "Энурмино" ]);
+  check "pasted punctuation reads as punctuation"
+    (* A non-breaking space and a curly apostrophe are what arrives when a
+       name is copied off a web page rather than typed. *)
+    ((q "Los\xc2\xa0Angeles").P.head = [ "los"; "angeles" ]
+    && (q "L\xe2\x80\x99Hay").P.head = [ "l"; "hay" ]
+    && (q "Atlanta\xef\xbc\x8cGA").P.context = [ "ga" ]);
+  check "more words than name anything are dropped rather than scanned"
+    (List.length (q "a b c d e f g h i").P.head = 6
+    && List.length (q "x, a b c d").P.context = 2);
+
+  (* Ranking. Every one of these was wrong at some point against the real
+     archive, and the number beside it is the population of the answer that
+     ought to come first. *)
+  let rank query name =
+    match P.match_of ~query:(P.parse_query query) (P.fold name) with
+    | Some quality -> P.rank_key quality
+    | None -> max_int
+  in
+  check "the place named beats a place named after its first word"
+    (* "Los" is a name exactly; "Los Angeles" merely begins with the word.
+       Ranking exactness first answered Los Angeles (3,863,148) with a
+       hamlet of 100 people. *)
+    (rank "Los Angeles" "Los Angeles" < rank "Los Angeles" "Los"
+    && rank "Las Vegas" "Las Vegas" < rank "Las Vegas" "Las"
+    && rank "Kansas City" "Kansas City" < rank "Kansas City" "Kansas");
+  check "and a name with an apostrophe is not beaten by its first letter"
+    (rank "L'Hay-les-Roses" "L'Hay-les-Roses" < rank "L'Hay-les-Roses" "L");
+  check "the city beats a lake that happens to carry the context"
+    (* "ga" hides inside "Gas", "Gardens" and "Maçons", so context that
+       decided rather than ranked answered "Atlanta, GA" with Atlanta Gas
+       Light Lake and "Savannah, GA" with Savannah Gardens. *)
+    (rank "Atlanta, GA" "Atlanta" < rank "Atlanta, GA" "Atlanta Gas Light Lake");
+  check "and beats a hospital that carries the state in full"
+    (rank "Atlanta, Georgia" "Atlanta"
+    < rank "Atlanta, Georgia" "Georgia Regional Hospital Atlanta");
+  check "context still breaks a tie between otherwise equal names"
+    (* Same first word, same band, same length: all that is left is which
+       one carries what came after the comma. *)
+    (rank "Alpha, France" "Alpha France" < rank "Alpha, France" "Alpha Xxxxxx");
+  check "the words of a name may arrive in either order"
+    (rank "york new" "New York" < rank "york new" "York");
+  check "a name lacking the first word is no answer at all"
+    (rank "Atlanta, GA" "Georgia Gas" = max_int);
+
   (* Names arrive from tiles this project did not write, and the record
      separator must not be forgeable. *)
   let forged =
