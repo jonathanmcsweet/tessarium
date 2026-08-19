@@ -16,8 +16,10 @@ module Tessarium.Low.Check
 
 module S = Tessarium.Spec
 module F = Tessarium.Feistel
+module T = Tessarium.Table
 module R = Tessarium.Check.Round
 module L = Tessarium.Low.Feistel
+module LG = Tessarium.Low.Grid
 module M = FStar.Math.Lemmas
 module G = FStar.Ghost
 module U64 = FStar.UInt64
@@ -58,6 +60,29 @@ let check_encrypt (k t: key64) (x: U64.t{U64.v x < S.addr_space})
 let check_decrypt (k t: key64) (y: U64.t{U64.v y < S.addr_space})
   : (x: U64.t{U64.v x < S.addr_space})
   = L.decrypt_low #key64 #key64 #rf_ghost rf_low k t y
+
+(* ------------------------------------------------------- the grid roots *)
+
+/// Grid entry points for the C harness. Coordinates as offsets from the
+/// domain corner, the table as a caller-supplied lookup (LG.cum_low); the
+/// ensures on the LG functions ARE the agreement theorems, so these are
+/// bare re-exports at monomorphic type for KaRaMeL.
+
+let check_point_to_cell (cum: LG.cum_low)
+    (dlat: U64.t{U64.v dlat <= S.lat_span})
+    (dlon: U64.t{U64.v dlon <= S.lon_span})
+  : U64.t
+  = LG.point_to_cell_low cum dlat dlon
+
+let check_cell_to_point (cum: LG.cum_low)
+    (index: U64.t{U64.v index < T.total_cells})
+  : U64.t & U64.t
+  = LG.cell_to_point_low cum index
+
+let check_cell_bounds (cum: LG.cum_low)
+    (index: U64.t{U64.v index < T.total_cells})
+  : U64.t & U64.t & U64.t & U64.t
+  = LG.cell_bounds_low cum index
 
 (* ------------------------------------------- agreement with the harness *)
 

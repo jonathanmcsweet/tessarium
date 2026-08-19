@@ -256,11 +256,15 @@ The theorem set is complete and in the ledger. What is left is narrower.
       emitted C replays the extraction vectors in the wall
       (make test-lowstar), and BOUNDS.md's survey says the WHOLE core fits
       unsigned 64-bit — no 128-bit arithmetic anywhere, tightest spot the
-      grid midpoint at 1.92x margin (must stay unsigned). Next phases, in
-      order: grid + table port (the bucket/edge/midpoint proofs), codec
-      port, HACL\* HMAC inside the proof, the OCaml server calling the C
-      core over the FFI beside the extracted core, WASM for the browser,
-      then the extracted-OCaml core retires. Until then, two narrower gaps
+      grid midpoint at 1.92x margin (must stay unsigned). The grid + table port
+      LANDED (2026-08-19, same day): all three grid maps proved equal to
+      the spec and replayed by the C harness on 12 points including both
+      seam neighbours and the pole; the table crosses as a
+      refinement-pinned lookup parameter (upgrade path: a proved LowStar
+      buffer, recorded in BOUNDS.md). Next phases, in order: codec port,
+      HACL\* HMAC inside the proof, the OCaml server calling the C core
+      over the FFI beside the extracted core, WASM for the browser, then
+      the extracted-OCaml core retires. Until then, two narrower gaps
       in the evaluator leg: its end-to-end points use a concrete test round
       function (HMAC is outside the proof, but a check driving the REAL
       injected round function through F* would also catch a miswired

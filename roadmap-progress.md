@@ -2016,3 +2016,67 @@ namespace; a value-dependent type abbreviation as a declared type makes
 KaRaMeL silently drop the definition (explicit binders extract cleanly);
 the ghost-erased round-function index is the pattern the HACL* HMAC phase
 reuses.
+
+
+## 2026-08-19: the Low* grid -- all three grid maps as proved-equal C
+
+Phase two of the migration, same day as the spike. fstar/low/ now holds
+the grid: point_to_cell, cell_to_point and cell_bounds over 64-bit machine
+integers, each with the ensures equating it to Tessarium.Grid on the
+same inputs, plus the transferred round-trip theorem. The two
+representation choices both serve the C boundary: coordinates travel as
+unsigned offsets from the domain corner (F*'s signed machine integers
+carry library admits the zero-admit flag rejects), and the 4,097-entry
+band table travels as a function parameter whose result refinement pins
+it to T.cum -- the round-function pattern -- so every theorem holds for
+any conforming lookup. The unproved plumbing on this path -- the C
+lookup and harness lines, gen_check's emission including the
+signed-to-offset shift, krml and cc -- is enumerated in BOUNDS.md with
+what watches each; the table VALUE is pinned by Check.Table via
+Expected.fst's serialization, and cum_table's own bytes by gen_check's
+write-then-reparse of every literal plus CI's byte diff. gen_check emits
+the table into check_vectors.h beside 13 grid vectors (the seven e2e
+points -- both seam neighbours and the pole among them -- plus the +180
+meridian, the one input that takes the longitude fold branch, plus five
+generated) checked through all three maps, and the harness sweeps the
+whole table's shape with both ends pinned to hand-written literals. The tightest number in the
+core -- the (2c+1)*lon_span midpoint product at 9.61e18, unsigned-only --
+is now a discharged refinement rather than a survey line. The Makefile
+derives the Low module list from the directory rather than a hand list,
+the same discipline check-extraction uses.
+
+Falsified four ways at first: a bucketing-formula drift in the F* port
+fails verification before any C exists; a bumped table entry within the
+read set fails the harness when compiled directly (make regenerates the
+header first, so the standing guard for arbitrary bytes is CI's diff, not
+the harness); a tampered rows_per_band constant in the emitted C fails
+the harness; an emptied grid vector table refuses to COMPILE
+(_Static_assert count pins in the hand-written harness -- the vacuity
+lesson from the extraction-check review, applied in advance this time).
+
+An adversarial review of the grid port confirmed every proof clean (it
+re-verified the module from scratch and reimplemented the spec grid
+independently to recheck all vector rows) and found the majors in the
+checking fabric instead, all fixed: the "one unproved seam" claim hid
+that cum_table's C bytes had NO reader -- Check.Table pins Expected.fst's
+copy of the table, a different serialization, and the vectors read 92 of
+4097 entries -- so gen_check now re-parses every literal it writes (4,278
+of them) and compares against memory, and the harness sweeps the whole
+table's shape with both ends hand-pinned; the ledger's "a single bumped
+entry fails the harness" was true for ~2% of entries and now says what
+actually guards the rest; and the longitude FOLD branch was dead in every
+vector -- the antimeridian e2e point is -180, already folded -- so a +180
+vector now exercises it. Falsified again after the fixes: a sabotaged
+emitter misprinting entry 3000 is caught by the self-check at literal
+3064; a flattened table step off the vector path is caught by the shape
+sweep; a DELETED fold branch in the emitted C is caught by the +180
+vector. One honest limit surfaced by falsification itself: perturbing the
+fold's output by one nanodegree is invisible to all three maps -- the
+maps are constant on that sliver -- so the vector pins the branch's
+presence, not its exact intermediate. Medium and minor fixes: the FFI
+shim spoken of in present tense before it exists, GRID_COUNT and FE_COUNT
+now pinned exactly (not just nonzero), the evaluator leg's grid coverage
+stated precisely (seven e2e points forward+centre; generated points and
+bounds rows rest on OCaml-vs-C), stale Feistel-only comments, and the
+spike's emission-shape obligation closed in writing (band_search: C
+recursion, depth <= 12, measured).

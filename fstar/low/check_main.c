@@ -1,14 +1,17 @@
-/* Replays gen_check's Feistel vectors against the KaRaMeL-emitted core.
+/* Replays gen_check's vectors against the KaRaMeL-emitted core.
 
-   The triangle this closes: the EXTRACTED OCaml computed these numbers
-   (check_vectors.h), F*'s evaluator re-derives them from the proved source
-   (make check-extraction), and the C emitted from the machine-integer port
-   must reproduce them here. The port's agreement with the spec is a
-   THEOREM (Tessarium.Low.Check.theorem_check_encrypt); this harness is
-   the cheap runtime tripwire over the stages after the proof: F*'s .krml
-   emission (whose erasure and ML translation are shared with the OCaml
-   extraction -- the evaluator leg watches that part), krml itself, and
-   the C compiler. */
+   The triangle: the EXTRACTED OCaml computed these numbers
+   (check_vectors.h), F*'s evaluator re-derives the Feistel vectors and
+   the seven e2e grid points from the proved source (make
+   check-extraction; the five generated grid points and the bounds rows
+   rest on OCaml-vs-C disagreement alone), and the C emitted from the
+   machine-integer port must reproduce them all here. The port's
+   agreement with the spec is a THEOREM; this harness is the runtime
+   tripwire over the stages after the proof: F*'s .krml emission (whose
+   erasure and ML translation are shared with the OCaml extraction -- the
+   evaluator leg watches that part), krml itself, the C compiler, and the
+   unproved plumbing named below (the table lookup, and gen_check's
+   emission -- which re-parses its own output; see check_vectors.h). */
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -16,8 +19,18 @@
 #include "Tessarium_Low_Check.h"
 #include "check_vectors.h"
 
-/* A harness that can pass on nothing is not a harness. */
-_Static_assert(FE_COUNT > 0, "vector table must not be empty");
+/* A harness that can pass on nothing is not a harness, and a table of the
+   wrong size is not the table. All counts and the table's corner values
+   pinned HERE, by hand -- a generator that silently shrinks any corpus
+   fails to compile. */
+_Static_assert(FE_COUNT == 16, "sixteen feistel vectors");
+_Static_assert(GRID_COUNT == 13, "thirteen grid vectors");
+_Static_assert(CUM_COUNT == 4097, "the band table has 4096 bands");
+
+/* The table lookup handed to the extracted grid: the one unproved seam on
+   this path (three lines, and the array contents are cross-examined
+   against the proved source by check/Tessarium.Check.Table). */
+static uint64_t cum_lookup(uint64_t b) { return cum_table[b]; }
 
 int main(void) {
   int bad = 0;
@@ -35,7 +48,52 @@ int main(void) {
       bad = 1;
     }
   }
+  /* The whole table, not just the entries the vectors happen to read:
+     strictly increasing, steps within the width bound, both ends pinned
+     to hand-written literals (cum[4096] * 1600 is the proved
+     total_cells). This is the well-formedness the proofs REQUIRE of the
+     lookup; the exact per-entry values are pinned by gen_check's
+     write-then-reparse and CI's byte diff. */
+  if (cum_table[0] != 0ULL) {
+    fprintf(stderr, "cum_table[0] is not 0\n");
+    bad = 1;
+  }
+  if (cum_table[4096] != 34807542340ULL) {
+    fprintf(stderr, "cum_table[4096] is not total_cells / 1600\n");
+    bad = 1;
+  }
+  for (int b = 0; b < 4096; b++) {
+    if (cum_table[b] >= cum_table[b + 1] ||
+        cum_table[b + 1] - cum_table[b] > 13343409ULL) {
+      fprintf(stderr, "cum_table step %d out of shape\n", b);
+      bad = 1;
+    }
+  }
+
+  for (int i = 0; i < GRID_COUNT; i++) {
+    uint64_t cell =
+        Tessarium_Low_Check_check_point_to_cell(cum_lookup, gvec_dlat[i], gvec_dlon[i]);
+    if (cell != gvec_cell[i]) {
+      fprintf(stderr, "grid vector %d: cell got %" PRIu64 ", want %" PRIu64 "\n",
+              i, cell, gvec_cell[i]);
+      bad = 1;
+    }
+    K___uint64_t_uint64_t p =
+        Tessarium_Low_Check_check_cell_to_point(cum_lookup, gvec_cell[i]);
+    if (p.fst != gvec_cdlat[i] || p.snd != gvec_cdlon[i]) {
+      fprintf(stderr, "grid vector %d: centre mismatch\n", i);
+      bad = 1;
+    }
+    K___uint64_t_uint64_t_uint64_t_uint64_t b =
+        Tessarium_Low_Check_check_cell_bounds(cum_lookup, gvec_cell[i]);
+    if (b.fst != gvec_blatlo[i] || b.snd != gvec_blathi[i] ||
+        b.thd != gvec_blonlo[i] || b.f3 != gvec_blonhi[i]) {
+      fprintf(stderr, "grid vector %d: bounds mismatch\n", i);
+      bad = 1;
+    }
+  }
   if (bad) return 1;
-  printf("the C core agrees on %d feistel vectors, both directions\n", FE_COUNT);
+  printf("the C core agrees on %d feistel vectors, %d grid points and "
+         "the whole band table, both directions\n", FE_COUNT, GRID_COUNT);
   return 0;
 }

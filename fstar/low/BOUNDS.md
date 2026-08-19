@@ -45,7 +45,27 @@ adding `lo mod m` stays < 2^49. And since m only ever takes two values,
 assert_norm. **No 128-bit division, no 128-bit type** -- plain U64 on the
 two halves.
 
-## Grid (later phase -- surveyed, not yet ported)
+## Grid -- PORTED AND PROVED (Tessarium.Low.Grid)
+
+Every bound below is now a discharged refinement. Coordinates cross the C
+boundary as unsigned offsets from the domain corner (the spec subtracts
+the corner first anyway; signed machine ints would drag in library
+internals the zero-admit flag rejects). The band table crosses as a
+function parameter (`cum_low`) whose result refinement pins it to T.cum --
+the round-function pattern again -- so every grid theorem holds for any
+conforming lookup. The unproved plumbing on this path, all of it: the C
+lookup and harness lines, gen_check's emission of the table and vectors
+(including the signed-to-offset shift), krml and the C compiler. What
+watches each: gen_check re-parses every literal it writes and compares it
+against memory (the emission); the harness sweeps the whole table's shape
+-- base 0, strictly increasing, steps <= max_col_count, the hand-pinned
+grand total -- and replays 13 vectors that read ~2% of the entries
+directly (the values Check.Table pins are Expected.fst's copy of the same
+list, a DIFFERENT serialization from cum_table's); CI's byte diff pins
+stability. band_search extracts as genuine C recursion, depth <= 12 --
+measured, closing the spike's emission-shape obligation for this walk. A
+proved in-memory table (LowStar buffer) remains the recorded upgrade
+path.
 
 `bucket(v, v_min, span, k) = (v - v_min) * k / span`, always with
 `0 <= v - v_min <= span`:
