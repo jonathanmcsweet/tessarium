@@ -240,9 +240,21 @@ The theorem set is complete and in the ledger. What is left is narrower.
       asserted at runtime over the differential corpus in the composed
       binary (self-consistency against the laws, not a second computation),
       and the independently written JS implementation -- the only leg on a
-      different arithmetic substrate. What remains open is the structural fix —
-      Low\* → C with its own audit trail — and two narrower gaps in the
-      evaluator leg: its end-to-end points use a concrete test round
+      different arithmetic substrate. DECIDED (2026-08-19): the structural
+      fix is the Low\* route. Port the core to machine integers with a
+      proved "identical answers to the spec" refinement (address stability
+      becomes a theorem, not a test), emit C with KaRaMeL — the server
+      calls the C core over OCaml's C FFI, the browser gets WebAssembly
+      from the same source (replacing the js_of_ocaml core bundle; the
+      independent JS oracle stays). Pull HMAC-SHA256 from HACL\* so the
+      real round function moves inside the proof — that subsumes the
+      injection gap below. Old and new cores run side by side under the
+      wall until byte-identical, then the extracted-OCaml core retires.
+      Eurydice shares the pipeline's front half, so a Rust target stays
+      open at low cost. First branch: a scoping spike — 64/128-bit bounds
+      analysis over the whole core, plus the Feistel port with its
+      refinement proof, run through the existing cross-exam harness.
+      Until then, two narrower gaps in the evaluator leg: its end-to-end points use a concrete test round
       function (HMAC is outside the proof, but a check driving the REAL
       injected round function through F* would also catch a miswired
       injection), and seven grid points is a floor, not a ceiling — the leg
