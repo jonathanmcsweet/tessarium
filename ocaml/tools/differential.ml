@@ -168,7 +168,13 @@ let () =
       (* theorem_containment: the point lies inside its cell's bounds --
          stated only for lat < lat_min + lat_span, and for the FOLDED
          longitude, so the antimeridian's two spellings name one cell. *)
-      (if Z.lt lat (Z.add lat_min lat_span) then begin
+      (* The precondition comes from the EXTRACTED Spec, not this file's
+         local literals, for the same reason row_edge does above: this
+         file must not be able to hide a Spec bug by reproducing it. *)
+      (if
+         Z.lt lat
+           (Z.add Tessarium_Spec.lat_min Tessarium_Spec.lat_span)
+       then begin
          let lat_lo, lat_hi, lon_lo, lon_hi =
            Tessarium_Grid.cell_bounds cell
          in
@@ -179,7 +185,11 @@ let () =
            lat lon
        end);
       (* theorem_decode_encode: decoding what was encoded never fails and
-         answers with this exact cell's representative point. *)
+         answers with this exact cell's representative point. Slightly
+         STRONGER than the theorem, deliberately: the theorem is stated
+         on address tuples, and this round-trips through the address
+         string -- so a formatter bug fails here too, mislabeled as a law
+         violation, which is the safe direction. *)
       (match Tessarium.decode ~key address with
       | Ok (dlat, dlon) ->
           law "decode-encode"
@@ -194,5 +204,9 @@ let () =
     Printf.eprintf "%d proved laws violated at runtime\n" !violations;
     exit 1
   end;
+  (* Said on success too, so tools/check-suites.sh can demand the line:
+     a law leg that quietly stopped running must be distinguishable from
+     one that ran and held. *)
+  Printf.eprintf "proved laws hold at runtime over %d points\n" total;
   if !out <> "-" then close_out oc;
   Printf.eprintf "wrote %d points (%d straddling band seams)\n" total !seams

@@ -1904,9 +1904,10 @@ extracted, and every test in the tree ran the extraction -- so the committed
 vectors, the differential sweep and the JS oracle all sat DOWNSTREAM of the
 one step nobody watched. Now `fstar/check/` holds answers computed by the
 extracted binary (`ocaml/tools/gen_check.ml`), and four Check modules make
-F*'s normalizer -- a second implementation of the language's semantics,
-sharing nothing with extraction past the parser -- recompute every one from
-the proved source: all 4097 band-table entries, the module constants, and
+F*'s normalizer recompute every one from the proved source -- the two
+computations share F*'s front end and, it must be said plainly, zarith
+itself, and diverge at the extraction backend, which is the step under
+watch: all 4097 band-table entries, the module constants, and
 fixed points of the Feistel, the codec, the grid and the end-to-end
 composition, band seams and rejection path included. `make test-extraction`,
 ~3 minutes, wired into `make test` and CI beside the determinism diff. The
@@ -1943,6 +1944,23 @@ theorem_containment more strongly than it is proved: the theorem folds
 longitude and excludes exactly +90°, and asserting one comparison more than
 the proof claims flagged half the corpus of a correct binary.
 
+An adversarial review then found the checker's own soundness hole: every
+walker was vacuously true on an empty expected list, so a generator
+regression emitting `[]` for a leg would have verified green forever --
+the exact "theorem that asserts nothing" this project's rules name, and my
+seven falsifications were all value mutations, so the vacuity class went
+untested. The counts are now pinned in the hand-written harness and both
+emptied-leg falsifications fail. The review also caught the headline claim
+overstating independence ("sharing nothing past the parser" -- false: both
+sides share F*'s elaborator and do arithmetic through the same zarith; only
+the js/ oracle escapes that substrate), the runtime-law leg described as
+differential when it is self-consistency against proved laws, law
+preconditions spelled from local literals rather than the extracted Spec,
+no success line for the law leg to prove it still runs, a hand-listed check
+module list a fifth module could silently miss, and no end-to-end point at
+the exact bottom of the domain. All fixed; a seventh e2e point now sits at
+lat_min in band 0.
+
 **Follow-on:** the evaluator leg checks the test round function, not the real
-HMAC injection, and six grid points is a floor -- both recorded in the
+HMAC injection, and seven grid points is a floor -- both recorded in the
 roadmap item, which stays open for the structural fix (Low* → C).

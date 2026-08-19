@@ -94,9 +94,10 @@ jobs:
             exit 1
           fi
 
-      # The step above proves extraction is DETERMINISTIC; this one is the
-      # only check that it is FAITHFUL: the extracted binary's answers,
-      # recomputed inside F*'s own evaluator from the proved source. A
+      # The step above proves extraction is DETERMINISTIC; this one checks
+      # it is FAITHFUL on fixed points: the extracted binary's answers,
+      # recomputed inside F*'s own evaluator from the proved source (the
+      # runtime-law leg and the js/ oracle watch it from other angles). A
       # divergence on any checked value -- one band-table entry, one grid
       # cell -- fails here even though every other suite would stay green.
       - name: Extracted OCaml computes what the proved source computes

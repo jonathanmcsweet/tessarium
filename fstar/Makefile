@@ -98,8 +98,11 @@ fstarlib:
 # taste: the normalizer retains everything it evaluates for the lifetime
 # of one module's check, and the legs together exceed memory that each
 # is nowhere near alone.
-CHECK_MODULES := Tessarium.Check.Round Tessarium.Check.Table \
-                 Tessarium.Check.Cipher Tessarium.Check.Grid
+# Derived from the directory, not listed by hand: a fifth check module
+# dropped into check/ but forgotten here would silently never run.
+# Expected is excluded because it is data the others load, not a check.
+CHECK_MODULES := $(filter-out Tessarium.Check.Expected,\
+                 $(basename $(notdir $(wildcard check/Tessarium.Check.*.fst))))
 
 check-extraction: verify
 	@for m in $(CHECK_MODULES); do \

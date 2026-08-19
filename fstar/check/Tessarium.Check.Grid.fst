@@ -5,6 +5,7 @@ module Tessarium.Check.Grid
 /// the normalizer. See Tessarium.Check.Round for what these modules
 /// are, and Tessarium.Check.Table for why `friend`.
 
+module L = FStar.List.Tot
 module F = Tessarium.Feistel
 module A = Tessarium.Api
 module E = Tessarium.Check.Expected
@@ -30,6 +31,10 @@ let rec e2e_ok (l: list (int & int & int & int & int & int & int & int))
               | None -> false))
       && e2e_ok tl
 
+(* Count pinned here for the same reason as in Check.Cipher: the walker
+   is vacuously true on an empty list, and only the hand-written side can
+   say how many points there are supposed to be. *)
+let _ = assert_norm (L.length E.e2e = 7)
 let _ = assert_norm (e2e_ok E.e2e)
 
 (* --------------------------------------------------------------- bounds *)

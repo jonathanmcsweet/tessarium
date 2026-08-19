@@ -70,19 +70,22 @@ which is vector-tested, not verified; and every line of the server, the UI and
 the PMTiles code, none of which is F\* at all.
 
 The extraction pipeline, while still unproved, is no longer merely trusted —
-it is cross-examined from three independent directions, and a divergence on
-any checked value fails the build. `fstar/check/` holds answers computed by
-the extracted binary, and F\*'s own evaluator — a second implementation of
-the language's semantics, sharing nothing with extraction past the parser —
-recomputes every one from the proved source: all 4097 band-table entries, the
-module constants, and fixed points of the Feistel, the codec, the grid and
-the end-to-end composition (`make test-extraction`). The differential sweep
-asserts the proved theorems at runtime over its whole corpus — containment,
-round-trip, decode-of-encode, stated exactly as proved, preconditions and
-longitude fold included — in the composed binary with the real HMAC round
-function. And `js/`, written independently, must agree point for point. None
-of this verifies the pipeline; each is differential testing with a different
-oracle, and that is the honest description.
+three checks now watch it, and a divergence on any checked value fails the
+build. `fstar/check/` holds answers computed by the extracted binary, and
+F\*'s own evaluator recomputes every one from the proved source: all 4097
+band-table entries, the module constants, and fixed points of the Feistel,
+the codec, the grid and the end-to-end composition (`make test-extraction`).
+The two computations share F\*'s front end — parsing and elaboration — and
+both ultimately do arithmetic through zarith; what they do NOT share is the
+extraction backend and everything after it, which is the step this check
+exists to watch. The differential sweep asserts the proved theorems at
+runtime over its whole corpus — containment, round-trip, decode-of-encode,
+stated as proved, preconditions and longitude fold included — in the
+composed binary with the real HMAC round function; that is a self-consistency
+check against the proved laws, not a second computation of any value. And
+`js/`, written independently, must agree point for point — the only leg that
+shares neither zarith nor `ocamlopt` with what it checks. None of this
+verifies the pipeline, and that is the honest description.
 
 Proof establishes that the grid is *consistent*, not that it is *well
 designed*. No theorem here says a 3 m square is the right size.

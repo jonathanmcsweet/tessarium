@@ -235,14 +235,17 @@ The theorem set is complete and in the ledger. What is left is narrower.
       independent legs now watch it (ledger, 2026-08-19): F\*'s own
       evaluator recomputing the extracted binary's answers from the proved
       source (`fstar/check/`, all 4097 table entries plus fixed points of
-      every module), the proved theorems asserted at runtime over the
-      differential corpus in the composed binary, and the independently
-      written JS implementation. What remains open is the structural fix —
+      every module -- sharing F*'s front end and zarith with what it
+      checks, diverging at the extraction backend), the proved theorems
+      asserted at runtime over the differential corpus in the composed
+      binary (self-consistency against the laws, not a second computation),
+      and the independently written JS implementation -- the only leg on a
+      different arithmetic substrate. What remains open is the structural fix —
       Low\* → C with its own audit trail — and two narrower gaps in the
       evaluator leg: its end-to-end points use a concrete test round
       function (HMAC is outside the proof, but a check driving the REAL
       injected round function through F* would also catch a miswired
-      injection), and six grid points is a floor, not a ceiling — the leg
+      injection), and seven grid points is a floor, not a ceiling — the leg
       costs ~3 minutes and scales linearly if it ever earns more. Rerun
       the deep sweep after any change to the extraction pipeline or the
       toolchain: `tools/differential-deep.sh` (about 50 minutes).

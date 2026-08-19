@@ -29,6 +29,14 @@ let rec fe_ok (ks ts xs ys: list int) : Tot bool (decreases ks) =
       && fe_ok ks' ts' xs' ys'
   | _, _, _, _ -> false
 
+(* The counts are pinned HERE, in the hand-written harness, because every
+   walker is vacuously true on empty lists: a generator regression that
+   emitted `[]` for a leg would otherwise verify green forever while the
+   docs kept claiming the leg exists. Review demonstrated exactly that.
+   These numbers are the contract: gen_check.ml emits 7 corner + 9
+   generated Feistel points, 5 + 5 codec indexes, 2 rejected addresses. *)
+let _ = assert_norm (L.length E.fe_x = 16 && L.length E.fe_y = 16
+                     && L.length E.fe_k = 16 && L.length E.fe_t = 16)
 let _ = assert_norm (fe_ok E.fe_k E.fe_t E.fe_x E.fe_y)
 
 (* ---------------------------------------------------------------- codec *)
@@ -47,6 +55,7 @@ let rec codec_ok (l: list (int & int & int & int & int)) : bool =
           && C.from_address (a1, a2, a3, an) = i)
       && codec_ok tl
 
+let _ = assert_norm (L.length E.codec = 10)
 let _ = assert_norm (codec_ok E.codec)
 
 (* ------------------------------------------------------ rejection path *)
@@ -62,5 +71,6 @@ let rec nones_ok (l: list (int & int & int & int)) : bool =
       && None? (A.decode rf ck ct (w1, w2, w3, n))
       && nones_ok tl
 
+let _ = assert_norm (L.length E.nones = 2)
 let _ = assert_norm (nones_ok E.nones)
 

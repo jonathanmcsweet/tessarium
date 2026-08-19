@@ -143,6 +143,9 @@ let () =
     [ (seam, Z.of_int 5_000_000);
       (Z.pred seam, Z.of_int 5_000_000);
       (Z.add lat_min lat_span, Z.zero);
+      (* The exact bottom of the domain: band 0's first row, band_search's
+         lower extreme, the cell-0 region of cell_to_point. *)
+      (lat_min, Z.of_int 7_000_000);
       (Z.zero, lon_min);
       (Z.zero, Z.zero);
       ( Z.add lat_min (next lat_span),

@@ -37,8 +37,8 @@ verify:
 	$(MAKE) -C fstar verify
 
 # The one test anywhere that EXECUTES the F*: the extracted core's answers,
-# recomputed inside F*'s own evaluator from the proved source. Slow (~8
-# minutes, almost all of it the six grid-touching points), which is why it
+# recomputed inside F*'s own evaluator from the proved source. Slow (~3
+# minutes, almost all of it the grid-touching points), which is why it
 # is its own target -- but it is the only bridge across the trusted
 # extraction pipeline that does not itself trust that pipeline.
 test-extraction:

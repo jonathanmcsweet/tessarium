@@ -6,19 +6,24 @@ module Tessarium.Check.Round
 /// core -- the OCaml that `make extract` produced and `ocamlopt`
 /// compiled. The Check.* modules beside this one make F*'s normalizer
 /// recompute those answers from the PROVED source and refuse the module
-/// if any differ. The two computations share nothing past the parser:
-/// one is the F* evaluator walking the verified terms, the other is the
-/// extraction pipeline's output running as native code. A divergence on
+/// if any differ: one computation is the F* evaluator walking the
+/// elaborated terms directly, the other is the extraction pipeline's
+/// output running as native code. A divergence on
 /// any checked value -- one band-table entry, one Feistel output, one
 /// grid cell -- is a type error there, and `make check-extraction`
 /// fails.
 ///
 /// What this is NOT: a proof of the extraction pipeline. It is
 /// differential testing with F* as the oracle, on these points and this
-/// data. The honest statement after it passes: the extracted core
-/// agrees with the proved source on all 4097 table entries, the module
-/// constants, and every checked point of the Feistel, the codec, the
-/// grid and the end-to-end composition.
+/// data. Precisely what the two computations share and do not: both go
+/// through F*'s front end (parsing, elaboration), and both do their
+/// arithmetic through zarith -- the normalizer's integers and the
+/// extracted binary's are the same library. They diverge at the
+/// extraction backend, which is the step under watch. The js/ oracle is
+/// the leg that escapes the shared substrate. The honest statement after
+/// this passes: the extracted core agrees with the proved source on all
+/// 4097 table entries, the module constants, and every checked point of
+/// the Feistel, the codec, the grid and the end-to-end composition.
 ///
 /// One module per leg, one process per module, by measurement rather
 /// than taste: the normalizer retains what it has evaluated for the
