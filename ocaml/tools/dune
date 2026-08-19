@@ -8,6 +8,14 @@
 
 ; Emits ocaml/lib/wordlist.ml. Kept as a build step rather than a committed
 ; file so the module cannot drift from wordlist/english.txt.
+; Emits fstar/check/Tessarium.Check.Expected.fst: the extracted core's
+; answers on fixed points, for F*'s own evaluator to recompute. The bridge
+; between the proved source and the binary; see the file's header.
+(executable
+ (name gen_check)
+ (modules gen_check)
+ (libraries tessarium_extracted fstarlib zarith))
+
 (executable
  (name gen_wordlist)
  (modules gen_wordlist))

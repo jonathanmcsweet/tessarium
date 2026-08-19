@@ -21,7 +21,7 @@ ROOT  := Tessarium.Api.fst
 # abbreviation.
 FSTAR_FLAGS := --warn_error -321 --report_assumes error
 
-.PHONY: all verify extract fstarlib clean
+.PHONY: all verify extract fstarlib check-extraction clean
 
 all: verify
 
@@ -85,6 +85,31 @@ fstarlib:
 	  'let subset cmp a b = List.for_all (fun x -> List.exists (fun y -> cmp x y = 0) b) a' \
 	  > ../ocaml/fstarlib/batList.ml
 	@echo "  vendored $(words $(SUPPORT_MODS)) F* support modules + BatList shim"
+
+# Cross-examination of the extracted OCaml by F* itself: check/ holds
+# answers computed by the EXTRACTED core, and this makes F*'s evaluator
+# recompute every one from the proved source. Deliberately NOT --use_nbe:
+# assert_norm under the default call-by-name normalizer skips the unused
+# lemma bindings in the code's own bodies, where call-by-value NBE would
+# EXECUTE those proofs -- and ulib's arithmetic lemmas recurse on the
+# magnitude of their arguments, which at this domain's size is an
+# out-of-memory, not a proof.
+# One fstar.exe process per Check module, by measurement rather than
+# taste: the normalizer retains everything it evaluates for the lifetime
+# of one module's check, and the legs together exceed memory that each
+# is nowhere near alone.
+# Derived from the directory, not listed by hand: a fifth check module
+# dropped into check/ but forgotten here would silently never run.
+# Expected is excluded because it is data the others load, not a check.
+CHECK_MODULES := $(filter-out Tessarium.Check.Expected,\
+                 $(basename $(notdir $(wildcard check/Tessarium.Check.*.fst))))
+
+check-extraction: verify
+	@for m in $(CHECK_MODULES); do \
+	  echo "  check $$m"; \
+	  $(FSTAR) $(FSTAR_FLAGS) --include check check/$$m.fst || exit 1; \
+	done
+	@echo "the extracted core agrees with the proved source"
 
 clean:
 	rm -f *.checked .depend

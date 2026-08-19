@@ -136,13 +136,77 @@ let () =
     Printf.fprintf oc "# passphrase: %s\n" !passphrase;
   Printf.fprintf oc "# seed %d, %d points (%d at band seams)\n" !seed total !seams;
   Printf.fprintf oc "# lat_ns lon_ns cell centre_lat_ns centre_lon_ns address\n";
+  (* The proved theorems, restated as runtime assertions over the whole
+     corpus. The F* proves them about the source and fstar/check replays
+     the extraction on fixed points with a test round function; this is
+     the third leg: the COMPOSED binary -- extracted core, zarith, the
+     real HMAC round function -- obeying the same laws on every corpus
+     point. A binary that violates one here has a bug the other two legs
+     sit upstream of: in the crypto injection, the linker, or the
+     compiler's treatment of this exact composition. *)
+  let violations = ref 0 in
+  let law name ok lat lon =
+    if not ok then begin
+      incr violations;
+      Printf.eprintf "LAW VIOLATED %s at lat=%s lon=%s\n" name
+        (Z.to_string lat) (Z.to_string lon)
+    end
+  in
   List.iter
     (fun (lat, lon) ->
       let cell = Tessarium_Grid.point_to_cell lat lon in
       let clat, clon = Tessarium_Grid.cell_to_point cell in
+      let address = Tessarium.encode_z ~key ~lat ~lon in
+      (* Each restated EXACTLY as its theorem is stated -- preconditions,
+         longitude fold and all. Asserting one comparison more than the
+         proof claims turns a correct binary into a false alarm: the
+         first cut of this leg compared raw longitude where the theorem
+         folds it, and flagged half the corpus. *)
+      (* theorem_roundtrip: the cell's own centre names the same cell. *)
+      law "roundtrip" (Tessarium_Grid.point_to_cell clat clon = cell)
+        lat lon;
+      (* theorem_containment: the point lies inside its cell's bounds --
+         stated only for lat < lat_min + lat_span, and for the FOLDED
+         longitude, so the antimeridian's two spellings name one cell. *)
+      (* The precondition comes from the EXTRACTED Spec, not this file's
+         local literals, for the same reason row_edge does above: this
+         file must not be able to hide a Spec bug by reproducing it. *)
+      (if
+         Z.lt lat
+           (Z.add Tessarium_Spec.lat_min Tessarium_Spec.lat_span)
+       then begin
+         let lat_lo, lat_hi, lon_lo, lon_hi =
+           Tessarium_Grid.cell_bounds cell
+         in
+         let folded = Tessarium_Grid.lon_fold lon in
+         law "containment"
+           (Z.leq lat_lo lat && Z.lt lat lat_hi
+           && Z.leq lon_lo folded && Z.lt folded lon_hi)
+           lat lon
+       end);
+      (* theorem_decode_encode: decoding what was encoded never fails and
+         answers with this exact cell's representative point. Slightly
+         STRONGER than the theorem, deliberately: the theorem is stated
+         on address tuples, and this round-trips through the address
+         string -- so a formatter bug fails here too, mislabeled as a law
+         violation, which is the safe direction. *)
+      (match Tessarium.decode ~key address with
+      | Ok (dlat, dlon) ->
+          law "decode-encode"
+            (Z.equal (Z.of_int dlat) clat && Z.equal (Z.of_int dlon) clon)
+            lat lon
+      | Error _ -> law "decode-encode" false lat lon);
       Printf.fprintf oc "%s %s %s %s %s %s\n" (Z.to_string lat) (Z.to_string lon)
         (Z.to_string cell) (Z.to_string clat) (Z.to_string clon)
-        (Tessarium.encode_z ~key ~lat ~lon))
+        address)
     points;
+  if !violations > 0 then begin
+    Printf.eprintf "%d proved laws violated at runtime\n" !violations;
+    exit 1
+  end;
+  (* Said on success too, so tools/check-suites.sh can demand the line:
+     a law leg that quietly stopped running must be distinguishable from
+     one that ran and held. *)
+  Printf.eprintf "proved laws hold at runtime over %d points\n" total;
   if !out <> "-" then close_out oc;
   Printf.eprintf "wrote %d points (%d straddling band seams)\n" total !seams

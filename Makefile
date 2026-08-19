@@ -23,7 +23,7 @@ CANCEL_PORT ?= 7377
 # The delaying proxy itself, run by the e2e script.
 PROXY_PORT ?= 7378
 
-.PHONY: all env verify extract build ui test test-core test-static test-ui run package package-deb package-appimage clean
+.PHONY: all env verify extract build ui test test-core test-static test-extraction test-ui run package package-deb package-appimage clean
 
 all: build ui
 
@@ -35,6 +35,17 @@ env:
 
 verify:
 	$(MAKE) -C fstar verify
+
+# The one test anywhere that EXECUTES the F*: the extracted core's answers,
+# recomputed inside F*'s own evaluator from the proved source. Slow (~3
+# minutes, almost all of it the grid-touching points), which is why it
+# is its own target -- but it is the only bridge across the trusted
+# extraction pipeline that does not itself trust that pipeline.
+test-extraction:
+	dune build ocaml/tools/gen_check.exe
+	./_build/default/ocaml/tools/gen_check.exe \
+	  fstar/check/Tessarium.Check.Expected.fst
+	PATH="$(FSTAR_BIN):$$PATH" $(MAKE) -C fstar check-extraction
 
 # Regenerating extracted OCaml is the only sanctioned way to change it. CI
 # runs this and fails on any diff, which is what makes "never hand-edit
@@ -54,7 +65,7 @@ ui:
 	cp -r ui/dist ocaml/server/ui_dist
 	@echo "  UI copied to ocaml/server/ui_dist; run 'make build' to embed it"
 
-test: test-core test-static test-ui
+test: test-core test-static test-extraction test-ui
 
 # Via check-suites.sh, not `dune test` directly: dune reports failures but
 # cannot tell you a suite produced no output at all, which is how the

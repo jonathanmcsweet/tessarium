@@ -231,19 +231,24 @@ assuming HMAC-SHA256 behaves as a PRF." Do not let the README overstate this.
 
 The theorem set is complete and in the ledger. What is left is narrower.
 
-- [ ] **Nothing proves the extracted OCaml matches the F\* it came from.** The
-      extraction pipeline is trusted, not verified, and that is the largest
-      single gap between "the core is proved" and "the running program is
-      right". The bridge is evidence, not proof: 199 committed vectors, a
-      per-CI-run differential sweep of ~32,000 points against the
-      independently written JS implementation (seam-weighted, now
-      key-varying), and a recorded 10-million-point sweep across four seeds
-      and a passphrase variant with zero disagreements (ledger,
-      2026-08-18). Rerun the deep sweep after any change to the extraction
-      pipeline or the toolchain: `tools/differential-deep.sh` (about 50
-      minutes; the exact five configurations, counts and seeds of the
-      recorded run). The only structural fix remains Low\* → C with its
-      own audit trail.
+- [ ] **The extraction pipeline is cross-examined, not verified.** Three
+      independent legs now watch it (ledger, 2026-08-19): F\*'s own
+      evaluator recomputing the extracted binary's answers from the proved
+      source (`fstar/check/`, all 4097 table entries plus fixed points of
+      every module -- sharing F*'s front end and zarith with what it
+      checks, diverging at the extraction backend), the proved theorems
+      asserted at runtime over the differential corpus in the composed
+      binary (self-consistency against the laws, not a second computation),
+      and the independently written JS implementation -- the only leg on a
+      different arithmetic substrate. What remains open is the structural fix —
+      Low\* → C with its own audit trail — and two narrower gaps in the
+      evaluator leg: its end-to-end points use a concrete test round
+      function (HMAC is outside the proof, but a check driving the REAL
+      injected round function through F* would also catch a miswired
+      injection), and seven grid points is a floor, not a ceiling — the leg
+      costs ~3 minutes and scales linearly if it ever earns more. Rerun
+      the deep sweep after any change to the extraction pipeline or the
+      toolchain: `tools/differential-deep.sh` (about 50 minutes).
 - [ ] **`theorem_containment` excludes exactly +90°.** Latitude is clamped
       there rather than bucketed, so the theorem carries
       `requires lat < lat_min + lat_span` and a separate `lemma_pole_clamp`

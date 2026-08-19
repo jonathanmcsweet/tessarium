@@ -26,6 +26,7 @@ suites=(
   "independent js implementation|checks passed, 0 failed"
   "server decisions|server decisions hold"
   "coverage answers|coverage answers (hold|FAILED)"
+  "runtime laws|proved laws hold at runtime over [1-9][0-9]*"
   "pmtiles round-trip|pmtiles round-trips"
   "vector regeneration|vectors reproduce exactly from the verified core"
   "differential sweep|[1-9][0-9]* points checked"
