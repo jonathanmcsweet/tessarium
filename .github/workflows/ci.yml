@@ -94,6 +94,20 @@ jobs:
             exit 1
           fi
 
+      # The step above proves extraction is DETERMINISTIC; this one is the
+      # only check that it is FAITHFUL: the extracted binary's answers,
+      # recomputed inside F*'s own evaluator from the proved source. A
+      # divergence on any checked value -- one band-table entry, one grid
+      # cell -- fails here even though every other suite would stay green.
+      - name: Extracted OCaml computes what the proved source computes
+        run: |
+          export PATH="$HOME/toolchain/fstar/bin:$PATH"
+          opam exec -- make test-extraction
+          if ! git diff --exit-code --stat fstar/check/Tessarium.Check.Expected.fst; then
+            echo "::error::the committed expected values differ from what the extracted core computes"
+            exit 1
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc

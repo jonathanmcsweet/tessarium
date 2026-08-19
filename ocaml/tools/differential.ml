@@ -136,13 +136,51 @@ let () =
     Printf.fprintf oc "# passphrase: %s\n" !passphrase;
   Printf.fprintf oc "# seed %d, %d points (%d at band seams)\n" !seed total !seams;
   Printf.fprintf oc "# lat_ns lon_ns cell centre_lat_ns centre_lon_ns address\n";
+  (* The proved theorems, restated as runtime assertions over the whole
+     corpus. The F* proves them about the source and fstar/check replays
+     the extraction on fixed points with a test round function; this is
+     the third leg: the COMPOSED binary -- extracted core, zarith, the
+     real HMAC round function -- obeying the same laws on every corpus
+     point. A binary that violates one here has a bug the other two legs
+     sit upstream of: in the crypto injection, the linker, or the
+     compiler's treatment of this exact composition. *)
+  let violations = ref 0 in
+  let law name ok lat lon =
+    if not ok then begin
+      incr violations;
+      Printf.eprintf "LAW VIOLATED %s at lat=%s lon=%s\n" name
+        (Z.to_string lat) (Z.to_string lon)
+    end
+  in
   List.iter
     (fun (lat, lon) ->
       let cell = Tessarium_Grid.point_to_cell lat lon in
       let clat, clon = Tessarium_Grid.cell_to_point cell in
+      let address = Tessarium.encode_z ~key ~lat ~lon in
+      (* theorem_roundtrip: the cell's own centre names the same cell. *)
+      law "roundtrip" (Tessarium_Grid.point_to_cell clat clon = cell)
+        lat lon;
+      (* theorem_containment: the point lies inside its cell's bounds. *)
+      let s, w, n, e = Tessarium_Grid.cell_bounds cell in
+      law "containment"
+        (Z.leq s lat && Z.lt lat n && Z.leq w lon && Z.lt lon e)
+        lat lon;
+      (* theorem_end_to_end: decoding what was encoded is never None and
+         names the point's own square. *)
+      (match Tessarium.decode ~key address with
+      | Some d ->
+          law "end-to-end"
+            (Z.equal (Z.of_int d.Tessarium.lat_ns) clat
+            && Z.equal (Z.of_int d.Tessarium.lon_ns) clon)
+            lat lon
+      | None -> law "end-to-end" false lat lon);
       Printf.fprintf oc "%s %s %s %s %s %s\n" (Z.to_string lat) (Z.to_string lon)
         (Z.to_string cell) (Z.to_string clat) (Z.to_string clon)
-        (Tessarium.encode_z ~key ~lat ~lon))
+        address)
     points;
+  if !violations > 0 then begin
+    Printf.eprintf "%d proved laws violated at runtime\n" !violations;
+    exit 1
+  end;
   if !out <> "-" then close_out oc;
   Printf.eprintf "wrote %d points (%d straddling band seams)\n" total !seams
