@@ -1752,3 +1752,101 @@ closed list, so Enter after Escape flew the map to something invisible.
 are recorded in roadmap.md; the map's controls moved to a left-hand rail
 because search took the corner they were in. Compaction now reindexes, so
 browsed places become findable.
+
+### 2026-08-19 — Saying where coverage ends
+
+**Phase:** 6 (web UI)
+
+**What:** Outside the downloaded region the map is blank, and until now the
+app said nothing about it -- a user panning east out of France could not tell
+a missing download from a broken program. The blank ground is now washed grey
+with a line along its edge, and a note under the middle of the view says the
+map is not downloaded here and offers the downloader. New `basemap-coverage`
+endpoint answers one viewport with one character per tile plus the deepest
+zoom the archives reach under its centre; `ui/src/core/coverage.ts` merges the
+missing tiles into rectangles, traces the boundary where missing meets held,
+and projects both back to degrees.
+
+**Rationale:** the mask reads the ARCHIVES, not the download ledger, and that
+was the load-bearing decision. The ledger records what was asked for, which is
+a different thing from what is on disk: this machine's archive was seeded by
+the extraction tool with a world overview no ledger entry claims, browsed
+tiles belong to no entry at all, and compaction folds them into the main
+archive without one. A ledger-drawn mask would therefore grey out ground the
+user can plainly see drawn -- worse than the silence it replaces. Asking the
+same archives the tile endpoint asks, in the same order, makes the mask agree
+with the map by construction, and the end-to-end test checks exactly that
+agreement cell by cell rather than trusting the code that drew it. Presence is
+a directory lookup with no tile body read: 1.3 ms for a typical viewport
+against the 6.4 GB France archive, and 2.4-3.0 ms for the largest query the
+endpoint accepts.
+
+The boundary is drawn from the tile edges where missing meets held, not from
+the outlines of the merged rectangles: two rectangles splitting one blank area
+share a seam, and drawing that seam would put a line through the middle of
+nothing. Nothing is drawn along the edge of the query itself, because the map
+simply stops knowing there and a box around the viewport would be a claim
+nobody made.
+
+One bug the suite caught before it shipped: MapLibre reports a vector source's
+spec default maxzoom of 22 until tiles.json arrives, so the first query after
+every style swap asked about zoom 19 over an archive cut to 15 and was
+refused, four times a run. The clamp is to the tile grid's own depth rather
+than to whatever the source currently claims.
+
+An adversarial review found seven defects worth the pass, all fixed here. The
+worst was a race the feature could not survive in normal use: nothing marked
+which coverage answer was current, and React Query returns a cached view in a
+microtask while a fresh request is still in flight, so panning back to
+somewhere left seconds ago resolved BEFORE the place passed through -- the
+older answer landed last, wiped the wash and the note, and left the app silent
+while the camera sat on blank ground. Newest question wins now, and the
+end-to-end suite reproduces the ordering with a delayed route.
+
+Two more were wrong answers rather than wrong drawing. The depth was measured
+at the midpoint of the requested degrees while the client called the middle
+CELL of the answered rectangle the middle -- different tiles for 24 viewports
+in every 840 swept, which put "zoom out to see it" on screen over ground the
+archive held at exactly that zoom. Both now name the same cell, and because
+they do, a blank middle always reports a depth below the zoom asked about,
+which is what makes the sentence true whenever it is said. And an archive that
+would not open failed the whole query with a 400 -- blaming the page for this
+server's own broken file, and taking the browse cache's good answers down with
+it. It is skipped with a warning now, exactly as the tile endpoint skips it,
+and the two failures are two statuses.
+
+The note was wrong for touch in three ways: the whole pill took the pointer,
+so a thumb drag from the bottom of the map -- the most natural gesture there
+-- did nothing; its button was 32px against the 44px every other touch control
+here uses; and pressing it opened the download card and then sat on top of it,
+winning the hit test over the card's own controls. With browsing on it also
+flashed grey and offered a download for tiles the app was already fetching,
+for the 1.2 s before the browse landed. Two message keys became one: the
+"never downloaded here" sentence needed a depth of -1, which no real archive
+produces, so it was six locales of copy that could not render.
+
+Keyboard focus was left on <body> when the note vanished under the user --
+tiles landing, a fly-to settling -- and the first fix for it was wrong in a
+way only the test could show: an effect's cleanup runs after React has already
+mutated the DOM, so asking then whether focus was inside the note always
+answers no. It is recorded while the note is alive instead.
+
+Four tests could not fail. The server's straddle fixture was two identical
+rows, so emitting the mask south-to-north passed the check named for it; the
+UI had no check on the latitude of a horizontal edge, so moving every one a
+tile row south passed all 27; the closed-box check compared minima and maxima,
+which are the same set upside down; and the too-large refusal was not
+distinguished from a broken archive. Each was demonstrated failing before
+being kept. The wash was also raised from 1.2:1 against the background, which
+is no signal at all, to something visible -- it only ever covers tiles that
+draw nothing, so there is no cartography underneath to protect, and the note
+carries the meaning in words regardless.
+
+**Follow-on:** a wrapped viewport is still not a box -- recorded with the
+antimeridian browse gap, which shares the same `regionOf` clamp and now has
+two callers to fix at once. And the note can only say "not downloaded at this
+zoom", never "you have never downloaded this place", because a world overview
+covers every point on Earth; the stronger sentence needs the ledger and is
+recorded as its own item. Separately, `ui/test/e2e.mjs` merged unformatted
+with the place-search branch, so `make test-static` was failing on master for
+a day; the formatter ran here.

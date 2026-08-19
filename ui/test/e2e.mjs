@@ -712,13 +712,14 @@ check(
     && Math.abs(searched.results[0].lat) <= 85.06,
 );
 /* limit is the server's to enforce, and the scan stops early because of it. */
-const limited = await (await postJson("basemap-search", { q: "fixtu", limit: 3 }))
-  .json();
+const limited =
+  await (await postJson("basemap-search", { q: "fixtu", limit: 3 }))
+    .json();
 check("the result limit is honoured", limited.results?.length === 3);
 check(
   "a limit outside 1..50 falls back to the default rather than being obeyed",
   (await (await postJson("basemap-search", { q: "fixtu", limit: 9999 })).json())
-      .results?.length <= 10,
+    .results?.length <= 10,
 );
 check(
   "a one-character query is refused rather than scanned",
@@ -781,6 +782,169 @@ await page.locator("#place-search-input").press("Escape");
 check(
   "escape closes the result list",
   (await page.locator(".place-option").count()) === 0,
+);
+
+/* ------------------------------ coverage edge ------------------------------
+
+   Where the basemap stops, said out loud instead of left as a blank screen.
+
+   The claim under test is not that something grey appears -- it is that the
+   grey lands exactly where the tile endpoint has nothing. So the mask is
+   checked against the tiles themselves, cell by cell, rather than against
+   the code that drew it: those two agreeing is the whole feature, and a
+   mask that greys out ground the map is drawing would be worse than no
+   mask at all. */
+const straddle = {
+  min_lon: -0.1,
+  min_lat: 51.46,
+  max_lon: 0.3,
+  max_lat: 51.56,
+  zoom: 12,
+};
+const cover = await (await postJson("basemap-coverage", straddle)).json();
+check(
+  "a viewport straddling the downloaded edge is partly covered",
+  cover.present.includes("1") && cover.present.includes("0"),
+);
+check(
+  "the answer is one character per tile of the rectangle it names",
+  cover.present.length === cover.w * cover.h,
+);
+
+let agreed = true;
+for (let row = 0; row < cover.h; row++) {
+  for (let col = 0; col < cover.w; col++) {
+    const res = await fetch(
+      `${base}/tiles/${cover.zoom}/${cover.x + col}/${cover.y + row}.mvt`,
+    );
+    await res.arrayBuffer();
+    const served = res.status === 200;
+    if (served !== (cover.present[row * cover.w + col] === "1")) agreed = false;
+  }
+}
+check("the mask agrees with the tile endpoint, cell for cell", agreed);
+
+/* The other side of the world: nothing at street level, but the world
+   overview underneath is still real, which is why the note there offers
+   zooming out rather than claiming there is nothing at all. */
+const antipode = await (await postJson("basemap-coverage", {
+  min_lon: 139.6,
+  min_lat: 35.6,
+  max_lon: 139.8,
+  max_lat: 35.8,
+  zoom: 12,
+})).json();
+check(
+  "a view nothing was downloaded near is blank at street zoom",
+  !antipode.present.includes("1"),
+);
+check(
+  "and the overview beneath it is reported as a depth",
+  antipode.depth >= 0 && antipode.depth < 12,
+);
+check(
+  "a query far larger than a viewport is refused rather than answered slowly",
+  (await postJson("basemap-coverage", {
+    min_lon: -10,
+    min_lat: 40,
+    max_lon: 10,
+    max_lat: 55,
+    zoom: 12,
+  })).status === 400,
+);
+
+/* Through the map itself. Jumped rather than flown: the assertion is about
+   what the app says once it has settled, and an animation only decides
+   when that is. */
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
+);
+check(
+  "panning off the downloaded region says so",
+  await page.waitForSelector(".map-note.action", { timeout: 15_000 })
+    .then(() => true, () => false),
+);
+check(
+  "the blank ground is actually painted, not just described",
+  await page.waitForFunction(
+    () => {
+      const map = window.__tessarium_map;
+      return !!map
+        && map.queryRenderedFeatures({ layers: ["coverage-blank"] }).length > 0;
+    },
+    undefined,
+    { timeout: 15_000 },
+  ).then(() => true, () => false),
+);
+/* The note is the one place on the map that offers the way out of a blank
+   screen, so its button has to reach the downloader. */
+await page.locator(".map-note.action .note-action").click();
+check(
+  "the note offers the download card",
+  await page.waitForSelector(".download-card", { timeout: 10_000 })
+    .then(() => true, () => false),
+);
+await page.locator(".map-actions button").click();
+await page.waitForFunction(() => !document.querySelector(".download-card"), {
+  timeout: 10_000,
+});
+
+/* An answer that arrives late must not paint over a newer one.
+
+   React Query hands back a cached view in a microtask while a fresh
+   request is still in flight, so returning to a place you left seconds ago
+   resolves BEFORE the place you passed through. The older answer then
+   landed last and won, which cleared the wash and the note while the
+   camera sat on blank ground -- the app saying nothing at all, which is
+   the state this feature exists to replace. Delayed here on purpose, but
+   the ordering needs no help in the field. */
+await page.route("**/api/basemap-coverage", async (route) => {
+  await new Promise((done) => setTimeout(done, 2000));
+  await route.continue();
+});
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
+);
+await page.waitForSelector(".map-note.action", { timeout: 20_000 });
+/* Out to covered ground, whose answer is now 2 s away. The pause is what
+   makes this a race at all: two jumps back to back settle as one move, so
+   the request being outrun would never be sent. */
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [-0.12, 51.5], zoom: 12 })
+);
+await new Promise((done) => setTimeout(done, 700));
+/* And straight back, where the answer is already cached and returns at
+   once -- so the older question is still in flight behind it. */
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
+);
+await new Promise((done) => setTimeout(done, 4000));
+check(
+  "an answer for a view already left cannot wipe the current one",
+  await page.locator(".map-note.action").count() === 1,
+);
+await page.unroute("**/api/basemap-coverage");
+
+/* Focused first: the note goes away on its own when tiles land or a
+   fly-to settles, and if its button still had focus the page would drop
+   to <body>, where the keyboard does nothing at all. */
+await page.locator(".map-note.action .note-action").focus();
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [-0.12, 51.5], zoom: 12 })
+);
+check(
+  "returning to downloaded ground takes the note away again",
+  await page.waitForFunction(
+    () => !document.querySelector(".map-note.action"),
+    undefined,
+    { timeout: 15_000 },
+  ).then(() => true, () => false),
+);
+check(
+  "and hands the keyboard back to the map rather than dropping it",
+  await page.evaluate(() =>
+    document.activeElement?.classList.contains("maplibregl-canvas") ?? false
+  ),
 );
 
 /* ------------------------- the download ledger ----------------------------

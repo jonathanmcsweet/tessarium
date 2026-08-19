@@ -27,6 +27,8 @@
   "map_label": "Carte. Utilisez les touches fléchées pour vous déplacer, plus et moins pour zoomer, et Entrée pour obtenir l’adresse du carré central.",
   "map_keyboard_hint": "Les touches fléchées déplacent la carte, + et − permettent de zoomer, Entrée donne l’adresse du carré central.",
   "map_zoom_for_grid": "Zoomez pour voir la grille",
+  "map_coverage_gap": "Aucune carte téléchargée à ce niveau de zoom. La grille et les adresses fonctionnent quand même.",
+  "map_coverage_download": "Télécharger cette zone",
   "map_too_many_squares": "Trop de carrés à l’écran pour tous les tracer — zoomez",
   "map_basemap_missing": "Aucun fond de carte trouvé. L’adressage continue de fonctionner sur fond vide; vous pouvez télécharger les cartes de la zone affichée.",
   "map_download_open": "Télécharger les cartes de cette vue",
