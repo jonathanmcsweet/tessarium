@@ -157,23 +157,35 @@ let () =
       let cell = Tessarium_Grid.point_to_cell lat lon in
       let clat, clon = Tessarium_Grid.cell_to_point cell in
       let address = Tessarium.encode_z ~key ~lat ~lon in
+      (* Each restated EXACTLY as its theorem is stated -- preconditions,
+         longitude fold and all. Asserting one comparison more than the
+         proof claims turns a correct binary into a false alarm: the
+         first cut of this leg compared raw longitude where the theorem
+         folds it, and flagged half the corpus. *)
       (* theorem_roundtrip: the cell's own centre names the same cell. *)
       law "roundtrip" (Tessarium_Grid.point_to_cell clat clon = cell)
         lat lon;
-      (* theorem_containment: the point lies inside its cell's bounds. *)
-      let s, w, n, e = Tessarium_Grid.cell_bounds cell in
-      law "containment"
-        (Z.leq s lat && Z.lt lat n && Z.leq w lon && Z.lt lon e)
-        lat lon;
-      (* theorem_end_to_end: decoding what was encoded is never None and
-         names the point's own square. *)
+      (* theorem_containment: the point lies inside its cell's bounds --
+         stated only for lat < lat_min + lat_span, and for the FOLDED
+         longitude, so the antimeridian's two spellings name one cell. *)
+      (if Z.lt lat (Z.add lat_min lat_span) then begin
+         let lat_lo, lat_hi, lon_lo, lon_hi =
+           Tessarium_Grid.cell_bounds cell
+         in
+         let folded = Tessarium_Grid.lon_fold lon in
+         law "containment"
+           (Z.leq lat_lo lat && Z.lt lat lat_hi
+           && Z.leq lon_lo folded && Z.lt folded lon_hi)
+           lat lon
+       end);
+      (* theorem_decode_encode: decoding what was encoded never fails and
+         answers with this exact cell's representative point. *)
       (match Tessarium.decode ~key address with
-      | Some d ->
-          law "end-to-end"
-            (Z.equal (Z.of_int d.Tessarium.lat_ns) clat
-            && Z.equal (Z.of_int d.Tessarium.lon_ns) clon)
+      | Ok (dlat, dlon) ->
+          law "decode-encode"
+            (Z.equal (Z.of_int dlat) clat && Z.equal (Z.of_int dlon) clon)
             lat lon
-      | None -> law "end-to-end" false lat lon);
+      | Error _ -> law "decode-encode" false lat lon);
       Printf.fprintf oc "%s %s %s %s %s %s\n" (Z.to_string lat) (Z.to_string lon)
         (Z.to_string cell) (Z.to_string clat) (Z.to_string clon)
         address)

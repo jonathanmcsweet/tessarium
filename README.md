@@ -69,14 +69,31 @@ extraction pipeline and `ocamlopt`, which are trusted; `digestif`'s SHA-2,
 which is vector-tested, not verified; and every line of the server, the UI and
 the PMTiles code, none of which is F\* at all.
 
+The extraction pipeline, while still unproved, is no longer merely trusted —
+it is cross-examined from three independent directions, and a divergence on
+any checked value fails the build. `fstar/check/` holds answers computed by
+the extracted binary, and F\*'s own evaluator — a second implementation of
+the language's semantics, sharing nothing with extraction past the parser —
+recomputes every one from the proved source: all 4097 band-table entries, the
+module constants, and fixed points of the Feistel, the codec, the grid and
+the end-to-end composition (`make test-extraction`). The differential sweep
+asserts the proved theorems at runtime over its whole corpus — containment,
+round-trip, decode-of-encode, stated exactly as proved, preconditions and
+longitude fold included — in the composed binary with the real HMAC round
+function. And `js/`, written independently, must agree point for point. None
+of this verifies the pipeline; each is differential testing with a different
+oracle, and that is the honest description.
+
 Proof establishes that the grid is *consistent*, not that it is *well
 designed*. No theorem here says a 3 m square is the right size.
 
 **Checked on every push:** `.github/workflows/ci.yml` verifies every module
 from a pinned F\* release with `--report_assumes error`, so a proof hole is a
 build failure rather than something to remember to grep for. It then
-re-extracts the OCaml and fails if it differs from what is committed, then
-runs all seven test suites and the browser end-to-end test.
+re-extracts the OCaml and fails if it differs from what is committed — that
+step proves extraction is *deterministic*; the `test-extraction` step after
+it is the check that it is *faithful* — then runs every test suite and the
+browser end-to-end test.
 
 ## Run it
 
@@ -203,10 +220,12 @@ and is committed, and the verified core computes the answers
 (`ocaml/tools/gen_vectors.ml`). The regenerated file was semantically identical
 to the Python's, which is the whole reason for doing it in that order.
 
-`js/` **stays**, and is now the only thing in the tree that could catch a bug
-in the F\* extraction by disagreeing with it — the extraction pipeline is
-trusted, not verified, so an independently written implementation checks
-something no second extraction target could.
+`js/` **stays**: the extraction pipeline is trusted, not verified, so an
+independently written implementation checks something no second extraction
+target could. It is one of three legs that watch the extraction — see
+`fstar/check/` for the leg where F\*'s own evaluator recomputes the extracted
+binary's answers, and the differential tool's runtime law assertions for the
+third — and it remains the only one whose oracle is not F\* itself.
 
 It has been run against **10,061,490 points across five keys with zero disagreements (tools/differential-deep.sh)**, and a
 32,298-point version runs in CI. The corpus is deliberately unbalanced towards

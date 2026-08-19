@@ -1894,3 +1894,55 @@ is -- both recorded in roadmap.md, along with a third gap this turned up:
 this archive holds Georgia at street detail with no ledger entry claiming
 it, because tiles fetched by the command-line extractor leave no record, so
 they cannot be updated or removed from the downloaded-maps list.
+
+### 2026-08-19 — The extracted core, cross-examined by F* itself
+
+**Phase:** 1–3 (proof work); the roadmap's "largest single gap"
+
+**What:** Nothing executed the F*. The proofs were checked, the OCaml was
+extracted, and every test in the tree ran the extraction -- so the committed
+vectors, the differential sweep and the JS oracle all sat DOWNSTREAM of the
+one step nobody watched. Now `fstar/check/` holds answers computed by the
+extracted binary (`ocaml/tools/gen_check.ml`), and four Check modules make
+F*'s normalizer -- a second implementation of the language's semantics,
+sharing nothing with extraction past the parser -- recompute every one from
+the proved source: all 4097 band-table entries, the module constants, and
+fixed points of the Feistel, the codec, the grid and the end-to-end
+composition, band seams and rejection path included. `make test-extraction`,
+~3 minutes, wired into `make test` and CI beside the determinism diff. The
+differential tool now also asserts the proved theorems at runtime over its
+whole corpus -- containment, round-trip, decode-of-encode, stated exactly as
+proved -- in the composed binary with the real HMAC round function.
+
+**Rationale:** differential testing with F* as the oracle, not verification,
+and the docs say so in those words. The concrete round function is trivial on
+purpose -- the theorems hold for ANY inhabitant of the type -- and it is
+spelled twice, once in F* and once over Prims' own operators; the spellings
+drifting apart fails the check, which is the right direction. Three dead ends
+shaped the final form, all found by measurement. F*'s NBE evaluator executes
+proof terms, and ulib's arithmetic lemmas recurse on argument magnitude, so
+one grid point was an out-of-memory rather than an answer; the default
+call-by-name normalizer skips the unused lemma bindings and walks the same
+point in about a minute. The band table hides behind an interface so SMT
+never swallows its literals, which also makes it opaque to the normalizer;
+`friend` sees through it while every chunk keeps `opaque_to_smt`. And the
+normalizer retains what it evaluates for the lifetime of one module's check,
+so the legs OOM together while each passes alone -- one module per leg, one
+process per module.
+
+Falsified seven ways before being kept: a band-table digit off by one, the
+two round-function spellings drifting, a Feistel with two rounds shaved off
+(still a bijection -- generation survives, only value comparison sees it),
+the codec's middle words swapped in both directions at once, every grid cell
+shifted by one, a hand-edited expected file with no regeneration, and an
+inverse-breaking tamper caught by the generator's own sanity check. The
+runtime-law leg was itself falsified (grid tamper: 25,593 violations on a
+12,798-point corpus) -- after first shipping a version that could not
+compile, hidden by a silenced build, and then one that restated
+theorem_containment more strongly than it is proved: the theorem folds
+longitude and excludes exactly +90°, and asserting one comparison more than
+the proof claims flagged half the corpus of a correct binary.
+
+**Follow-on:** the evaluator leg checks the test round function, not the real
+HMAC injection, and six grid points is a floor -- both recorded in the
+roadmap item, which stays open for the structural fix (Low* → C).
