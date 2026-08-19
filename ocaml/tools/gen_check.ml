@@ -191,10 +191,15 @@ let () =
   addf "let bounds_out : int & int & int & int = (%s, %s, %s, %s)\n"
     (lit s) (lit w) (lit n_) (lit e);
 
-  let oc = open_out out in
-  output_string oc (Buffer.contents b);
-  close_out oc;
-  Printf.printf "expected values written to %s\n" out;
+  (* "-" skips the Expected.fst write: test-lowstar needs only the C
+     header and must not side-effect a committed file it does not check
+     (nor race test-extraction's readers of it under make -j). *)
+  if out <> "-" then begin
+    let oc = open_out out in
+    output_string oc (Buffer.contents b);
+    close_out oc;
+    Printf.printf "expected values written to %s\n" out
+  end;
 
   (* ------------------------------------------------- the C core's copy *)
   (* The same Feistel vectors as C initializers, when a second path is

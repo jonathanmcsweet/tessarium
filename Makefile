@@ -25,6 +25,10 @@ PROXY_PORT ?= 7378
 
 .PHONY: all env verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run package package-deb package-appimage clean
 
+# The wall's stages share files (gen_check outputs, .checked caches, the
+# port 737x range); they are cheap to run in order and wrong to interleave.
+.NOTPARALLEL:
+
 all: build ui
 
 env:
@@ -60,8 +64,7 @@ extract:
 KRML_ROOT := $(FSTAR_BIN)/..
 test-lowstar:
 	dune build ocaml/tools/gen_check.exe
-	./_build/default/ocaml/tools/gen_check.exe \
-	  fstar/check/Tessarium.Check.Expected.fst fstar/low/check_vectors.h
+	./_build/default/ocaml/tools/gen_check.exe - fstar/low/check_vectors.h
 	PATH="$(FSTAR_BIN):$$PATH" $(MAKE) -C fstar low-extract
 	@mkdir -p _build
 	cc -std=c11 -Wall -D_DEFAULT_SOURCE \

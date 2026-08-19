@@ -84,22 +84,30 @@ stated as proved, preconditions and longitude fold included — in the
 composed binary with the real HMAC round function; that is a self-consistency
 check against the proved laws, not a second computation of any value. And
 `js/`, written independently, must agree point for point — the only leg that
-shares no tooling at all with what it checks. None of this verifies the
-pipeline, and that is the honest description.
+shares neither zarith nor `ocamlopt` nor any stage of F\*'s extraction with
+what it checks. (It does consume the same generated `bands.json` and
+wordlist, so the generators of those two files are the one thing no leg
+cross-checks.) None of this verifies the pipeline, and that is the honest
+description.
 
 The structural fix is now underway (`fstar/low/`): the Feistel re-expressed
 over 64-bit machine integers, with a machine-checked proof of bit-for-bit
-agreement with the spec — the theorem that pins every user's addresses
-through the migration — and emitted as C by KaRaMeL, the small translator
+agreement with the spec, emitted as C by KaRaMeL, the small translator
 behind the verified crypto in Firefox, the Linux kernel and Python's
-hashlib. The emitted C replays the extracted binary's own vectors
-(`make test-lowstar`), and shares F\*'s front end with it but nothing after:
-no extraction backend, no `ocamlopt`, no zarith. At runtime that harness is
-only testing what the agreement proof cannot reach — krml's emission and the
-C compiler. The survey saying the whole core fits 64-bit arithmetic is
-`fstar/low/BOUNDS.md`; the grid, table and codec ports follow, then
-HMAC-SHA256 itself moves inside the proof via HACL\*, and the browser core
-becomes WebAssembly from the same source.
+hashlib. That proof is the pattern that pins addresses through the
+migration — discharged here for the Feistel stage, for any round function;
+the grid, table and codec stages earn the same theorem as they port
+(`fstar/low/BOUNDS.md` is the survey saying the whole core fits 64-bit
+arithmetic). The emitted C replays the extracted binary's own vectors
+(`make test-lowstar`). Sharing, stated honestly: `--codegen krml` runs the
+same F\* extraction pipeline — erasure, ghost elimination, ML translation —
+as the OCaml it checks, diverging only at the final emitter, so a bug in
+those shared stages could fool this leg and its vectors together; the
+evaluator leg, which never extracts, is the one watching that class. What
+this leg does not share is `ocamlopt` and zarith; what its harness tests at
+runtime beyond the proof is F\*'s `.krml` emission, krml itself and the C
+compiler. HMAC-SHA256 moves inside the proof via HACL\* in a later phase,
+and the browser core becomes WebAssembly from the same source.
 
 Proof establishes that the grid is *consistent*, not that it is *well
 designed*. No theorem here says a 3 m square is the right size.

@@ -111,9 +111,11 @@ jobs:
 
       # The KaRaMeL leg: the machine-integer Feistel is PROVED equal to the
       # spec (that proof runs in low-verify, inside this target), then the
-      # emitted C replays the vectors above. What this step actually tests
-      # at runtime is the small part a proof cannot reach: krml's emission
-      # and the C compiler.
+      # emitted C replays the vectors above. What this step tests at
+      # runtime, beyond the proof: F*'s .krml emission (which shares the
+      # extraction pipeline's erasure and ML translation with the OCaml it
+      # checks -- the evaluator leg watches that shared part), krml itself,
+      # and the C compiler. No ocamlopt, no zarith.
       - name: Emitted C computes what the proved source computes
         run: |
           export PATH="$HOME/toolchain/fstar/bin:$PATH"

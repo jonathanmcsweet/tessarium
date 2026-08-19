@@ -5,14 +5,19 @@
    (make check-extraction), and the C emitted from the machine-integer port
    must reproduce them here. The port's agreement with the spec is a
    THEOREM (Tessarium.Low.Check.theorem_check_encrypt); this harness is
-   the cheap runtime tripwire that the emitted C and the C compiler kept
-   that agreement. */
+   the cheap runtime tripwire over the stages after the proof: F*'s .krml
+   emission (whose erasure and ML translation are shared with the OCaml
+   extraction -- the evaluator leg watches that part), krml itself, and
+   the C compiler. */
 
 #include <inttypes.h>
 #include <stdio.h>
 
 #include "Tessarium_Low_Check.h"
 #include "check_vectors.h"
+
+/* A harness that can pass on nothing is not a harness. */
+_Static_assert(FE_COUNT > 0, "vector table must not be empty");
 
 int main(void) {
   int bad = 0;

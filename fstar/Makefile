@@ -131,8 +131,13 @@ low-extract: low-verify
 	@rm -rf low/out && mkdir -p low/out
 	$(FSTAR) $(LOW_FLAGS) --odir low/out --codegen krml \
 	  --extract '-* +Tessarium.Low' low/Tessarium.Low.Check.fst > /dev/null
-	cd low/out && krml out.krml -skip-compilation -tmpdir . 2>&1 | tail -1
+	@# No pipe on krml: a make recipe's status is the LAST command of a
+	@# pipeline, and krml's fatal-warning gate (a silently dropped
+	@# definition, the spike's own recorded failure mode) lives in its
+	@# exit code. Quiet on success, full log on failure.
+	cd low/out && { krml out.krml -skip-compilation -tmpdir . > krml.log 2>&1 \
+	  || { cat krml.log; exit 1; }; } && tail -1 krml.log
 
 clean:
-	rm -f *.checked low/*.checked .depend
+	rm -f *.checked low/*.checked check/*.checked .depend
 	rm -rf $(OUT) low/out

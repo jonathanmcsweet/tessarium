@@ -52,7 +52,10 @@ two halves.
 
 - latitude: d <= lat_span, k = rows       -> d*k <= 1.18e18 < 2^61
 - longitude: d <= lon_span, k <= max_col_count -> d*k <= 4.81e18 < 2^63
-- `edge`: i < k, so i*span <= 4.80e18 < 2^63
+- `edge`: called with i up to AND INCLUDING k (`cell_bounds` asks for
+  `edge (c+1)`, and `lemma_edge_inverse` evaluates `edge (i+1)` at
+  i+1 = k), so the numerator peaks at k*span + k - 1 ~ 4.80e18 < 2^63.
+  A port typing edge's index as i < k would fail at cell_bounds.
 - cell midpoint: `(2i+1) * span` <= 9.61e18 -- **the tightest spot in
   the core**: above 2^63 (9.22e18) but under 2^64 (1.84e19) with a 1.92x
   margin. Must be computed UNSIGNED; a signed 64-bit port would overflow
@@ -79,3 +82,12 @@ unsigned. Table arithmetic peaks at `offsets(b) + row_in_band*cols + col`
 - The spec round function travels as a `G.erased` ghost index; the
   machine round function's result refinement carries the agreement proof
   call by call. This is the pattern the HMAC phase will reuse.
+- krml emits the loops as genuine C recursion through a function pointer
+  (no specialization, no guaranteed tail call). Depth 16 here is
+  harmless; the table phases must re-check the emission shape before
+  walking 4,097 entries this way. This survey covers arithmetic width,
+  never stack.
+- Refinements erase at the C boundary: the emitted signatures are plain
+  uint64_t, so C callers outside the proved envelope (keys < 2^32,
+  inputs < addr_space) are unchecked by anything. The harness keys are
+  <= 195.
