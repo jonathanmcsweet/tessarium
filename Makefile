@@ -23,7 +23,7 @@ CANCEL_PORT ?= 7377
 # The delaying proxy itself, run by the e2e script.
 PROXY_PORT ?= 7378
 
-.PHONY: all env verify extract build ui test test-core test-static test-extraction test-ui run package package-deb package-appimage clean
+.PHONY: all env verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run package package-deb package-appimage clean
 
 all: build ui
 
@@ -53,6 +53,24 @@ test-extraction:
 extract:
 	$(MAKE) -C fstar extract
 
+# The machine-integer Feistel, proved equal to the spec and emitted as C by
+# KaRaMeL, replaying the vectors the evaluator leg re-derives. Fast (~30s):
+# the agreement is a theorem discharged in low-verify; this compiles the
+# emitted C and lets it answer for the same numbers as everyone else.
+KRML_ROOT := $(FSTAR_BIN)/..
+test-lowstar:
+	dune build ocaml/tools/gen_check.exe
+	./_build/default/ocaml/tools/gen_check.exe \
+	  fstar/check/Tessarium.Check.Expected.fst fstar/low/check_vectors.h
+	PATH="$(FSTAR_BIN):$$PATH" $(MAKE) -C fstar low-extract
+	@mkdir -p _build
+	cc -std=c11 -Wall -D_DEFAULT_SOURCE \
+	  -I fstar/low/out -I fstar/low \
+	  -I "$(KRML_ROOT)/include/krml" -I "$(KRML_ROOT)/lib/krml/dist/minimal" \
+	  fstar/low/out/Tessarium_Low_Feistel.c fstar/low/out/Tessarium_Low_Check.c \
+	  fstar/low/check_main.c -o _build/low_check
+	./_build/low_check
+
 build:
 	dune build
 
@@ -65,7 +83,7 @@ ui:
 	cp -r ui/dist ocaml/server/ui_dist
 	@echo "  UI copied to ocaml/server/ui_dist; run 'make build' to embed it"
 
-test: test-core test-static test-extraction test-ui
+test: test-core test-static test-extraction test-lowstar test-ui
 
 # Via check-suites.sh, not `dune test` directly: dune reports failures but
 # cannot tell you a suite produced no output at all, which is how the

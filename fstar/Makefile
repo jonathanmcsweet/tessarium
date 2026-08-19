@@ -21,7 +21,7 @@ ROOT  := Tessarium.Api.fst
 # abbreviation.
 FSTAR_FLAGS := --warn_error -321 --report_assumes error
 
-.PHONY: all verify extract fstarlib check-extraction clean
+.PHONY: all verify extract fstarlib check-extraction low-verify low-extract clean
 
 all: verify
 
@@ -111,6 +111,28 @@ check-extraction: verify
 	done
 	@echo "the extracted core agrees with the proved source"
 
+# --------------------------------------------------------- the KaRaMeL leg
+# The machine-integer core: proved equal to the spec (low/), then emitted
+# as C by krml. low/out is a build artifact, regenerated on every run; the
+# committed sources are only the two .fst files. check/ is on the include
+# path because the Check instantiation ties itself to the harness round
+# function from there.
+
+LOW_FLAGS := $(FSTAR_FLAGS) --include low --include check
+
+low-verify: verify
+	$(FSTAR) $(LOW_FLAGS) --cache_checked_modules low/Tessarium.Low.Feistel.fst
+	$(FSTAR) $(LOW_FLAGS) --cache_checked_modules low/Tessarium.Low.Check.fst
+
+# --extract narrows codegen to our namespace: elaborating ulib's machine-int
+# internals for extraction trips --report_assumes error on THEIR admits,
+# which are upstream's to hold, not ours to re-litigate.
+low-extract: low-verify
+	@rm -rf low/out && mkdir -p low/out
+	$(FSTAR) $(LOW_FLAGS) --odir low/out --codegen krml \
+	  --extract '-* +Tessarium.Low' low/Tessarium.Low.Check.fst > /dev/null
+	cd low/out && krml out.krml -skip-compilation -tmpdir . 2>&1 | tail -1
+
 clean:
-	rm -f *.checked .depend
-	rm -rf $(OUT)
+	rm -f *.checked low/*.checked .depend
+	rm -rf $(OUT) low/out

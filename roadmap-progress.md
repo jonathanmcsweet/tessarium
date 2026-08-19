@@ -1964,3 +1964,31 @@ lat_min in band 0.
 **Follow-on:** the evaluator leg checks the test round function, not the real
 HMAC injection, and seven grid points is a floor -- both recorded in the
 roadmap item, which stays open for the structural fix (Low* → C).
+
+## 2026-08-19: the Low* spike — the Feistel as proved-equal C
+
+The migration route is decided (roadmap item 3) and its riskiest step is
+demonstrated end to end. fstar/low/ holds the Feistel re-expressed over
+64-bit machine integers with a machine-checked proof of bit-for-bit
+agreement with the spec — address stability through the migration is now a
+theorem, not a test — plus the bijection theorems transferred by one appeal
+each to the originals. KaRaMeL (which ships in the F* toolchain) emits C
+that reads like the spec; make test-lowstar compiles it and replays the
+same Feistel vectors the extracted OCaml generated and the evaluator leg
+re-derives, making the C the fourth implementation to answer for those
+numbers and the second leg sharing neither zarith nor ocamlopt with what it
+checks. CI diffs the committed vectors header exactly as it diffs
+Expected.fst. BOUNDS.md surveys the whole core: everything fits unsigned
+64-bit, no 128-bit arithmetic anywhere — the HMAC reduction decomposes into
+U64 via per-modulus constants, and the one tight spot (grid midpoint,
+9.61e18, a 1.92x margin) merely has to stay unsigned.
+
+Falsified four ways: formula drift in the F* port fails VERIFICATION before
+C exists (the refinement is the alarm); a tampered C constant, swapped
+modulus constants, and a tampered vectors header (against correct C) each
+fail the harness. Toolchain dead ends recorded in BOUNDS.md: ulib's own
+admits trip --report_assumes error unless codegen is narrowed to our
+namespace; a value-dependent type abbreviation as a declared type makes
+KaRaMeL silently drop the definition (explicit binders extract cleanly);
+the ghost-erased round-function index is the pattern the HACL* HMAC phase
+reuses.

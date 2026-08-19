@@ -251,10 +251,17 @@ The theorem set is complete and in the ledger. What is left is narrower.
       injection gap below. Old and new cores run side by side under the
       wall until byte-identical, then the extracted-OCaml core retires.
       Eurydice shares the pipeline's front half, so a Rust target stays
-      open at low cost. First branch: a scoping spike — 64/128-bit bounds
-      analysis over the whole core, plus the Feistel port with its
-      refinement proof, run through the existing cross-exam harness.
-      Until then, two narrower gaps in the evaluator leg: its end-to-end points use a concrete test round
+      open at low cost. The scoping spike LANDED (2026-08-19, fstar/low/):
+      the Feistel is ported and proved bit-for-bit equal to the spec, the
+      emitted C replays the extraction vectors in the wall
+      (make test-lowstar), and BOUNDS.md's survey says the WHOLE core fits
+      unsigned 64-bit — no 128-bit arithmetic anywhere, tightest spot the
+      grid midpoint at 1.92x margin (must stay unsigned). Next phases, in
+      order: grid + table port (the bucket/edge/midpoint proofs), codec
+      port, HACL\* HMAC inside the proof, the OCaml server calling the C
+      core over the FFI beside the extracted core, WASM for the browser,
+      then the extracted-OCaml core retires. Until then, two narrower gaps
+      in the evaluator leg: its end-to-end points use a concrete test round
       function (HMAC is outside the proof, but a check driving the REAL
       injected round function through F* would also catch a miswired
       injection), and seven grid points is a floor, not a ceiling — the leg
