@@ -9,7 +9,11 @@
 // F* source that produces the server core, so there is only one proved
 // implementation rather than several hand-written ones.
 
-import { createHmac, pbkdf2Sync } from "node:crypto";
+import { pbkdf2Sync } from "node:crypto";
+// Keyed BLAKE2s comes from the audited community implementation rather than
+// node's OpenSSL binding, which exposes only the unkeyed form. Still an
+// implementation independent of everything in the tree.
+import { blake2s } from "@noble/hashes/blake2.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -99,10 +103,11 @@ function be(value, bytes) {
 function roundFunc(key, tweak, i, x, m) {
   const len = Buffer.alloc(2);
   len.writeUInt16BE(tweak.length);
-  const msg = Buffer.concat([Buffer.from("tessarium/v1/fe1"), len, tweak,
+  const msg = Buffer.concat([Buffer.from("tessarium/v2/fe1"), len, tweak,
                              Buffer.from([i]), be(x, 8)]);
-  const d = createHmac("sha256", key).update(msg).digest();
-  return BigInt("0x" + d.subarray(0, 16).toString("hex")) % m;
+  const d = Buffer.from(blake2s(msg, { key }));
+  // v2 reads the first 16 digest bytes little-endian -- BLAKE2s's own order.
+  return BigInt("0x" + d.subarray(0, 16).reverse().toString("hex")) % m;
 }
 
 export function encrypt(key, tweak, x) {

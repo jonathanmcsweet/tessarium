@@ -63,11 +63,11 @@ committed `bands.json`.
 
 **What is not proved, and cannot be.** That the mapping is *unguessable*. The
 strongest honest claim is "provably reversible for any round function, and
-unpredictable assuming HMAC-SHA256 behaves as a PRF." The second half is an
-assumption, and a standard one, but it is an assumption. Also unproved: the F\*
-extraction pipeline and `ocamlopt`, which are trusted; `digestif`'s SHA-2,
-which is vector-tested, not verified; and every line of the server, the UI and
-the PMTiles code, none of which is F\* at all.
+unpredictable assuming keyed BLAKE2s behaves as a PRF." The second half is
+an assumption, and a standard one, but it is an assumption. Also unproved: the
+F\* extraction pipeline and `ocamlopt`, which are trusted; `digestif`'s
+BLAKE2s and SHA-2, which are vector-tested, not verified; and every line of
+the server, the UI and the PMTiles code, none of which is F\* at all.
 
 The extraction pipeline, while still unproved, is no longer merely trusted —
 three checks now watch it, and a divergence on any checked value fails the
@@ -81,7 +81,8 @@ extraction backend and everything after it, which is the step this check
 exists to watch. The differential sweep asserts the proved theorems at
 runtime over its whole corpus — containment, round-trip, decode-of-encode,
 stated as proved, preconditions and longitude fold included — in the
-composed binary with the real HMAC round function; that is a self-consistency
+composed binary with the real keyed-BLAKE2s round function; that is a
+self-consistency
 check against the proved laws, not a second computation of any value. And
 `js/`, written independently, must agree point for point — the only leg that
 shares neither zarith nor `ocamlopt` nor any stage of F\*'s extraction with
@@ -106,8 +107,12 @@ those shared stages could fool this leg and its vectors together; the
 evaluator leg, which never extracts, is the one watching that class. What
 this leg does not share is `ocamlopt` and zarith; what its harness tests at
 runtime beyond the proof is F\*'s `.krml` emission, krml itself and the C
-compiler. HMAC-SHA256 moves inside the proof via HACL\* in a later phase,
-and the browser core becomes WebAssembly from the same source.
+compiler. The real round function -- keyed BLAKE2s, chosen when the
+project moved its security functions off NIST designs -- lives inside the
+proof as pure machine integers (`fstar/low/Tessarium.Low.Blake2s.fst`),
+pinned to the RFC 7693 and keyed KAT vectors; the same emitted C runs beside
+the server over an FFI and beside the browser as WebAssembly, each behind a
+side-by-side wall, until those walls have soaked enough to switch.
 
 Proof establishes that the grid is *consistent*, not that it is *well
 designed*. No theorem here says a 3 m square is the right size.
@@ -171,8 +176,8 @@ agree exactly.
 **Permutation.** The cell index is encrypted with an FE1 generalized Feistel
 network over Z_a × Z_b, where a = 2¹⁸·25 and b = 2¹⁹·25. Their product is
 exactly 2048³·10⁴, so the permutation is a bijection on the address space with
-no cycle-walking. Sixteen rounds, HMAC-SHA256 as the round function, keyed
-from your seed phrase.
+no cycle-walking. Sixteen rounds, keyed BLAKE2s-256 as the round function,
+keyed from your seed phrase.
 
 **Addresses.** Mixed radix (2048, 2048, 2048, 10000) over the permuted index.
 

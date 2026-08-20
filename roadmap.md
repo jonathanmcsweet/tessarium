@@ -77,7 +77,10 @@ typo detection and is a feature, not waste.
   and no probabilistic termination argument. *Corrected 2026-08-15: the
   earlier pair (2¹⁹, 2¹⁸×625) was a 250:1 split, badly unbalanced for a
   Feistel. This pair is 2:1.*
-- **16 rounds**, HMAC-SHA256 as the round function. Raised from 10 on
+- **16 rounds**, keyed BLAKE2s-256 as the round function (HMAC-SHA256
+  until 2026-08-20, when the security functions moved off NIST designs --
+  see the ledger; the mapping version bumped to `tessarium/v2/fe1`).
+  Raised from 10 on
   2026-08-17. Four rounds is distinguishable; do not economise here regardless
   of what has been proved. The count must be even — the halves swap domains
   each round, and the proof fails outright at an odd count.
@@ -87,12 +90,14 @@ typo detection and is a feature, not waste.
   hardened second PBKDF2 stage, as ledgered; this entry had not caught up.)
   Derived once per session and cached; PBKDF2 is deliberately slow and must
   not sit in the hot path.
-- **Tweak = grid version string** (`tessarium-grid-2`), and the HKDF salt
-  and info strings are `tessarium/v1/salt` and `tessarium/v1/feistel-key`.
-  Renamed from `w3wx/*` on 2026-08-15; since no address had been issued, this
-  was free. After launch it would invalidate every address anyone had written
-  down. Regenerating the band table
-  changes every address rather than silently reinterpreting old ones.
+- **Tweak = grid version string** (`tessarium-grid-2`), the round-function
+  domain prefix is `tessarium/v2/fe1` (v1 until 2026-08-20, the BLAKE2s
+  move), and the KDF version salt is `tessarium-kdf-2`. (Older text here
+  named HKDF strings; HKDF left on 2026-08-18, as ledgered.) Renamed from
+  `w3wx/*` on 2026-08-15; since no address had been issued, this was free.
+  After launch it would invalidate every address anyone had written down.
+  Regenerating the band table changes every address rather than silently
+  reinterpreting old ones.
 
 ### Cryptography and quantum resistance
 
@@ -105,14 +110,18 @@ post-Grover number, and Grover's square-root speedup is proven optimal for
 generic search (BBBV 1997) — no quantum computer of any future power beats it
 without a structural break in the hash itself. So "effective 128 bits" is a
 ceiling on any machine physics permits, not an estimate of current hardware.
-The assumptions that remain are named, not hidden: (1) SHA-2 has no structural
-break, quantum or classical; (2) the attacker never runs our keyed code in
+The assumptions that remain are named, not hidden: (1) the hashes in use
+have no structural break, quantum or classical (BLAKE2s in the mapping;
+SHA-2 in the BIP-39 checksum and the KDF until Argon2id lands); (2) the
+attacker never runs our keyed code in
 superposition — and a classical API answers classical bytes, so that holds
 against any machine for software the attacker does not control.
 
-**If SHA-2 ever weakens, the hash is an injected parameter.** The F\* proofs
+**If a hash ever weakens, it is an injected parameter.** The F\* proofs
 are round-function-agnostic: the fix is swap the hash, bump the version,
-regenerate the vectors. The verified core does not change.
+regenerate the vectors. The verified core does not change. (Exercised for
+real on 2026-08-20: HMAC-SHA256 → keyed BLAKE2s was exactly this swap, plus
+the machine-integer proof module that now accompanies the primitive.)
 
 - **24-word mnemonics only.** 256 bits → 128 bits post-Grover. Do not offer
   12-word (128 → 64 bits, too weak).
@@ -141,7 +150,7 @@ regenerate the vectors. The verified core does not change.
 | Core (grid, Feistel, codec) | F\* | Yes |
 | Server / CLI target | OCaml 5.3 (via F\* extraction) | No — generated artifact |
 | Browser target | JS (js_of_ocaml over the *same* extracted OCaml) | No — generated artifact |
-| Round function | `digestif` pure-OCaml SHA-2/HMAC, injected | No — standard primitive, vector-tested |
+| Round function | `digestif` pure-OCaml keyed BLAKE2s, injected | No — standard primitive, vector-tested |
 | HTTP server | OCaml — Eio + cohttp-eio | No |
 | UI | TypeScript, Vite, React, MapLibre GL | No |
 | Basemap | Protomaps PMTiles, self-hosted or bundled | n/a |
@@ -176,11 +185,14 @@ code violates the rule above. Revisit only if a profiler points at the core.
   OCaml to the JavaScript the browser runs. No second extraction target, no
   hand-written client. Low\* → C → WASM stays available later as a performance
   refactor, not a prerequisite.
-- **Round function is injected, not proved.** `Tessarium.Feistel` already
-  takes `round_fn` as a parameter, and bijectivity does not depend on it. It is
-  supplied by `digestif`'s *pure-OCaml* backend (SHA-256, SHA-512, HMAC), which
+- **Round function is injected, not proved** (and since 2026-08-20 ALSO
+  proved: the same function lives inside the proof as machine integers, and
+  the injected copy is what the extracted-OCaml production path still runs).
+  `Tessarium.Feistel` takes `round_fn` as a parameter, and bijectivity does
+  not depend on it. It is supplied by `digestif`'s *pure-OCaml* backend
+  (keyed BLAKE2s; SHA-2 remains for the BIP-39 checksum and PBKDF2), which
   compiles unchanged under `js_of_ocaml` — so native and browser run one
-  implementation, not two. PBKDF2 and HKDF are written over that HMAC and
+  implementation, not two. PBKDF2 is written over that HMAC-SHA512 and
   tested against the RFC vectors. Deliberately not HACL\*: its C stubs do not
   cross into `js_of_ocaml`, which would force a second browser-side crypto
   implementation and reintroduce exactly the drift this architecture forbids.
@@ -223,7 +235,8 @@ Two theorems earn their place:
 Proof does not establish that the grid is *well designed*, only that it is
 consistent. It cannot establish that the mapping is unguessable — the strongest
 honest claim is "provably reversible for any round function, and unpredictable
-assuming HMAC-SHA256 behaves as a PRF." Do not let the README overstate this.
+assuming keyed BLAKE2s behaves as a PRF." Do not let the README overstate
+this.
 
 ---
 
@@ -291,7 +304,13 @@ The theorem set is complete and in the ledger. What is left is narrower.
       and js/wasm-differential.mjs replaying the differential corpus
       through it in every `make test` (32,298 points: every address,
       every centre, per-axis bounds containment, 11,454 rejections). Not wired into
-      the UI: the app still answers from the js_of_ocaml core. Final
+      the UI: the app still answers from the js_of_ocaml core. The round
+      function primitive CHANGED (2026-08-20, keyed BLAKE2s-256, mapping
+      `tessarium/v2/fe1`): the whole chain above -- proof module
+      (Low.Blake2s replacing Low.Hmac; two compressions, native keying,
+      little-endian throughout), vendored C, wasm (14.1 KB now), vectors,
+      walls -- moved together, pinned by RFC 7693 + keyed KATs and
+      digestif/noble recomputations; see the ledger. Final
       phase: the SWITCH — the server answers from the C core, the UI
       from the wasm core (needs 'wasm-unsafe-eval' added to the CSP and
       the key handed to the worker as 32 bytes), and the extracted-OCaml
@@ -326,11 +345,14 @@ The theorem set is complete and in the ledger. What is left is narrower.
 
 ## Phase 4 — Performance
 
-- [ ] **Consider injecting a native round function.** An encode costs 81 µs
-      measured at 16 rounds (`ocaml/tools/bench_encode.ml`), almost all of
-      it sixteen HMAC-SHA256 calls through `digestif`'s pure-OCaml backend
-      at ~5.1 µs each. The grid arithmetic is 0.06 µs, so Zarith is not
-      the cost and the extracted core needs no change.
+- [ ] **Consider injecting a native round function.** An encode costs 56 µs
+      re-measured at 16 rounds under keyed BLAKE2s (2026-08-20,
+      `ocaml/tools/bench_encode.ml`; 81 µs under v1's HMAC-SHA256 -- the
+      MAC halved from four compressions to two), almost all of it sixteen
+      MAC calls through `digestif`'s pure-OCaml backend. The grid
+      arithmetic is 0.06 µs, so Zarith is not the cost and the extracted
+      core needs no change. The switch phase largely supersedes this: the
+      C core computes the round function natively already.
 
       The round function is already a parameter and bijectivity holds for any
       choice, so the native build could inject `digestif.c` while the browser

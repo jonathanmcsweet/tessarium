@@ -223,11 +223,12 @@ let () =
     String.init 32 (fun j -> Char.chr (((v * 37) + (j * 11) + 5) land 0xff))
   in
   let kw key =
+    (* BLAKE2s's own byte order: eight LITTLE-endian words. *)
     List.init 8 (fun j ->
         let byte p = Z.of_int (Char.code key.[(4 * j) + p]) in
         Z.add
-          (Z.add (Z.shift_left (byte 0) 24) (Z.shift_left (byte 1) 16))
-          (Z.add (Z.shift_left (byte 2) 8) (byte 3)))
+          (Z.add (byte 0) (Z.shift_left (byte 1) 8))
+          (Z.add (Z.shift_left (byte 2) 16) (Z.shift_left (byte 3) 24)))
   in
   let rf_rows =
     List.init 16 (fun v ->

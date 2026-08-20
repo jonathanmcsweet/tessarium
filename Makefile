@@ -62,7 +62,7 @@ extract:
 # sweeping the whole band table. Fast when .checked files are warm (~30s;
 # minutes cold): the agreement is a theorem discharged in low-verify; this
 # compiles the emitted C and lets it answer for the same numbers as
-# everyone else. -Wno-parentheses: KaRaMeL inlines the SHA-256 helpers
+# everyone else. -Wno-parentheses: KaRaMeL inlines the hash helpers
 # into flat expressions that lean on C precedence (correctly); the
 # warning fires hundreds of times on that one generated file.
 KRML_ROOT := $(FSTAR_BIN)/..
@@ -76,7 +76,7 @@ test-lowstar:
 	  -I "$(KRML_ROOT)/include/krml" -I "$(KRML_ROOT)/lib/krml/dist/minimal" \
 	  fstar/low/out/Tessarium_Low_Feistel.c fstar/low/out/Tessarium_Low_Grid.c \
 	  fstar/low/out/Tessarium_Low_Codec.c fstar/low/out/Tessarium_Low_Api.c \
-	  fstar/low/out/Tessarium_Low_Hmac.c fstar/low/out/Tessarium_Low_Core.c \
+	  fstar/low/out/Tessarium_Low_Blake2s.c fstar/low/out/Tessarium_Low_Core.c \
 	  fstar/low/out/Tessarium_Low_Check.c \
 	  fstar/low/check_main.c -o _build/low_check
 	./_build/low_check
@@ -113,7 +113,7 @@ sync-c-core:
 # the wall allow-lists exactly it, nothing else.
 ZIG := $(HOME)/toolchain/zig/zig
 C_CORE_SRC := $(addprefix ocaml/c_core/vendor/Tessarium_Low_,\
-  Feistel.c Grid.c Codec.c Api.c Hmac.c Core.c)
+  Feistel.c Grid.c Codec.c Api.c Blake2s.c Core.c)
 sync-wasm:
 	$(ZIG) cc -target wasm32-wasi -O2 -Wl,--no-entry -mexec-model=reactor \
 	  -Wl,--strip-all \

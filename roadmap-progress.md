@@ -21,6 +21,65 @@ than a git log.
 
 ---
 
+### 2026-08-20 — The round function moves to keyed BLAKE2s (mapping v2)
+
+**Phase:** 4 (security hardening) · **Branch:** feat/blake2s-round
+
+**What:** The user directed the project's security functions off NIST designs
+onto community-vetted primitives. The Feistel round function is now keyed
+BLAKE2s-256 (RFC 7693): domain prefix `tessarium/v2/fe1`, the same 47-byte
+message layout, the first 16 digest bytes read as a LITTLE-endian integer
+(BLAKE2s's own order -- no byte swap anywhere), the 32-byte key crossing every
+ABI as eight little-endian words. Every address changed; pre-release, so a
+clean break. The KDF moves separately (Argon2id -- its roadmap entry is
+updated with the route that reopened it).
+
+**Rationale:**
+
+- *Stated honestly: vetting was not the weak point.* SHA-256's constants are
+  nothing-up-my-sleeve, and it is the most-attacked hash in existence. The
+  argument that carries is provenance and positioning for a privacy tool --
+  "no NSA-designed crypto in any security function" is checkable without
+  trusting anyone -- plus the swap being a net simplification.
+- *BLAKE2s keys natively,* so the HMAC construction disappears: two
+  compressions per MAC against four. It is 32-bit ARX, so the v1 proof
+  machinery (w32-in-U64 masking, div/mul rotations, chunked rounds,
+  opaque_to_smt) transferred whole; the new module verifies in 0.9 s.
+  Pedigree: SHA-3 finalist lineage, WireGuard, libsodium, Argon2's core.
+- *Before any code moved,* the intended constants (SIGMA, G wiring, parameter
+  block, counter semantics) were cross-verified against python's hashlib over
+  300 random keyed cases, and digestif's and noble's keyed BLAKE2s were pinned
+  to the same vectors -- three independent implementations agreeing before the
+  transcription started.
+
+**What moved together (one commit, every wall green):** the proof module
+(`Low.Blake2s` replacing `Low.Hmac`; state travels as two 8-tuples -- F*
+tuples stop at arity 14), `Low.Core`'s little-endian Horner fold, the
+evaluator leg, gen_check's key-word packing, the C harness (a generic keyed
+BLAKE2s rebuilt over the extracted `compress`, pinned to RFC 7693's "abc" and
+keyed KAT rows at lengths 0/47/64/129), `crypto.ml` (digestif
+`BLAKE2S.Keyed`), the FFI stubs, the vendored C, the wasm module (15.7 KB →
+14.1 KB), the JS oracle (noble's blake2s -- node's OpenSSL binding has no
+keyed form; `@noble/hashes` 2.3.0 pinned exact at a root `package.json`,
+because dune runs the oracle from `_build` and node resolution walks up to
+the root; CI installs with `npm ci --ignore-scripts`), the vectors, and the
+docs' PRF claims. Encode: 81 µs → 56 µs.
+
+**Falsifications, all shown to ring:** a flipped sigma wire rang in the keyed
+KATs -- and demonstrably NOT in the unkeyed "abc" row, whose message words
+are almost all zero; that asymmetry is why the keyed rows exist. A tampered
+layout word rang in both digestif legs while every KAT stayed green -- the
+v1 diagnostic layering (transcription vs layout) reproduced for v2. Big-endian
+key packing in gen_check rang in the C draws. A tampered expected value rang
+in the evaluator's assert_norm. A big-endian digest read in the JS oracle rang
+across the whole corpus (32,596 disagreements).
+
+**Honesty notes:** SHA-256 remains in two NON-security roles, documented in
+place: the BIP-39 wordlist checksum (typo detection, fixed by that community
+standard) and the download ledger's content ids. PBKDF2-HMAC-SHA512 remains
+the KDF until the Argon2id branch lands. CLAUDE.md names HMAC-SHA256 in two
+places and its own rules forbid editing it without the user; flagged instead.
+
 ### 2026-08-20 — Search results say where they go
 
 **Phase:** 6

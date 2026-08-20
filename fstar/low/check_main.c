@@ -18,7 +18,7 @@
 
 #include "Tessarium_Low_Check.h"
 #include "Tessarium_Low_Core.h"
-#include "Tessarium_Low_Hmac.h"
+#include "Tessarium_Low_Blake2s.h"
 #include "check_vectors.h"
 
 /* A harness that can pass on nothing is not a harness, and a table of the
@@ -40,55 +40,81 @@ _Static_assert(REAL_NONE_COUNT == 2, "one real rejected address per key");
    against the proved source by check/Tessarium.Check.Table). */
 static uint64_t cum_lookup(uint64_t b) { return cum_table[b]; }
 
-/* One compress call over a byte block, big-endian words in, chained state
-   out. Harness-side scaffolding for the NIST vectors: a wrong shift here
-   fails against the published digests, it cannot make anything pass. */
-typedef K___uint64_t_uint64_t_uint64_t_uint64_t_uint64_t_uint64_t_uint64_t_uint64_t st8;
+/* One compress call over a 64-byte block, little-endian words in, chained
+   state out. Harness-side scaffolding for the RFC and KAT vectors: a wrong
+   shift here fails against the published digests, it cannot make anything
+   pass. */
+typedef Tessarium_Low_Blake2s_st8 st8;
 
-static void compress_block(uint64_t st[8], const uint8_t b[64]) {
-  uint64_t w[16];
+static void compress_block(uint64_t h[8], const uint8_t b[64], uint64_t t,
+                           uint64_t f) {
+  uint64_t m[16];
   for (int i = 0; i < 16; i++)
-    w[i] = ((uint64_t)b[4 * i] << 24) | ((uint64_t)b[4 * i + 1] << 16) |
-           ((uint64_t)b[4 * i + 2] << 8) | (uint64_t)b[4 * i + 3];
-  st8 r = Tessarium_Low_Hmac_compress(
-      st[0], st[1], st[2], st[3], st[4], st[5], st[6], st[7],
-      w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7],
-      w[8], w[9], w[10], w[11], w[12], w[13], w[14], w[15]);
-  st[0] = r.fst; st[1] = r.snd; st[2] = r.thd; st[3] = r.f3;
-  st[4] = r.f4;  st[5] = r.f5;  st[6] = r.f6;  st[7] = r.f7;
+    m[i] = (uint64_t)b[4 * i] | ((uint64_t)b[4 * i + 1] << 8) |
+           ((uint64_t)b[4 * i + 2] << 16) | ((uint64_t)b[4 * i + 3] << 24);
+  st8 r = Tessarium_Low_Blake2s_compress(
+      h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7],
+      m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7],
+      m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15], t, f);
+  h[0] = r.fst; h[1] = r.snd; h[2] = r.thd; h[3] = r.f3;
+  h[4] = r.f4;  h[5] = r.f5;  h[6] = r.f6;  h[7] = r.f7;
 }
 
-/* SHA-256 of a short message (len <= 55 fits one padded block; the NIST
-   two-block vector is exactly 56 and takes the second branch). */
-static void sha256_short(const uint8_t *msg, size_t len, uint64_t out[8]) {
-  uint64_t st[8] = { Tessarium_Low_Hmac_iv0, Tessarium_Low_Hmac_iv1,
-                     Tessarium_Low_Hmac_iv2, Tessarium_Low_Hmac_iv3,
-                     Tessarium_Low_Hmac_iv4, Tessarium_Low_Hmac_iv5,
-                     Tessarium_Low_Hmac_iv6, Tessarium_Low_Hmac_iv7 };
-  uint8_t b[128] = { 0 };
-  for (size_t i = 0; i < len; i++) b[i] = msg[i];
-  b[len] = 0x80;
-  size_t nblocks = (len + 1 + 8 <= 64) ? 1 : 2;
-  uint64_t bits = (uint64_t)len * 8;
-  for (int i = 0; i < 8; i++)
-    b[nblocks * 64 - 1 - i] = (uint8_t)(bits >> (8 * i));
-  compress_block(st, b);
-  if (nblocks == 2) compress_block(st, b + 64);
-  for (int i = 0; i < 8; i++) out[i] = st[i];
+/* General keyed BLAKE2s-256 rebuilt over the extracted compress (RFC 7693
+   section 3.3): the zero-padded key block first when a key is present, then
+   the message in 64-byte blocks, the byte counter at the true count, the
+   finalization word all-ones on the last block only. Exercises the general
+   chaining the fixed-shape blake2s47 never uses -- which is the point: a
+   wrong sigma or rotation cannot hide behind the production layout. */
+static void blake2s256(const uint8_t *key, size_t klen, const uint8_t *msg,
+                       size_t len, uint64_t out[8]) {
+  uint64_t h[8] = { Tessarium_Low_Blake2s_iv0 ^ 0x01010000ULL ^
+                        ((uint64_t)klen << 8) ^ 32ULL,
+                    Tessarium_Low_Blake2s_iv1, Tessarium_Low_Blake2s_iv2,
+                    Tessarium_Low_Blake2s_iv3, Tessarium_Low_Blake2s_iv4,
+                    Tessarium_Low_Blake2s_iv5, Tessarium_Low_Blake2s_iv6,
+                    Tessarium_Low_Blake2s_iv7 };
+  uint8_t b[64];
+  if (klen > 0) {
+    for (size_t i = 0; i < 64; i++) b[i] = i < klen ? key[i] : 0;
+    compress_block(h, b, 64, len == 0 ? 0xffffffffULL : 0);
+  }
+  if (klen == 0 || len > 0) {
+    uint64_t base = klen > 0 ? 64 : 0;
+    size_t off = 0;
+    do {
+      size_t chunk = len - off > 64 ? 64 : len - off;
+      for (size_t i = 0; i < 64; i++) b[i] = i < chunk ? msg[off + i] : 0;
+      compress_block(h, b, base + off + chunk,
+                     off + chunk == len ? 0xffffffffULL : 0);
+      off += chunk;
+    } while (off < len);
+  }
+  for (int i = 0; i < 8; i++) out[i] = h[i];
 }
 
-/* FIPS 180-4 vectors: empty, "abc", and the two-block message. Constants
-   below are the published digests (re-derived with hashlib before being
-   hardcoded). These pin compress -- the round constants, the sigmas, the
-   schedule -- independently of the HMAC layout above it. */
-static const struct { const char *msg; uint64_t d[8]; } nist[3] = {
-  { "", { 0xe3b0c442ULL, 0x98fc1c14ULL, 0x9afbf4c8ULL, 0x996fb924ULL,
-          0x27ae41e4ULL, 0x649b934cULL, 0xa495991bULL, 0x7852b855ULL } },
-  { "abc", { 0xba7816bfULL, 0x8f01cfeaULL, 0x414140deULL, 0x5dae2223ULL,
-             0xb00361a3ULL, 0x96177a9cULL, 0xb410ff61ULL, 0xf20015adULL } },
-  { "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
-    { 0x248d6a61ULL, 0xd20638b8ULL, 0xe5c02693ULL, 0x0c3e6039ULL,
-      0xa33ce459ULL, 0x64ff2167ULL, 0xf6ecedd4ULL, 0x19db06c1ULL } },
+/* RFC 7693 appendix B ("abc", unkeyed) and the reference implementation's
+   keyed KAT (key = 00..1f, message bytes 00,01,..): the empty-message row
+   is the KAT's published first entry; the 47-, 64- and 129-byte rows are
+   re-derived with hashlib and cross-checked against digestif before being
+   hardcoded (47 is the production message length, 64 the block boundary,
+   129 a three-block chain). These pin compress -- the IV, the sigma
+   wiring, the rotations, the parameter block -- independently of the MAC
+   layout above it. Words are the digest's little-endian words, which are
+   the state words themselves. */
+static const uint64_t kat_abc[8] = {
+  0x8c5e8c50ULL, 0xe2147c32ULL, 0xa32ba7e1ULL, 0x2f45eb4eULL,
+  0x208b4537ULL, 0x293ad69eULL, 0x4c9b994dULL, 0x82596786ULL,
+};
+static const struct { size_t mlen; uint64_t d[8]; } kat_keyed[4] = {
+  { 0, { 0x7d99a848ULL, 0x6b8707a4ULL, 0xd9c0793dULL, 0x3bad2523ULL,
+         0x54b7cb89ULL, 0x1ab76ad8ULL, 0xd37a04eeULL, 0x492cfd45ULL } },
+  { 47, { 0xe26355d0ULL, 0xc4a0cbb1ULL, 0xbde8a1a2ULL, 0xd9a0a1e3ULL,
+          0x850cb4f5ULL, 0xf5d670a0ULL, 0x6e0621fbULL, 0x01065dadULL } },
+  { 64, { 0x57b07589ULL, 0x6655d37fULL, 0x62b350d7ULL, 0x267a89b0ULL,
+          0x6d1399c3ULL, 0xabab7bf0ULL, 0x3f20e6bdULL, 0xd44e95f2ULL } },
+  { 129, { 0x8d3aa746ULL, 0x590fe7d3ULL, 0x012c94d3ULL, 0xef9d59dfULL,
+           0xa89d3c78ULL, 0x2232d82fULL, 0x532b66cdULL, 0xdfdbe7dcULL } },
 };
 
 
@@ -209,21 +235,31 @@ int main(void) {
 
 
   /* ------------------------------------------------ the REAL round function */
-  for (int i = 0; i < 3; i++) {
+  {
     uint64_t d[8];
-    size_t len = 0;
-    while (nist[i].msg[len]) len++;
-    sha256_short((const uint8_t *)nist[i].msg, len, d);
+    uint8_t pat[256];
+    for (int i = 0; i < 256; i++) pat[i] = (uint8_t)i;
+    blake2s256(NULL, 0, (const uint8_t *)"abc", 3, d);
     for (int j = 0; j < 8; j++) {
-      if (d[j] != nist[i].d[j]) {
-        fprintf(stderr, "NIST vector %d word %d: got %" PRIx64 "\n", i, j, d[j]);
+      if (d[j] != kat_abc[j]) {
+        fprintf(stderr, "RFC 7693 abc word %d: got %" PRIx64 "\n", j, d[j]);
         bad = 1;
+      }
+    }
+    for (int i = 0; i < 4; i++) {
+      blake2s256(pat, 32, pat, kat_keyed[i].mlen, d);
+      for (int j = 0; j < 8; j++) {
+        if (d[j] != kat_keyed[i].d[j]) {
+          fprintf(stderr, "keyed KAT len %zu word %d: got %" PRIx64 "\n",
+                  kat_keyed[i].mlen, j, d[j]);
+          bad = 1;
+        }
       }
     }
   }
 
-  /* digestif's answers for the production HMAC layout, replayed through
-     the proved machine round function. */
+  /* digestif's answers for the production keyed-BLAKE2s layout, replayed
+     through the proved machine round function. */
   for (int i = 0; i < REAL_RF_COUNT; i++) {
     /* The draws must exercise the moduli the Feistel actually uses --
        gen_check duplicates F.modulus's parity convention, and this pin
@@ -282,7 +318,8 @@ int main(void) {
          "%d codec vectors, %d end-to-end points, %d rejections and the "
          "whole band table, both directions; the REAL round function "
          "answers for digestif on %d draws, %d end-to-end points and "
-         "%d rejections, with compress pinned to 3 NIST vectors\n",
+         "%d rejections, with compress pinned to the RFC 7693 digest "
+         "and 4 keyed KAT rows\n",
          FE_COUNT, GRID_COUNT, CODEC_COUNT, E2E_COUNT, NONE_COUNT,
          REAL_RF_COUNT, REAL_E2E_COUNT, REAL_NONE_COUNT);
   return 0;

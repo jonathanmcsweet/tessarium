@@ -8,7 +8,7 @@
  (foreign_stubs
   (language c)
   (names c_core_stubs Tessarium_Low_Feistel Tessarium_Low_Grid
-    Tessarium_Low_Codec Tessarium_Low_Api Tessarium_Low_Hmac
+    Tessarium_Low_Codec Tessarium_Low_Api Tessarium_Low_Blake2s
     Tessarium_Low_Core)
   (flags (:standard -std=c11 -O2 -Wall -Wno-parentheses -D_DEFAULT_SOURCE))
   (include_dirs vendor)))

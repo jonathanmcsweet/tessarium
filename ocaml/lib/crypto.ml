@@ -4,11 +4,16 @@
    natively and under js_of_ocaml, and C stubs do not cross into the browser.
    One implementation, no drift between server and client.
 
-   PBKDF2 and HKDF are written here rather than taken from a library because
-   both are a few lines over HMAC and both are pinned by RFC test vectors. *)
+   The round function is keyed BLAKE2s (RFC 7693) -- a community-vetted
+   primitive, chosen when the project moved its security functions off NIST
+   designs (see the ledger). SHA-2 remains below in two NON-security roles:
+   the BIP-39 wordlist checksum (typo detection, fixed by that standard) and
+   the PBKDF2 key stretch, which the roadmap replaces with Argon2id.
+
+   PBKDF2 is written here rather than taken from a library because it is a
+   few lines over HMAC and is pinned by RFC test vectors. *)
 
 let sha256 s = Digestif.SHA256.(to_raw_string (digest_string s))
-let hmac_sha256 ~key msg = Digestif.SHA256.(to_raw_string (hmac_string ~key msg))
 let hmac_sha512 ~key msg = Digestif.SHA512.(to_raw_string (hmac_string ~key msg))
 
 let xor a b =
@@ -44,6 +49,12 @@ let z_of_be_bytes s =
   String.fold_left (fun acc c -> Z.add (Z.mul acc (Z.of_int 256)) (Z.of_int (Char.code c)))
     Z.zero s
 
+(* BLAKE2s serializes little-endian; reading its digest low byte first keeps
+   the whole v2 protocol swap-free on every implementation. *)
+let z_of_le_bytes s =
+  String.fold_right (fun c acc -> Z.add (Z.mul acc (Z.of_int 256)) (Z.of_int (Char.code c)))
+    s Z.zero
+
 let be_bytes_of_z z n =
   let b = Bytes.create n in
   let v = ref z in
@@ -55,18 +66,22 @@ let be_bytes_of_z z n =
 
 (* --------------------------------------------------------- round function *)
 
-(* The Feistel round function, injected into the verified core.
+(* The Feistel round function, injected into the verified core: keyed
+   BLAKE2s-256 over the fixed 47-byte message, first 16 digest bytes as a
+   little-endian integer, reduced mod m.
 
    128 bits are taken before reduction. With m < 2^24 the modulo bias is around
    2^-104, far below anything that matters. *)
 let round_fn (key : string) (tweak : string) (i : Z.t) (x : Z.t) (m : Z.t) : Z.t =
   let buf = Buffer.create 64 in
-  Buffer.add_string buf "tessarium/v1/fe1";
+  Buffer.add_string buf "tessarium/v2/fe1";
   let tl = String.length tweak in
   Buffer.add_char buf (Char.chr ((tl lsr 8) land 0xff));
   Buffer.add_char buf (Char.chr (tl land 0xff));
   Buffer.add_string buf tweak;
   Buffer.add_char buf (Char.chr (Z.to_int i land 0xff));
   Buffer.add_string buf (be_bytes_of_z x 8);
-  let digest = hmac_sha256 ~key (Buffer.contents buf) in
-  Z.rem (z_of_be_bytes (String.sub digest 0 16)) m
+  let digest =
+    Digestif.BLAKE2S.(to_raw_string (Keyed.mac_string ~key (Buffer.contents buf)))
+  in
+  Z.rem (z_of_le_bytes (String.sub digest 0 16)) m

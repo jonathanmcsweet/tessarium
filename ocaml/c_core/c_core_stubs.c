@@ -64,9 +64,10 @@ static void key_words(value vkey, uint64_t kw[8]) {
   if (caml_string_length(vkey) != 32)
     caml_invalid_argument("c_core: the key must be exactly 32 bytes");
   const unsigned char *k = (const unsigned char *)String_val(vkey);
+  /* BLAKE2s's own byte order: eight LITTLE-endian words. */
   for (int i = 0; i < 8; i++)
-    kw[i] = ((uint64_t)k[4 * i] << 24) | ((uint64_t)k[4 * i + 1] << 16) |
-            ((uint64_t)k[4 * i + 2] << 8) | (uint64_t)k[4 * i + 3];
+    kw[i] = (uint64_t)k[4 * i] | ((uint64_t)k[4 * i + 1] << 8) |
+            ((uint64_t)k[4 * i + 2] << 16) | ((uint64_t)k[4 * i + 3] << 24);
 }
 
 static uint64_t offset_arg(value v, uint64_t span, const char *what) {
