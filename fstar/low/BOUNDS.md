@@ -31,19 +31,15 @@ round function adds `x*31` (< 2^29), `i*1000003` (< 2^24) and `k + t`
 (< 2^33 under the key64 bound). Every claim here is now a discharged
 refinement, not an estimate.
 
-## Real round function (HMAC-SHA256, later phase)
+## Real round function -- PORTED AND PROVED (Low.Hmac / Low.Core)
 
-ocaml/lib/crypto.ml takes 128 bits of HMAC output and reduces mod m,
-where m is fe_a or fe_b -- always < 2^24. Splitting the 128 bits as
-`h = hi*2^64 + lo`:
-
-    h mod m = ((hi mod m) * (2^64 mod m) + lo mod m) mod m
-
-`hi mod m` and `2^64 mod m` are each < 2^24, so their product is < 2^48;
-adding `lo mod m` stays < 2^49. And since m only ever takes two values,
-`2^64 mod fe_a` and `2^64 mod fe_b` are compile-time constants pinned by
-assert_norm. **No 128-bit division, no 128-bit type** -- plain U64 on the
-two halves.
+This survey originally sketched a two-halves reduction here
+(`h = hi*2^64 + lo` with `2^64 mod m` assert_norm constants). The landed
+implementation reduces differently -- a four-word Horner fold, proved
+equal to the 128-bit view by `horner_step` -- because the digest
+naturally arrives as four 32-bit words. Same conclusion either way:
+**no 128-bit division, no 128-bit type**. Details in the dated section
+at the end of this file.
 
 ## Grid -- PORTED AND PROVED (Tessarium.Low.Grid)
 
@@ -94,9 +90,45 @@ Tessarium.Low.Api composes the three ported stages -- point_to_cell,
 encrypt, to_address, and the inverse chain with decode's partiality as a
 flag word instead of an option -- generic over the round function like
 the spec, with theorem_end_to_end_low restating the user-facing round
-trip on machine types. Every pure-math stage of the core is now ported;
-what remains outside the proof is the real HMAC round function (next
-phase, via HACL*) and the unproved plumbing enumerated above.
+trip on machine types. Every pure-math stage of the core is now ported.
+
+## The real round function (Low.Hmac / Low.Core, 2026-08-20)
+
+SHA-256 and the production HMAC, in pure machine integers -- the round
+function now lives inside the proof rather than being injected.
+
+- Every SHA word is a U64 kept below 2^32 by masking after each
+  operation; FIPS defines the arithmetic mod 2^32, so the masks are the
+  spec, not an approximation of it. Rotations are div/mul by literal
+  powers of two: all overflow obligations stay linear.
+- Worst intermediate: the rotation multiplies, x * 2^(32-n) with
+  x < 2^32 -- largest at rotr2 (n = 2), x * 2^30 < 2^62, a 4x margin,
+  the narrowest in this module and unsigned-only like everything else.
+  The round's five-term sums stay below 5 * 2^32 < 2^35.
+- The 128-bit reduction never builds a 128-bit integer: the four digest
+  words Horner-fold mod m, each step below m * 2^32 < 2^56 (m <= fe_b
+  < 2^24). The fold's agreement with "first 16 digest bytes as one
+  big-endian integer, mod m" is `horner_step`, proved, not assumed.
+- NOT HACL*, deliberately: its HMAC lives in LowStar's stateful buffer
+  model, and one call would pull the whole Tot core into the Stack
+  effect. The production key is exactly 32 bytes and the tweak is a
+  constant, so the message is fixed-shape (47 bytes, four compressions,
+  static padding) and needs no buffers at all.
+- What is pinned rather than proved: that the FIPS constants and
+  crypto.ml's message layout are transcribed correctly. Three NIST
+  vectors drive `compress` bare in the C harness; digestif recomputes
+  the composed round function and full encodes/decodes on fresh draws
+  (check_vectors.h), and the evaluator leg re-derives the same draws
+  from the proved source (Check.RealRound). Falsified: a flipped round
+  constant fails NIST + digestif, a flipped layout byte fails digestif
+  alone, a flipped Horner multiplier fails VERIFICATION, and a flipped
+  key-word packing in gen_check fails the C leg.
+- Verifier ergonomics, recorded for the next primitive: a flat unrolled
+  compression sends the pure-WP substitution exponential (8 rounds 0.6s,
+  24 rounds 5m); eight-round chunk functions keep every value a binder.
+  The chunks and hmac47 are `opaque_to_smt` -- no downstream proof needs
+  their definitions, and leaving them visible let Z3 unfold a
+  four-compression chain without bound.
 
 ## What the spike established about the toolchain
 

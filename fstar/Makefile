@@ -104,10 +104,12 @@ fstarlib:
 CHECK_MODULES := $(filter-out Tessarium.Check.Expected,\
                  $(basename $(notdir $(wildcard check/Tessarium.Check.*.fst))))
 
+# --include low: Check.RealRound recomputes the REAL round function from
+# the proved machine source in low/.
 check-extraction: verify
 	@for m in $(CHECK_MODULES); do \
 	  echo "  check $$m"; \
-	  $(FSTAR) $(FSTAR_FLAGS) --include check check/$$m.fst || exit 1; \
+	  $(FSTAR) $(FSTAR_FLAGS) --include check --include low check/$$m.fst || exit 1; \
 	done
 	@echo "the extracted core agrees with the proved source"
 
@@ -120,29 +122,48 @@ check-extraction: verify
 
 LOW_FLAGS := $(FSTAR_FLAGS) --include low --include check
 
-# Derived from the directory, not listed by hand -- the same discipline
-# as CHECK_MODULES: a new Low module dropped in but forgotten here would
-# silently never verify. F* rechecks dependencies inline, so order within
-# the list does not matter.
-LOW_MODULES := $(wildcard low/Tessarium.Low.*.fst)
+# LOW_ORDER is dependency order, leaves first: the loop refreshes
+# .checked bottom-up, because a stale dependency is re-verified inline
+# but its cache is NOT rewritten -- alphabetical order left Core.checked
+# one run behind after any Hmac edit. The wildcard guard keeps the
+# derived-not-listed discipline: a module dropped into low/ but missing
+# from LOW_ORDER fails the build instead of silently never verifying.
+LOW_ORDER := Tessarium.Low.Feistel Tessarium.Low.Grid \
+             Tessarium.Low.Codec Tessarium.Low.Api \
+             Tessarium.Low.Hmac Tessarium.Low.Core Tessarium.Low.Check
+LOW_MODULES := $(wildcard low/*.fst)
 
 low-verify: verify
-	@for m in $(LOW_MODULES); do \
-	  $(FSTAR) $(LOW_FLAGS) --cache_checked_modules $$m || exit 1; \
+	@for m in $(basename $(notdir $(LOW_MODULES))); do \
+	  echo " $(LOW_ORDER) " | grep -qF " $$m " \
+	    || { echo "low/$$m.fst is missing from LOW_ORDER"; exit 1; }; \
+	done
+	@for m in $(LOW_ORDER); do \
+	  $(FSTAR) $(LOW_FLAGS) --cache_checked_modules low/$$m.fst || exit 1; \
 	done
 
 # --extract narrows codegen to our namespace: elaborating ulib's machine-int
 # internals for extraction trips --report_assumes error on THEIR admits,
 # which are upstream's to hold, not ours to re-litigate.
+# One module per invocation: F* extracts a single root file at a time
+# (fly_deps), and there are now two leaves (Check, the harness
+# instantiation, and Core, the production one). The loop iterates
+# LOW_ORDER; what keeps a module dropped into low/ from being silently
+# skipped is low-verify's wildcard guard, which this target depends on
+# -- detach that dependency and the guarantee goes with it. krml merges
+# the per-module .krml files.
 low-extract: low-verify
 	@rm -rf low/out && mkdir -p low/out
-	$(FSTAR) $(LOW_FLAGS) --odir low/out --codegen krml \
-	  --extract '-* +Tessarium.Low' low/Tessarium.Low.Check.fst > /dev/null
+	@for m in $(LOW_ORDER); do \
+	  echo "  krml-extract $$m"; \
+	  $(FSTAR) $(LOW_FLAGS) --odir low/out --codegen krml \
+	    --extract_module $$m low/$$m.fst > /dev/null || exit 1; \
+	done
 	@# No pipe on krml: a make recipe's status is the LAST command of a
 	@# pipeline, and krml's fatal-warning gate (a silently dropped
 	@# definition, the spike's own recorded failure mode) lives in its
 	@# exit code. Quiet on success, full log on failure.
-	cd low/out && { krml out.krml -skip-compilation -tmpdir . > krml.log 2>&1 \
+	cd low/out && { krml *.krml -skip-compilation -tmpdir . > krml.log 2>&1 \
 	  || { cat krml.log; exit 1; }; } && tail -1 krml.log
 
 clean:
