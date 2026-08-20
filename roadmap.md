@@ -261,10 +261,14 @@ The theorem set is complete and in the ledger. What is left is narrower.
       the spec and replayed by the C harness on 12 points including both
       seam neighbours and the pole; the table crosses as a
       refinement-pinned lookup parameter (upgrade path: a proved LowStar
-      buffer, recorded in BOUNDS.md). Next phases, in order: codec port,
-      HACL\* HMAC inside the proof, the OCaml server calling the C core
-      over the FFI beside the extracted core, WASM for the browser, then
-      the extracted-OCaml core retires. Until then, two narrower gaps
+      buffer, recorded in BOUNDS.md). The codec and the full
+      composition LANDED (2026-08-20): every pure-math stage is ported,
+      Low.Api restates the end-to-end round trip on machine types, and
+      the C harness replays 10 codec vectors, all 7 e2e points through
+      encode AND decode, and both rejected addresses. Next phases, in
+      order: HACL\* HMAC inside the proof, the OCaml server calling the C
+      core over the FFI beside the extracted core, WASM for the browser,
+      then the extracted-OCaml core retires. Until then, two narrower gaps
       in the evaluator leg: its end-to-end points use a concrete test round
       function (HMAC is outside the proof, but a check driving the REAL
       injected round function through F* would also catch a miswired

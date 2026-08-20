@@ -115,12 +115,16 @@ let () =
       Z.mul words num_max ]
     @ List.init 5 (fun _ -> next addr_space)
   in
-  let addr_row i =
-    let w1, w2, w3, n = Tessarium_Codec.to_address i in
+  let crows =
+    List.map (fun i ->
+        let w1, w2, w3, n = Tessarium_Codec.to_address i in
+        (i, w1, w2, w3, n)) ix
+  in
+  let addr_row (i, w1, w2, w3, n) =
     spf "(%s, %s, %s, %s, %s)" (lit i) (lit w1) (lit w2) (lit w3) (lit n)
   in
   addf "[@@\"opaque_to_smt\"]\nlet codec : list (int & int & int & int & int) = [\n  %s\n]\n\n"
-    (String.concat ";\n  " (List.map addr_row ix));
+    (String.concat ";\n  " (List.map addr_row crows));
 
   (* ---------------------------------------------------------- end to end *)
   (* Six points, each a full encode plus the decode of its own answer: two
@@ -151,18 +155,24 @@ let () =
       ( Z.add lat_min (next lat_span),
         Z.add lon_min (next lon_span) ) ]
   in
-  let e2e_row (la, lo) =
-    let w1, w2, w3, n = Tessarium_Api.encode rf ck ct la lo in
-    match Tessarium_Api.decode rf ck ct (w1, w2, w3, n) with
-    | FStar_Pervasives_Native.Some (cla, clo) ->
-        spf "(%s, %s, %s, %s, %s, %s, %s, %s)" (lit la) (lit lo) (lit w1)
-          (lit w2) (lit w3) (lit n) (lit cla) (lit clo)
-    | FStar_Pervasives_Native.None ->
-        failwith "an encoded address decoded to None: extraction is broken"
+  let erows =
+    List.map
+      (fun (la, lo) ->
+        let w1, w2, w3, n = Tessarium_Api.encode rf ck ct la lo in
+        match Tessarium_Api.decode rf ck ct (w1, w2, w3, n) with
+        | FStar_Pervasives_Native.Some (cla, clo) ->
+            (la, lo, w1, w2, w3, n, cla, clo)
+        | FStar_Pervasives_Native.None ->
+            failwith "an encoded address decoded to None: extraction is broken")
+      pts
+  in
+  let e2e_row (la, lo, w1, w2, w3, n, cla, clo) =
+    spf "(%s, %s, %s, %s, %s, %s, %s, %s)" (lit la) (lit lo) (lit w1)
+      (lit w2) (lit w3) (lit n) (lit cla) (lit clo)
   in
   addf
     "[@@\"opaque_to_smt\"]\nlet e2e : list (int & int & int & int & int & int & int & int) = [\n  %s\n]\n\n"
-    (String.concat ";\n  " (List.map e2e_row pts));
+    (String.concat ";\n  " (List.map e2e_row erows));
 
   (* ------------------------------------------------- the rejection path *)
   (* Two addresses that decode to nothing, found by scanning: about 35%% of
@@ -282,6 +292,36 @@ let () =
              (List.map (fun v -> Z.to_string v ^ "ULL") col)))
       [ "gvec_dlat"; "gvec_dlon"; "gvec_cell"; "gvec_cdlat"; "gvec_cdlon";
         "gvec_blatlo"; "gvec_blathi"; "gvec_blonlo"; "gvec_blonhi" ];
+    (* Codec vectors, the e2e compositions (key 7, tweak 9 -- the harness
+       hardcodes both, pinning the keys by hand), and the two rejected
+       addresses. All reuse the rows Expected.fst was written from. *)
+    let zcols name cols rows count_name =
+      List.iteri
+        (fun fi field ->
+          let col = List.map (fun row -> List.nth row fi) rows in
+          toks := !toks @ col;
+          addh "static const uint64_t %s_%s[%s] = {\n  %s\n};\n\n" name field
+            count_name
+            (String.concat ",\n  "
+               (List.map (fun v -> Z.to_string v ^ "ULL") col)))
+        cols
+    in
+    addh "#define CODEC_COUNT %d\n\n" (List.length crows);
+    zcols "cvec" [ "i"; "w1"; "w2"; "w3"; "n" ]
+      (List.map (fun (i, w1, w2, w3, n) -> [ i; w1; w2; w3; n ]) crows)
+      "CODEC_COUNT";
+    addh "#define E2E_COUNT %d\n\n" (List.length erows);
+    zcols "evec" [ "dlat"; "dlon"; "w1"; "w2"; "w3"; "n"; "cdlat"; "cdlon" ]
+      (List.map
+         (fun (la, lo, w1, w2, w3, n, cla, clo) ->
+           [ Z.sub la lat_min; Z.sub lo lon_min; w1; w2; w3; n;
+             Z.sub cla lat_min; Z.sub clo lon_min ])
+         erows)
+      "E2E_COUNT";
+    addh "#define NONE_COUNT %d\n\n" (List.length nones);
+    zcols "nvec" [ "w1"; "w2"; "w3"; "n" ]
+      (List.map (fun (w1, w2, w3, n) -> [ w1; w2; w3; n ]) nones)
+      "NONE_COUNT";
     let oc = open_out Sys.argv.(2) in
     output_string oc (Buffer.contents hb);
     close_out oc;

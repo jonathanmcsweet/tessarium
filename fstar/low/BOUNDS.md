@@ -84,8 +84,19 @@ path.
 Coordinates arrive signed (nanodegrees, |v| <= 1.8e11 < 2^38): subtract
 v_min first (non-negative by the domain refinement), then everything is
 unsigned. Table arithmetic peaks at `offsets(b) + row_in_band*cols + col`
-< total_cells < 2^46. Codec divisions are by the constants 2048 and
-10,000 on values < 2^47. All comfortably clear.
+< total_cells < 2^46. All comfortably clear.
+
+## Codec and composition -- PORTED AND PROVED (Tessarium.Low.Codec, .Api)
+
+Codec divisions are by the constants 2048 and 10,000 on values
+< addr_space < 2^47; the from_address product peaks one below addr_space.
+Tessarium.Low.Api composes the three ported stages -- point_to_cell,
+encrypt, to_address, and the inverse chain with decode's partiality as a
+flag word instead of an option -- generic over the round function like
+the spec, with theorem_end_to_end_low restating the user-facing round
+trip on machine types. Every pure-math stage of the core is now ported;
+what remains outside the proof is the real HMAC round function (next
+phase, via HACL*) and the unproved plumbing enumerated above.
 
 ## What the spike established about the toolchain
 
