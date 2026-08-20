@@ -17,7 +17,7 @@ import {
 } from "../core/placeContext";
 import { getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
-import { countries, subdivisionsOf } from "../regions";
+import { citiesOf, countries, countryName, subdivisionsOf } from "../regions";
 
 const DIRECTION_LABEL: Record<Direction, () => string> = {
   n: m.search_dir_n,
@@ -84,12 +84,11 @@ export function PlaceSearch(
     setOpen(false);
   };
 
-  /* The picker's catalogue rows, once: the same country shapes and
-     localised labels the download picker shows. */
-  const shapes = useMemo(
-    () => countries().map(({ country, label }) => ({ ...country, label })),
-    [],
-  );
+  /* The catalogue's shapes, once -- they are static data. Labels are NOT
+     memoized with them: the locale can change under a live component
+     (regions.ts recomputes per call for the same reason), so the name is
+     asked for at render time, fresh. */
+  const shapes = useMemo(() => countries().map(({ country }) => country), []);
 
   /* A result reads as "name — kind · where · how far": several towns share
      a name (the United States alone has a handful of Atlantas), so the
@@ -100,13 +99,12 @@ export function PlaceSearch(
      the machine, and neither does the context. */
   const describe = (r: PlaceResult) => {
     const parts = [r.kind === "" ? r.layer : r.kind.replace(/_/g, " ")];
-    const where = containingCountry(shapes, r.lon, r.lat);
+    const where = containingCountry(shapes, r.lon, r.lat, citiesOf);
     if (where) {
       const region = containingSubdivision(subdivisionsOf(where), r.lon, r.lat);
+      const label = countryName(where);
       parts.push(
-        region
-          ? m.search_in_region({ region, country: where.label })
-          : where.label,
+        region ? m.search_in_region({ region, country: label }) : label,
       );
     }
     const from = center();

@@ -160,7 +160,11 @@ test-static:
 # the repo root, and a bare `cd ui` would leave the trap there -- its kills
 # would fail and the leaked servers would outlive the test, holding any pipe
 # on our output open forever.
-test-ui:
+# Depends on `ui`: the servers below serve the EMBEDDED bundle, and
+# without the refresh they would greenly exercise whatever UI was last
+# built into the binary -- a UI regression would pass against the
+# previous good bundle.
+test-ui: ui
 	@dune build ocaml/server/bin/main.exe ocaml/tools/gen_basemap_fixture.exe
 	@rm -rf _build/e2e-fixture _build/e2e-basemap _build/e2e-multipart \
 	  _build/e2e-mismatch _build/e2e-cancel \

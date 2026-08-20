@@ -24,7 +24,13 @@ const check = (name, ok) => {
   }
 };
 
-const country = (lon, lat) => containingCountry(data.countries, lon, lat);
+const country = (lon, lat) =>
+  containingCountry(
+    data.countries,
+    lon,
+    lat,
+    (c) => data.cities[c.code] ?? [],
+  );
 const sub = (c, lon, lat) =>
   containingSubdivision(data.subdivisions[c.code] ?? [], lon, lat);
 
@@ -51,6 +57,14 @@ check(
   "a country without catalogued subdivisions says nothing rather than guessing",
   sub(country(2.352, 48.857), 2.352, 48.857) === null,
 );
+/* Subdivision boxes overlap; a point in several must not pick one with
+   false confidence. New York City sits in New Jersey's box too. */
+const nyc = country(-74.006, 40.713);
+check(
+  "an ambiguous subdivision stays silent instead of guessing wrong",
+  nyc?.name === "United States of America"
+    && sub(nyc, -74.006, 40.713) === null,
+);
 /* Boxes overlap where polygons do not: Karlsruhe sits inside France's
    bounding box, and only the border polygon keeps it German. */
 check(
@@ -58,6 +72,48 @@ check(
   country(8.404, 49.014)?.name === "Germany",
 );
 check("the open ocean resolves to nothing", country(-30, 0) === null);
+check(
+  "offshore inside a country's box is still nothing",
+  country(-4, 45.5) === null,
+);
+/* The generator appends off-coast city quads to the rings without
+   widening the boxes, so a box prefilter loses island capitals. */
+check(
+  "an island capital outside its country's box still resolves",
+  country(8.784, 3.75)?.name === "Eq. Guinea",
+);
+check(
+  "and across the Pacific too",
+  country(168.317, -17.733)?.name === "Vanuatu",
+);
+/* Simplified borders overlap: BOTH Congo capitals sit inside BOTH
+   Congos' rings. Each country's own catalogued city is what says whose
+   bank is whose. */
+check(
+  "a capital on an overlapped border keeps its country",
+  country(15.313, -4.328)?.name === "Dem. Rep. Congo",
+);
+check(
+  "and the capital on the other bank keeps the other one",
+  country(15.283, -4.257)?.name === "Congo",
+);
+check(
+  "a border town with one side's city keeps that side",
+  country(25.86, -17.86)?.name === "Zambia",
+);
+/* The catalogue drops enclave holes, so Lesotho's points are inside the
+   South African outer ring too; nested boxes are what says enclave. */
+check(
+  "an enclave beats the country that surrounds it",
+  country(27.48, -29.31)?.name === "Lesotho",
+);
+/* Away from any catalogued city, so only the nested-box rule can say
+   this is Lesotho: the dropped hole leaves it inside South Africa's
+   outer ring, where the depth rule would pick the surrounder. */
+check(
+  "and its countryside does too",
+  country(28.2, -29.6)?.name === "Lesotho",
+);
 
 /* Distances a road atlas can confirm; tolerance covers the spherical
    approximation, not sloppiness. */
