@@ -1,14 +1,17 @@
 /* Seed phrase entry.
 
    The warnings here are not boilerplate. Where the phrase comes from is the
-   highest-value security decision in the application: a generated phrase
-   carries 256 bits nobody can search, while one a person thinks up passes
-   every check this app makes and is worth a small fraction of that. Reusing
-   a phrase that already protects something else is the other half -- anyone
-   who learns a few (address, true location) pairs is doing cryptanalysis
-   against that phrase too. So the provenance warning sits directly under the
-   generate button, where the choice is actually made, and is permanent and
-   not dismissible.
+   highest-value security decision in the application, and it is the one this
+   code cannot check: validation confirms the words were typed correctly, not
+   that they were generated. Casually invented phrases do get rejected -- the
+   checksum is 8 bits, so 255 of 256 arbitrary selections fail -- but that is
+   typo detection doing it, not an entropy test. A determined user can pick 23
+   words and search the 2048 for the 8 that complete a valid phrase, and any
+   checksum-valid phrase from a weak source passes untouched. Reuse is the
+   other half: anyone who learns a few (address, true location) pairs is doing
+   cryptanalysis against whatever else that phrase protects. So the provenance
+   warning sits directly under the generate button, where the choice is
+   actually made, and is permanent and not dismissible.
 
    Nothing typed here is persisted. No localStorage, no URL, no request. The
    phrase goes straight to the worker, which keeps the derived key and returns
@@ -56,11 +59,11 @@ export function PhraseEntry() {
     && validation.isSuccess;
 
   /* The bytes are drawn in the worker, by the platform CSPRNG, and only the
-     words come back. Offered prominently because the alternative -- a person
-     choosing 24 words that mean something to them -- produces a phrase that
-     passes every check this app makes and is worth a tiny fraction of the
-     guessing effort. It is the one weakness a user can introduce that no
-     amount of work elsewhere repairs. */
+     words come back. Offered prominently because the alternative -- a phrase
+     a person composed, or one already in use elsewhere -- is worth a tiny
+     fraction of the guessing effort and is indistinguishable from this one
+     once it satisfies the checksum. It is the one weakness a user can
+     introduce that no amount of work elsewhere repairs. */
   function onGenerate() {
     generate.mutate(undefined, {
       onSuccess: ({ mnemonic }) => {
@@ -145,19 +148,30 @@ export function PhraseEntry() {
             type="button"
             onClick={onGenerate}
             disabled={generate.isPending}
+            /* The hint describes what this button does, so a screen reader
+               should read it with the button rather than leave it as loose
+               text a keyboard user tabs straight past. */
+            aria-describedby="generate-hint"
           >
             <Dices size={17} aria-hidden />
             {m.gate_generate()}
           </button>
-          <span className="hint">{m.gate_generate_hint()}</span>
+          <span className="hint" id="generate-hint">
+            {m.gate_generate_hint()}
+          </span>
         </div>
 
         {
           /* Directly under the generate control rather than at the foot of
              the form: this is guidance for a choice being made right here,
-             and at the bottom it was read after the decision, if at all. */
+             and at the bottom it was read after the decision, if at all.
+             No role: it is present from first paint and never changes, so a
+             live region would be wrong -- the write-down notice below is the
+             one that appears, and the one that announces. The `provenance`
+             class is a test hook, so the end-to-end position check can find
+             this block without matching on copy. */
         }
-        <div className="warning">
+        <div className="warning provenance">
           <strong>{m.gate_phrase_warning_title()}</strong>{" "}
           {m.gate_phrase_warning_body()}
         </div>

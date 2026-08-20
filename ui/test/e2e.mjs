@@ -187,26 +187,45 @@ check(
    position check is the part that actually rings when the block drifts back
    down the form, since a warning below the submit button still "appears". */
 {
-  const warnings = await page.locator(".warning").allTextContents();
+  /* Located by class, not by copy: a reworded warning should fail the one
+     text check below, not report that the layout moved. */
+  const provenance = page.locator(".warning.provenance");
   check(
-    "the phrase-provenance warning is on screen before generating",
-    warnings.some((t) =>
-      t.includes("Don't invent one") && t.includes("thought up")
-    ),
+    "the phrase-provenance warning is visible before generating",
+    await provenance.isVisible(),
   );
+  /* Both hazards in the heading, where they get read. The body carries the
+     detail, but a title naming only half of it leaves the other half at the
+     end of a paragraph. */
+  const title = await provenance.locator("strong").textContent();
   check(
-    "the provenance warning also covers reuse",
-    warnings.some((t) => t.includes("already protects something else")),
+    "its heading names both hazards",
+    /invent/i.test(title) && /reuse/i.test(title),
+  );
+  /* The claim has to stay the true one: validation is a typo check, not a
+     test of how the phrase was produced. */
+  check(
+    "it says the checks do not prove the phrase was generated",
+    (await provenance.textContent()).includes(
+      "confirm you typed a phrase correctly, not that it was generated",
+    ),
   );
   check(
     "the provenance warning sits above the unlock button",
     await page.evaluate(() => {
-      const warning = Array.from(document.querySelectorAll(".warning"))
-        .find((el) => el.textContent.includes("Don't invent one"));
+      const warning = document.querySelector(".warning.provenance");
       const submit = document.querySelector("button[type=submit]");
       if (!warning || !submit) return false;
       return !!(warning.compareDocumentPosition(submit)
         & Node.DOCUMENT_POSITION_FOLLOWING);
+    }),
+  );
+  check(
+    "the generate button is described by its hint",
+    await page.evaluate(() => {
+      const button = document.querySelector(".generate button");
+      const id = button?.getAttribute("aria-describedby");
+      return !!id && !!document.getElementById(id)?.textContent?.trim();
     }),
   );
 }

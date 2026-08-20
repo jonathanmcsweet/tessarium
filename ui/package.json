@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "sync-core": "rm -f public/tessarium.js && cp ../_build/default/ocaml/js/tessarium_js.bc.js public/tessarium.js && chmod +w public/tessarium.js",
-    "dev": "npm run sync-core && vite",
-    "build": "npm run sync-core && tsc -b --noEmit && vite build",
+    "dev": "npm run sync-core && npm run paraglide && vite",
+    "build": "npm run sync-core && npm run paraglide && tsc -b --noEmit && vite build",
     "typecheck": "tsc -b --noEmit",
     "e2e": "node test/e2e.mjs",
     "preview": "vite preview",

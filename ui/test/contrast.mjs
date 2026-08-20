@@ -63,6 +63,10 @@ const pairs = [
   ["banner text", v("warn"), "#fff8e6", 4.5],
   ["banner action labels", "#ffffff", v("warn"), 4.5],
   ["map warning note", v("warn"), "#fffaf0", 4.5],
+  /* The gate's provenance warning: the most prominent block on the unlock
+     screen, and the one a user most needs to be able to read. */
+  ["gate warning text", v("ink"), "#fff5f3", 4.5],
+  ["gate warning rule (non-text)", v("accent"), "#fff5f3", 3.0],
   ["hover rows", v("ink"), "#eef1f4", 4.5],
   ["the address line", v("accent-text"), v("card"), 4.5],
   [

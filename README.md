@@ -207,9 +207,11 @@ algorithm reduces to an effective 64. 24 words leaves 128 bits standing. The
 construction is otherwise entirely hash-based and needs no post-quantum
 migration — nothing here rests on factoring or discrete log.
 
-**Generate a fresh phrase. Do not invent one, and do not reuse one.** A phrase
-you thought up passes every check this app makes and is worth a small fraction
-of a generated one's 256 bits — it is the one weakness no amount of work
+**Generate a fresh phrase. Do not invent one, and do not reuse one.** Validation
+confirms the words were typed correctly, not that they were generated: the
+8-bit checksum rejects most hand-assembled phrases, but a low-entropy phrase
+that satisfies it is accepted like any other, and it is worth a small fraction
+of a generated phrase's 256 bits. That is the one weakness no amount of work
 elsewhere repairs. And anyone who learns a few (address, true location) pairs is
 doing cryptanalysis against your key, so a phrase that already protects
 something else combines two unrelated risks for no reason.
