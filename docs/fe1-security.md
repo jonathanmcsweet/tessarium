@@ -18,7 +18,7 @@ Z_a × Z_b with
 | b | 13,107,200 = 2^19 × 25 ≈ 2^23.6 | `fstar/Tessarium.Spec.fst` |
 | Domain a·b | 8.59 × 10^13 (every address) | |
 | Rounds | 16 (even, by proof obligation) | `fstar/Tessarium.Feistel.fst` |
-| Round function | keyed BLAKE2s-256, full PRF per round | injected, `ocaml/lib`; proved transcription in `fstar/low` |
+| Round function | keyed BLAKE2s-256, full PRF per round | injected, `ocaml/lib`; vector-pinned machine-integer port in `fstar/low` |
 | Tweak | the fixed string `tessarium-grid-2` | not an input anywhere |
 | Key | 32 bytes: mnemonic → PBKDF2-HMAC-SHA512 × 2,048 (BIP-39) → PBKDF2-HMAC-SHA512 × 200,000, salt `tessarium-kdf-2` | `ocaml/lib/tessarium.ml` |
 

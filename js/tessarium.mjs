@@ -5,9 +5,10 @@
 // uses BigInt: the whole point of the integer-nanodegree design is that a
 // browser and a server agree exactly, which Number (float64) would not.
 //
-// This is a stopgap. Phase 6 replaces it with WASM extracted from the same
-// F* source that produces the server core, so there is only one proved
-// implementation rather than several hand-written ones.
+// Kept deliberately as the differential oracle, not as architecture: the
+// one leg sharing no arithmetic substrate with the F* extraction. Whether
+// it survives long-term is an open question recorded in CLAUDE.md; the
+// wasm core (from the proved C) does not replace what this checks.
 
 import { pbkdf2Sync } from "node:crypto";
 // Keyed BLAKE2s comes from the audited community implementation rather than

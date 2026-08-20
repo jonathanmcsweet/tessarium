@@ -17,9 +17,9 @@
    one, spelled here with Prims' own operators -- the arithmetic layer every
    extracted expression already goes through -- and independently in the F*
    harness; the two spellings disagreeing FAILS the check, which is the
-   right direction. HMAC is deliberately absent: it was never inside the
-   proof (the theorems hold for any round function), and it is vector-tested
-   where it lives.
+   right direction. The MAC appears only in the real-round-function rows
+   below: the Feistel theorems hold for any round function, and the harness
+   legs deliberately drive a toy one.
 
    Deterministic by construction: no clock, no OS randomness. Same extracted
    core, same bytes out -- CI diffs the regenerated file against the
@@ -204,9 +204,9 @@ let () =
 
   (* ---------------------------------------------- the REAL round function *)
   (* Everything above drives the harness round function; these rows drive
-     the PRODUCTION one -- digestif's HMAC-SHA256 through Crypto.round_fn,
-     the exact bytes the server signs with. Now that the round function
-     lives inside the proof (Tessarium.Low.Hmac), the evaluator and the
+     the PRODUCTION one -- digestif's keyed BLAKE2s through Crypto.round_fn,
+     the exact bytes the server signs with. The round function lives inside
+     the proof (Tessarium.Low.Blake2s), so the evaluator and the
      C harness both re-derive digestif's answers from the proved source;
      these are the vectors they replay. Keys are deterministic 32-byte
      patterns: production keys are PBKDF2 output, but any 32 bytes walk

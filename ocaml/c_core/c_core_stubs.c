@@ -1,7 +1,7 @@
 /* OCaml FFI over the KaRaMeL-emitted verified core (vendor/).
 
    The unproved plumbing on this path, all of it here: the band-table
-   copy at init, the big-endian key packing, and the value conversions.
+   copy at init, the little-endian key packing, and the value conversions.
    Each is watched by the side-by-side wall (ocaml/test/test_c_core.ml),
    which drives every entry point against the extracted-OCaml core with
    digestif injected, over corners and generated corpora.
