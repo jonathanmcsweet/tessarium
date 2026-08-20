@@ -2118,3 +2118,30 @@ all 13 grid vectors; and the stale-comment class the previous review
 flagged had regrown in three places. The reviewer independently
 fresh-verified all five Low modules, reproduced every falsification, and
 confirmed both generated files byte-identical through the refactor.
+
+
+## 2026-08-20: the world overview returns, and the map says when it is working
+
+Two field reports from flying London-to-Georgia on a Georgia-only archive.
+First: the world overview (planet at country level, ~45 MB, zoom 6,
+merging under later downloads by design) was only ever OFFERED on a
+completely empty map -- anyone who started with a region never saw it and
+could never get it, so every flight crossed blank ocean. The download
+card now asks the estimate whether the overview is still missing (its
+incremental cost is ~zero once merged) and keeps offering it until it
+is not, with wording that says why it helps. Second: nothing on screen
+said the map was still working while detail streamed in. A 3-pixel
+indeterminate bar now crosses the top of the map -- driven by MapLibre's
+dataloading/idle events through a pure tracker (ui/src/core/loading.ts)
+that holds it back through sub-300ms bursts so pans do not flicker it;
+indeterminate on purpose, since MapLibre reports no stable done-vs-total
+and a percentage would be theatre. Reduced-motion gets a static bar;
+the bar names itself to screen readers.
+
+Tests: 8 tracker checks under fake clocks (the load-bearing one: a burst
+that settles early must NEVER flash); e2e raises the bar on real traffic
+by delaying every tile through a route while a style swap refetches them,
+then requires it gone at idle; a second e2e page on the archive-holding
+server intercepts the world estimate and requires the offer BACK -- the
+exact case the old rule got wrong. Two new message keys in all six
+catalogues.

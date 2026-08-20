@@ -28,6 +28,7 @@ import {
   centreIsBlank,
   rectsToFeatures,
 } from "../core/coverage";
+import { createLoadingTracker } from "../core/loading";
 import { fetchAddress, fetchGrid } from "../core/queries";
 import { formatBytes, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
@@ -310,6 +311,11 @@ export function MapView() {
   /* `mapRef`, not `m` -- `m` is the message namespace throughout the UI. */
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
+  /* Tiles in flight for longer than the tracker's delay. Drives the bar
+     across the top of the map -- indeterminate on purpose: MapLibre does
+     not report done-versus-total tiles in any stable way, so a percentage
+     would be theatre. */
+  const [tilesLoading, setTilesLoading] = useState(false);
   const [truncated, setTruncated] = useState(false);
   /* Null when the middle of the view has a tile: the note is about where
      the user is looking, not about a corner of the screen. [depth] is the
@@ -378,6 +384,27 @@ export function MapView() {
       delete window.__tessarium_map;
     };
   }, []);
+
+  /* The loading bar's feed: dataloading fires when any source or the style
+     starts fetching, idle when the map is fully drawn. The tracker holds
+     the bar back through sub-delay bursts (every pan fires these), so it
+     appears only when arrival is genuinely lagging -- a long flight to an
+     area whose detail is still streaming in. */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const tracker = createLoadingTracker(setTilesLoading);
+    const onLoading = () => tracker.loading();
+    const onIdle = () => tracker.idle();
+    map.on("dataloading", onLoading);
+    map.on("idle", onIdle);
+    return () => {
+      tracker.dispose();
+      map.off("dataloading", onLoading);
+      map.off("idle", onIdle);
+      setTilesLoading(false);
+    };
+  }, [ready]);
 
   /* A missing basemap must not look like a broken application. The grid and
      the addressing still work over blank space, so say what is missing
@@ -896,6 +923,17 @@ export function MapView() {
   return (
     <div className="map-wrap">
       <div ref={container} className="map" />
+      {
+        /* Indeterminate by design; see tilesLoading. Present in the tree
+          only while loading, so screen readers hear the transition. */
+      }
+      {tilesLoading && (
+        <div
+          className="map-loading"
+          role="progressbar"
+          aria-label={m.map_loading_detail()}
+        />
+      )}
       {
         /* The keyboard target. Only meaningful once the map has focus, which is
           why it is announced rather than drawn. */

@@ -553,11 +553,31 @@ await page.waitForFunction(
   () => !document.querySelector(".download-view button")?.disabled,
   { timeout: 30_000 },
 );
+/* The loading bar, on real traffic: the completed download below swaps the
+   style with a fresh cache-buster, so every tile refetches -- through this
+   route, which delays each one past the tracker's 300 ms threshold. The
+   bar must appear while they drip in and vanish once the map settles. */
+await page.route("**/tiles/**", async (route) => {
+  await new Promise((done) => setTimeout(done, 500));
+  await route.continue();
+});
 await viewButton.click();
 check("the view download completes at generation two", await awaitDone(2));
 await page.waitForFunction(() => !document.querySelector(".download-card"), {
   timeout: 10_000,
 });
+await page.waitForSelector(".map-loading", { timeout: 20_000 });
+check("slow tiles raise the loading bar", true);
+check(
+  "the bar names itself for the screen reader",
+  ((await page.locator(".map-loading").getAttribute("aria-label")) ?? "")
+    .length > 0,
+);
+await page.unroute("**/tiles/**");
+await page.waitForFunction(() => !document.querySelector(".map-loading"), {
+  timeout: 60_000,
+});
+check("the bar hides once the map settles", true);
 
 /* Merged, not replaced: bytes 100-101 of a PMTiles header are its min and
    max zoom, and only the union of both downloads spans 0 to 15. */
@@ -1347,6 +1367,55 @@ check(
 const browsedAgain = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
   .json();
 check("a second look fetches nothing", browsedAgain.fetched === 0);
+
+/* The world offer must return for anyone who started with a region. A
+   fresh page on this server (archive on disk) with the WORLD estimate
+   answered by intercept: whether the server's estimate is right is the
+   server tests' business; the card's rule under test is "maps present +
+   world missing => the offer is back". The old rule -- offer only on an
+   empty map -- is exactly how the Georgia-first user never saw it. */
+const worldPage = await context.newPage();
+await worldPage.route("**/api/basemap-estimate", async (route) => {
+  let world = false;
+  try {
+    const body = JSON.parse(route.request().postData() ?? "{}");
+    const r = body.regions?.[0];
+    world = body.regions?.length === 1 && r?.min_lon === -180
+      && r?.max_lon === 180 && r?.min_lat === -85 && r?.max_zoom === 6;
+  } catch {
+    /* not JSON: not ours */
+  }
+  if (world) {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        total_bytes: 45_000_000,
+        tiles: 5461,
+        covered: false,
+        max_zooms: [6],
+      }),
+    });
+  } else await route.continue();
+});
+await worldPage.goto(base3, { waitUntil: "networkidle" });
+await worldPage.locator("#phrase").fill(sampleMnemonic);
+await worldPage.waitForSelector(".valid", { timeout: 30_000 });
+await worldPage.locator("button[type=submit]").click();
+await worldPage.waitForSelector(".map-wrap", { timeout: 60_000 });
+await worldPage.locator(".map-actions .icon-button").click();
+await worldPage.waitForSelector(".download-card", { timeout: 10_000 });
+await worldPage.waitForSelector(".download-world", { timeout: 30_000 });
+check("with maps on disk but no world overview, the offer is back", true);
+check(
+  "the returned offer explains itself with a size",
+  ((await worldPage.locator(".download-world .hint").textContent()) ?? "")
+    .length > 0,
+);
+check(
+  "the view offer still leads the card",
+  (await worldPage.locator(".download-view").count()) === 1,
+);
+await worldPage.close();
 
 /* Let the swapped style fetch and render its tiles; anything it logs from
    here on fails the final console check. */
