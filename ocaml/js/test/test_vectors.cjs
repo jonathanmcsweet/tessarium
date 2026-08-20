@@ -26,15 +26,35 @@ check("gridVersion", C.gridVersion === v.grid_version);
 check("totalCells", C.totalCells === String(v.total_cells));
 
 /* Keys come from the vectors rather than from this bundle. The browser
-   derives with WebCrypto now -- our PBKDF2 compiled to JavaScript would need
-   24 seconds for the hardened count -- so there is no deriveKey here to test.
-   What the bundle still owes us is that it ENCODES identically, which is what
-   the loop below checks against keys the OCaml produced. */
+   derives with the Argon2id wasm module -- the stretch itself never runs in
+   this bundle -- but the KDF's INPUTS are built here (kdfInputs), so the
+   NFKD and joining rules have one home. Their shape is pinned below against
+   the vectors' derivation metadata; the walls that pin the derived KEYS are
+   the browser end-to-end coordinate checks and js/argon2-differential.mjs.
+   What the bundle still owes us beyond that is that it ENCODES identically,
+   which is what the loop below checks against keys the OCaml produced. */
 const keys = {};
 for (const kv of v.key_derivation) keys[kv.name] = kv.key;
 check("no key derivation is exposed by the bundle", C.deriveKey === undefined);
-check("the derivation parameters are exposed for the worker",
-  C.derivationVersion === v.derivation_version && C.hardeningIterations > 0);
+check("the derivation version is exposed for the worker",
+  C.derivationVersion === v.derivation_version);
+{
+  const hex = (s2) => Buffer.from(s2, "hex").toString("utf8");
+  const phrase = v.key_derivation[0].mnemonic;
+  const inputs = C.kdfInputs(phrase, "pp");
+  check("kdfInputs builds the versioned salt",
+    inputs.error === null && hex(inputs.salt) === v.derivation_version + "pp");
+  /* The direction that can fail: a mangled spelling of the same phrase must
+     normalise to the SAME password bytes, which cannot happen if the
+     normalisation is skipped. */
+  const mangled = C.kdfInputs("  " + phrase.toUpperCase().replace(/ /g, "   ") + "\t", "pp");
+  check("kdfInputs normalises spacing and case away",
+    mangled.error === null && mangled.password === inputs.password);
+  check("kdfInputs refuses an invalid phrase",
+    C.kdfInputs("not a phrase", "").error !== null);
+  check("kdfInputs refuses an over-long passphrase",
+    C.kdfInputs(phrase, "x".repeat(2000)).error !== null);
+}
 for (const a of v.addresses) {
   const got = C.encodeNs(keys[a.mnemonic], String(a.lat_ns), String(a.lon_ns));
   check(`encodeNs(${a.lat_ns},${a.lon_ns}) got ${got} want ${a.address}`, got === a.address);

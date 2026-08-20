@@ -209,7 +209,7 @@ let () =
      the proof (Tessarium.Low.Blake2s), so the evaluator and the
      C harness both re-derive digestif's answers from the proved source;
      these are the vectors they replay. Keys are deterministic 32-byte
-     patterns: production keys are PBKDF2 output, but any 32 bytes walk
+     patterns: production keys are the KDF's output, but any 32 bytes walk
      the same code path. *)
   (* A dedicated generator state: the five generated grid points draw
      from the legacy stream AFTER this code runs, and sharing the stream

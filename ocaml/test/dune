@@ -2,10 +2,17 @@
  (name test_vectors)
  (modules test_vectors)
  (deps %{project_root}/vectors/vectors.json)
- (libraries tessarium tessarium_extracted zarith yojson))
+ (libraries tessarium tessarium_argon2 tessarium_extracted zarith yojson))
 
 ; The C core beside the extracted core: see test_c_core.ml's header.
 (test
  (name test_c_core)
  (modules test_c_core)
  (libraries tessarium tessarium_extracted tessarium_c_core zarith))
+
+; The vendored Argon2id against vectors two independent implementations
+; agree on. Fast enough for runtest: three hashes at 64 MiB is ~350 ms.
+(test
+ (name test_argon2)
+ (modules test_argon2)
+ (libraries tessarium_argon2))

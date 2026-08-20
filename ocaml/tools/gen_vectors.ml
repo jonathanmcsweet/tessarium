@@ -66,7 +66,7 @@ let generate inputs =
   let keys =
     List.map
       (fun (name, m, passphrase) ->
-        (name, Tessarium.derive_key ~mnemonic:m ~passphrase))
+        (name, Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic:m ~passphrase))
       mnemonics
   in
 
@@ -129,11 +129,13 @@ let generate inputs =
   (* Addresses under a non-ASCII passphrase, for the end-to-end test.
 
      These are generated with the PRECOMPOSED form of the passphrase. The
-     browser test unlocks with the DECOMPOSED form and expects the same
-     addresses, which it can only get if the NFKD in the browser agrees with
-     the NFKD here -- JavaScript's String.normalize against uunf. That is the
-     one cross-implementation claim the vectors cannot pin on their own, since
-     the browser derives keys with WebCrypto rather than with this code. *)
+     browser test unlocks with the PRECOMPOSED form -- the direction that
+     can fail; the decomposed form is NFKD's own output and would pass with
+     normalisation removed -- and expects the same addresses, which it can
+     only get if the unlock chain normalises. Since kdf-3 the browser builds
+     its KDF inputs through this same OCaml (kdfInputs), so the check now
+     pins uunf reaching the browser intact plus the wasm stretch, rather
+     than the old String.normalize-vs-uunf split. *)
   let nfkd_key = List.assoc "pass-nfc" keys in
   let nfkd_addresses =
     (* Ordinary mid-latitude points, chosen on purpose. Not (0, 0), which is
@@ -187,7 +189,6 @@ let generate inputs =
     [
       ("grid_version", `String Tessarium.grid_version);
       ("derivation_version", `String Tessarium.derivation_version);
-      ("hardening_iterations", `Int Tessarium.hardening_iterations);
       ("total_cells", `Int (Z.to_int Tessarium.total_cells));
       ("address_space", `Int (Z.to_int Tessarium.address_space));
       ( "feistel",

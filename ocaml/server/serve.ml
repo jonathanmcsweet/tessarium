@@ -42,7 +42,9 @@ let content_security_policy cfg =
   String.concat "; "
     [
       "default-src 'self'";
-      "script-src 'self'";
+      (* 'wasm-unsafe-eval' admits WebAssembly.compile and nothing else --
+         scripts stay 'self'-only. The worker's Argon2id KDF needs it. *)
+      "script-src 'self' 'wasm-unsafe-eval'";
       "style-src 'self' 'unsafe-inline'";
       "img-src 'self' data: blob:";
       "worker-src 'self' blob:";
@@ -420,7 +422,7 @@ let z_field name json =
   | _ -> None
 
 (* The endpoints that spend or reveal key material share one token bucket.
-   Session because PBKDF2 is deliberately expensive; encode and decode
+   Session because Argon2id is deliberately expensive; encode and decode
    because each answer is a chosen plaintext/ciphertext pair, and the FE1
    write-up's oracle arithmetic (docs/fe1-security.md) leans on this ceiling
    -- an unthrottled encode oracle would answer a million queries in about a
@@ -472,8 +474,9 @@ let handle_api cfg sessions limiter random ~endpoint ~body ~now =
                 let passphrase =
                   Option.value (string_field "passphrase" json) ~default:""
                 in
-                match Tessarium.derive_key ~mnemonic ~passphrase with
+                match Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic ~passphrase with
                 | exception Tessarium.Bad_mnemonic e -> bad e
+                | exception Tessarium.Bad_passphrase e -> bad e
                 | key ->
                     let id = Sessions.new_id random in
                     Sessions.put sessions ~now id key;

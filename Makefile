@@ -121,6 +121,47 @@ sync-wasm:
 	  -o wasm/core.wasm $(C_CORE_SRC) wasm/glue.c
 	@echo "wasm/core.wasm rebuilt"
 
+# The KDF's browser build: the vendored Argon2 reference C (the same files
+# the server's FFI links) compiled by the same pinned zig. Committed like
+# core.wasm, CI rebuilds and byte-diffs. ARGON2_NO_THREADS: p=1 is baked
+# in the glue, thread.c is not vendored.
+ARGON2_SRC := $(addprefix ocaml/argon2/vendor/,argon2.c core.c encoding.c ref.c) \
+  ocaml/argon2/vendor/blake2/blake2b.c
+sync-argon2-wasm:
+	$(ZIG) cc -target wasm32-wasi -O2 -Wl,--no-entry -mexec-model=reactor \
+	  -Wl,--strip-all -DARGON2_NO_THREADS \
+	  -I ocaml/argon2/vendor -I ocaml/argon2/vendor/blake2 -D_DEFAULT_SOURCE \
+	  -o wasm/argon2.wasm $(ARGON2_SRC) wasm/argon2_glue.c
+	@echo "wasm/argon2.wasm rebuilt"
+
+# Re-download the pinned Argon2 release and diff the vendored subset, so a
+# local edit to vendor/ fails here (and in CI) instead of surviving quietly.
+ARGON2_TAG := 20190702
+ARGON2_SHA := daf972a89577f8772602bf2eb38b6a3dd3d922bf5724d45e7f9589b5e830442c
+sync-argon2:
+	@tmp=$$(mktemp -d) && cd $$tmp \
+	  && curl -sL -o a.tar.gz https://github.com/P-H-C/phc-winner-argon2/archive/refs/tags/$(ARGON2_TAG).tar.gz \
+	  && echo "$(ARGON2_SHA)  a.tar.gz" | sha256sum -c --quiet \
+	  && tar xzf a.tar.gz && src=phc-winner-argon2-$(ARGON2_TAG) \
+	  && cd - > /dev/null \
+	  && bad=0 \
+	  && for f in argon2.c core.c core.h encoding.c encoding.h ref.c thread.h genkat.h; do \
+	       cmp -s ocaml/argon2/vendor/$$f $$tmp/$$src/src/$$f || { echo "vendored $$f differs from release $(ARGON2_TAG)"; bad=1; }; \
+	     done \
+	  && cmp -s ocaml/argon2/vendor/argon2.h $$tmp/$$src/include/argon2.h || { echo "vendored argon2.h differs"; bad=1; } \
+	  && for f in blake2.h blake2-impl.h blake2b.c blamka-round-ref.h; do \
+	       cmp -s ocaml/argon2/vendor/blake2/$$f $$tmp/$$src/src/blake2/$$f || { echo "vendored blake2/$$f differs"; bad=1; }; \
+	     done \
+	  && cmp -s ocaml/argon2/vendor/LICENSE $$tmp/$$src/LICENSE || { echo "vendored LICENSE differs"; bad=1; } \
+	  && want="LICENSE argon2.c argon2.h blake2 core.c core.h encoding.c encoding.h genkat.h ref.c thread.h" \
+	  && got=$$(ls ocaml/argon2/vendor | tr '\n' ' ' | sed 's/ $$//') \
+	  && { [ "$$got" = "$$want" ] || { echo "vendor/ holds unexpected entries: $$got"; bad=1; }; } \
+	  && wantb="blake2-impl.h blake2.h blake2b.c blamka-round-ref.h" \
+	  && gotb=$$(ls ocaml/argon2/vendor/blake2 | tr '\n' ' ' | sed 's/ $$//') \
+	  && { [ "$$gotb" = "$$wantb" ] || { echo "vendor/blake2 holds unexpected entries: $$gotb"; bad=1; }; } \
+	  && rm -rf $$tmp && [ $$bad -eq 0 ]
+	@echo "ocaml/argon2/vendor matches release $(ARGON2_TAG), no extra files"
+
 build:
 	dune build
 
@@ -129,6 +170,7 @@ build:
 # directly: that would put ui/node_modules in dune's view.
 ui:
 	cd ui && npm ci --no-audit --no-fund && npm run build
+	cp wasm/argon2.wasm ui/dist/argon2.wasm
 	rm -rf ocaml/server/ui_dist
 	cp -r ui/dist ocaml/server/ui_dist
 	@echo "  UI copied to ocaml/server/ui_dist; run 'make build' to embed it"

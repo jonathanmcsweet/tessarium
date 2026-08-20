@@ -245,8 +245,8 @@ check(
 
 await page.locator("button[type=submit]").click();
 
-/* PBKDF2 runs here. Generous, because a cold worker on a loaded machine is
-   slower than the number anyone quotes. */
+/* The Argon2id derivation runs here. Generous, because a cold worker on a
+   loaded machine is slower than the number anyone quotes. */
 await page.waitForSelector(".map-wrap", { timeout: 60_000 });
 check("map opens after derivation", true);
 check(
@@ -1708,21 +1708,23 @@ await page.waitForTimeout(400);
 
 /* NFKD across the whole stack.
 
-   The browser derives keys with WebCrypto and normalises with JavaScript's
-   String.normalize; the vectors were produced by OCaml and uunf. Nothing else
-   in the suite compares those two. So: lock, then unlock with the DECOMPOSED
-   form of a passphrase whose addresses were generated from the PRECOMPOSED
-   form, and require the same address out. "café" typed on one keyboard and
-   pasted from another are these two byte sequences; before NFKD they were two
-   different maps and the user was told nothing. */
+   The vectors' keys were derived from the NFKD form of this passphrase.
+   Unlock with the PRECOMPOSED form -- the direction that can fail: the
+   decomposed form is NFKD's own output and would pass with normalisation
+   removed -- and require the vector's address out. Since kdf-3 the browser
+   builds its KDF inputs through the js_of_ocaml core and stretches in the
+   Argon2id wasm, so this pins that whole chain, not a JS re-spelling of
+   the normalisation. "café" typed on one keyboard and pasted from another
+   are two byte sequences; before NFKD they were two different maps and the
+   user was told nothing. */
 const nfkdSample = vectors.nfkd_addresses[0];
 /* PRECOMPOSED here, deliberately. NFKD's *output* is the decomposed form, so
    unlocking with the decomposed passphrase yields the right key even when
    normalisation is skipped entirely — a test written that way passes whether
    or not the code under it works, which is how the first version of this
    check was written. Feeding the precomposed form is the direction that can
-   actually fail: without NFKD those bytes go into PBKDF2 unchanged and derive
-   a different key. */
+   actually fail: without NFKD those bytes go into the KDF unchanged and
+   derive a different key. */
 const nfkdEntry = vectors.key_derivation.find((k) => k.name === "pass-nfc");
 const nfdEntry = vectors.key_derivation.find((k) => k.name === "pass-nfd");
 check(

@@ -84,15 +84,18 @@ typo detection and is a feature, not waste.
   2026-08-17. Four rounds is distinguishable; do not economise here regardless
   of what has been proved. The count must be even — the halves swap domains
   each round, and the proof fails outright at an odd count.
-- **Key derivation:** mnemonic → BIP-39 seed (PBKDF2-HMAC-SHA512 × 2,048,
-  standard) → PBKDF2-HMAC-SHA512 × 200,000 over salt `tessarium-kdf-2` →
-  32-byte Feistel key. (Text corrected 2026-08-18: HKDF was replaced by the
-  hardened second PBKDF2 stage, as ledgered; this entry had not caught up.)
-  Derived once per session and cached; PBKDF2 is deliberately slow and must
-  not sit in the hot path.
+- **Key derivation:** single-stage Argon2id (t=3, m=64 MiB, p=1 -- RFC
+  9106's second recommended option) over password = NFKD phrase, salt =
+  `tessarium-kdf-3` ++ NFKD passphrase → 32-byte Feistel key. One vendored
+  reference implementation (ocaml/argon2), compiled natively for the server
+  and to wasm for the browser. Replaced the two-stage PBKDF2-HMAC-SHA512
+  chain on 2026-08-20 (ledgered): the phrase stays a valid BIP-39 phrase,
+  but the intermediate is no longer the standard BIP-39 seed -- nothing
+  external ever consumed it. Derived once per session and cached; the KDF
+  is deliberately expensive and must not sit in the hot path.
 - **Tweak = grid version string** (`tessarium-grid-2`), the round-function
   domain prefix is `tessarium/v2/fe1` (v1 until 2026-08-20, the BLAKE2s
-  move), and the KDF version salt is `tessarium-kdf-2`. (Older text here
+  move), and the KDF version salt is `tessarium-kdf-3`. (Older text here
   named HKDF strings; HKDF left on 2026-08-18, as ledgered.) Renamed from
   `w3wx/*` on 2026-08-15; since no address had been issued, this was free.
   After launch it would invalidate every address anyone had written down.
@@ -111,8 +114,8 @@ generic search (BBBV 1997) — no quantum computer of any future power beats it
 without a structural break in the hash itself. So "effective 128 bits" is a
 ceiling on any machine physics permits, not an estimate of current hardware.
 The assumptions that remain are named, not hidden: (1) the hashes in use
-have no structural break, quantum or classical (BLAKE2s in the mapping;
-SHA-2 in the BIP-39 checksum and the KDF until Argon2id lands); (2) the
+have no structural break, quantum or classical (BLAKE2 in the mapping and
+inside Argon2id; SHA-256 only in the BIP-39 checksum); (2) the
 attacker never runs our keyed code in
 superposition — and a classical API answers classical bytes, so that holds
 against any machine for software the attacker does not control.
@@ -190,14 +193,14 @@ code violates the rule above. Revisit only if a profiler points at the core.
   the injected copy is what the extracted-OCaml production path still runs).
   `Tessarium.Feistel` takes `round_fn` as a parameter, and bijectivity does
   not depend on it. It is supplied by `digestif`'s *pure-OCaml* backend
-  (keyed BLAKE2s; SHA-2 remains for the BIP-39 checksum and PBKDF2), which
+  (keyed BLAKE2s; SHA-256 remains only for the BIP-39 checksum), which
   compiles unchanged under `js_of_ocaml` — so native and browser run one
-  implementation, not two. PBKDF2 is written over that HMAC-SHA512 and
-  tested against the RFC vectors. Deliberately not HACL\*: its C stubs do not
+  implementation, not two. The KDF is the vendored Argon2id reference C,
+  one source for both hosts. Deliberately not HACL\*: its C stubs do not
   cross into `js_of_ocaml`, which would force a second browser-side crypto
   implementation and reintroduce exactly the drift this architecture forbids.
 - **Keys are derived client-side and never transmitted.** The phrase is entered
-  in the UI, PBKDF2 runs in a Web Worker, and neither phrase nor derived key
+  in the UI, Argon2id runs in a Web Worker, and neither phrase nor derived key
   leaves the device. The server keeps an opt-in session/encode/decode API for
   scripting and headless use, but no UI path depends on it, and the README must
   say plainly which mode is in use.
@@ -312,8 +315,9 @@ The theorem set is complete and in the ledger. What is left is narrower.
       walls -- moved together, pinned by RFC 7693 + keyed KATs and
       digestif/noble recomputations; see the ledger. Final
       phase: the SWITCH — the server answers from the C core, the UI
-      from the wasm core (needs 'wasm-unsafe-eval' added to the CSP and
-      the key handed to the worker as 32 bytes), and the extracted-OCaml
+      from the wasm core (the CSP already allows wasm and the worker
+      already loads a wasm module and holds the raw 32-byte key, both
+      since the Argon2id KDF landed), and the extracted-OCaml
       core retires from the serving path (extraction itself stays: the
       spec modules still feed the evaluator leg and gen_check). One narrower gap
       remains in the evaluator leg: seven grid points is a floor, not a
@@ -325,23 +329,6 @@ The theorem set is complete and in the ledger. What is left is narrower.
       there rather than bucketed, so the theorem carries
       `requires lat < lat_min + lat_span` and a separate `lemma_pole_clamp`
       covers the pole. Correct, and less tidy than a single statement.
-
-## Phase 4 — Security hardening
-
-- [ ] **Argon2id remains the better answer and is still open.** The hardened
-      PBKDF2 shipped (see the ledger) buys 98.7x against an offline attacker,
-      but it buys it from an adversary who parallelises perfectly; a
-      memory-hard function denies that instead of pricing it. Measured and
-      rejected for now, with numbers: pure-OCaml Argon2id at 64 MiB / t=3
-      costs **21 s in a browser** and 2.6 s natively, because BLAKE2b through
-      js_of_ocaml runs at 9.2 MiB/s against 72.6 MiB/s native. Usable browser
-      parameters would be about 8 MiB / t=1, which is too little memory to be
-      worth the primitive.
-
-      The routes that could work, neither taken: a WASM Argon2id in the
-      browser with a C build natively — two implementations of a primitive,
-      against this project's grain — or waiting for a browser-native
-      memory-hard KDF, which does not exist. Revisit if one appears.
 
 ## Phase 4 — Performance
 

@@ -113,8 +113,9 @@ export class Core {
     return this.#call(OkOrError, "validate", { mnemonic });
   }
 
-  /* Slow by design: 202,048 iterations of PBKDF2-HMAC-SHA512 via WebCrypto.
-     Expect ~300 ms, and show it in the UI rather than appearing to hang. */
+  /* Slow by design: Argon2id at 64 MiB in the worker's wasm module.
+     Expect ~150 ms plus a cold start, and show it in the UI rather than
+     appearing to hang. */
   unlock(mnemonic: string, passphrase: string) {
     return this.#call(OkOrError, "unlock", { mnemonic, passphrase });
   }

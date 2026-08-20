@@ -1,6 +1,6 @@
 let () =
   let key =
-    Tessarium.derive_key
+    Tessarium.derive_key ~kdf:Tessarium_argon2.kdf
       ~mnemonic:
         "legal winner thank year wave sausage worth useful legal winner thank \
          year wave sausage worth useful legal winner thank year wave sausage \

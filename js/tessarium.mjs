@@ -10,11 +10,13 @@
 // it survives long-term is an open question recorded in CLAUDE.md; the
 // wasm core (from the proved C) does not replace what this checks.
 
-import { pbkdf2Sync } from "node:crypto";
 // Keyed BLAKE2s comes from the audited community implementation rather than
 // node's OpenSSL binding, which exposes only the unkeyed form. Still an
 // implementation independent of everything in the tree.
 import { blake2s } from "@noble/hashes/blake2.js";
+import { argon2id } from "@noble/hashes/argon2.js";
+
+const enc = new TextEncoder();
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -137,13 +139,16 @@ export function deriveKey(mnemonic, passphrase = "") {
   const norm = mnemonic.normalize("NFKD").trim().toLowerCase();
   const words = norm.split(/\s+/);
   if (words.length !== 24) throw new Error("24-word mnemonic required");
-  const seed = pbkdf2Sync(words.join(" "),
-                          "mnemonic" + passphrase.normalize("NFKD"),
-                          2048, 64, "sha512");
-  // Second stage. BIP-39 fixes the first at 2048 iterations and cannot be
-  // changed; the seed is an intermediate here, so stretching it again costs an
-  // attacker ~99x per guess and leaves the phrase standard BIP-39.
-  return pbkdf2Sync(seed, "tessarium-kdf-2", 200000, 32, "sha512");
+  // Single-stage Argon2id since kdf-3 (t=3, m=64 MiB, p=1 -- the same three
+  // numbers the OCaml stubs and the wasm glue bake; a drift between the four
+  // spellings changes every key and the differential rings). The passphrase
+  // rides in the salt behind the version prefix, NFKD-normalised, verbatim
+  // otherwise.
+  return Buffer.from(argon2id(
+    enc.encode(words.join(" ").normalize("NFKD")),
+    enc.encode("tessarium-kdf-3" + passphrase.normalize("NFKD")),
+    { t: 3, m: 65536, p: 1, dkLen: 32 },
+  ));
 }
 
 export function indexToAddress(y) {

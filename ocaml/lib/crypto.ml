@@ -4,44 +4,13 @@
    natively and under js_of_ocaml, and C stubs do not cross into the browser.
    One implementation, no drift between server and client.
 
-   The round function is keyed BLAKE2s (RFC 7693) -- a community-vetted
-   primitive, chosen when the project moved its security functions off NIST
-   designs (see the ledger). SHA-2 remains below in two NON-security roles:
-   the BIP-39 wordlist checksum (typo detection, fixed by that standard) and
-   the PBKDF2 key stretch, which the roadmap replaces with Argon2id.
-
-   PBKDF2 is written here rather than taken from a library because it is a
-   few lines over HMAC and is pinned by RFC test vectors. *)
+   The round function is keyed BLAKE2s (RFC 7693) and the KDF is Argon2id
+   (ocaml/argon2, injected at the edges) -- community-vetted primitives,
+   chosen when the project moved its security functions off NIST designs
+   (see the ledger). SHA-256 remains below in ONE non-security role: the
+   BIP-39 wordlist checksum, typo detection fixed by that standard. *)
 
 let sha256 s = Digestif.SHA256.(to_raw_string (digest_string s))
-let hmac_sha512 ~key msg = Digestif.SHA512.(to_raw_string (hmac_string ~key msg))
-
-let xor a b =
-  String.init (String.length a) (fun i ->
-      Char.chr (Char.code a.[i] lxor Char.code b.[i]))
-
-(* RFC 2898. dklen here is always 64, one SHA-512 block, but the block loop is
-   written out so the function is not silently wrong if that changes. *)
-let pbkdf2_sha512 ~password ~salt ~count ~dklen =
-  let block i =
-    let be32 =
-      String.init 4 (fun j -> Char.chr ((i lsr (8 * (3 - j))) land 0xff))
-    in
-    let u = ref (hmac_sha512 ~key:password (salt ^ be32)) in
-    let acc = ref !u in
-    for _ = 2 to count do
-      u := hmac_sha512 ~key:password !u;
-      acc := xor !acc !u
-    done;
-    !acc
-  in
-  let buf = Buffer.create dklen in
-  let i = ref 1 in
-  while Buffer.length buf < dklen do
-    Buffer.add_string buf (block !i);
-    incr i
-  done;
-  String.sub (Buffer.contents buf) 0 dklen
 
 (* ------------------------------------------------------- integer plumbing *)
 

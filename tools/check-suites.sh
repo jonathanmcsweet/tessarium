@@ -32,6 +32,8 @@ suites=(
   "differential sweep|[1-9][0-9]* points checked"
   "C core side by side|agree on [1-9][0-9]* side-by-side checks"
   "wasm core|wasm core: [1-9][0-9]* points checked, 0 disagreements expected, 0 found"
+  "argon2 kdf|argon2 kdf: wasm and noble agree on [1-9][0-9]* derivations"
+  "argon2 known answers|argon2id answers for [1-9][0-9]* known-answer checks"
 )
 
 out="$(dune build @runtest --force 2>&1)"
