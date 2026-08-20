@@ -824,6 +824,20 @@ const offered = await page
   .waitForSelector(".place-option", { timeout: 10_000 })
   .then(() => true, () => false);
 check("typing a place name offers it", offered);
+/* The row must say where it goes, not just that it exists: the kind
+   always, and -- whenever the map is not already there -- how far. The
+   containment context depends on where the fixture pretends to be, so
+   only the parts that are true everywhere are pinned here; the
+   catalogue containment itself is unit-tested against real borders. */
+const optionText = await page.locator(".place-option").first().textContent();
+check("the result names its kind", /locality/.test(optionText ?? ""));
+const farFromResult = beforeSearch
+  && (Math.abs(searched.results[0].lon - beforeSearch[0]) > 0.05
+    || Math.abs(searched.results[0].lat - beforeSearch[1]) > 0.05);
+check(
+  "and, from elsewhere, how far away it is",
+  !farFromResult || /km/.test(optionText ?? ""),
+);
 await page.locator(".place-option").first().click();
 /* Waited for rather than slept through: flying across the world takes as
    long as the distance says, and a fixed pause is a race either way. */

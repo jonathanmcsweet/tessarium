@@ -6,9 +6,29 @@
    hosted service. */
 
 import { Search } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { type PlaceResult, usePlaceSearch } from "../core/basemap";
+import {
+  bearing8,
+  containingCountry,
+  containingSubdivision,
+  type Direction,
+  distanceKm,
+} from "../core/placeContext";
+import { getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
+import { countries, subdivisionsOf } from "../regions";
+
+const DIRECTION_LABEL: Record<Direction, () => string> = {
+  n: m.search_dir_n,
+  ne: m.search_dir_ne,
+  e: m.search_dir_e,
+  se: m.search_dir_se,
+  s: m.search_dir_s,
+  sw: m.search_dir_sw,
+  w: m.search_dir_w,
+  nw: m.search_dir_nw,
+};
 
 /* Long enough that typing a word does not fire a scan per keystroke, short
    enough that the list feels attached to the keyboard. The scan itself is
@@ -16,7 +36,13 @@ import { m } from "../paraglide/messages";
 const DEBOUNCE_MS = 250;
 
 export function PlaceSearch(
-  { onPick }: { onPick: (lon: number, lat: number) => void; },
+  { onPick, center }: {
+    onPick: (lon: number, lat: number) => void;
+    /* Where the map is now, for "how far would this take me" -- null
+       before the map exists. A function, not a value: the centre moves
+       without this component re-rendering. */
+    center: () => { lon: number; lat: number; } | null;
+  },
 ) {
   const [text, setText] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -58,10 +84,44 @@ export function PlaceSearch(
     setOpen(false);
   };
 
-  /* A result reads as "name — kind, near here": the kind is what separates
-     three identical names, and the basemap spells it in snake_case. */
-  const describe = (r: PlaceResult) =>
-    r.kind === "" ? r.layer : r.kind.replace(/_/g, " ");
+  /* The picker's catalogue rows, once: the same country shapes and
+     localised labels the download picker shows. */
+  const shapes = useMemo(
+    () => countries().map(({ country, label }) => ({ ...country, label })),
+    [],
+  );
+
+  /* A result reads as "name — kind · where · how far": several towns share
+     a name (the United States alone has a handful of Atlantas), so the
+     kind alone is a coin flip about where the map is about to fly. The
+     containing country and, where the catalogue has them, the subdivision
+     come from the shipped border data; the distance and compass point from
+     the current map centre. All offline -- the query already never leaves
+     the machine, and neither does the context. */
+  const describe = (r: PlaceResult) => {
+    const parts = [r.kind === "" ? r.layer : r.kind.replace(/_/g, " ")];
+    const where = containingCountry(shapes, r.lon, r.lat);
+    if (where) {
+      const region = containingSubdivision(subdivisionsOf(where), r.lon, r.lat);
+      parts.push(
+        region
+          ? m.search_in_region({ region, country: where.label })
+          : where.label,
+      );
+    }
+    const from = center();
+    if (from) {
+      const km = distanceKm(from.lon, from.lat, r.lon, r.lat);
+      if (km >= 1) {
+        parts.push(m.search_away({
+          distance: new Intl.NumberFormat(getLocale()).format(km),
+          direction: DIRECTION_LABEL
+            [bearing8(from.lon, from.lat, r.lon, r.lat)](),
+        }));
+      }
+    }
+    return parts.join(" · ");
+  };
 
   return (
     <div className="place-search" ref={boxRef}>

@@ -973,6 +973,10 @@ export function MapView() {
       }
       <div className="map-search">
         <PlaceSearch
+          center={() => {
+            const c = mapRef.current?.getCenter();
+            return c ? { lon: c.lng, lat: c.lat } : null;
+          }}
           onPick={(lon, lat) => {
             const map = mapRef.current;
             if (!map) return;
