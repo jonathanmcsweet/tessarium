@@ -26,6 +26,9 @@
 _Static_assert(FE_COUNT == 16, "sixteen feistel vectors");
 _Static_assert(GRID_COUNT == 13, "thirteen grid vectors");
 _Static_assert(CUM_COUNT == 4097, "the band table has 4096 bands");
+_Static_assert(CODEC_COUNT == 10, "ten codec vectors");
+_Static_assert(E2E_COUNT == 7, "seven end-to-end points");
+_Static_assert(NONE_COUNT == 2, "two rejected addresses");
 
 /* The table lookup handed to the extracted grid: the one unproved seam on
    this path (three lines, and the array contents are cross-examined
@@ -91,9 +94,66 @@ int main(void) {
       fprintf(stderr, "grid vector %d: bounds mismatch\n", i);
       bad = 1;
     }
+    /* The composed overlay query: same numbers, through the Api root. */
+    K___uint64_t_uint64_t_uint64_t_uint64_t bp =
+        Tessarium_Low_Check_check_bounds_of_point(cum_lookup, gvec_dlat[i],
+                                                    gvec_dlon[i]);
+    if (bp.fst != gvec_blatlo[i] || bp.snd != gvec_blathi[i] ||
+        bp.thd != gvec_blonlo[i] || bp.f3 != gvec_blonhi[i]) {
+      fprintf(stderr, "grid vector %d: bounds_of_point mismatch\n", i);
+      bad = 1;
+    }
   }
+  for (int i = 0; i < CODEC_COUNT; i++) {
+    K___uint64_t_uint64_t_uint64_t_uint64_t a =
+        Tessarium_Low_Check_check_to_address(cvec_i[i]);
+    if (a.fst != cvec_w1[i] || a.snd != cvec_w2[i] ||
+        a.thd != cvec_w3[i] || a.f3 != cvec_n[i]) {
+      fprintf(stderr, "codec vector %d: to_address mismatch\n", i);
+      bad = 1;
+    }
+    uint64_t back = Tessarium_Low_Check_check_from_address(
+        cvec_w1[i], cvec_w2[i], cvec_w3[i], cvec_n[i]);
+    if (back != cvec_i[i]) {
+      fprintf(stderr, "codec vector %d: from_address mismatch\n", i);
+      bad = 1;
+    }
+  }
+
+  /* Key 7, tweak 9: hardcoded HERE as well as in the F* harness and
+     gen_check -- three spellings that must keep agreeing. */
+  for (int i = 0; i < E2E_COUNT; i++) {
+    K___uint64_t_uint64_t_uint64_t_uint64_t a =
+        Tessarium_Low_Check_check_encode(cum_lookup, 7, 9,
+                                           evec_dlat[i], evec_dlon[i]);
+    if (a.fst != evec_w1[i] || a.snd != evec_w2[i] ||
+        a.thd != evec_w3[i] || a.f3 != evec_n[i]) {
+      fprintf(stderr, "e2e point %d: encode mismatch\n", i);
+      bad = 1;
+    }
+    K___uint64_t_uint64_t_uint64_t d =
+        Tessarium_Low_Check_check_decode(cum_lookup, 7, 9, evec_w1[i],
+                                           evec_w2[i], evec_w3[i], evec_n[i]);
+    if (d.fst != 1ULL || d.snd != evec_cdlat[i] || d.thd != evec_cdlon[i]) {
+      fprintf(stderr, "e2e point %d: decode mismatch\n", i);
+      bad = 1;
+    }
+  }
+
+  for (int i = 0; i < NONE_COUNT; i++) {
+    K___uint64_t_uint64_t_uint64_t d =
+        Tessarium_Low_Check_check_decode(cum_lookup, 7, 9, nvec_w1[i],
+                                           nvec_w2[i], nvec_w3[i], nvec_n[i]);
+    if (d.fst != 0ULL || d.snd != 0ULL || d.thd != 0ULL) {
+      fprintf(stderr, "rejected address %d: decode did not reject cleanly\n", i);
+      bad = 1;
+    }
+  }
+
   if (bad) return 1;
-  printf("the C core agrees on %d feistel vectors, %d grid points and "
-         "the whole band table, both directions\n", FE_COUNT, GRID_COUNT);
+  printf("the C core agrees on %d feistel vectors, %d grid points, "
+         "%d codec vectors, %d end-to-end points, %d rejections and the "
+         "whole band table, both directions\n",
+         FE_COUNT, GRID_COUNT, CODEC_COUNT, E2E_COUNT, NONE_COUNT);
   return 0;
 }

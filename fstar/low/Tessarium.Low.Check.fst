@@ -18,8 +18,13 @@ module S = Tessarium.Spec
 module F = Tessarium.Feistel
 module T = Tessarium.Table
 module R = Tessarium.Check.Round
+module A = Tessarium.Api
+module GR = Tessarium.Grid
+module CO = Tessarium.Codec
 module L = Tessarium.Low.Feistel
 module LG = Tessarium.Low.Grid
+module LC = Tessarium.Low.Codec
+module LA = Tessarium.Low.Api
 module M = FStar.Math.Lemmas
 module G = FStar.Ghost
 module U64 = FStar.UInt64
@@ -84,6 +89,38 @@ let check_cell_bounds (cum: LG.cum_low)
   : U64.t & U64.t & U64.t & U64.t
   = LG.cell_bounds_low cum index
 
+(* ------------------------------------------------------ the codec roots *)
+
+let check_to_address (i: U64.t{U64.v i < S.addr_space})
+  : U64.t & U64.t & U64.t & U64.t
+  = LC.to_address_low i
+
+let check_from_address
+    (w1: U64.t{U64.v w1 < S.words}) (w2: U64.t{U64.v w2 < S.words})
+    (w3: U64.t{U64.v w3 < S.words}) (n: U64.t{U64.v n < S.num_max})
+  : U64.t
+  = LC.from_address_low w1 w2 w3 n
+
+(* ------------------------------------------------- the composition roots *)
+
+let check_encode (cum: LG.cum_low) (k t: key64)
+    (dlat: U64.t{U64.v dlat <= S.lat_span})
+    (dlon: U64.t{U64.v dlon <= S.lon_span})
+  : U64.t & U64.t & U64.t & U64.t
+  = LA.encode_low #key64 #key64 #rf_ghost cum rf_low k t dlat dlon
+
+let check_decode (cum: LG.cum_low) (k t: key64)
+    (w1: U64.t{U64.v w1 < S.words}) (w2: U64.t{U64.v w2 < S.words})
+    (w3: U64.t{U64.v w3 < S.words}) (n: U64.t{U64.v n < S.num_max})
+  : U64.t & U64.t & U64.t
+  = LA.decode_low #key64 #key64 #rf_ghost cum rf_low k t w1 w2 w3 n
+
+let check_bounds_of_point (cum: LG.cum_low)
+    (dlat: U64.t{U64.v dlat <= S.lat_span})
+    (dlon: U64.t{U64.v dlon <= S.lon_span})
+  : U64.t & U64.t & U64.t & U64.t
+  = LA.bounds_of_point_low cum dlat dlon
+
 (* ------------------------------------------- agreement with the harness *)
 
 /// One formula, two spellings: on the same numbers, the machine-key spec
@@ -142,3 +179,49 @@ val theorem_check_decrypt (k t: key64) (y: U64.t{U64.v y < S.addr_space})
 let theorem_check_decrypt k t y =
   let (l, r) = F.split (U64.v y) in
   lemma_dec_loop_agrees k t F.rounds l r
+
+/// The same two agreements at the plain spec level, for the composition.
+val lemma_encrypt_agrees (k t: key64) (x: nat{x < S.addr_space})
+  : Lemma (F.encrypt rf_spec k t x == F.encrypt R.rf (U64.v k) (U64.v t) x)
+let lemma_encrypt_agrees k t x =
+  let (l, r) = F.split x in
+  lemma_enc_loop_agrees k t 0 l r
+
+val lemma_decrypt_agrees (k t: key64) (y: nat{y < S.addr_space})
+  : Lemma (F.decrypt rf_spec k t y == F.decrypt R.rf (U64.v k) (U64.v t) y)
+let lemma_decrypt_agrees k t y =
+  let (l, r) = F.split y in
+  lemma_dec_loop_agrees k t F.rounds l r
+
+/// End to end: what the extracted C's encode computes IS Api.encode with
+/// the harness round function -- the same composition gen_check ran to
+/// produce the e2e vectors. Componentwise, and likewise for decode.
+val theorem_check_encode (cum: LG.cum_low) (k t: key64)
+    (dlat: U64.t{U64.v dlat <= S.lat_span})
+    (dlon: U64.t{U64.v dlon <= S.lon_span})
+  : Lemma (let (w1, w2, w3, n) = check_encode cum k t dlat dlon in
+           (let (sw1, sw2, sw3, sn) =
+              A.encode R.rf (U64.v k) (U64.v t)
+                (S.lat_min + U64.v dlat) (S.lon_min + U64.v dlon) in
+            L.v64 w1 == sw1 /\ L.v64 w2 == sw2 /\
+            L.v64 w3 == sw3 /\ L.v64 n == sn))
+let theorem_check_encode cum k t dlat dlon =
+  T.lemma_fits ();
+  lemma_encrypt_agrees k t
+    (GR.point_to_cell (S.lat_min + U64.v dlat) (S.lon_min + U64.v dlon))
+
+val theorem_check_decode (cum: LG.cum_low) (k t: key64)
+    (w1: U64.t{U64.v w1 < S.words}) (w2: U64.t{U64.v w2 < S.words})
+    (w3: U64.t{U64.v w3 < S.words}) (n: U64.t{U64.v n < S.num_max})
+  : Lemma (let (flag, dlat, dlon) = check_decode cum k t w1 w2 w3 n in
+           (match A.decode R.rf (U64.v k) (U64.v t)
+                    (U64.v w1, U64.v w2, U64.v w3, U64.v n) with
+            | None -> L.v64 flag == 0 /\ L.v64 dlat == 0 /\ L.v64 dlon == 0
+            | Some (slat, slon) ->
+                L.v64 flag == 1 /\
+                L.v64 dlat == slat - S.lat_min /\
+                L.v64 dlon == slon - S.lon_min))
+let theorem_check_decode cum k t w1 w2 w3 n =
+  T.lemma_fits ();
+  lemma_decrypt_agrees k t
+    (CO.from_address (U64.v w1, U64.v w2, U64.v w3, U64.v n))

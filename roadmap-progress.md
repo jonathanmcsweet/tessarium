@@ -2080,3 +2080,41 @@ stated precisely (seven e2e points forward+centre; generated points and
 bounds rows rest on OCaml-vs-C), stale Feistel-only comments, and the
 spike's emission-shape obligation closed in writing (band_search: C
 recursion, depth <= 12, measured).
+
+
+## 2026-08-20: the Low* codec and composition -- the pure math fully ported
+
+Phase three: Tessarium.Low.Codec (mixed-radix, U64-trivial, bijection
+theorems transferred) and Tessarium.Low.Api -- the composition of all
+three ported stages, generic over the round function exactly as the spec
+Api is, with decode's partiality crossing the C boundary as a flag word
+and theorem_end_to_end_low restating the user-facing guarantee on machine
+types: encode a point, decode the answer, land in the same cell, for any
+round function and any conforming table lookup. The harness now replays
+the codec vectors (10), every e2e point through BOTH directions (7, key 7
+tweak 9 hardcoded in three places that must keep agreeing), and both
+rejected addresses; 4,392 literals self-verified on write. Agreement with
+the harness round function is proved at the Api level
+(theorem_check_encode/decode) through the same loop-agreement lemmas the
+Feistel leg uses.
+
+Falsified three ways: swapped word digits in the F* codec fail
+verification; a flipped e2e word index fails the harness; a decode whose
+rejection threshold is raised past the address space -- so it never says
+None -- is caught by the two rejected-address vectors. One tooling lesson
+recorded: a lone backslash at line end inside a Python heredoc writing F*
+source is a silent line-continuation that mangles /\ conjunctions --
+caught twice by the verifier, worth remembering once.
+
+The codec review found no majors -- the first branch through clean -- and
+three minors, all fixed rather than reworded: decode's rejected arm
+promised "(and zeros)" that neither proof nor harness pinned (the
+reviewer demonstrated a rejection returning garbage coordinates passing
+everything; the ensures now pins the zeros, the harness checks them, and
+the reviewer's exact tamper now fails); "the pure math fully ported"
+silently skipped Api.bounds_of_point, the grid-overlay query -- now
+ported (one composition, one appeal) with a harness leg replaying it on
+all 13 grid vectors; and the stale-comment class the previous review
+flagged had regrown in three places. The reviewer independently
+fresh-verified all five Low modules, reproduced every falsification, and
+confirmed both generated files byte-identical through the refactor.

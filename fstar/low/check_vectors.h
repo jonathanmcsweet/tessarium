@@ -4332,3 +4332,174 @@ static const uint64_t gvec_blonhi[GRID_COUNT] = {
   315350714382ULL
 };
 
+#define CODEC_COUNT 10
+
+static const uint64_t cvec_i[CODEC_COUNT] = {
+  0ULL,
+  85899345919999ULL,
+  9999ULL,
+  10000ULL,
+  20480000ULL,
+  16391557925473ULL,
+  68009900806415ULL,
+  22779130625573ULL,
+  48237679687803ULL,
+  10196273756888ULL
+};
+
+static const uint64_t cvec_w1[CODEC_COUNT] = {
+  0ULL,
+  2047ULL,
+  0ULL,
+  0ULL,
+  0ULL,
+  390ULL,
+  1621ULL,
+  543ULL,
+  1150ULL,
+  243ULL
+};
+
+static const uint64_t cvec_w2[CODEC_COUNT] = {
+  0ULL,
+  2047ULL,
+  0ULL,
+  0ULL,
+  1ULL,
+  1649ULL,
+  987ULL,
+  198ULL,
+  155ULL,
+  200ULL
+};
+
+static const uint64_t cvec_w3[CODEC_COUNT] = {
+  0ULL,
+  2047ULL,
+  0ULL,
+  1ULL,
+  0ULL,
+  80ULL,
+  1920ULL,
+  486ULL,
+  928ULL,
+  1903ULL
+};
+
+static const uint64_t cvec_n[CODEC_COUNT] = {
+  0ULL,
+  9999ULL,
+  9999ULL,
+  0ULL,
+  0ULL,
+  5473ULL,
+  6415ULL,
+  5573ULL,
+  7803ULL,
+  6888ULL
+};
+
+#define E2E_COUNT 7
+
+static const uint64_t evec_dlat[E2E_COUNT] = {
+  58754882813ULL,
+  58754882812ULL,
+  180000000000ULL,
+  0ULL,
+  90000000000ULL,
+  90000000000ULL,
+  176467002245ULL
+};
+
+static const uint64_t evec_dlon[E2E_COUNT] = {
+  180005000000ULL,
+  180005000000ULL,
+  180000000000ULL,
+  180007000000ULL,
+  0ULL,
+  180000000000ULL,
+  282228347765ULL
+};
+
+static const uint64_t evec_w1[E2E_COUNT] = {
+  2013ULL,
+  594ULL,
+  269ULL,
+  1684ULL,
+  1990ULL,
+  1622ULL,
+  721ULL
+};
+
+static const uint64_t evec_w2[E2E_COUNT] = {
+  217ULL,
+  1220ULL,
+  247ULL,
+  239ULL,
+  1584ULL,
+  85ULL,
+  256ULL
+};
+
+static const uint64_t evec_w3[E2E_COUNT] = {
+  1636ULL,
+  609ULL,
+  1381ULL,
+  1523ULL,
+  585ULL,
+  1510ULL,
+  41ULL
+};
+
+static const uint64_t evec_n[E2E_COUNT] = {
+  3900ULL,
+  1626ULL,
+  4156ULL,
+  8715ULL,
+  817ULL,
+  1182ULL,
+  88ULL
+};
+
+static const uint64_t evec_cdlat[E2E_COUNT] = {
+  58754896545ULL,
+  58754869079ULL,
+  179999986267ULL,
+  13732ULL,
+  90000013732ULL,
+  90000013732ULL,
+  176467002868ULL
+};
+
+static const uint64_t evec_cdlon[E2E_COUNT] = {
+  180004999415ULL,
+  180004985962ULL,
+  180017588430ULL,
+  180017588430ULL,
+  13489ULL,
+  180000000000ULL,
+  282228254965ULL
+};
+
+#define NONE_COUNT 2
+
+static const uint64_t nvec_w1[NONE_COUNT] = {
+  1740ULL,
+  77ULL
+};
+
+static const uint64_t nvec_w2[NONE_COUNT] = {
+  408ULL,
+  1963ULL
+};
+
+static const uint64_t nvec_w3[NONE_COUNT] = {
+  1844ULL,
+  666ULL
+};
+
+static const uint64_t nvec_n[NONE_COUNT] = {
+  8979ULL,
+  721ULL
+};
+

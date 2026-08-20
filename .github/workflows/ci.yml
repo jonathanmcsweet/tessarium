@@ -109,7 +109,7 @@ jobs:
             exit 1
           fi
 
-      # The KaRaMeL leg: the machine-integer Feistel is PROVED equal to the
+      # The KaRaMeL leg: the machine-integer core is PROVED equal to the
       # spec (that proof runs in low-verify, inside this target), then the
       # emitted C replays the vectors above. What this step tests at
       # runtime, beyond the proof: F*'s .krml emission (which shares the

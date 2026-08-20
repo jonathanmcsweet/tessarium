@@ -57,7 +57,7 @@ test-extraction:
 extract:
 	$(MAKE) -C fstar extract
 
-# The machine-integer core so far (Feistel + grid), proved equal to the
+# The machine-integer core (every pure-math stage), proved equal to the
 # spec and emitted as C by KaRaMeL, replaying gen_check's vectors and
 # sweeping the whole band table. Fast when .checked files are warm (~30s;
 # minutes cold): the agreement is a theorem discharged in low-verify; this
@@ -73,6 +73,7 @@ test-lowstar:
 	  -I fstar/low/out -I fstar/low \
 	  -I "$(KRML_ROOT)/include/krml" -I "$(KRML_ROOT)/lib/krml/dist/minimal" \
 	  fstar/low/out/Tessarium_Low_Feistel.c fstar/low/out/Tessarium_Low_Grid.c \
+	  fstar/low/out/Tessarium_Low_Codec.c fstar/low/out/Tessarium_Low_Api.c \
 	  fstar/low/out/Tessarium_Low_Check.c \
 	  fstar/low/check_main.c -o _build/low_check
 	./_build/low_check
