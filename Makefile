@@ -57,7 +57,7 @@ test-extraction:
 extract:
 	$(MAKE) -C fstar extract
 
-# The machine-integer core so far (Feistel + grid), proved equal to the
+# The machine-integer core (every pure-math stage), proved equal to the
 # spec and emitted as C by KaRaMeL, replaying gen_check's vectors and
 # sweeping the whole band table. Fast when .checked files are warm (~30s;
 # minutes cold): the agreement is a theorem discharged in low-verify; this

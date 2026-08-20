@@ -127,7 +127,7 @@ let () =
     (String.concat ";\n  " (List.map addr_row crows));
 
   (* ---------------------------------------------------------- end to end *)
-  (* Six points, each a full encode plus the decode of its own answer: two
+  (* Seven points, each a full encode plus the decode of its own answer: two
      straddling a band seam (the seam latitude comes from the extracted
      Spec.edge, the same discipline the differential corpus uses -- this
      file must not independently reproduce a bug in it), the north pole,

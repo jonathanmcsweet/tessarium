@@ -2105,3 +2105,16 @@ None -- is caught by the two rejected-address vectors. One tooling lesson
 recorded: a lone backslash at line end inside a Python heredoc writing F*
 source is a silent line-continuation that mangles /\ conjunctions --
 caught twice by the verifier, worth remembering once.
+
+The codec review found no majors -- the first branch through clean -- and
+three minors, all fixed rather than reworded: decode's rejected arm
+promised "(and zeros)" that neither proof nor harness pinned (the
+reviewer demonstrated a rejection returning garbage coordinates passing
+everything; the ensures now pins the zeros, the harness checks them, and
+the reviewer's exact tamper now fails); "the pure math fully ported"
+silently skipped Api.bounds_of_point, the grid-overlay query -- now
+ported (one composition, one appeal) with a harness leg replaying it on
+all 13 grid vectors; and the stale-comment class the previous review
+flagged had regrown in three places. The reviewer independently
+fresh-verified all five Low modules, reproduced every falsification, and
+confirmed both generated files byte-identical through the refactor.

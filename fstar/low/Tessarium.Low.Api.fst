@@ -48,7 +48,7 @@ let decode_low
       (requires True)
       (ensures  fun (flag, dlat, dlon) ->
         (match A.decode (G.reveal rf) k t (U64.v w1, U64.v w2, U64.v w3, U64.v n) with
-         | None -> v64 flag == 0
+         | None -> v64 flag == 0 /\ v64 dlat == 0 /\ v64 dlon == 0
          | Some (slat, slon) ->
              v64 flag == 1 /\
              v64 dlat == slat - S.lat_min /\ v64 dlon == slon - S.lon_min))
@@ -59,6 +59,20 @@ let decode_low
       (1uL, dlat, dlon)
     end
     else (0uL, 0uL, 0uL)
+
+/// The remaining spec Api function: cell bounds for a point, which is what
+/// draws the grid overlay. One composition of two ported maps.
+let bounds_of_point_low (cum: LG.cum_low)
+    (dlat: U64.t{U64.v dlat <= S.lat_span})
+    (dlon: U64.t{U64.v dlon <= S.lon_span})
+  : Pure (U64.t & U64.t & U64.t & U64.t)
+      (requires True)
+      (ensures  fun (lat_lo, lat_hi, lon_lo, lon_hi) ->
+        (let (sa, sb, sc, sd) =
+           A.bounds_of_point (S.lat_min + U64.v dlat) (S.lon_min + U64.v dlon) in
+         v64 lat_lo == sa - S.lat_min /\ v64 lat_hi == sb - S.lat_min /\
+         v64 lon_lo == sc - S.lon_min /\ v64 lon_hi == sd - S.lon_min))
+  = LG.cell_bounds_low cum (LG.point_to_cell_low cum dlat dlon)
 
 /// The user-facing theorem, restated on the machine composition: encoding
 /// a point and decoding the result lands in the same cell -- for any

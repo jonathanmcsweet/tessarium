@@ -94,6 +94,15 @@ int main(void) {
       fprintf(stderr, "grid vector %d: bounds mismatch\n", i);
       bad = 1;
     }
+    /* The composed overlay query: same numbers, through the Api root. */
+    K___uint64_t_uint64_t_uint64_t_uint64_t bp =
+        Tessarium_Low_Check_check_bounds_of_point(cum_lookup, gvec_dlat[i],
+                                                    gvec_dlon[i]);
+    if (bp.fst != gvec_blatlo[i] || bp.snd != gvec_blathi[i] ||
+        bp.thd != gvec_blonlo[i] || bp.f3 != gvec_blonhi[i]) {
+      fprintf(stderr, "grid vector %d: bounds_of_point mismatch\n", i);
+      bad = 1;
+    }
   }
   for (int i = 0; i < CODEC_COUNT; i++) {
     K___uint64_t_uint64_t_uint64_t_uint64_t a =
@@ -135,8 +144,8 @@ int main(void) {
     K___uint64_t_uint64_t_uint64_t d =
         Tessarium_Low_Check_check_decode(cum_lookup, 7, 9, nvec_w1[i],
                                            nvec_w2[i], nvec_w3[i], nvec_n[i]);
-    if (d.fst != 0ULL) {
-      fprintf(stderr, "rejected address %d: decode did not reject\n", i);
+    if (d.fst != 0ULL || d.snd != 0ULL || d.thd != 0ULL) {
+      fprintf(stderr, "rejected address %d: decode did not reject cleanly\n", i);
       bad = 1;
     }
   }

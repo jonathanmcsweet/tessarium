@@ -115,6 +115,12 @@ let check_decode (cum: LG.cum_low) (k t: key64)
   : U64.t & U64.t & U64.t
   = LA.decode_low #key64 #key64 #rf_ghost cum rf_low k t w1 w2 w3 n
 
+let check_bounds_of_point (cum: LG.cum_low)
+    (dlat: U64.t{U64.v dlat <= S.lat_span})
+    (dlon: U64.t{U64.v dlon <= S.lon_span})
+  : U64.t & U64.t & U64.t & U64.t
+  = LA.bounds_of_point_low cum dlat dlon
+
 (* ------------------------------------------- agreement with the harness *)
 
 /// One formula, two spellings: on the same numbers, the machine-key spec
@@ -210,7 +216,7 @@ val theorem_check_decode (cum: LG.cum_low) (k t: key64)
   : Lemma (let (flag, dlat, dlon) = check_decode cum k t w1 w2 w3 n in
            (match A.decode R.rf (U64.v k) (U64.v t)
                     (U64.v w1, U64.v w2, U64.v w3, U64.v n) with
-            | None -> L.v64 flag == 0
+            | None -> L.v64 flag == 0 /\ L.v64 dlat == 0 /\ L.v64 dlon == 0
             | Some (slat, slon) ->
                 L.v64 flag == 1 /\
                 L.v64 dlat == slat - S.lat_min /\
