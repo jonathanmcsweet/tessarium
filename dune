@@ -1,4 +1,5 @@
 ; Directories dune builds. design/ is offline Python; js/ is carried only for
 ; its differential test, which runs under `dune test`; wordlist/ holds shared
-; input data that ocaml/lib generates a module from.
-(dirs ocaml vectors js wordlist)
+; input data that ocaml/lib generates a module from; wasm/ holds the committed
+; wasm build of the verified core, which the wasm differential rule replays.
+(dirs ocaml vectors js wordlist wasm)

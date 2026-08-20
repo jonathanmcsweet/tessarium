@@ -29,3 +29,21 @@
   (pipe-stdout
    (run %{exe:../ocaml/tools/differential.exe} --count 20000)
    (run node %{dep:differential.mjs} -))))
+
+; The wasm core replaying the same corpus: the browser's half of the
+; side-by-side story (the server's half is ocaml/test/test_c_core.ml).
+; wasm/core.wasm is committed; `make sync-wasm` rebuilds it with the
+; pinned zig, CI diffs it.
+(rule
+ (alias runtest)
+ (deps
+  wasm-differential.mjs
+  %{project_root}/wasm/core.wasm
+  %{project_root}/wordlist/english.txt
+  bands.json
+  (glob_files %{project_root}/ocaml/tools/*.ml))
+ (action
+  (pipe-stdout
+   (run %{exe:../ocaml/tools/differential.exe} --count 20000)
+   (run node %{dep:wasm-differential.mjs} - %{project_root}/wasm/core.wasm
+    bands.json %{project_root}/wordlist/english.txt))))

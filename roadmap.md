@@ -285,8 +285,18 @@ The theorem set is complete and in the ledger. What is left is narrower.
       seams, rejections, three keys. The server still ANSWERS from the
       extracted core: the switch waits for the wall to have run beside
       real traffic long enough to call the two byte-identical, per the
-      phase order. Next phases: WASM for the browser, then the server
-      switches and the extracted-OCaml core retires. One narrower gap
+      phase order. WASM LANDED (2026-08-20, wasm/): the same vendored C
+      compiled to wasm32 by a pinned zig (0.13.0, sha-pinned in CI;
+      byte-identical rebuilds), a shim mirroring the FFI stubs' checks,
+      and js/wasm-differential.mjs replaying the differential corpus
+      through it in every `make test` (32,298 points: every address,
+      every centre, per-axis bounds containment, 11,454 rejections). Not wired into
+      the UI: the app still answers from the js_of_ocaml core. Final
+      phase: the SWITCH — the server answers from the C core, the UI
+      from the wasm core (needs 'wasm-unsafe-eval' added to the CSP and
+      the key handed to the worker as 32 bytes), and the extracted-OCaml
+      core retires from the serving path (extraction itself stays: the
+      spec modules still feed the evaluator leg and gen_check). One narrower gap
       remains in the evaluator leg: seven grid points is a floor, not a
       ceiling — the leg costs ~3 minutes and scales linearly if it ever
       earns more. Rerun

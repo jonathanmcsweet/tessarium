@@ -102,6 +102,25 @@ sync-c-core:
 	done; [ $$bad -eq 0 ]
 	@echo "ocaml/c_core/vendor refreshed"
 
+# The same vendored C, compiled to WebAssembly by a pinned zig
+# (~/toolchain/zig, 0.13.0). wasm/core.wasm is committed generated code:
+# `make test` needs only node, and runs the COMMITTED module -- a local
+# edit to wasm/glue.c or the vendored C is invisible to every local
+# test until this target reruns; CI rebuilds and byte-diffs, which is
+# what catches a stale artifact. wasm32-wasi for the libc headers; the
+# module's ONE import is random_get, pulled in by the prebuilt libc
+# init (crt) for its stack guard -- not removable by our flags -- and
+# the wall allow-lists exactly it, nothing else.
+ZIG := $(HOME)/toolchain/zig/zig
+C_CORE_SRC := $(addprefix ocaml/c_core/vendor/Tessarium_Low_,\
+  Feistel.c Grid.c Codec.c Api.c Hmac.c Core.c)
+sync-wasm:
+	$(ZIG) cc -target wasm32-wasi -O2 -Wl,--no-entry -mexec-model=reactor \
+	  -Wl,--strip-all \
+	  -I ocaml/c_core/vendor -D_DEFAULT_SOURCE \
+	  -o wasm/core.wasm $(C_CORE_SRC) wasm/glue.c
+	@echo "wasm/core.wasm rebuilt"
+
 build:
 	dune build
 
