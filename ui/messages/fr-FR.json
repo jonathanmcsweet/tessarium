@@ -112,5 +112,15 @@
   "panel_prefix_hint": "Les préfixes de quatre lettres fonctionnent, et le séparateur importe peu : {example} donne le même résultat.",
   "panel_footer": "Les adresses n’ont aucun sens pour quiconque possède une phrase de récupération différente. Selon toute autre phrase, le même carré porte une adresse qui n’a aucun rapport avec celle-ci.",
   "a11y_dismiss_banner": "Ignorer ce message",
-  "a11y_language": "Langue"
+  "a11y_language": "Langue",
+  "search_dir_n": "N",
+  "search_dir_ne": "NE",
+  "search_dir_e": "E",
+  "search_dir_se": "SE",
+  "search_dir_s": "S",
+  "search_dir_sw": "SO",
+  "search_dir_w": "O",
+  "search_dir_nw": "NO",
+  "search_in_region": "{region}, {country}",
+  "search_away": "{distance} km {direction}"
 }

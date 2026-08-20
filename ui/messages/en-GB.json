@@ -112,5 +112,15 @@
   "panel_prefix_hint": "Four-letter prefixes work, and separators are forgiving: {example} resolves the same way.",
   "panel_footer": "Addresses are meaningless to anyone with a different seed phrase. The same square has an entirely unrelated address under every other phrase.",
   "a11y_dismiss_banner": "Dismiss this message",
-  "a11y_language": "Language"
+  "a11y_language": "Language",
+  "search_dir_n": "N",
+  "search_dir_ne": "NE",
+  "search_dir_e": "E",
+  "search_dir_se": "SE",
+  "search_dir_s": "S",
+  "search_dir_sw": "SW",
+  "search_dir_w": "W",
+  "search_dir_nw": "NW",
+  "search_in_region": "{region}, {country}",
+  "search_away": "{distance} km {direction}"
 }

@@ -21,6 +21,39 @@ than a git log.
 
 ---
 
+### 2026-08-20 — Search results say where they go
+
+**Phase:** 6
+
+**What:** Each place-search row now reads "kind · Subdivision, Country ·
+1,234 km NE": containment from the shipped Natural Earth catalogue
+(border-polygon raycast; admin-1 boxes for the nine catalogued
+countries), distance and compass point from the current map centre, all
+offline. Ambiguous subdivision boxes say nothing rather than guessing
+(New York City sits in New Jersey's box too); country ties on
+overlapping simplified borders resolve by the candidate's own catalogued
+city, then enclave box-nesting, then depth inside the polygon — which
+gets every one of the catalogue's own 1,198 city points right,
+including both Congo capitals, Maseru, Malabo and Port Vila. 25 unit
+checks against the real committed catalogue; every tiebreak branch
+shown to ring under tampering; e2e asserts kind and distance render.
+`make test-ui` now depends on `make ui`, because the e2e servers serve
+the embedded bundle and were greenly exercising the previous one.
+
+**Rationale:** The motivating report was two-fold: identical "Atlanta —
+locality" rows, and a pick that flew across the world onto an empty
+map. This lands the first half and the distance warning for the second;
+the empty-map half is otherwise covered by the world-overview offer and
+the grey missing-tile wash (ledger, 2026-08-19/20). A per-result "no
+map here yet" marker was considered and deferred: the archive ledger
+carries no region boxes, so it needs a server-side answer — recorded in
+the roadmap. Also recorded there: the catalogue generator should emit
+boxes that bound its final rings (today the appended off-coast city
+quads fall outside them, which is why containment must skip the box
+prefilter) and could emit enclave holes.
+
+**Follow-on:** roadmap item under Web UI (search context follow-ups).
+
 ### 2026-08-20 — The verified core reaches WebAssembly
 
 **Phase:** 1–3

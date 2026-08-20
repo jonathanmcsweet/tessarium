@@ -348,6 +348,18 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
+- [ ] **Search context follow-ups.** Result rows now carry country,
+      subdivision and distance (ledger, 2026-08-20); three sharp edges
+      remain. A per-result "no map here yet" marker needs the archive
+      ledger to expose each download's region boxes — today it carries
+      only counts, so the UI cannot say offline whether a result lands
+      on downloaded tiles. The catalogue generator should emit `boxes`
+      that bound its FINAL rings — it appends off-coast city quads to
+      the polygon without widening the boxes, which forces containment
+      to skip the box prefilter and raycast all 177 countries — and
+      could emit enclave holes (Lesotho), retiring the box-nesting
+      tiebreak. Subdivision attribution stays silent when boxes overlap
+      (New York City); polygon subdivisions would resolve it.
 - [ ] **Search reaches places and main roads, not every street.** The index
       is built from tiles at zoom 12, where the basemap starts naming roads --
       so towns, villages, lakes, POIs and major roads are findable, and a
