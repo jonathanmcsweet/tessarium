@@ -276,11 +276,20 @@ The theorem set is complete and in the ledger. What is left is narrower.
       function and full real-key encodes in the C harness, and the
       evaluator leg re-deriving the same draws from the proved source
       (Check.RealRound — closing the recorded miswired-injection gap).
-      Next phases, in order: the OCaml server calling the C core over
-      the FFI beside the extracted core, WASM for the browser, then the
-      extracted-OCaml core retires. One narrower gap remains in the
-      evaluator leg: seven grid points is a floor, not a ceiling — the
-      leg costs ~3 minutes and scales linearly if it ever earns more. Rerun
+      The FFI LANDED (2026-08-20, ocaml/c_core/): the emitted C is
+      committed as vendor code (CI-diffed against a fresh emission,
+      `make sync-c-core`), a stubs layer range-checks every argument
+      before the proved code runs, and a side-by-side wall
+      (test_c_core.ml, in every `make test`) drives encode/decode/
+      bounds against the extracted core over 15,549 checks — corners,
+      seams, rejections, three keys. The server still ANSWERS from the
+      extracted core: the switch waits for the wall to have run beside
+      real traffic long enough to call the two byte-identical, per the
+      phase order. Next phases: WASM for the browser, then the server
+      switches and the extracted-OCaml core retires. One narrower gap
+      remains in the evaluator leg: seven grid points is a floor, not a
+      ceiling — the leg costs ~3 minutes and scales linearly if it ever
+      earns more. Rerun
       the deep sweep after any change to the extraction pipeline or the
       toolchain: `tools/differential-deep.sh` (about 50 minutes).
 - [ ] **`theorem_containment` excludes exactly +90°.** Latitude is clamped

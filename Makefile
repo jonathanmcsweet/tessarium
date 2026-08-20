@@ -81,6 +81,27 @@ test-lowstar:
 	  fstar/low/check_main.c -o _build/low_check
 	./_build/low_check
 
+# Refresh the committed copy of the KaRaMeL emission that the
+# side-by-side wall links (ocaml/c_core/vendor; the server itself still
+# links only the extracted core until the switch phase) -- committed
+# generated code, CI-diffed like ocaml/extracted. Copies every emitted
+# module except the test-only Check, so a new module cannot be silently
+# skipped, and diffs the hand-pinned krml runtime headers against the
+# toolchain's copies, so a hand edit to those fails here too.
+sync-c-core:
+	PATH="$(FSTAR_BIN):$$PATH" $(MAKE) -C fstar low-extract
+	@for f in fstar/low/out/Tessarium_Low_*.c fstar/low/out/Tessarium_Low_*.h; do \
+	  case $$f in *Tessarium_Low_Check*) continue ;; esac; \
+	  cp $$f ocaml/c_core/vendor/ || exit 1; \
+	done
+	@bad=0; for h in $$(cd ocaml/c_core/vendor && find . -name "*.h" ! -name "Tessarium_Low_*"); do \
+	  src="$(FSTAR_BIN)/../include/krml/$$h"; \
+	  [ -f "$$src" ] || src="$(FSTAR_BIN)/../lib/krml/dist/minimal/$$h"; \
+	  cmp -s "ocaml/c_core/vendor/$$h" "$$src" \
+	    || { echo "vendored $$h differs from the toolchain's copy"; bad=1; }; \
+	done; [ $$bad -eq 0 ]
+	@echo "ocaml/c_core/vendor refreshed"
+
 build:
 	dune build
 
