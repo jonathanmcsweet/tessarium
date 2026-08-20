@@ -29,6 +29,9 @@ external bounds_ : int -> int -> int * int * int * int = "caml_ccore_bounds"
    FFI once. Z.to_int is exact: every entry is below 2^36. *)
 let initialised = ref false
 
+(* Single-domain init: the C globals and this ref are unsynchronised.
+   Fine for the wall and today's callers; the server-switch phase must
+   initialise before forking domains. *)
 let ensure_init () =
   if not !initialised then begin
     init_
@@ -50,6 +53,10 @@ let encode ~key ~lat ~lon =
   in
   (Z.of_int w1, Z.of_int w2, Z.of_int w3, Z.of_int n)
 
+(* Out-of-domain addresses (a word index >= 2048, n >= 10000) raise here
+   where the extracted core would compute over unbounded nats; every call
+   site sits behind address_of_string, which cannot produce them. Noted
+   so "switch by changing one call" stays honest about the edge. *)
 let decode ~key (w1, w2, w3, n) =
   ensure_init ();
   let flag, dlat, dlon =

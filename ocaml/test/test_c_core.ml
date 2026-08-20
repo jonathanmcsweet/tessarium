@@ -82,7 +82,11 @@ let () =
                 (zs lon)))
         points)
     keys;
-  (* scanned addresses: agreement on Some AND None, both cores *)
+  (* scanned addresses: agreement on Some AND None, both cores. Both
+     outcomes must actually occur -- a corpus drift that starved either
+     branch would leave the flag=0 path (or the happy path) untested
+     while staying green. *)
+  let somes = ref 0 and nones = ref 0 in
   List.iter
     (fun key ->
       for _ = 1 to 500 do
@@ -93,15 +97,18 @@ let () =
         let od = Tessarium_Api.decode rf key tweak addr in
         let cd = C_core.decode ~key addr in
         match (od, cd) with
-        | FStar_Pervasives_Native.None, None -> ()
+        | FStar_Pervasives_Native.None, None -> incr nones
         | FStar_Pervasives_Native.Some (ola, olo), Some (cla, clo)
-          when Z.equal ola cla && Z.equal olo clo -> ()
+          when Z.equal ola cla && Z.equal olo clo -> incr somes
         | _ ->
             let w1, w2, w3, n = addr in
             fail "decode disagrees on %s.%s.%s.%s\n" (zs w1) (zs w2) (zs w3)
               (zs n)
       done)
     keys;
+  if !somes = 0 || !nones = 0 then
+    fail "the scan corpus starved a branch: %d resolved, %d rejected\n" !somes
+      !nones;
   (* bounds: key-independent, one pass *)
   List.iter
     (fun (lat, lon) ->

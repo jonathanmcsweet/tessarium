@@ -8,7 +8,8 @@
 
    The emitted C's refinements are erased (BOUNDS.md: callers outside
    the proved envelope are unchecked by anything), so every argument is
-   range-checked HERE, before the proved code runs. */
+   checked HERE before the proved code runs -- scalar ranges below, and
+   the band table's whole shape at init. */
 
 #include <caml/alloc.h>
 #include <caml/fail.h>
@@ -29,6 +30,14 @@ static int cum_ready = 0;
 
 static uint64_t cum_lookup(uint64_t b) { return cum_table[b]; }
 
+/* The proved code's erased precondition on the table is cum_low: the
+   lookup answers exactly T.cum. What a wrong table costs is not a wrong
+   answer but undefined behaviour (a flat band makes col_counts 0 and the
+   grid divides by it), so init enforces the same shape the C harness
+   pins: base 0, strictly increasing, steps within max_col_count, the
+   proved grand total at the top. A table that passes this and still
+   differs from T.cum is caught by the side-by-side wall, value by
+   value. */
 value caml_ccore_init(value vtable) {
   CAMLparam1(vtable);
   if (Wosize_val(vtable) != CUM_ENTRIES)
@@ -38,6 +47,14 @@ value caml_ccore_init(value vtable) {
     if (e < 0) caml_invalid_argument("c_core: negative band table entry");
     cum_table[i] = (uint64_t)e;
   }
+  if (cum_table[0] != 0ULL)
+    caml_invalid_argument("c_core: band table must start at 0");
+  if (cum_table[CUM_ENTRIES - 1] != 34807542340ULL)
+    caml_invalid_argument("c_core: band table grand total is wrong");
+  for (int i = 0; i < CUM_ENTRIES - 1; i++)
+    if (cum_table[i] >= cum_table[i + 1] ||
+        cum_table[i + 1] - cum_table[i] > 13343409ULL)
+      caml_invalid_argument("c_core: band table is not a cumulative column table");
   cum_ready = 1;
   CAMLreturn(Val_unit);
 }
