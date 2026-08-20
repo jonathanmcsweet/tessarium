@@ -1,9 +1,14 @@
 /* Seed phrase entry.
 
-   The warnings here are not boilerplate. Anyone who learns a few (address,
-   true location) pairs is doing cryptanalysis against this key; if the same
-   key also holds funds, two unrelated risks have been combined for no reason.
-   So the wallet-reuse warning is permanent and not dismissible.
+   The warnings here are not boilerplate. Where the phrase comes from is the
+   highest-value security decision in the application: a generated phrase
+   carries 256 bits nobody can search, while one a person thinks up passes
+   every check this app makes and is worth a small fraction of that. Reusing
+   a phrase that already protects something else is the other half -- anyone
+   who learns a few (address, true location) pairs is doing cryptanalysis
+   against that phrase too. So the provenance warning sits directly under the
+   generate button, where the choice is actually made, and is permanent and
+   not dismissible.
 
    Nothing typed here is persisted. No localStorage, no URL, no request. The
    phrase goes straight to the worker, which keeps the derived key and returns
@@ -147,6 +152,16 @@ export function PhraseEntry() {
           <span className="hint">{m.gate_generate_hint()}</span>
         </div>
 
+        {
+          /* Directly under the generate control rather than at the foot of
+             the form: this is guidance for a choice being made right here,
+             and at the bottom it was read after the decision, if at all. */
+        }
+        <div className="warning">
+          <strong>{m.gate_phrase_warning_title()}</strong>{" "}
+          {m.gate_phrase_warning_body()}
+        </div>
+
         {showWriteDown && (
           <div className="warning" role="status">
             <strong>{m.gate_write_down_title()}</strong>{" "}
@@ -173,11 +188,6 @@ export function PhraseEntry() {
           {unlock.isPending ? m.gate_submit_busy() : m.gate_submit()}
         </button>
         {unlock.isPending && <p className="hint">{m.gate_deriving_hint()}</p>}
-
-        <div className="warning">
-          <strong>{m.gate_wallet_warning_title()}</strong>{" "}
-          {m.gate_wallet_warning_body()}
-        </div>
 
         {
           /* The wordlist is English BIP-39 in every language: a French reader

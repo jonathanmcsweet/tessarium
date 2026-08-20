@@ -180,6 +180,37 @@ check(
   ),
 );
 
+/* Where the phrase comes from is the highest-value security decision in the
+   app, so the guidance for it must be on screen BEFORE anything is generated
+   or typed -- not at the foot of the form where it is read after the choice,
+   if at all. Both halves are checked: don't invent, and don't reuse. The
+   position check is the part that actually rings when the block drifts back
+   down the form, since a warning below the submit button still "appears". */
+{
+  const warnings = await page.locator(".warning").allTextContents();
+  check(
+    "the phrase-provenance warning is on screen before generating",
+    warnings.some((t) =>
+      t.includes("Don't invent one") && t.includes("thought up")
+    ),
+  );
+  check(
+    "the provenance warning also covers reuse",
+    warnings.some((t) => t.includes("already protects something else")),
+  );
+  check(
+    "the provenance warning sits above the unlock button",
+    await page.evaluate(() => {
+      const warning = Array.from(document.querySelectorAll(".warning"))
+        .find((el) => el.textContent.includes("Don't invent one"));
+      const submit = document.querySelector("button[type=submit]");
+      if (!warning || !submit) return false;
+      return !!(warning.compareDocumentPosition(submit)
+        & Node.DOCUMENT_POSITION_FOLLOWING);
+    }),
+  );
+}
+
 /* "Generate one for me" must produce a phrase this same application accepts.
    A generator whose output fails its own checksum would strand a user who had
    already written 24 words down. Two presses must also differ -- a generator
