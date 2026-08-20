@@ -1708,13 +1708,15 @@ await page.waitForTimeout(400);
 
 /* NFKD across the whole stack.
 
-   The browser derives keys with WebCrypto and normalises with JavaScript's
-   String.normalize; the vectors were produced by OCaml and uunf. Nothing else
-   in the suite compares those two. So: lock, then unlock with the DECOMPOSED
-   form of a passphrase whose addresses were generated from the PRECOMPOSED
-   form, and require the same address out. "café" typed on one keyboard and
-   pasted from another are these two byte sequences; before NFKD they were two
-   different maps and the user was told nothing. */
+   The vectors' keys were derived from the NFKD form of this passphrase.
+   Unlock with the PRECOMPOSED form -- the direction that can fail: the
+   decomposed form is NFKD's own output and would pass with normalisation
+   removed -- and require the vector's address out. Since kdf-3 the browser
+   builds its KDF inputs through the js_of_ocaml core and stretches in the
+   Argon2id wasm, so this pins that whole chain, not a JS re-spelling of
+   the normalisation. "café" typed on one keyboard and pasted from another
+   are two byte sequences; before NFKD they were two different maps and the
+   user was told nothing. */
 const nfkdSample = vectors.nfkd_addresses[0];
 /* PRECOMPOSED here, deliberately. NFKD's *output* is the decomposed form, so
    unlocking with the decomposed passphrase yields the right key even when

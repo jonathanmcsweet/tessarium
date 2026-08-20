@@ -16,8 +16,9 @@
 
    Fixed input buffers rather than an allocator: a 24-word phrase is under
    300 bytes and the salt is the 17-byte version prefix plus a passphrase.
-   1024 covers both with a wide margin, and the range checks below turn an
-   overflow into an error return instead of a truncated secret. */
+   1024 covers both with a wide margin; the core's max_passphrase_bytes
+   keeps real inputs well inside it, and the worker re-checks before it
+   writes -- the range checks below are the last line, not the first. */
 
 #include <stdint.h>
 #include <string.h>
@@ -39,11 +40,16 @@ __attribute__((export_name("out_ptr"))) const unsigned char *out_ptr(void) {
 }
 
 __attribute__((export_name("kdf"))) int32_t kdf(uint32_t plen, uint32_t slen) {
-  if (plen > sizeof password || slen > sizeof salt) return -100;
-  if (slen < ARGON2_MIN_SALT_LENGTH) return -101;
-  int rc = argon2id_hash_raw(3, 65536, 1, password, plen, salt, slen, out,
-                             sizeof out);
-  /* The password buffer held phrase bytes; keep their lifetime one call. */
+  int rc;
+  if (plen > sizeof password || slen > sizeof salt) rc = -100;
+  else if (slen < ARGON2_MIN_SALT_LENGTH) rc = -101;
+  else
+    rc = argon2id_hash_raw(3, 65536, 1, password, plen, salt, slen, out,
+                           sizeof out);
+  /* The password buffer held phrase bytes; keep their lifetime one call --
+     on the refusal paths too, since the caller has already written. Note
+     the caller must ALSO bound-check before writing: this function cannot
+     protect the memory around buffers it is handed lengths for. */
   memset(password, 0, sizeof password);
   memset(salt, 0, sizeof salt);
   return rc;

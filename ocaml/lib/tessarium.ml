@@ -10,6 +10,7 @@ module Table = Tessarium_Table
 
 exception Invalid_address of string
 exception Bad_mnemonic of string
+exception Bad_passphrase of string
 
 let grid_version = Table.grid_version
 (* Left as Zarith. Both exceed 2^31, and this module is also compiled to
@@ -147,7 +148,23 @@ let mnemonic_of_entropy entropy =
 let kdf_password ~mnemonic =
   Normalize.nfkd (String.concat " " (split_words (normalize_mnemonic mnemonic)))
 
-let kdf_salt ~passphrase = derivation_version ^ Normalize.nfkd passphrase
+(* The KDF's input buffers are sized for phrases and passphrases, not for
+   pasted documents: the wasm glue carries 1024-byte buffers, and the limit
+   is enforced HERE -- before any host-specific code -- so the server and
+   the browser refuse the same inputs with the same words. 1000 bytes of
+   NFKD passphrase plus the 17-byte version prefix stays inside the wasm
+   buffer with margin. *)
+let max_passphrase_bytes = 1000
+
+let kdf_salt ~passphrase =
+  let p = Normalize.nfkd passphrase in
+  if String.length p > max_passphrase_bytes then
+    raise
+      (Bad_passphrase
+         (Printf.sprintf
+            "passphrase too long: %d bytes NFKD-normalised, the limit is %d"
+            (String.length p) max_passphrase_bytes));
+  derivation_version ^ p
 
 (* Key derivation is deliberately expensive. Derive once per session and
    cache the result; it must never sit in the per-request path.

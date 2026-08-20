@@ -6,10 +6,13 @@
    glue (wasm/argon2_glue.c) and the JS oracle bake the same three numbers;
    the differential walls are what notice the three drifting apart.
 
-   The runtime lock is released around the hash: 64 MiB of memory-hard work
-   takes ~100 ms, and the server's other fibers should not stall behind an
-   unlock. Inputs are copied out before release; the password copy is wiped
-   before free. */
+   The runtime lock is released around the hash. Said honestly: today this
+   buys nothing -- the server is single-domain Eio, so its fibers share the
+   one OS thread that is busy inside argon2 for the ~110 ms regardless of
+   the lock. It is kept because it is correct FFI hygiene, it costs two
+   lines, and the day an unlock moves to a second domain or systhread it
+   starts working without anyone remembering this file. Inputs are copied
+   out before release; the password copy is wiped before free. */
 
 #include <caml/alloc.h>
 #include <caml/fail.h>

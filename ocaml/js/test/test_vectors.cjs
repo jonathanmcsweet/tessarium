@@ -40,13 +40,20 @@ check("the derivation version is exposed for the worker",
   C.derivationVersion === v.derivation_version);
 {
   const hex = (s2) => Buffer.from(s2, "hex").toString("utf8");
-  const inputs = C.kdfInputs(v.key_derivation[0].mnemonic, "pp");
+  const phrase = v.key_derivation[0].mnemonic;
+  const inputs = C.kdfInputs(phrase, "pp");
   check("kdfInputs builds the versioned salt",
-    inputs !== null && hex(inputs.salt) === v.derivation_version + "pp");
-  check("kdfInputs normalises the phrase to single-spaced words",
-    inputs !== null && !/\s\s/.test(hex(inputs.password)));
+    inputs.error === null && hex(inputs.salt) === v.derivation_version + "pp");
+  /* The direction that can fail: a mangled spelling of the same phrase must
+     normalise to the SAME password bytes, which cannot happen if the
+     normalisation is skipped. */
+  const mangled = C.kdfInputs("  " + phrase.toUpperCase().replace(/ /g, "   ") + "\t", "pp");
+  check("kdfInputs normalises spacing and case away",
+    mangled.error === null && mangled.password === inputs.password);
   check("kdfInputs refuses an invalid phrase",
-    C.kdfInputs("not a phrase", "") === null);
+    C.kdfInputs("not a phrase", "").error !== null);
+  check("kdfInputs refuses an over-long passphrase",
+    C.kdfInputs(phrase, "x".repeat(2000)).error !== null);
 }
 for (const a of v.addresses) {
   const got = C.encodeNs(keys[a.mnemonic], String(a.lat_ns), String(a.lon_ns));

@@ -476,6 +476,7 @@ let handle_api cfg sessions limiter random ~endpoint ~body ~now =
                 in
                 match Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic ~passphrase with
                 | exception Tessarium.Bad_mnemonic e -> bad e
+                | exception Tessarium.Bad_passphrase e -> bad e
                 | key ->
                     let id = Sessions.new_id random in
                     Sessions.put sessions ~now id key;

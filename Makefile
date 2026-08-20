@@ -153,8 +153,14 @@ sync-argon2:
 	       cmp -s ocaml/argon2/vendor/blake2/$$f $$tmp/$$src/src/blake2/$$f || { echo "vendored blake2/$$f differs"; bad=1; }; \
 	     done \
 	  && cmp -s ocaml/argon2/vendor/LICENSE $$tmp/$$src/LICENSE || { echo "vendored LICENSE differs"; bad=1; } \
+	  && want="LICENSE argon2.c argon2.h blake2 core.c core.h encoding.c encoding.h genkat.h ref.c thread.h" \
+	  && got=$$(ls ocaml/argon2/vendor | tr '\n' ' ' | sed 's/ $$//') \
+	  && { [ "$$got" = "$$want" ] || { echo "vendor/ holds unexpected entries: $$got"; bad=1; }; } \
+	  && wantb="blake2-impl.h blake2.h blake2b.c blamka-round-ref.h" \
+	  && gotb=$$(ls ocaml/argon2/vendor/blake2 | tr '\n' ' ' | sed 's/ $$//') \
+	  && { [ "$$gotb" = "$$wantb" ] || { echo "vendor/blake2 holds unexpected entries: $$gotb"; bad=1; }; } \
 	  && rm -rf $$tmp && [ $$bad -eq 0 ]
-	@echo "ocaml/argon2/vendor matches release $(ARGON2_TAG)"
+	@echo "ocaml/argon2/vendor matches release $(ARGON2_TAG), no extra files"
 
 build:
 	dune build

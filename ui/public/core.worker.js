@@ -82,9 +82,16 @@ async function loadArgon2() {
 
 async function deriveKey(mnemonic, passphrase) {
   const inputs = core.kdfInputs(mnemonic, passphrase);
-  if (inputs === null) throw new Refused("phrase failed validation");
+  if (inputs.error !== null) throw new Refused(inputs.error);
   const password = bytesOfHex(inputs.password);
   const salt = bytesOfHex(inputs.salt);
+  /* The core already bounds both inputs (max_passphrase_bytes), so these
+     can only trip on a drift between its limit and the glue's buffers --
+     checked BEFORE anything is written, because the glue's own check runs
+     after the write and cannot protect the memory around the buffers. */
+  if (password.length > 1024 || salt.length > 1024) {
+    throw new Refused("KDF input exceeds the wasm buffers");
+  }
   const a = await loadArgon2();
   new Uint8Array(a.memory.buffer, a.password_ptr(), password.length)
     .set(password);
@@ -135,7 +142,14 @@ const ops = {
           + "derive a key. Serve it over HTTPS or from localhost.",
       };
     }
-    key = await deriveKey(mnemonic, passphrase ?? "");
+    /* A refused derivation -- over-long passphrase, wasm trouble -- is a
+       result to display like a failed checksum, not a rejected promise. */
+    try {
+      key = await deriveKey(mnemonic, passphrase ?? "");
+    } catch (e) {
+      if (e instanceof Refused) return { ok: false, error: e.message };
+      throw e;
+    }
     return { ok: true, error: null };
   },
 

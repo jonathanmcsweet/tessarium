@@ -11,7 +11,7 @@
  (libraries tessarium tessarium_extracted tessarium_c_core zarith))
 
 ; The vendored Argon2id against vectors two independent implementations
-; agree on. Fast enough for runtest: four hashes at 64 MiB is ~450 ms.
+; agree on. Fast enough for runtest: three hashes at 64 MiB is ~350 ms.
 (test
  (name test_argon2)
  (modules test_argon2)
