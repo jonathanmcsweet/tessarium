@@ -148,7 +148,7 @@ let () =
      corpus. The F* proves them about the source and fstar/check replays
      the extraction on fixed points with a test round function; this is
      the third leg: the COMPOSED binary -- extracted core, zarith, the
-     real HMAC round function -- obeying the same laws on every corpus
+     real keyed-BLAKE2s round function -- obeying the same laws on every corpus
      point. A binary that violates one here has a bug the other two legs
      sit upstream of: in the crypto injection, the linker, or the
      compiler's treatment of this exact composition. *)

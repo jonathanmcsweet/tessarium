@@ -173,6 +173,11 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # The differential oracle's one dependency (keyed BLAKE2s -- see
+      # package.json at the root). Locked install, no scripts.
+      - name: Oracle dependencies
+        run: npm ci --ignore-scripts
+
       - name: Build
         run: opam exec -- dune build
 

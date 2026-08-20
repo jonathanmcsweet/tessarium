@@ -17,9 +17,9 @@
    one, spelled here with Prims' own operators -- the arithmetic layer every
    extracted expression already goes through -- and independently in the F*
    harness; the two spellings disagreeing FAILS the check, which is the
-   right direction. HMAC is deliberately absent: it was never inside the
-   proof (the theorems hold for any round function), and it is vector-tested
-   where it lives.
+   right direction. The MAC appears only in the real-round-function rows
+   below: the Feistel theorems hold for any round function, and the harness
+   legs deliberately drive a toy one.
 
    Deterministic by construction: no clock, no OS randomness. Same extracted
    core, same bytes out -- CI diffs the regenerated file against the
@@ -204,9 +204,9 @@ let () =
 
   (* ---------------------------------------------- the REAL round function *)
   (* Everything above drives the harness round function; these rows drive
-     the PRODUCTION one -- digestif's HMAC-SHA256 through Crypto.round_fn,
-     the exact bytes the server signs with. Now that the round function
-     lives inside the proof (Tessarium.Low.Hmac), the evaluator and the
+     the PRODUCTION one -- digestif's keyed BLAKE2s through Crypto.round_fn,
+     the exact bytes the server signs with. The round function lives inside
+     the proof (Tessarium.Low.Blake2s), so the evaluator and the
      C harness both re-derive digestif's answers from the proved source;
      these are the vectors they replay. Keys are deterministic 32-byte
      patterns: production keys are PBKDF2 output, but any 32 bytes walk
@@ -223,11 +223,12 @@ let () =
     String.init 32 (fun j -> Char.chr (((v * 37) + (j * 11) + 5) land 0xff))
   in
   let kw key =
+    (* BLAKE2s's own byte order: eight LITTLE-endian words. *)
     List.init 8 (fun j ->
         let byte p = Z.of_int (Char.code key.[(4 * j) + p]) in
         Z.add
-          (Z.add (Z.shift_left (byte 0) 24) (Z.shift_left (byte 1) 16))
-          (Z.add (Z.shift_left (byte 2) 8) (byte 3)))
+          (Z.add (byte 0) (Z.shift_left (byte 1) 8))
+          (Z.add (Z.shift_left (byte 2) 16) (Z.shift_left (byte 3) 24)))
   in
   let rf_rows =
     List.init 16 (fun v ->

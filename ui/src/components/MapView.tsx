@@ -435,7 +435,7 @@ export function MapView() {
 
     const b = map.getBounds();
     /* Geometry only. The overlay never carries addresses, so a refresh needs
-       no key and costs no HMACs -- it is a walk over the integer grid.
+       no key and costs no MAC calls -- it is a walk over the integer grid.
 
        A refresh in flight when the user locks still has to fail harmlessly,
        so the catch stays. */

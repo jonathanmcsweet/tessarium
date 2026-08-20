@@ -68,10 +68,10 @@ the encode path. If you find yourself reaching for a float in `fstar/`,
 **Say exactly what is proved, and no more.** Every module in `fstar/` verifies
 with zero admits, enforced by `--report_assumes error`. The theorems are listed
 in `README.md`. What is NOT proved: that the mapping is unguessable (that rests
-on HMAC-SHA256 behaving as a PRF, which is an assumption); the F\* extraction
-pipeline and `ocamlopt`; `digestif`'s SHA-2, which is vector-tested; and every
-line of `ocaml/server/`, `ocaml/pmtiles/` and `ui/`, none of which is F\* at
-all. Do not let a summary blur the line between "the core is proved" and "the
+on keyed BLAKE2s behaving as a PRF, which is an assumption); the F\* extraction
+pipeline and `ocamlopt`; `digestif`'s BLAKE2s and SHA-2, which are
+vector-tested; and every line of `ocaml/server/`, `ocaml/pmtiles/` and `ui/`,
+none of which is F\* at all. Do not let a summary blur the line between "the core is proved" and "the
 program is correct".
 
 **A theorem that asserts nothing is worse than a missing one**, because it
@@ -185,10 +185,11 @@ reasoning in a progress entry.
 
 Questions that WERE here are now closed, and reopening one needs a note in
 the ledger: the server never sees a seed phrase by default (keys are derived
-in the browser; the opt-in API exists for scripting); HMAC-SHA256 comes
-from `digestif`'s pure-OCaml backend rather than HACL\*, because HACL\*'s C
-stubs do not cross into js_of_ocaml and taking it would force a second
-browser-side crypto implementation; and basemap tiles come from the newest
+in the browser; the opt-in API exists for scripting); the round function
+(keyed BLAKE2s since 2026-08-20, HMAC-SHA256 before -- the move off NIST
+primitives is ledgered) comes from `digestif`'s pure-OCaml backend rather
+than HACL\*, because HACL\*'s C stubs do not cross into js_of_ocaml and
+taking it would force a second browser-side crypto implementation; and basemap tiles come from the newest
 Protomaps daily build, resolved from the published listing at use time,
 because the stable demo-bucket URL was deleted upstream (ledger, 2026-08-18).
 

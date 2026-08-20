@@ -89,8 +89,13 @@ for (const line of lines) {
   if (line === "" || line.startsWith("#")) {
     const m = /^# key: ([0-9a-f]{64})$/.exec(line);
     if (m)
-      keyWords = Array.from({ length: 8 }, (_, i) =>
-        BigInt("0x" + m[1].slice(i * 8, i * 8 + 8)));
+      // BLAKE2s's own byte order: eight LITTLE-endian words of the raw key.
+      keyWords = Array.from({ length: 8 }, (_, i) => {
+        const w = m[1].slice(i * 8, i * 8 + 8);
+        return BigInt(
+          "0x" + w.slice(6, 8) + w.slice(4, 6) + w.slice(2, 4) + w.slice(0, 2),
+        );
+      });
     continue;
   }
   if (!keyWords) throw new Error("corpus has no # key: header");

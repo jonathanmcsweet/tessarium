@@ -125,12 +125,12 @@ LOW_FLAGS := $(FSTAR_FLAGS) --include low --include check
 # LOW_ORDER is dependency order, leaves first: the loop refreshes
 # .checked bottom-up, because a stale dependency is re-verified inline
 # but its cache is NOT rewritten -- alphabetical order left Core.checked
-# one run behind after any Hmac edit. The wildcard guard keeps the
+# one run behind after any Blake2s edit. The wildcard guard keeps the
 # derived-not-listed discipline: a module dropped into low/ but missing
 # from LOW_ORDER fails the build instead of silently never verifying.
 LOW_ORDER := Tessarium.Low.Feistel Tessarium.Low.Grid \
              Tessarium.Low.Codec Tessarium.Low.Api \
-             Tessarium.Low.Hmac Tessarium.Low.Core Tessarium.Low.Check
+             Tessarium.Low.Blake2s Tessarium.Low.Core Tessarium.Low.Check
 LOW_MODULES := $(wildcard low/*.fst)
 
 low-verify: verify

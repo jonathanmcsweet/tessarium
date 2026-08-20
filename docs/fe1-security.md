@@ -18,7 +18,7 @@ Z_a × Z_b with
 | b | 13,107,200 = 2^19 × 25 ≈ 2^23.6 | `fstar/Tessarium.Spec.fst` |
 | Domain a·b | 8.59 × 10^13 (every address) | |
 | Rounds | 16 (even, by proof obligation) | `fstar/Tessarium.Feistel.fst` |
-| Round function | HMAC-SHA256, full PRF per round | injected, `ocaml/lib` |
+| Round function | keyed BLAKE2s-256, full PRF per round | injected, `ocaml/lib`; vector-pinned machine-integer port in `fstar/low` |
 | Tweak | the fixed string `tessarium-grid-2` | not an input anywhere |
 | Key | 32 bytes: mnemonic → PBKDF2-HMAC-SHA512 × 2,048 (BIP-39) → PBKDF2-HMAC-SHA512 × 200,000, salt `tessarium-kdf-2` | `ocaml/lib/tessarium.ml` |
 
@@ -90,13 +90,13 @@ with data requirements growing accordingly; every practical demonstration
 in the literature targets the standards' 8–10-round instantiations.
 Sixteen was chosen (raised from ten in this project's history, with the
 rationale in the ledger) to sit above all of it with margin, at a cost of
-six more HMACs per address — noise next to the KDF.
+six more MAC calls per address — noise next to the KDF.
 
 ## The endgame an attacker cannot reach past
 
 Suppose the impossible: the complete codebook, every address paired with
 its square. That is the private *map*, fully reconstructed — and it is
-still not the *key*. The key sits behind HMAC-SHA256 as a PRF: recovering
+still not the *key*. The key sits behind keyed BLAKE2s as a PRF: recovering
 it from any number of input/output pairs is generic key search.
 
 Two search spaces exist, and the honest claim needs both stated together:
@@ -105,7 +105,7 @@ Two search spaces exist, and the honest claim needs both stated together:
   post-Grover). Each guess pays the KDF: 202,048 PBKDF2 iterations —
   deliberately, 98.7× BIP-39's baseline.
 - **Raw key space.** A 32-byte Feistel key can be guessed directly for 16
-  HMACs per try, skipping the KDF entirely. The KDF hardening is therefore
+  MAC calls per try, skipping the KDF entirely. The KDF hardening is therefore
   NOT what protects against raw-key search — 2^256 keys (2^128
   post-Grover) is. A raw-key hit would decrypt the map but yields no
   phrase: the KDF cannot be run backwards, and nothing in this system
@@ -137,10 +137,12 @@ the dismissal reads as informed rather than unaware.
 
 The F\* proofs establish that decode inverts encode for *any* round
 function, and that the grid is injective. They say nothing about
-pseudorandomness. Unpredictability of the mapping rests on HMAC-SHA256
-behaving as a PRF — an assumption, named as such in the README — and on
-the key-derivation chain above. If SHA-2 falls, the hash is an injected
-parameter: swap it, bump the grid version, regenerate the vectors.
+pseudorandomness. Unpredictability of the mapping rests on keyed BLAKE2s
+behaving as a PRF — an assumption, named as such in the README, and the
+standard one underneath Argon2 and WireGuard's use of the same primitive —
+and on the key-derivation chain above. If BLAKE2s falls, the hash is an
+injected parameter: swap it, bump the grid version, regenerate the vectors
+(exercised for real in the 2026-08-20 HMAC-SHA256 → BLAKE2s move).
 
 ## References
 

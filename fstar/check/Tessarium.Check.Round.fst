@@ -35,8 +35,10 @@ module Tessarium.Check.Round
 /// simple one is checking the proved code. It is spelled once here and
 /// once in ocaml/tools/gen_check.ml over Prims' own operators; if the
 /// two spellings drift apart, every Check module FAILS, which is the
-/// right direction. HMAC is absent on purpose: it was never inside the
-/// proof, and it is vector-tested where it lives (ocaml/lib/crypto.ml).
+/// right direction. The production MAC is deliberately not driven here:
+/// this leg exercises the Feistel with a toy round function (the theorems
+/// hold for any), and Check.RealRound is the leg that re-derives the real
+/// keyed-BLAKE2s answers from the proved source.
 
 module F = Tessarium.Feistel
 open Tessarium.Spec

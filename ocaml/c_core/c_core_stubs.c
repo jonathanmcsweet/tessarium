@@ -1,7 +1,7 @@
 /* OCaml FFI over the KaRaMeL-emitted verified core (vendor/).
 
    The unproved plumbing on this path, all of it here: the band-table
-   copy at init, the big-endian key packing, and the value conversions.
+   copy at init, the little-endian key packing, and the value conversions.
    Each is watched by the side-by-side wall (ocaml/test/test_c_core.ml),
    which drives every entry point against the extracted-OCaml core with
    digestif injected, over corners and generated corpora.
@@ -64,9 +64,10 @@ static void key_words(value vkey, uint64_t kw[8]) {
   if (caml_string_length(vkey) != 32)
     caml_invalid_argument("c_core: the key must be exactly 32 bytes");
   const unsigned char *k = (const unsigned char *)String_val(vkey);
+  /* BLAKE2s's own byte order: eight LITTLE-endian words. */
   for (int i = 0; i < 8; i++)
-    kw[i] = ((uint64_t)k[4 * i] << 24) | ((uint64_t)k[4 * i + 1] << 16) |
-            ((uint64_t)k[4 * i + 2] << 8) | (uint64_t)k[4 * i + 3];
+    kw[i] = (uint64_t)k[4 * i] | ((uint64_t)k[4 * i + 1] << 8) |
+            ((uint64_t)k[4 * i + 2] << 16) | ((uint64_t)k[4 * i + 3] << 24);
 }
 
 static uint64_t offset_arg(value v, uint64_t span, const char *what) {

@@ -5,7 +5,7 @@ with `uint64_t`. That is sound only if no intermediate value can reach
 2^64, and F* will demand a proof at every operation -- this document is
 the advance survey of those proofs, worked from the shipped constants.
 The verdict: **the entire core fits unsigned 64-bit arithmetic.** No
-128-bit arithmetic is needed anywhere, including the HMAC reduction.
+128-bit arithmetic is needed anywhere, including the MAC reduction.
 
 ## Constants (from Tessarium.Spec and Tessarium.Table.Data)
 
@@ -31,7 +31,7 @@ round function adds `x*31` (< 2^29), `i*1000003` (< 2^24) and `k + t`
 (< 2^33 under the key64 bound). Every claim here is now a discharged
 refinement, not an estimate.
 
-## Real round function -- PORTED AND PROVED (Low.Hmac / Low.Core)
+## Real round function -- PORTED AND PROVED (Low.Blake2s / Low.Core)
 
 This survey originally sketched a two-halves reduction here
 (`h = hi*2^64 + lo` with `2^64 mod m` assert_norm constants). The landed
@@ -92,43 +92,54 @@ flag word instead of an option -- generic over the round function like
 the spec, with theorem_end_to_end_low restating the user-facing round
 trip on machine types. Every pure-math stage of the core is now ported.
 
-## The real round function (Low.Hmac / Low.Core, 2026-08-20)
+## The real round function (Low.Blake2s / Low.Core; BLAKE2s since 2026-08-20)
 
-SHA-256 and the production HMAC, in pure machine integers -- the round
-function now lives inside the proof rather than being injected.
+Keyed BLAKE2s-256, in pure machine integers -- the round function lives
+inside the proof rather than being injected. (The first port, same day,
+was HMAC-SHA256 in Low.Hmac; the primitive then moved off NIST designs,
+and this section describes what ships. The bounds discipline carried
+over unchanged.)
 
-- Every SHA word is a U64 kept below 2^32 by masking after each
-  operation; FIPS defines the arithmetic mod 2^32, so the masks are the
-  spec, not an approximation of it. Rotations are div/mul by literal
+- Every BLAKE2s word is a U64 kept below 2^32 by masking after each
+  operation; RFC 7693 defines the arithmetic mod 2^32, so the masks are
+  the spec, not an approximation of it. Rotations are div/mul by literal
   powers of two: all overflow obligations stay linear.
 - Worst intermediate: the rotation multiplies, x * 2^(32-n) with
-  x < 2^32 -- largest at rotr2 (n = 2), x * 2^30 < 2^62, a 4x margin,
-  the narrowest in this module and unsigned-only like everything else.
-  The round's five-term sums stay below 5 * 2^32 < 2^35.
+  x < 2^32 -- largest at rotr7 (n = 7), x * 2^25 < 2^57, unsigned-only
+  like everything else. The quarter-round's three-term sums stay below
+  3 * 2^32 < 2^34.
 - The 128-bit reduction never builds a 128-bit integer: the four digest
   words Horner-fold mod m, each step below m * 2^32 < 2^56 (m <= fe_b
-  < 2^24). The fold's agreement with "first 16 digest bytes as one
-  big-endian integer, mod m" is `horner_step`, proved, not assumed.
-- NOT HACL*, deliberately: its HMAC lives in LowStar's stateful buffer
-  model, and one call would pull the whole Tot core into the Stack
-  effect. The production key is exactly 32 bytes and the tweak is a
-  constant, so the message is fixed-shape (47 bytes, four compressions,
-  static padding) and needs no buffers at all.
-- What is pinned rather than proved: that the FIPS constants and
-  crypto.ml's message layout are transcribed correctly. Three NIST
-  vectors drive `compress` bare in the C harness; digestif recomputes
-  the composed round function and full encodes/decodes on fresh draws
+  < 2^24). BLAKE2s serializes little-endian and v2 reads the digest
+  little-endian, so the fold runs h3 down to h0 -- most significant
+  word first -- and its agreement with "first 16 digest bytes as one
+  LITTLE-endian integer, mod m" is `horner_step`, proved, not assumed.
+- No HMAC layer at all: BLAKE2s keys natively (the zero-padded key is
+  block one), so the whole MAC is TWO compressions with static padding
+  -- key block at t=64, the fixed 47-byte message block at t=111,
+  final -- and needs no buffers. (The HACL* rationale recorded for v1
+  still applies to why no library: stateful buffer model, and the
+  current F* release ships no LowStar libraries.)
+- What is pinned rather than proved: that the RFC constants (IV, sigma,
+  rotations, parameter block) and crypto.ml's message layout are
+  transcribed correctly. The RFC 7693 "abc" digest and four keyed KAT
+  rows (message lengths 0/47/64/129) drive `compress` bare in the C
+  harness through a general rebuilt BLAKE2s; digestif recomputes the
+  composed round function and full encodes/decodes on fresh draws
   (check_vectors.h), and the evaluator leg re-derives the same draws
-  from the proved source (Check.RealRound). Falsified: a flipped round
-  constant fails NIST + digestif, a flipped layout byte fails digestif
-  alone, a flipped Horner multiplier fails VERIFICATION, and a flipped
-  key-word packing in gen_check fails the C leg.
+  from the proved source (Check.RealRound). Falsified: a flipped sigma
+  wire fails the keyed KATs (NOT the near-zero-message "abc" row -- why
+  the keyed rows exist), a flipped layout word fails digestif alone,
+  a big-endian key packing fails the C leg, a big-endian digest read in
+  the JS oracle fails the whole differential corpus.
 - Verifier ergonomics, recorded for the next primitive: a flat unrolled
-  compression sends the pure-WP substitution exponential (8 rounds 0.6s,
-  24 rounds 5m); eight-round chunk functions keep every value a binder.
-  The chunks and hmac47 are `opaque_to_smt` -- no downstream proof needs
-  their definitions, and leaving them visible let Z3 unfold a
-  four-compression chain without bound.
+  compression sends the pure-WP substitution exponential (measured on
+  the SHA-256 port: 8 rounds 0.6s, 24 rounds 5m); per-round chunk
+  functions keep every value a binder, and state travels as two
+  8-tuples because F* tuples stop at arity 14. The rounds, compress and
+  blake2s47 are `opaque_to_smt` -- no downstream proof needs their
+  definitions, and leaving them visible let Z3 unfold a chained
+  compression without bound.
 
 ## What the spike established about the toolchain
 
@@ -144,7 +155,7 @@ function now lives inside the proof rather than being injected.
   refinements extract cleanly.
 - The spec round function travels as a `G.erased` ghost index; the
   machine round function's result refinement carries the agreement proof
-  call by call. This is the pattern the HMAC phase will reuse.
+  call by call. This is the pattern the real-round-function port reused.
 - krml emits the loops as genuine C recursion through a function pointer
   (no specialization, no guaranteed tail call). Depth 16 here is
   harmless; the table phases must re-check the emission shape before

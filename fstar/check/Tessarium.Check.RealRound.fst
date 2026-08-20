@@ -2,8 +2,9 @@ module Tessarium.Check.RealRound
 
 /// The evaluator leg for the REAL round function. Every other check module
 /// drives the harness round function; this one makes F*'s normalizer
-/// recompute digestif's HMAC-SHA256 answers from the proved machine source
-/// (Tessarium.Low.Hmac through Tessarium.Low.Core.rf_real) -- closing
+/// recompute digestif's keyed-BLAKE2s answers from the proved machine
+/// source (Tessarium.Low.Blake2s through Tessarium.Low.Core.rf_real)
+/// -- closing
 /// the gap the roadmap recorded: a miswired production round function
 /// would slip past every harness-round-function leg.
 ///
