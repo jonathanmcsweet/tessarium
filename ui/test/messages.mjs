@@ -153,6 +153,33 @@ if (!existsSync(compiled)) {
     })`,
     absent.length === 0,
   );
+
+  /* Keys reaching the compiler is not the same as TEXT reaching it. The
+     compiled output is a gitignored artifact, and until `npm run build`
+     was made to compile it, editing a catalogue and building shipped the
+     previous wording -- silently, because every key was still present.
+     Compare the words themselves for the reference locale. Messages with
+     placeholders are skipped: those compile to template expressions rather
+     than a literal, and the placeholder checks above already cover them. */
+  const stale = [];
+  for (const key of referenceKeys) {
+    const value = reference[key];
+    if (typeof value !== "string" || value.includes("{")) continue;
+    const file = join(root, "src", "paraglide", "messages", `${key}.js`);
+    if (!existsSync(file)) {
+      stale.push(key);
+      continue;
+    }
+    /* The compiler escapes backticks and ${; nothing else in this catalogue
+       needs unescaping to be found verbatim. */
+    if (!readFileSync(file, "utf8").includes(value)) stale.push(key);
+  }
+  check(
+    `compiled text matches the catalogue (stale: ${
+      stale.slice(0, 5).join(", ") || "none"
+    })`,
+    stale.length === 0,
+  );
 }
 
 console.log(`\nmessage catalogues: ${checks} checks, ${failures} failures`);

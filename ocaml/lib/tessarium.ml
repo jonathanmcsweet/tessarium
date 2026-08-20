@@ -56,10 +56,11 @@ let required_words = 24
 
    What this deliberately gives up: the intermediate value is no longer the
    standard BIP-39 seed (that chain was PBKDF2-HMAC-SHA512, a NIST-designed
-   path -- the move off those primitives is ledgered). The PHRASE is still a
-   valid BIP-39 phrase -- wordlist and checksum, any wallet accepts it --
-   and nothing external ever consumed the seed, since the Feistel key was
-   always derived from it by a custom stage. *)
+   path -- the move off those primitives is ledgered). The PHRASE is
+   unchanged -- same wordlist, same checksum, same typing ergonomics, which
+   is the whole reason that format was chosen -- and nothing external ever
+   consumed the seed, since the Feistel key was always derived from it by a
+   custom stage. *)
 (* Re-exported so tests can exercise it directly. The library's own module
    shares its name, so sibling modules are otherwise unreachable from outside. *)
 let nfkd = Normalize.nfkd

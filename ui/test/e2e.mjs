@@ -180,6 +180,56 @@ check(
   ),
 );
 
+/* Where the phrase comes from is the highest-value security decision in the
+   app, so the guidance for it must be on screen BEFORE anything is generated
+   or typed -- not at the foot of the form where it is read after the choice,
+   if at all. Both halves are checked: don't invent, and don't reuse. The
+   position check is the part that actually rings when the block drifts back
+   down the form, since a warning below the submit button still "appears". */
+{
+  /* Located by class, not by copy: a reworded warning should fail the one
+     text check below, not report that the layout moved. */
+  const provenance = page.locator(".warning.provenance");
+  check(
+    "the phrase-provenance warning is visible before generating",
+    await provenance.isVisible(),
+  );
+  /* Both hazards in the heading, where they get read. The body carries the
+     detail, but a title naming only half of it leaves the other half at the
+     end of a paragraph. */
+  const title = await provenance.locator("strong").textContent();
+  check(
+    "its heading names both hazards",
+    /invent/i.test(title) && /reuse/i.test(title),
+  );
+  /* The claim has to stay the true one: validation is a typo check, not a
+     test of how the phrase was produced. */
+  check(
+    "it says the checks do not prove the phrase was generated",
+    (await provenance.textContent()).includes(
+      "confirm you typed a phrase correctly, not that it was generated",
+    ),
+  );
+  check(
+    "the provenance warning sits above the unlock button",
+    await page.evaluate(() => {
+      const warning = document.querySelector(".warning.provenance");
+      const submit = document.querySelector("button[type=submit]");
+      if (!warning || !submit) return false;
+      return !!(warning.compareDocumentPosition(submit)
+        & Node.DOCUMENT_POSITION_FOLLOWING);
+    }),
+  );
+  check(
+    "the generate button is described by its hint",
+    await page.evaluate(() => {
+      const button = document.querySelector(".generate button");
+      const id = button?.getAttribute("aria-describedby");
+      return !!id && !!document.getElementById(id)?.textContent?.trim();
+    }),
+  );
+}
+
 /* "Generate one for me" must produce a phrase this same application accepts.
    A generator whose output fails its own checksum would strand a user who had
    already written 24 words down. Two presses must also differ -- a generator

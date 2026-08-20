@@ -128,9 +128,13 @@ the machine-integer proof module that now accompanies the primitive.)
 
 - **24-word mnemonics only.** 256 bits → 128 bits post-Grover. Do not offer
   12-word (128 → 64 bits, too weak).
-- **Warn hard against reusing a wallet seed.** Anyone who learns a few
-  (address, true location) pairs is doing cryptanalysis against a key that also
-  holds funds. Generate fresh.
+- **Warn hard against invented phrases, and against reuse.** Validation is a
+  typo check, not an entropy test: the 8-bit checksum rejects most
+  hand-assembled phrases, but any low-entropy phrase that satisfies it is
+  accepted like any other, and is worth a fraction of a generated one — the one
+  weakness no amount of work elsewhere repairs. And anyone who learns a few
+  (address, true location) pairs is doing cryptanalysis against a phrase that
+  may protect something else too. Generate fresh, and use it only here.
 - Kuwakado–Morii quantum attacks on Feistel require superposition queries to the
   encoder — running our cipher on the attacker's own quantum hardware with our
   key inside it — and do not apply to software the attacker does not control.
@@ -474,8 +478,9 @@ not cover.
 - [ ] **The non-English translations still want a native speaker.** They have
       been through one adversarial review pass, which found and fixed real
       defects — a French pronoun that attached "your 24 words and this second
-      seed phrase", a Spanish null subject that made the wallet warning read as
-      being about the attacker's funds, and `contraseña` priming users to think
+      seed phrase", a Spanish null subject that made the phrase-reuse warning
+      read as being about the attacker's funds, and `contraseña` priming users
+      to think
       the passphrase was a resettable password. What remains is the judgement a
       review cannot supply: whether the copy sounds like a person. `fr-CA` now
       differs from `fr-FR` in terminology, punctuation spacing and dash
@@ -559,8 +564,9 @@ the one honest caveat.
          someone else's server arrives fresh on every load; if that server is
          malicious, no in-page indicator helps. Trust anchors at binary
          install time — which is why the desktop binary is the primary
-         distribution and the phrase gate warns against typing a seed into a
-         page you do not control.
+         distribution. (The phrase gate does NOT currently say this; its
+         warnings cover where a phrase comes from, not who served the page.
+         If this argument is ever leaned on, the copy has to exist first.)
 
       5. *Hosted-web variant, if a hosted deployment ever becomes primary:*
          the Code Verify pattern (WhatsApp/Cloudflare) — a browser extension,

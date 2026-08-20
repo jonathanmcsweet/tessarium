@@ -110,11 +110,12 @@ const ops = {
   /* A phrase the user did not invent.
 
      This is the highest-value security control in the application, and it is
-     three lines long. A phrase a person makes up -- favourite words, a
-     sentence rewritten into wordlist words -- is worth perhaps 40 bits of
-     guessing effort and passes every check the app makes. These 32 bytes are
-     worth 256. The round count and the cost of key derivation only decide
-     anything in the case where this step was skipped.
+     three lines long. A phrase a person composed is worth perhaps 40 bits of
+     guessing effort; these 32 bytes are worth 256. The checksum rejects most
+     hand-assembled phrases, but it is typo detection, not an entropy test --
+     a low-entropy phrase that satisfies it is accepted like any other. The
+     round count and the cost of key derivation only decide anything in the
+     case where this step was skipped.
 
      `crypto.getRandomValues` is the platform CSPRNG. The core does the BIP-39
      encoding and nothing else: it never generates the bytes, which keeps the
