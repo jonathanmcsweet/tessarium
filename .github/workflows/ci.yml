@@ -129,7 +129,14 @@ jobs:
       # the same vendored C compiled by a pinned zig. Rebuild and
       # byte-diff -- the behavioural wall (js/wasm-differential.mjs, in
       # dune test) rings on live-code drift, but a byte tampered in a
-      # dead region only this diff can catch.
+      # dead region only this diff can catch. zig has its own cache
+      # entry: the fstar cache key predates it and would never save it.
+      - name: Cache zig
+        uses: actions/cache@v4
+        with:
+          path: ~/toolchain/zig
+          key: zig-0.13.0
+
       - name: Committed wasm core matches a fresh build
         run: |
           if [ ! -x ~/toolchain/zig/zig ]; then
@@ -169,12 +176,8 @@ jobs:
       - name: Build
         run: opam exec -- dune build
 
-      # Six suites: native vectors, the js_of_ocaml artifact against the same
-      # vectors, the independently written JS implementation, the server's pure
-      # decisions, the PMTiles round-trip, and a check that the verified core
-      # still reproduces vectors.json from inputs.json.
-      # check-suites.sh rather than dune directly: dune reports a suite that
-      # fails, but not one that produced no output because its rule got cached.
+      # The dune suites (enumerated in tools/check-suites.sh, which fails
+      # if any of them stops producing output) plus the static checks.
       - name: Test
         run: opam exec -- tools/check-suites.sh
 

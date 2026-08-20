@@ -289,8 +289,8 @@ The theorem set is complete and in the ledger. What is left is narrower.
       compiled to wasm32 by a pinned zig (0.13.0, sha-pinned in CI;
       byte-identical rebuilds), a shim mirroring the FFI stubs' checks,
       and js/wasm-differential.mjs replaying the differential corpus
-      through it in every `make test` (15k+ points: every address, every
-      centre, bounds containment, rejections exercised). Not wired into
+      through it in every `make test` (32,298 points: every address,
+      every centre, per-axis bounds containment, 11,454 rejections). Not wired into
       the UI: the app still answers from the js_of_ocaml core. Final
       phase: the SWITCH — the server answers from the C core, the UI
       from the wasm core (needs 'wasm-unsafe-eval' added to the CSP and

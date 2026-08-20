@@ -1,9 +1,21 @@
 /* The browser face of the KaRaMeL-emitted verified core.
 
-   Compiled with the SAME vendored C the server links
-   (ocaml/c_core/vendor) to wasm32-wasi by a pinned zig -- one verified
-   artifact chain, two hosts. `make sync-wasm` rebuilds; CI diffs the
-   committed module like every other generated file.
+   Compiled from the SAME vendored C the server-side wall links
+   (ocaml/c_core/vendor; the server itself still answers from the
+   extracted core until the switch phase) to wasm32-wasi by a pinned
+   zig -- one verified artifact chain, two hosts. `make sync-wasm`
+   rebuilds; CI rebuilds and byte-diffs the committed module. Local
+   `make test` runs the COMMITTED module: an edit to this file or to
+   the vendored C is invisible to every local test until sync-wasm is
+   run -- CI's rebuild-and-diff is what catches a stale artifact.
+
+   The compiled paths are pure arithmetic. The module's single import
+   is wasi random_get, wanted once by the prebuilt libc init (crt) for
+   its stack guard; consumers must call _initialize first (the wasi
+   reactor ABI) and provide random_get -- the wall gives deterministic
+   zeros and allow-lists exactly that import, so anything new appearing
+   rings. The only buffer this file indexes is bounds-checked above
+   each access.
 
    This shim mirrors ocaml/c_core/c_core_stubs.c: the emitted C's
    refinements are erased, so every argument is checked here before the

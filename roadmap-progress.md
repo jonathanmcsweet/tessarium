@@ -28,14 +28,17 @@ than a git log.
 **What:** `wasm/core.wasm` — the same six vendored C files the server
 links, compiled to wasm32-wasi by a pinned zig 0.13.0 (`make
 sync-wasm`; byte-identical rebuilds, CI rebuilds and diffs with a
-sha-pinned toolchain download). `wasm/glue.c` mirrors the FFI stubs:
+sha-pinned toolchain download). The artifact is 15.7 KB stripped
+(`-Wl,--strip-all`; unstripped, name-section line info made the bytes
+sensitive to comment edits). `wasm/glue.c` mirrors the FFI stubs:
 scalar ranges checked per call, the band table fed value by value and
 its whole shape validated at seal. `js/wasm-differential.mjs` replays
 the differential corpus through it under `dune test`: every address,
 every decode landing exactly on its centre, bounds containing centre
 always and point off the two spec edges, tweaked-address rejections
-exercised (~4-5k per run), wasi imports stubbed to TRAP so any
-unexpected runtime call rings. The corpus generator now emits the
+exercised (11,454 per run — the corpus is deterministic), the module's
+imports allow-listed to exactly libc init's random_get so anything new
+appearing rings. The corpus generator now emits the
 derived key in its header — the wasm core's contract starts at the key.
 
 **Rationale:** KaRaMeL's own wasm backend is foreclosed on this

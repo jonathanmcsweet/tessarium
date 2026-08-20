@@ -1,7 +1,8 @@
 // The wasm core against the extracted core's corpus.
 //
-// wasm/core.wasm is the SAME vendored C the server links, compiled to
-// wasm32 -- the browser's half of the side-by-side story. This driver
+// wasm/core.wasm is the same vendored C the server-side wall links
+// (the server itself still answers from the extracted core), compiled
+// to wasm32 -- the browser's half of the side-by-side story. This driver
 // replays the differential corpus (computed by the extracted core with
 // digestif) through it: encode must reproduce every address, decode must
 // land exactly on every centre, bounds must contain both. The key comes
@@ -30,19 +31,33 @@ const LON_MIN = -180000000000n;
 const words = readFileSync(wordsPath, "utf8").trim().split("\n");
 const bands = JSON.parse(readFileSync(bandsPath, "utf8"));
 
-/* Any wasi call is unexpected -- the compiled paths are pure arithmetic.
-   Trapping stubs make an unexpected one ring instead of silently
-   returning 0. */
-const wasi = new Proxy({}, {
-  get: (_, name) => () => {
-    throw new Error(`unexpected wasi call: ${String(name)}`);
+/* Exactly ONE import is expected: wasi random_get, which the prebuilt
+   libc init (crt) calls once for its stack guard. Allow-listed by name
+   -- anything else appearing rings instead of being quietly stubbed --
+   and given deterministic zeros: this is a differential wall, and the
+   guard value cannot affect any computed answer (a smashed stack traps
+   either way). _initialize runs first, per the wasi reactor ABI. */
+const module_ = await WebAssembly.compile(readFileSync(wasmPath));
+const imports = WebAssembly.Module.imports(module_);
+const unexpected = imports.filter(
+  (i) => !(i.module === "wasi_snapshot_preview1" && i.name === "random_get"),
+);
+if (unexpected.length > 0) {
+  console.error(
+    "core.wasm grew imports: " + unexpected.map((i) => i.name).join(", "),
+  );
+  process.exit(1);
+}
+const instance = await WebAssembly.instantiate(module_, {
+  wasi_snapshot_preview1: {
+    random_get: (ptr, len) => {
+      new Uint8Array(instance.exports.memory.buffer, ptr, len).fill(0);
+      return 0;
+    },
   },
 });
-
-const { instance } = await WebAssembly.instantiate(readFileSync(wasmPath), {
-  wasi_snapshot_preview1: wasi,
-});
 const core = instance.exports;
+core._initialize();
 
 /* cum is the prefix-sum view of col_counts; seal_cum re-checks the whole
    shape (base, monotonicity, width bound, grand total) before anything
@@ -105,17 +120,17 @@ for (const line of lines) {
   else {
     const [laLo, laHi, loLo, loHi] = out();
     /* The corpus centre is canonical, so it sits inside its cell for
-       every point; the raw point does too EXCEPT at the two spec edges
-       (+90 clamps into the last row, +180 folds onto -180). */
+       every point; the raw point does too, PER AXIS, except exactly at
+       that axis's spec edge (+90 clamps into the last row, +180 folds
+       onto -180) -- a +90 point still has its longitude contained. */
     const cLat = BigInt(clatS) - LAT_MIN;
     const cLon = BigInt(clonS) - LON_MIN;
     if (!(laLo <= cLat && cLat < laHi && loLo <= cLon && cLon < loHi))
       fail(`bounds at ${latS},${lonS} exclude the centre`);
-    if (
-      dlat < 180000000000n && dlon < 360000000000n &&
-      !(laLo <= dlat && dlat < laHi && loLo <= dlon && dlon < loHi)
-    )
-      fail(`bounds at ${latS},${lonS} exclude the point`);
+    if (dlat < 180000000000n && !(laLo <= dlat && dlat < laHi))
+      fail(`bounds at ${latS},${lonS} exclude the latitude`);
+    if (dlon < 360000000000n && !(loLo <= dlon && dlon < loHi))
+      fail(`bounds at ${latS},${lonS} exclude the longitude`);
   }
 
   /* A neighbouring number under the same words: no oracle for the
@@ -128,11 +143,15 @@ for (const line of lines) {
   checked++;
 }
 
+/* checked > 100: the rejection rate is ~35%, so any real corpus
+   exercises the arm; the guard only spares tiny hand runs, where zero
+   rejections is plausible rather than diagnostic. */
+if (rejected === 0 && checked > 100)
+  fail("no tweaked address was rejected: the flag=0 arm never ran");
+
 for (const f of failures.slice(0, MAX_REPORTED)) if (f) console.log("  FAIL " + f);
 if (failures.length > MAX_REPORTED)
   console.log(`  ... and ${failures.length - MAX_REPORTED} more`);
-if (rejected === 0 && checked > 100)
-  failures.push("no tweaked address was rejected: the flag=0 arm never ran");
 
 console.log(
   `wasm core: ${checked} points checked, 0 disagreements expected, ${failures.length} found (${rejected} tweaked rejections exercised)`,
