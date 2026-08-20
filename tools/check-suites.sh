@@ -31,6 +31,7 @@ suites=(
   "vector regeneration|vectors reproduce exactly from the verified core"
   "differential sweep|[1-9][0-9]* points checked"
   "C core side by side|agree on [1-9][0-9]* side-by-side checks"
+  "wasm core|wasm core: [1-9][0-9]* points checked, 0 disagreements expected, 0 found"
 )
 
 out="$(dune build @runtest --force 2>&1)"

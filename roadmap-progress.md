@@ -21,6 +21,39 @@ than a git log.
 
 ---
 
+### 2026-08-20 — The verified core reaches WebAssembly
+
+**Phase:** 1–3
+
+**What:** `wasm/core.wasm` — the same six vendored C files the server
+links, compiled to wasm32-wasi by a pinned zig 0.13.0 (`make
+sync-wasm`; byte-identical rebuilds, CI rebuilds and diffs with a
+sha-pinned toolchain download). `wasm/glue.c` mirrors the FFI stubs:
+scalar ranges checked per call, the band table fed value by value and
+its whole shape validated at seal. `js/wasm-differential.mjs` replays
+the differential corpus through it under `dune test`: every address,
+every decode landing exactly on its centre, bounds containing centre
+always and point off the two spec edges, tweaked-address rejections
+exercised (~4-5k per run), wasi imports stubbed to TRAP so any
+unexpected runtime call rings. The corpus generator now emits the
+derived key in its header — the wasm core's contract starts at the key.
+
+**Rationale:** KaRaMeL's own wasm backend is foreclosed on this
+toolchain: F* 2026.08.09 ships no LowStar/HyperStack libraries, so
+krml's WasmSupport runtime cannot even be checked, and the backend
+rejects the function-valued round-function/table parameters besides.
+Compiling the ALREADY-EMITTED C with a second, pinned compiler keeps
+one artifact chain (proved F* → krml C → both hosts) and adds zig only
+as a build tool, not a trust anchor: the wall checks behaviour against
+the extracted core, and CI byte-diffs the artifact. Falsified: a
+transposed argument in the glue rings (wasm trap), live-code byte
+tampers ring, dead-region byte tampers do NOT ring behaviourally and
+are caught only by CI's rebuild-and-diff — stated exactly so.
+
+**Follow-on:** the switch phase — server answers from the C core, UI
+from the wasm core ('wasm-unsafe-eval' CSP change, worker key as raw
+bytes), extracted-OCaml core leaves the serving path.
+
 ### 2026-08-20 — The C core crosses the FFI, side by side with the extracted core
 
 **Phase:** 1–3

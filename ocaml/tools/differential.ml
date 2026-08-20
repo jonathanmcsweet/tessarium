@@ -134,6 +134,14 @@ let () =
   Printf.fprintf oc "# mnemonic: %s\n" !mnemonic;
   if !passphrase <> "" then
     Printf.fprintf oc "# passphrase: %s\n" !passphrase;
+  (* The derived key, so a consumer whose contract starts AT the key (the
+     wasm core wall) can skip the KDF; the independent JS implementation
+     keeps deriving it from the mnemonic on its own. Test corpus only --
+     the mnemonic above is already public. *)
+  Printf.fprintf oc "# key: %s\n"
+    (String.concat ""
+       (List.map (fun c -> Printf.sprintf "%02x" (Char.code c))
+          (List.init (String.length key) (String.get key))));
   Printf.fprintf oc "# seed %d, %d points (%d at band seams)\n" !seed total !seams;
   Printf.fprintf oc "# lat_ns lon_ns cell centre_lat_ns centre_lon_ns address\n";
   (* The proved theorems, restated as runtime assertions over the whole

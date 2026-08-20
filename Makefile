@@ -102,6 +102,21 @@ sync-c-core:
 	done; [ $$bad -eq 0 ]
 	@echo "ocaml/c_core/vendor refreshed"
 
+# The same vendored C, compiled to WebAssembly by a pinned zig
+# (~/toolchain/zig, 0.13.0). wasm/core.wasm is committed generated code:
+# `make test` needs only node to run its wall; CI rebuilds and diffs.
+# wasm32-wasi for the libc headers; the runtime paths are pure
+# arithmetic, and the wall instantiates with trapping stubs so any
+# actual wasi call fails loudly.
+ZIG := $(HOME)/toolchain/zig/zig
+C_CORE_SRC := $(addprefix ocaml/c_core/vendor/Tessarium_Low_,\
+  Feistel.c Grid.c Codec.c Api.c Hmac.c Core.c)
+sync-wasm:
+	$(ZIG) cc -target wasm32-wasi -O2 -Wl,--no-entry -mexec-model=reactor \
+	  -I ocaml/c_core/vendor -D_DEFAULT_SOURCE \
+	  -o wasm/core.wasm $(C_CORE_SRC) wasm/glue.c
+	@echo "wasm/core.wasm rebuilt"
+
 build:
 	dune build
 
