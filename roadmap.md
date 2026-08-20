@@ -265,15 +265,22 @@ The theorem set is complete and in the ledger. What is left is narrower.
       composition LANDED (2026-08-20): every pure-math stage is ported,
       Low.Api restates the end-to-end round trip on machine types, and
       the C harness replays 10 codec vectors, all 7 e2e points through
-      encode AND decode, and both rejected addresses. Next phases, in
-      order: HACL\* HMAC inside the proof, the OCaml server calling the C
-      core over the FFI beside the extracted core, WASM for the browser,
-      then the extracted-OCaml core retires. Until then, two narrower gaps
-      in the evaluator leg: its end-to-end points use a concrete test round
-      function (HMAC is outside the proof, but a check driving the REAL
-      injected round function through F* would also catch a miswired
-      injection), and seven grid points is a floor, not a ceiling — the leg
-      costs ~3 minutes and scales linearly if it ever earns more. Rerun
+      encode AND decode, and both rejected addresses. The REAL round
+      function LANDED inside the proof (2026-08-20, Low.Hmac/Low.Core):
+      pure machine-integer SHA-256/HMAC — NOT HACL\*, whose stateful
+      buffer model would have pulled the whole Tot core into the Stack
+      effect; the fixed-shape production message (32-byte key, constant
+      tweak, 47 bytes, four compressions) needs no buffers — with the
+      Horner 128-bit reduction proved equal to the ghost spec, NIST
+      vectors pinning compress, digestif recomputing the composed round
+      function and full real-key encodes in the C harness, and the
+      evaluator leg re-deriving the same draws from the proved source
+      (Check.RealRound — closing the recorded miswired-injection gap).
+      Next phases, in order: the OCaml server calling the C core over
+      the FFI beside the extracted core, WASM for the browser, then the
+      extracted-OCaml core retires. One narrower gap remains in the
+      evaluator leg: seven grid points is a floor, not a ceiling — the
+      leg costs ~3 minutes and scales linearly if it ever earns more. Rerun
       the deep sweep after any change to the extraction pipeline or the
       toolchain: `tools/differential-deep.sh` (about 50 minutes).
 - [ ] **`theorem_containment` excludes exactly +90°.** Latitude is clamped

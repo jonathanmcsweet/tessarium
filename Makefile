@@ -62,18 +62,21 @@ extract:
 # sweeping the whole band table. Fast when .checked files are warm (~30s;
 # minutes cold): the agreement is a theorem discharged in low-verify; this
 # compiles the emitted C and lets it answer for the same numbers as
-# everyone else.
+# everyone else. -Wno-parentheses: KaRaMeL inlines the SHA-256 helpers
+# into flat expressions that lean on C precedence (correctly); the
+# warning fires hundreds of times on that one generated file.
 KRML_ROOT := $(FSTAR_BIN)/..
 test-lowstar:
 	dune build ocaml/tools/gen_check.exe
 	./_build/default/ocaml/tools/gen_check.exe - fstar/low/check_vectors.h
 	PATH="$(FSTAR_BIN):$$PATH" $(MAKE) -C fstar low-extract
 	@mkdir -p _build
-	cc -std=c11 -Wall -D_DEFAULT_SOURCE \
+	cc -std=c11 -Wall -Wno-parentheses -D_DEFAULT_SOURCE \
 	  -I fstar/low/out -I fstar/low \
 	  -I "$(KRML_ROOT)/include/krml" -I "$(KRML_ROOT)/lib/krml/dist/minimal" \
 	  fstar/low/out/Tessarium_Low_Feistel.c fstar/low/out/Tessarium_Low_Grid.c \
 	  fstar/low/out/Tessarium_Low_Codec.c fstar/low/out/Tessarium_Low_Api.c \
+	  fstar/low/out/Tessarium_Low_Hmac.c fstar/low/out/Tessarium_Low_Core.c \
 	  fstar/low/out/Tessarium_Low_Check.c \
 	  fstar/low/check_main.c -o _build/low_check
 	./_build/low_check

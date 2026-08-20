@@ -94,9 +94,42 @@ Tessarium.Low.Api composes the three ported stages -- point_to_cell,
 encrypt, to_address, and the inverse chain with decode's partiality as a
 flag word instead of an option -- generic over the round function like
 the spec, with theorem_end_to_end_low restating the user-facing round
-trip on machine types. Every pure-math stage of the core is now ported;
-what remains outside the proof is the real HMAC round function (next
-phase, via HACL*) and the unproved plumbing enumerated above.
+trip on machine types. Every pure-math stage of the core is now ported.
+
+## The real round function (Low.Hmac / Low.Core, 2026-08-20)
+
+SHA-256 and the production HMAC, in pure machine integers -- the round
+function now lives inside the proof rather than being injected.
+
+- Every SHA word is a U64 kept below 2^32 by masking after each
+  operation; FIPS defines the arithmetic mod 2^32, so the masks are the
+  spec, not an approximation of it. Rotations are div/mul by literal
+  powers of two: all overflow obligations stay linear.
+- Worst intermediate: the round's five-term sum, below 5 * 2^32 < 2^35.
+- The 128-bit reduction never builds a 128-bit integer: the four digest
+  words Horner-fold mod m, each step below m * 2^32 < 2^56 (m <= fe_b
+  < 2^24). The fold's agreement with "first 16 digest bytes as one
+  big-endian integer, mod m" is `horner_step`, proved, not assumed.
+- NOT HACL*, deliberately: its HMAC lives in LowStar's stateful buffer
+  model, and one call would pull the whole Tot core into the Stack
+  effect. The production key is exactly 32 bytes and the tweak is a
+  constant, so the message is fixed-shape (47 bytes, four compressions,
+  static padding) and needs no buffers at all.
+- What is pinned rather than proved: that the FIPS constants and
+  crypto.ml's message layout are transcribed correctly. Three NIST
+  vectors drive `compress` bare in the C harness; digestif recomputes
+  the composed round function and full encodes/decodes on fresh draws
+  (check_vectors.h), and the evaluator leg re-derives the same draws
+  from the proved source (Check.RealRound). Falsified: a flipped round
+  constant fails NIST + digestif, a flipped layout byte fails digestif
+  alone, a flipped Horner multiplier fails VERIFICATION, and a flipped
+  key-word packing in gen_check fails the C leg.
+- Verifier ergonomics, recorded for the next primitive: a flat unrolled
+  compression sends the pure-WP substitution exponential (8 rounds 0.6s,
+  24 rounds 5m); eight-round chunk functions keep every value a binder.
+  The chunks and hmac47 are `opaque_to_smt` -- no downstream proof needs
+  their definitions, and leaving them visible let Z3 unfold a
+  four-compression chain without bound.
 
 ## What the spike established about the toolchain
 

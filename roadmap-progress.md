@@ -21,6 +21,44 @@ than a git log.
 
 ---
 
+### 2026-08-20 — The real round function moves inside the proof
+
+**Phase:** 1–3
+
+**What:** `fstar/low/Tessarium.Low.Hmac.fst` (SHA-256 + the production
+HMAC in pure machine integers, all-U64 words masked to 32 bits, unrolled
+in eight-round chunks) and `Tessarium.Low.Core.fst` (the machine round
+function with a proved Horner reduction, plus production extraction roots
+`core_encode`/`core_decode`/`core_bounds`/`core_encrypt`/`core_decrypt`
+and their theorems). gen_check now emits real-round-function families
+(16 digestif draws over 4 keys with a dedicated Lehmer stream, 14
+real-key e2e points, 2 rejections); check_main.c replays them and pins
+`compress` to 3 NIST vectors; new `Check.RealRound` makes the evaluator
+re-derive the digestif draws from the proved source. Falsified in all
+four layers: round constant (NIST + digestif ring), message layout
+(digestif rings, NIST stays green), Horner multiplier (verification
+fails), gen_check key packing (C leg rings).
+
+**Rationale:** The roadmap said "pull HMAC-SHA256 from HACL\*"; deviated.
+HACL\*'s HMAC is written against LowStar's stateful buffer model — one
+call would have pulled every Tot module into the Stack effect, a rewrite
+of the whole port for no assurance gain here: the production key is
+exactly 32 bytes and the tweak constant, so the message is fixed-shape
+(47 bytes, four compressions, static padding) and a buffer-free
+machine-integer transcription is both simpler and inside OUR proof.
+FIPS defines SHA-256 over wrapping 32-bit words, so the masked machine
+arithmetic IS the standard's arithmetic; what transcription cannot prove
+(constants, layout) is pinned by NIST + digestif + evaluator on
+independent axes, each shown to ring. Verifier lessons recorded in
+BOUNDS.md: flat unrolling sends pure-WP substitution exponential;
+`opaque_to_smt` on the chunks keeps downstream VCs bounded. Build
+lesson: per-module krml extraction (two leaves now — Check and Core),
+and low-verify refreshes .checked in dependency order because a stale
+dep is re-verified inline but its cache is not rewritten.
+
+**Follow-on:** FFI phase next (server calls the C core beside the
+extracted one), then WASM, then the extracted-OCaml core retires.
+
 ### 2026-08-15 — Design settled, roadmap opened
 
 **Phase:** 0
