@@ -386,10 +386,12 @@ export function MapView() {
   }, []);
 
   /* The loading bar's feed: dataloading fires when any source or the style
-     starts fetching, idle when the map is fully drawn. The tracker holds
-     the bar back through sub-delay bursts (every pan fires these), so it
-     appears only when arrival is genuinely lagging -- a long flight to an
-     area whose detail is still streaming in. */
+     starts fetching; idle waits for the map to be fully drawn AND the
+     camera to rest. So the bar shows while the map is still working --
+     tiles genuinely lagging, or a flyTo longer than the tracker's delay
+     still settling -- which is the user-facing meaning of "rendering but
+     not done yet". The tracker only guards against flicker on sub-delay
+     bursts, which every small pan fires. */
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
@@ -737,8 +739,17 @@ export function MapView() {
       toast.success(m.map_download_done());
       /* The archive exists now; the cached "absent" answer must not outlive
          it and resurrect the banner, and every cached estimate is stale --
-         tiles just landed on disk that the numbers do not know about. */
+         tiles just landed on disk that the numbers do not know about.
+         Inactive estimates are DROPPED, not merely invalidated: a query
+         with no live observer never refetches, and a reopened download
+         card would be served the stale answer synchronously -- flashing a
+         world offer the disk already satisfied -- while the refetch runs.
+         Dropped, the card starts at pending and says nothing wrong. */
       client.setQueryData(["basemap-present"], true);
+      client.removeQueries({
+        queryKey: ["basemap-estimate"],
+        type: "inactive",
+      });
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
       client.invalidateQueries({ queryKey: ["basemap-coverage"] });
@@ -754,6 +765,10 @@ export function MapView() {
       /* Tiles left the disk -- and removing the last region deletes the
          archive outright, so "present" is a question again, not a fact. */
       client.invalidateQueries({ queryKey: ["basemap-present"] });
+      client.removeQueries({
+        queryKey: ["basemap-estimate"],
+        type: "inactive",
+      });
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
       client.invalidateQueries({ queryKey: ["basemap-coverage"] });
@@ -773,12 +788,20 @@ export function MapView() {
          the list must not keep showing the world before it. */
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
       client.invalidateQueries({ queryKey: ["basemap-coverage"] });
+      client.removeQueries({
+        queryKey: ["basemap-estimate"],
+        type: "inactive",
+      });
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-present"] });
     } else if (job.state === "cancelled") {
       toast(m.map_download_cancelled());
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
       client.invalidateQueries({ queryKey: ["basemap-coverage"] });
+      client.removeQueries({
+        queryKey: ["basemap-estimate"],
+        type: "inactive",
+      });
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-present"] });
       closeDownload();

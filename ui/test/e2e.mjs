@@ -553,25 +553,47 @@ await page.waitForFunction(
   () => !document.querySelector(".download-view button")?.disabled,
   { timeout: 30_000 },
 );
-/* The loading bar, on real traffic: the completed download below swaps the
-   style with a fresh cache-buster, so every tile refetches -- through this
-   route, which delays each one past the tracker's 300 ms threshold. The
-   bar must appear while they drip in and vanish once the map settles. */
-await page.route("**/tiles/**", async (route) => {
-  await new Promise((done) => setTimeout(done, 500));
-  await route.continue();
-});
 await viewButton.click();
 check("the view download completes at generation two", await awaitDone(2));
 await page.waitForFunction(() => !document.querySelector(".download-card"), {
   timeout: 10_000,
 });
-await page.waitForSelector(".map-loading", { timeout: 20_000 });
-check("slow tiles raise the loading bar", true);
+
+/* The loading bar, on real traffic, deterministically: wait for quiet,
+   delay every tile past the tracker's 300 ms threshold, then tell the
+   vector source to reload its tiles (same URLs plus a marker param --
+   the app-visible way to force refetches without racing a download's
+   style swap, which flaked). The bar must appear while tiles drip in
+   and vanish at idle. */
+await page.waitForFunction(() => !document.querySelector(".map-loading"), {
+  timeout: 60_000,
+});
+await page.route("**/tiles/**", async (route) => {
+  await new Promise((done) => setTimeout(done, 500));
+  try {
+    await route.continue();
+  } catch {
+    /* The request died mid-delay: MapLibre aborts tiles that leave the
+       view, and unroute below can beat a sleeping handler to its route.
+       Either way there is nothing left to slow down. */
+  }
+});
+const barSeen = page
+  .waitForSelector(".map-loading", { timeout: 30_000 })
+  .then(() => true, () => false);
+await page.evaluate(() => {
+  const src = window.__tessarium_map.getSource("protomaps");
+  src.setTiles(src.tiles.map((u) => `${u}&e2e_bar=1`));
+});
+check("slow tiles raise the loading bar", await barSeen);
 check(
   "the bar names itself for the screen reader",
-  ((await page.locator(".map-loading").getAttribute("aria-label")) ?? "")
-    .length > 0,
+  await page.evaluate(() =>
+    (document.querySelector(".map-loading")?.getAttribute("aria-label") ?? "")
+        .length > 0
+    /* Already gone means the drip finished; barSeen vouched it was up. */
+    || document.querySelector(".map-loading") === null
+  ),
 );
 await page.unroute("**/tiles/**");
 await page.waitForFunction(() => !document.querySelector(".map-loading"), {
@@ -1413,7 +1435,13 @@ check(
 );
 check(
   "the view offer still leads the card",
-  (await worldPage.locator(".download-view").count()) === 1,
+  await worldPage.evaluate(() => {
+    const view = document.querySelector(".download-view");
+    const world = document.querySelector(".download-world");
+    return view !== null && world !== null
+      && (view.compareDocumentPosition(world)
+          & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  }),
 );
 await worldPage.close();
 

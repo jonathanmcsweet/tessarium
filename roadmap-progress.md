@@ -2145,3 +2145,22 @@ then requires it gone at idle; a second e2e page on the archive-holding
 server intercepts the world estimate and requires the offer BACK -- the
 exact case the old rule got wrong. Two new message keys in all six
 catalogues.
+
+The map-loading review found two highs, both fixed in the app rather than
+the test: reopening the download card served a STALE cached world estimate
+synchronously (React Query serves invalidated data while refetching), so
+the offer could flash for a world already on disk -- terminal job states
+now DROP inactive estimate caches so a remounting card starts at pending;
+and the tile-delay route in the e2e crashed the suite when MapLibre
+aborted a request mid-delay -- tolerant continue. Honesty items: the bar
+also shows during a longer flyTo while the camera settles (idle waits for
+rest), which matches the user's ask -- "rendering but not done" -- and the
+comments now say so instead of overclaiming "only when arrival lags"; the
+world estimate no longer fires while a job runs; the view-before-world
+order is asserted as DOM order, not existence; es-US now speaks tu like
+the rest of its catalogue. One testing lesson earned the hard way: the
+first bar test hung its trigger on a download's style swap and went
+pass-fail-fail-pass across identical runs -- a coin-flip test asserts
+nothing. It now drives the reload itself (setTiles under a delayed route),
+proved right first in an isolated instrumented page, then twice green
+back to back in the full suite.

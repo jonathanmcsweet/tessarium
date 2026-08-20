@@ -33,7 +33,7 @@
   "map_basemap_missing": "No se encontró el mapa base. El direccionamiento sigue funcionando sobre un fondo vacío; puedes descargar los mapas de la zona visible.",
   "map_download_open": "Descargar los mapas de esta vista",
   "map_download_world_estimate": "Empieza con el mundo entero a nivel de países: alrededor de {size}.",
-  "map_download_world_add": "Agregue el mundo entero a nivel de países — aproximadamente {size}. Volar a cualquier lugar muestra un mapa de inmediato.",
+  "map_download_world_add": "Agrega el mundo entero a nivel de países — aproximadamente {size}. Volar a cualquier lugar muestra un mapa de inmediato.",
   "map_download_world_confirm": "Descargar el mapa del mundo",
   "map_loading_detail": "Cargando los detalles del mapa…",
   "map_download_covered": "Ya tienes los mapas de esta vista.",
