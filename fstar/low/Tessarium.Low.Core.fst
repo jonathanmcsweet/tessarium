@@ -2,9 +2,12 @@ module Tessarium.Low.Core
 
 /// The PRODUCTION core: the machine-integer cipher and grid instantiated
 /// with the real round function -- HMAC-SHA256 from Tessarium.Low.Hmac,
-/// 128 bits reduced mod m, exactly ocaml/lib/crypto.ml's round_fn. This is
-/// the module the OCaml server calls over the FFI and the browser runs as
-/// WebAssembly; Tessarium.Low.Check remains the harness instantiation.
+/// 128 bits reduced mod m, mirroring ocaml/lib/crypto.ml's round_fn. This
+/// is the module the OCaml server will call over the FFI and the browser
+/// will run as WebAssembly (both are next phases; today's server still
+/// runs the extracted-OCaml core with digestif injected, and stays the
+/// production path until the side-by-side wall lands).
+/// Tessarium.Low.Check remains the harness instantiation.
 ///
 /// What is proved: the machine reduction below computes the same number as
 /// the ghost spec `rf_real` (the Horner lemma), and therefore every
@@ -128,10 +131,12 @@ let core_bounds (cum: LG.cum_low)
 
 (* --------------------------------------------------------------- theorems *)
 
-/// The production C's encode IS Tessarium.Api.encode with the real round
-/// function -- the composition the OCaml server computes today, word for
-/// word. No agreement lemma is needed: the ghost index of the Feistel here
-/// IS rf_real, so encode_low's ensures already says exactly this.
+/// The production C's encode IS Tessarium.Api.encode with rf_real
+/// plugged in -- that much is the theorem. That rf_real computes what the
+/// OCaml server's crypto.ml round function computes is the vector-pinned
+/// half (see Low.Hmac's header), not part of this statement. No agreement
+/// lemma is needed: the ghost index of the Feistel here IS rf_real, so
+/// encode_low's ensures already says exactly this.
 val theorem_core_encode (cum: LG.cum_low) (k0 k1 k2 k3 k4 k5 k6 k7: H.w32)
     (dlat: U64.t{U64.v dlat <= S.lat_span})
     (dlon: U64.t{U64.v dlon <= S.lon_span})

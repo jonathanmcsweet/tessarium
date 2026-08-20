@@ -58,7 +58,7 @@ static void compress_block(uint64_t st[8], const uint8_t b[64]) {
   st[4] = r.f4;  st[5] = r.f5;  st[6] = r.f6;  st[7] = r.f7;
 }
 
-/* SHA-256 of a short message (len <= 56 fits one padded block; the NIST
+/* SHA-256 of a short message (len <= 55 fits one padded block; the NIST
    two-block vector is exactly 56 and takes the second branch). */
 static void sha256_short(const uint8_t *msg, size_t len, uint64_t out[8]) {
   uint64_t st[8] = { Tessarium_Low_Hmac_iv0, Tessarium_Low_Hmac_iv1,
@@ -225,6 +225,14 @@ int main(void) {
   /* digestif's answers for the production HMAC layout, replayed through
      the proved machine round function. */
   for (int i = 0; i < REAL_RF_COUNT; i++) {
+    /* The draws must exercise the moduli the Feistel actually uses --
+       gen_check duplicates F.modulus's parity convention, and this pin
+       plus Check.RealRound's is what watches that duplication. */
+    if (rvec_m[i] != (rvec_i[i] % 2 == 1 ? 6553600ULL : 13107200ULL)) {
+      fprintf(stderr, "real rf draw %d: modulus %" PRIu64 " is not modulus(%" PRIu64 ")\n",
+              i, rvec_m[i], rvec_i[i]);
+      bad = 1;
+    }
     st8 k = { .fst = rvec_k0[i], .snd = rvec_k1[i], .thd = rvec_k2[i],
               .f3 = rvec_k3[i], .f4 = rvec_k4[i], .f5 = rvec_k5[i],
               .f6 = rvec_k6[i], .f7 = rvec_k7[i] };

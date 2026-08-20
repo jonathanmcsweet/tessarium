@@ -31,19 +31,15 @@ round function adds `x*31` (< 2^29), `i*1000003` (< 2^24) and `k + t`
 (< 2^33 under the key64 bound). Every claim here is now a discharged
 refinement, not an estimate.
 
-## Real round function (HMAC-SHA256, later phase)
+## Real round function -- PORTED AND PROVED (Low.Hmac / Low.Core)
 
-ocaml/lib/crypto.ml takes 128 bits of HMAC output and reduces mod m,
-where m is fe_a or fe_b -- always < 2^24. Splitting the 128 bits as
-`h = hi*2^64 + lo`:
-
-    h mod m = ((hi mod m) * (2^64 mod m) + lo mod m) mod m
-
-`hi mod m` and `2^64 mod m` are each < 2^24, so their product is < 2^48;
-adding `lo mod m` stays < 2^49. And since m only ever takes two values,
-`2^64 mod fe_a` and `2^64 mod fe_b` are compile-time constants pinned by
-assert_norm. **No 128-bit division, no 128-bit type** -- plain U64 on the
-two halves.
+This survey originally sketched a two-halves reduction here
+(`h = hi*2^64 + lo` with `2^64 mod m` assert_norm constants). The landed
+implementation reduces differently -- a four-word Horner fold, proved
+equal to the 128-bit view by `horner_step` -- because the digest
+naturally arrives as four 32-bit words. Same conclusion either way:
+**no 128-bit division, no 128-bit type**. Details in the dated section
+at the end of this file.
 
 ## Grid -- PORTED AND PROVED (Tessarium.Low.Grid)
 
@@ -105,7 +101,10 @@ function now lives inside the proof rather than being injected.
   operation; FIPS defines the arithmetic mod 2^32, so the masks are the
   spec, not an approximation of it. Rotations are div/mul by literal
   powers of two: all overflow obligations stay linear.
-- Worst intermediate: the round's five-term sum, below 5 * 2^32 < 2^35.
+- Worst intermediate: the rotation multiplies, x * 2^(32-n) with
+  x < 2^32 -- largest at rotr2 (n = 2), x * 2^30 < 2^62, a 4x margin,
+  the narrowest in this module and unsigned-only like everything else.
+  The round's five-term sums stay below 5 * 2^32 < 2^35.
 - The 128-bit reduction never builds a 128-bit integer: the four digest
   words Horner-fold mod m, each step below m * 2^32 < 2^56 (m <= fe_b
   < 2^24). The fold's agreement with "first 16 digest bytes as one

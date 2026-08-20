@@ -131,11 +131,11 @@ LOW_FLAGS := $(FSTAR_FLAGS) --include low --include check
 LOW_ORDER := Tessarium.Low.Feistel Tessarium.Low.Grid \
              Tessarium.Low.Codec Tessarium.Low.Api \
              Tessarium.Low.Hmac Tessarium.Low.Core Tessarium.Low.Check
-LOW_MODULES := $(wildcard low/Tessarium.Low.*.fst)
+LOW_MODULES := $(wildcard low/*.fst)
 
 low-verify: verify
 	@for m in $(basename $(notdir $(LOW_MODULES))); do \
-	  echo " $(LOW_ORDER) " | grep -q " $$m " \
+	  echo " $(LOW_ORDER) " | grep -qF " $$m " \
 	    || { echo "low/$$m.fst is missing from LOW_ORDER"; exit 1; }; \
 	done
 	@for m in $(LOW_ORDER); do \
@@ -147,9 +147,11 @@ low-verify: verify
 # which are upstream's to hold, not ours to re-litigate.
 # One module per invocation: F* extracts a single root file at a time
 # (fly_deps), and there are now two leaves (Check, the harness
-# instantiation, and Core, the production one). Derived from LOW_MODULES:
-# a module dropped into low/ is extracted or the loop fails, never
-# silently skipped. krml merges the per-module .krml files.
+# instantiation, and Core, the production one). The loop iterates
+# LOW_ORDER; what keeps a module dropped into low/ from being silently
+# skipped is low-verify's wildcard guard, which this target depends on
+# -- detach that dependency and the guarantee goes with it. krml merges
+# the per-module .krml files.
 low-extract: low-verify
 	@rm -rf low/out && mkdir -p low/out
 	@for m in $(LOW_ORDER); do \

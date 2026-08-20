@@ -26,7 +26,11 @@ let rec rf_ok (keys: list (int & int & int & int & int & int & int & int))
   | (k0, k1, k2, k3, k4, k5, k6, k7) :: ks, (i, x, m, r) :: vs ->
       w32ok k0 && w32ok k1 && w32ok k2 && w32ok k3
       && w32ok k4 && w32ok k5 && w32ok k6 && w32ok k7
-      && 0 < i && i <= 16 && 0 <= x && 0 < m
+      (* m pinned to F.modulus's parity convention, not just positivity:
+         gen_check duplicates that convention, and an unwatched drift
+         would quietly move the draws off the domain the Feistel uses. *)
+      && 0 < i && i <= 16 && 0 <= x
+      && m = (if i % 2 = 1 then 6553600 else 13107200)
       && C.rf_real
            (U64.uint_to_t k0, U64.uint_to_t k1, U64.uint_to_t k2,
             U64.uint_to_t k3, U64.uint_to_t k4, U64.uint_to_t k5,

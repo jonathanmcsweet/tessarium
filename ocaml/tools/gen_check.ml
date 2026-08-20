@@ -211,9 +211,9 @@ let () =
      these are the vectors they replay. Keys are deterministic 32-byte
      patterns: production keys are PBKDF2 output, but any 32 bytes walk
      the same code path. *)
-  (* A dedicated generator state: the legacy stream's consumers (the five
-     generated grid points among them) draw AFTER this code runs, and
-     sharing the stream would silently reshuffle their corpus. *)
+  (* A dedicated generator state: the five generated grid points draw
+     from the legacy stream AFTER this code runs, and sharing the stream
+     would silently reshuffle their corpus. *)
   let lehmer_real = ref (Z.of_int 20260820) in
   let next_real bound =
     lehmer_real := Z.rem (Z.mul !lehmer_real (Z.of_string "381471956995469")) m61;
@@ -234,6 +234,8 @@ let () =
         let key = real_key (v / 4) in
         let i = ((v * 3) mod 16) + 1 in
         let x = next_real fe_b in
+        (* F.modulus's parity convention, duplicated here; both the C
+           harness and Check.RealRound pin it, so a drift rings. *)
         let m = if i land 1 = 1 then fe_a else fe_b in
         let r = Tessarium.round_fn key Tessarium.tweak (Z.of_int i) x m in
         (kw key, Z.of_int i, x, m, r))

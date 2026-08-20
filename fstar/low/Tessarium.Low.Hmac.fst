@@ -16,7 +16,10 @@ module Tessarium.Low.Hmac
 ///     is pinned by vectors instead: NIST SHA-256 vectors drive `compress`
 ///     directly in the C harness, and digestif recomputes the composed
 ///     round function on random draws in check_vectors.h and Expected.fst.
-///     A wrong constant anywhere fails every leg at once.
+///     A wrong FIPS constant fails the NIST pins and both digestif legs;
+///     a wrong layout word fails the digestif legs alone (the C harness
+///     and the evaluator) -- the falsification log demonstrates both
+///     separations, and that diagnostic layering is deliberate.
 ///
 /// The message this HMAC signs is fixed-shape (47 bytes): the production
 /// key is exactly 32 bytes (PBKDF2 dklen=32) and the tweak is the constant
