@@ -20,7 +20,7 @@
   "gate_submit_busy": "Dérivation de la clé…",
   "gate_deriving_hint": "Argon2id sur 64 Mo de mémoire. Volontairement lent, et une seule fois par session.",
   "gate_unlock_failed": "Impossible d’ouvrir la carte.",
-  "gate_phrase_warning_title": "Générez votre phrase. N’en inventez pas une, n’en réutilisez pas une.",
+  "gate_phrase_warning_title": "Générez une phrase BIP-39",
   "gate_phrase_warning_body": "Les contrôles ici confirment que vous avez saisi une phrase correctement, pas qu’elle a été générée. Une phrase peut tous les satisfaire et rester facile à deviner, et c’est la seule faiblesse que rien d’autre ici ne répare. Ne saisissez vos propres mots que si ce bouton les a produits, et seulement s’ils ne protègent rien d’autre.",
   "gate_fineprint": "24 mots uniquement. Une phrase de 12 mots ne fournit que 128 bits d’entropie, que l’algorithme de Grover ramène à 64 bits effectifs. Votre phrase n’est jamais enregistrée, jamais placée dans l’URL et jamais envoyée nulle part — la clé est dérivée ici, dans un processus d’arrière-plan (Web Worker), sur cet appareil.",
   "gate_wordlist_note": "Les 24 mots proviennent de la liste BIP-39 anglaise standard, quelle que soit la langue de l’application.",

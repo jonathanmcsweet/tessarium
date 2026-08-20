@@ -20,7 +20,7 @@
   "gate_submit_busy": "Derivando la clave…",
   "gate_deriving_hint": "Argon2id sobre 64 MB de memoria. Es lento a propósito, y solo ocurre una vez por sesión.",
   "gate_unlock_failed": "No se pudo abrir el mapa.",
-  "gate_phrase_warning_title": "Genera tu frase. No la inventes ni reutilices otra.",
+  "gate_phrase_warning_title": "Genera una frase BIP-39",
   "gate_phrase_warning_body": "Las comprobaciones de aquí confirman que escribiste bien una frase, no que se haya generado. Una frase puede superarlas todas y seguir siendo fácil de adivinar, y esa es la única debilidad que ninguna otra cosa de aquí puede reparar. Escribe tus propias palabras solo si las produjo este botón, y solo si no protegen ninguna otra cosa.",
   "gate_fineprint": "Solo 24 palabras. Una frase de 12 palabras aporta 128 bits de entropía, que el algoritmo de Grover reduce a 64 bits efectivos. Tu frase nunca se almacena, nunca se pone en la URL y nunca se envía a ninguna parte: la clave se deriva aquí, en un Web Worker, en este dispositivo.",
   "gate_wordlist_note": "Las 24 palabras vienen de la lista estándar BIP-39 en inglés, en todos los idiomas que habla esta aplicación.",

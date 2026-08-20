@@ -194,13 +194,20 @@ check(
     "the phrase-provenance warning is visible before generating",
     await provenance.isVisible(),
   );
-  /* Both hazards in the heading, where they get read. The body carries the
-     detail, but a title naming only half of it leaves the other half at the
-     end of a paragraph. */
+  /* The heading directs; the body carries the two hazards. Checked where
+     each actually lives, so a reworded heading fails the heading check and
+     a thinned-out body fails the body check, rather than one failure
+     pointing at the wrong half. */
   const title = await provenance.locator("strong").textContent();
+  check("its heading directs the user to generate", /generat/i.test(title));
+  const body = await provenance.textContent();
   check(
-    "its heading names both hazards",
-    /invent/i.test(title) && /reuse/i.test(title),
+    "its body still rules out inventing a phrase",
+    body.includes("only if this button produced them"),
+  );
+  check(
+    "its body still rules out reusing a phrase",
+    body.includes("protect nothing else"),
   );
   /* The claim has to stay the true one: validation is a typo check, not a
      test of how the phrase was produced. */
