@@ -15,11 +15,12 @@
     "format": "dprint fmt",
     "format:check": "dprint check",
     "messages": "node test/messages.mjs",
-    "check": "npm run paraglide && npm run lint && npm run format:check && npm run typecheck && npm run messages && npm run regions && npm run contrast && npm run map-coverage",
+    "check": "npm run paraglide && npm run lint && npm run format:check && npm run typecheck && npm run messages && npm run regions && npm run contrast && npm run map-coverage && npm run loading",
     "paraglide": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide",
     "regions": "node test/regions.mjs",
     "contrast": "node test/contrast.mjs",
-    "map-coverage": "node test/coverage.mjs"
+    "map-coverage": "node test/coverage.mjs",
+    "loading": "node test/loading.mjs"
   },
   "dependencies": {
     "@protomaps/basemaps": "5.7.2",

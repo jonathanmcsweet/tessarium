@@ -559,6 +559,48 @@ await page.waitForFunction(() => !document.querySelector(".download-card"), {
   timeout: 10_000,
 });
 
+/* The loading bar, on real traffic, deterministically: wait for quiet,
+   delay every tile past the tracker's 300 ms threshold, then tell the
+   vector source to reload its tiles (same URLs plus a marker param --
+   the app-visible way to force refetches without racing a download's
+   style swap, which flaked). The bar must appear while tiles drip in
+   and vanish at idle. */
+await page.waitForFunction(() => !document.querySelector(".map-loading"), {
+  timeout: 60_000,
+});
+await page.route("**/tiles/**", async (route) => {
+  await new Promise((done) => setTimeout(done, 500));
+  try {
+    await route.continue();
+  } catch {
+    /* The request died mid-delay: MapLibre aborts tiles that leave the
+       view, and unroute below can beat a sleeping handler to its route.
+       Either way there is nothing left to slow down. */
+  }
+});
+const barSeen = page
+  .waitForSelector(".map-loading", { timeout: 30_000 })
+  .then(() => true, () => false);
+await page.evaluate(() => {
+  const src = window.__tessarium_map.getSource("protomaps");
+  src.setTiles(src.tiles.map((u) => `${u}&e2e_bar=1`));
+});
+check("slow tiles raise the loading bar", await barSeen);
+check(
+  "the bar names itself for the screen reader",
+  await page.evaluate(() =>
+    (document.querySelector(".map-loading")?.getAttribute("aria-label") ?? "")
+        .length > 0
+    /* Already gone means the drip finished; barSeen vouched it was up. */
+    || document.querySelector(".map-loading") === null
+  ),
+);
+await page.unroute("**/tiles/**");
+await page.waitForFunction(() => !document.querySelector(".map-loading"), {
+  timeout: 60_000,
+});
+check("the bar hides once the map settles", true);
+
 /* Merged, not replaced: bytes 100-101 of a PMTiles header are its min and
    max zoom, and only the union of both downloads spans 0 to 15. */
 const zoomBytes = await fetch(`${base}/basemap/map.pmtiles`, {
@@ -1347,6 +1389,61 @@ check(
 const browsedAgain = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
   .json();
 check("a second look fetches nothing", browsedAgain.fetched === 0);
+
+/* The world offer must return for anyone who started with a region. A
+   fresh page on this server (archive on disk) with the WORLD estimate
+   answered by intercept: whether the server's estimate is right is the
+   server tests' business; the card's rule under test is "maps present +
+   world missing => the offer is back". The old rule -- offer only on an
+   empty map -- is exactly how the Georgia-first user never saw it. */
+const worldPage = await context.newPage();
+await worldPage.route("**/api/basemap-estimate", async (route) => {
+  let world = false;
+  try {
+    const body = JSON.parse(route.request().postData() ?? "{}");
+    const r = body.regions?.[0];
+    world = body.regions?.length === 1 && r?.min_lon === -180
+      && r?.max_lon === 180 && r?.min_lat === -85 && r?.max_zoom === 6;
+  } catch {
+    /* not JSON: not ours */
+  }
+  if (world) {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        total_bytes: 45_000_000,
+        tiles: 5461,
+        covered: false,
+        max_zooms: [6],
+      }),
+    });
+  } else await route.continue();
+});
+await worldPage.goto(base3, { waitUntil: "networkidle" });
+await worldPage.locator("#phrase").fill(sampleMnemonic);
+await worldPage.waitForSelector(".valid", { timeout: 30_000 });
+await worldPage.locator("button[type=submit]").click();
+await worldPage.waitForSelector(".map-wrap", { timeout: 60_000 });
+await worldPage.locator(".map-actions .icon-button").click();
+await worldPage.waitForSelector(".download-card", { timeout: 10_000 });
+await worldPage.waitForSelector(".download-world", { timeout: 30_000 });
+check("with maps on disk but no world overview, the offer is back", true);
+check(
+  "the returned offer explains itself with a size",
+  ((await worldPage.locator(".download-world .hint").textContent()) ?? "")
+    .length > 0,
+);
+check(
+  "the view offer still leads the card",
+  await worldPage.evaluate(() => {
+    const view = document.querySelector(".download-view");
+    const world = document.querySelector(".download-world");
+    return view !== null && world !== null
+      && (view.compareDocumentPosition(world)
+          & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  }),
+);
+await worldPage.close();
 
 /* Let the swapped style fetch and render its tiles; anything it logs from
    here on fails the final console check. */

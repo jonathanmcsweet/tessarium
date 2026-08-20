@@ -28,6 +28,7 @@ import {
   centreIsBlank,
   rectsToFeatures,
 } from "../core/coverage";
+import { createLoadingTracker } from "../core/loading";
 import { fetchAddress, fetchGrid } from "../core/queries";
 import { formatBytes, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
@@ -310,6 +311,11 @@ export function MapView() {
   /* `mapRef`, not `m` -- `m` is the message namespace throughout the UI. */
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
+  /* Tiles in flight for longer than the tracker's delay. Drives the bar
+     across the top of the map -- indeterminate on purpose: MapLibre does
+     not report done-versus-total tiles in any stable way, so a percentage
+     would be theatre. */
+  const [tilesLoading, setTilesLoading] = useState(false);
   const [truncated, setTruncated] = useState(false);
   /* Null when the middle of the view has a tile: the note is about where
      the user is looking, not about a corner of the screen. [depth] is the
@@ -378,6 +384,29 @@ export function MapView() {
       delete window.__tessarium_map;
     };
   }, []);
+
+  /* The loading bar's feed: dataloading fires when any source or the style
+     starts fetching; idle waits for the map to be fully drawn AND the
+     camera to rest. So the bar shows while the map is still working --
+     tiles genuinely lagging, or a flyTo longer than the tracker's delay
+     still settling -- which is the user-facing meaning of "rendering but
+     not done yet". The tracker only guards against flicker on sub-delay
+     bursts, which every small pan fires. */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const tracker = createLoadingTracker(setTilesLoading);
+    const onLoading = () => tracker.loading();
+    const onIdle = () => tracker.idle();
+    map.on("dataloading", onLoading);
+    map.on("idle", onIdle);
+    return () => {
+      tracker.dispose();
+      map.off("dataloading", onLoading);
+      map.off("idle", onIdle);
+      setTilesLoading(false);
+    };
+  }, [ready]);
 
   /* A missing basemap must not look like a broken application. The grid and
      the addressing still work over blank space, so say what is missing
@@ -710,8 +739,17 @@ export function MapView() {
       toast.success(m.map_download_done());
       /* The archive exists now; the cached "absent" answer must not outlive
          it and resurrect the banner, and every cached estimate is stale --
-         tiles just landed on disk that the numbers do not know about. */
+         tiles just landed on disk that the numbers do not know about.
+         Inactive estimates are DROPPED, not merely invalidated: a query
+         with no live observer never refetches, and a reopened download
+         card would be served the stale answer synchronously -- flashing a
+         world offer the disk already satisfied -- while the refetch runs.
+         Dropped, the card starts at pending and says nothing wrong. */
       client.setQueryData(["basemap-present"], true);
+      client.removeQueries({
+        queryKey: ["basemap-estimate"],
+        type: "inactive",
+      });
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
       client.invalidateQueries({ queryKey: ["basemap-coverage"] });
@@ -727,6 +765,10 @@ export function MapView() {
       /* Tiles left the disk -- and removing the last region deletes the
          archive outright, so "present" is a question again, not a fact. */
       client.invalidateQueries({ queryKey: ["basemap-present"] });
+      client.removeQueries({
+        queryKey: ["basemap-estimate"],
+        type: "inactive",
+      });
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
       client.invalidateQueries({ queryKey: ["basemap-coverage"] });
@@ -746,12 +788,20 @@ export function MapView() {
          the list must not keep showing the world before it. */
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
       client.invalidateQueries({ queryKey: ["basemap-coverage"] });
+      client.removeQueries({
+        queryKey: ["basemap-estimate"],
+        type: "inactive",
+      });
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-present"] });
     } else if (job.state === "cancelled") {
       toast(m.map_download_cancelled());
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
       client.invalidateQueries({ queryKey: ["basemap-coverage"] });
+      client.removeQueries({
+        queryKey: ["basemap-estimate"],
+        type: "inactive",
+      });
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-present"] });
       closeDownload();
@@ -896,6 +946,17 @@ export function MapView() {
   return (
     <div className="map-wrap">
       <div ref={container} className="map" />
+      {
+        /* Indeterminate by design; see tilesLoading. Present in the tree
+          only while loading, so screen readers hear the transition. */
+      }
+      {tilesLoading && (
+        <div
+          className="map-loading"
+          role="progressbar"
+          aria-label={m.map_loading_detail()}
+        />
+      )}
       {
         /* The keyboard target. Only meaningful once the map has focus, which is
           why it is announced rather than drawn. */

@@ -547,6 +547,21 @@ export function DownloadCard({ region, job }: {
   const cancel = useBasemapCancel();
 
   const running = job !== undefined && isRunning(job);
+  /* The world overview used to be offered ONLY on an empty map, so anyone
+     who started with a region never saw it again -- and flying anywhere
+     else showed blank ocean while detail loaded. When maps exist (and no
+     job is running -- a world plan is real server work the running card
+     has no use for), ask the estimate whether the overview is still
+     missing (its incremental cost is ~zero once merged in) and keep
+     offering until it isn't. React Query dedups this with the Offer's own
+     estimate. */
+  const worldEstimate = useBasemapEstimate(
+    present.data === true && !running ? [WORLD] : null,
+  );
+  const worldMissing = present.data === true
+    && worldEstimate.isSuccess
+    && !worldEstimate.data.covered
+    && worldEstimate.data.tiles > 0;
 
   return (
     <section className="download-card" aria-labelledby="download-title">
@@ -592,6 +607,15 @@ export function DownloadCard({ region, job }: {
               confirmLabel={m.map_download_confirm()}
               className="download-view"
             />
+            {worldMissing && (
+              <Offer
+                regions={[WORLD]}
+                ledgerLabel={m.map_name_world()}
+                describe={(size) => m.map_download_world_add({ size })}
+                confirmLabel={m.map_download_world_confirm()}
+                className="download-world"
+              />
+            )}
             <RegionPicker />
             <DownloadedMaps busy={running} />
             <BrowseToggle />

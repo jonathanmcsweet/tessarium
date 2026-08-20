@@ -2118,3 +2118,49 @@ all 13 grid vectors; and the stale-comment class the previous review
 flagged had regrown in three places. The reviewer independently
 fresh-verified all five Low modules, reproduced every falsification, and
 confirmed both generated files byte-identical through the refactor.
+
+
+## 2026-08-20: the world overview returns, and the map says when it is working
+
+Two field reports from flying London-to-Georgia on a Georgia-only archive.
+First: the world overview (planet at country level, ~45 MB, zoom 6,
+merging under later downloads by design) was only ever OFFERED on a
+completely empty map -- anyone who started with a region never saw it and
+could never get it, so every flight crossed blank ocean. The download
+card now asks the estimate whether the overview is still missing (its
+incremental cost is ~zero once merged) and keeps offering it until it
+is not, with wording that says why it helps. Second: nothing on screen
+said the map was still working while detail streamed in. A 3-pixel
+indeterminate bar now crosses the top of the map -- driven by MapLibre's
+dataloading/idle events through a pure tracker (ui/src/core/loading.ts)
+that holds it back through sub-300ms bursts so pans do not flicker it;
+indeterminate on purpose, since MapLibre reports no stable done-vs-total
+and a percentage would be theatre. Reduced-motion gets a static bar;
+the bar names itself to screen readers.
+
+Tests: 8 tracker checks under fake clocks (the load-bearing one: a burst
+that settles early must NEVER flash); e2e raises the bar on real traffic
+by delaying every tile through a route while a style swap refetches them,
+then requires it gone at idle; a second e2e page on the archive-holding
+server intercepts the world estimate and requires the offer BACK -- the
+exact case the old rule got wrong. Two new message keys in all six
+catalogues.
+
+The map-loading review found two highs, both fixed in the app rather than
+the test: reopening the download card served a STALE cached world estimate
+synchronously (React Query serves invalidated data while refetching), so
+the offer could flash for a world already on disk -- terminal job states
+now DROP inactive estimate caches so a remounting card starts at pending;
+and the tile-delay route in the e2e crashed the suite when MapLibre
+aborted a request mid-delay -- tolerant continue. Honesty items: the bar
+also shows during a longer flyTo while the camera settles (idle waits for
+rest), which matches the user's ask -- "rendering but not done" -- and the
+comments now say so instead of overclaiming "only when arrival lags"; the
+world estimate no longer fires while a job runs; the view-before-world
+order is asserted as DOM order, not existence; es-US now speaks tu like
+the rest of its catalogue. One testing lesson earned the hard way: the
+first bar test hung its trigger on a download's style swap and went
+pass-fail-fail-pass across identical runs -- a coin-flip test asserts
+nothing. It now drives the reload itself (setTiles under a delayed route),
+proved right first in an isolated instrumented page, then twice green
+back to back in the full suite.
