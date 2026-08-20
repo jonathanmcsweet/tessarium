@@ -46,7 +46,8 @@ let () =
   parse (List.tl (Array.to_list Sys.argv));
 
   let key =
-    Tessarium.derive_key ~mnemonic:!mnemonic ~passphrase:!passphrase
+    Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic:!mnemonic
+      ~passphrase:!passphrase
   in
 
   let lat_min = Z.of_string "-90000000000" in

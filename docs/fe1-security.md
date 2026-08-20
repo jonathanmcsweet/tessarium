@@ -20,7 +20,7 @@ Z_a × Z_b with
 | Rounds | 16 (even, by proof obligation) | `fstar/Tessarium.Feistel.fst` |
 | Round function | keyed BLAKE2s-256, full PRF per round | injected, `ocaml/lib`; vector-pinned machine-integer port in `fstar/low` |
 | Tweak | the fixed string `tessarium-grid-2` | not an input anywhere |
-| Key | 32 bytes: mnemonic → PBKDF2-HMAC-SHA512 × 2,048 (BIP-39) → PBKDF2-HMAC-SHA512 × 200,000, salt `tessarium-kdf-2` | `ocaml/lib/tessarium.ml` |
+| Key | 32 bytes: Argon2id(t=3, m=64 MiB, p=1) over the NFKD phrase, salt `tessarium-kdf-3` ++ passphrase | `ocaml/lib/tessarium.ml`, `ocaml/argon2` |
 
 The a:b split is 2:1 — near-balanced, one bit of imbalance, which the FE1
 analysis tolerates (the pair it replaced was 250:1; the correction is in
@@ -102,8 +102,9 @@ it from any number of input/output pairs is generic key search.
 Two search spaces exist, and the honest claim needs both stated together:
 
 - **Phrase space.** 24 words carry 256 bits of entropy (128 effective
-  post-Grover). Each guess pays the KDF: 202,048 PBKDF2 iterations —
-  deliberately, 98.7× BIP-39's baseline.
+  post-Grover). Each guess pays the KDF: Argon2id at 64 MiB — memory-hard,
+  so the perfectly-parallel GPU farm the old iteration count only taxed
+  linearly now pays for 64 MiB of real memory per concurrent guess.
 - **Raw key space.** A 32-byte Feistel key can be guessed directly for 16
   MAC calls per try, skipping the KDF entirely. The KDF hardening is therefore
   NOT what protects against raw-key search — 2^256 keys (2^128

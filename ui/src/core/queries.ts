@@ -22,7 +22,7 @@ import type { Cell } from "../store";
 import { type Bounds, Core, type Grid } from "./client";
 
 /* One worker for the life of the tab. Rebuilding it would mean re-running
-   PBKDF2, and it holds the key, so its lifetime is the session's. */
+   the KDF, and it holds the key, so its lifetime is the session's. */
 let instance: Core | null = null;
 export const core = (): Core => (instance ??= new Core());
 

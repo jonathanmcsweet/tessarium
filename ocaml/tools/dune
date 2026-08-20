@@ -4,7 +4,7 @@
 (executable
  (name gen_vectors)
  (modules gen_vectors)
- (libraries tessarium tessarium_extracted zarith yojson))
+ (libraries tessarium tessarium_argon2 tessarium_extracted zarith yojson))
 
 ; Emits ocaml/lib/wordlist.ml. Kept as a build step rather than a committed
 ; file so the module cannot drift from wordlist/english.txt.
@@ -26,7 +26,7 @@
 (executable
  (name differential)
  (modules differential)
- (libraries tessarium tessarium_extracted zarith unix))
+ (libraries tessarium tessarium_argon2 tessarium_extracted zarith unix))
 
 ; Embeds the built UI into the server binary. See gen_assets.ml for why the
 ; assets are stored gzipped rather than raw.
@@ -45,4 +45,4 @@
 (executable
  (name bench_encode)
  (modules bench_encode)
- (libraries tessarium unix zarith))
+ (libraries tessarium tessarium_argon2 unix zarith))

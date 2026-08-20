@@ -245,8 +245,8 @@ check(
 
 await page.locator("button[type=submit]").click();
 
-/* PBKDF2 runs here. Generous, because a cold worker on a loaded machine is
-   slower than the number anyone quotes. */
+/* The Argon2id derivation runs here. Generous, because a cold worker on a
+   loaded machine is slower than the number anyone quotes. */
 await page.waitForSelector(".map-wrap", { timeout: 60_000 });
 check("map opens after derivation", true);
 check(
@@ -1721,8 +1721,8 @@ const nfkdSample = vectors.nfkd_addresses[0];
    normalisation is skipped entirely — a test written that way passes whether
    or not the code under it works, which is how the first version of this
    check was written. Feeding the precomposed form is the direction that can
-   actually fail: without NFKD those bytes go into PBKDF2 unchanged and derive
-   a different key. */
+   actually fail: without NFKD those bytes go into the KDF unchanged and
+   derive a different key. */
 const nfkdEntry = vectors.key_derivation.find((k) => k.name === "pass-nfc");
 const nfdEntry = vectors.key_derivation.find((k) => k.name === "pass-nfd");
 check(

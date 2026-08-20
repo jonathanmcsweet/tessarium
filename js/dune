@@ -50,3 +50,12 @@
    (run %{exe:../ocaml/tools/differential.exe} --count 20000)
    (run node %{dep:wasm-differential.mjs} - %{project_root}/wasm/core.wasm
     bands.json %{project_root}/wordlist/english.txt))))
+
+; The Argon2id wasm module (the browser's KDF since kdf-3) against noble's
+; independent implementation. wasm/argon2.wasm is committed; `make
+; sync-argon2-wasm` rebuilds it with the pinned zig, CI diffs it.
+(rule
+ (alias runtest)
+ (deps argon2-differential.mjs %{project_root}/wasm/argon2.wasm
+  %{project_root}/package.json %{project_root}/package-lock.json)
+ (action (run node %{dep:argon2-differential.mjs} %{project_root}/wasm/argon2.wasm)))

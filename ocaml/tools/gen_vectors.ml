@@ -66,7 +66,7 @@ let generate inputs =
   let keys =
     List.map
       (fun (name, m, passphrase) ->
-        (name, Tessarium.derive_key ~mnemonic:m ~passphrase))
+        (name, Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic:m ~passphrase))
       mnemonics
   in
 
@@ -187,7 +187,6 @@ let generate inputs =
     [
       ("grid_version", `String Tessarium.grid_version);
       ("derivation_version", `String Tessarium.derivation_version);
-      ("hardening_iterations", `Int Tessarium.hardening_iterations);
       ("total_cells", `Int (Z.to_int Tessarium.total_cells));
       ("address_space", `Int (Z.to_int Tessarium.address_space));
       ( "feistel",

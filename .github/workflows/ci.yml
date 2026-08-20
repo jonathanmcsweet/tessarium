@@ -152,6 +152,23 @@ jobs:
             exit 1
           fi
 
+      # The KDF's two committed artifacts: the vendored Argon2 reference C
+      # must match the pinned upstream release byte for byte, and
+      # wasm/argon2.wasm must match a fresh build of it (the SAME C the
+      # server's FFI links -- one implementation, two hosts). The
+      # behavioural wall (js/argon2-differential.mjs, in dune test) rings
+      # on live-code drift; dead-region bytes only these diffs catch.
+      - name: Vendored Argon2 matches the pinned release
+        run: make sync-argon2
+
+      - name: Committed Argon2 wasm matches a fresh build
+        run: |
+          make sync-argon2-wasm
+          if ! git diff --exit-code --stat wasm/argon2.wasm; then
+            echo "::error::wasm/argon2.wasm differs from a fresh build of the vendored C -- run make sync-argon2-wasm"
+            exit 1
+          fi
+
       # The side-by-side wall links a committed copy of the KaRaMeL
       # emission (ocaml/c_core/vendor; the server still links only the
       # extracted core). A hand edit or a stale copy after an F* change

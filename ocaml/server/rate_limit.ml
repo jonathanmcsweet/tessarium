@@ -1,8 +1,8 @@
 (* A token bucket, as a pure function of state and time.
 
-   It exists for one endpoint. `/api/session` runs PBKDF2, which is
-   deliberately slow — 2048 rounds of HMAC-SHA512, tens of milliseconds — and
-   that is exactly what makes an unauthenticated endpoint calling it a lever
+   It exists for one endpoint. `/api/session` runs Argon2id, which is
+   deliberately expensive — 64 MiB and ~100 ms per call — and that is
+   exactly what makes an unauthenticated endpoint calling it a lever
    for exhausting the host. Every other route is cheap enough not to care.
 
    The clock is a parameter rather than read here, so the behaviour can be

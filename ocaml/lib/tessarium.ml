@@ -37,31 +37,33 @@ let lon_max = Z.of_string "180000000000"
 
 let required_words = 24
 
-(* The second derivation stage, and the reason it exists.
+(* One derivation stage, memory-hard, and the reason it is Argon2id.
 
-   BIP-39 fixes the first stage at 2048 iterations of PBKDF2-HMAC-SHA512. That
-   number was chosen in 2013 and cannot be changed without ceasing to be
-   BIP-39. But the BIP-39 seed is an intermediate value here, not the output --
-   the Feistel key is derived from it -- so stretching it again costs an
-   attacker linearly while leaving the phrase a standard BIP-39 phrase that any
-   other tool still accepts.
+   Until kdf-3 this was two PBKDF2-HMAC-SHA512 stages (BIP-39's fixed 2048,
+   then a hardened 200,000 -- the measurements are in the ledger). Argon2id
+   was the recorded better answer, rejected only because pure-OCaml Argon2id
+   at 64 MiB cost 21 s in a browser and a wasm build would have meant a
+   second implementation of the primitive. The C-core pipeline dissolved
+   that objection: ONE vendored reference implementation (ocaml/argon2) now
+   compiles both natively for this function and to WebAssembly for the
+   browser, byte-identical -- measured 108 ms native, 149 ms as wasm.
 
-   200,000 was picked by measurement, not by feel. Attacker cost rises from
-   2048 to 202,048 iterations per guess, a factor of 98.7: the roughly 10^14
-   search to forge one (address, place) pair goes from about 47 days on a
-   100-GPU farm to about thirteen years. Our own cost is 49 ms in a browser via
-   WebCrypto -- faster than the 241 ms the old 2048-iteration derivation took
-   in js_of_ocaml -- and 1.2 s natively, which only the opt-in `--api` mode and
-   the build ever pay.
+   The parameters (t=3, m=64 MiB, p=1 -- RFC 9106's second recommended
+   option) are baked in the stubs and the wasm glue, not passed here: a
+   memory-hard function prices out the perfectly-parallel GPU attacker the
+   iteration count only taxed linearly.
 
-   Argon2id would be better still, and was measured and rejected: pure-OCaml
-   Argon2id at 64 MiB costs 21 s in a browser. See roadmap.md. *)
+   What this deliberately gives up: the intermediate value is no longer the
+   standard BIP-39 seed (that chain was PBKDF2-HMAC-SHA512, a NIST-designed
+   path -- the move off those primitives is ledgered). The PHRASE is still a
+   valid BIP-39 phrase -- wordlist and checksum, any wallet accepts it --
+   and nothing external ever consumed the seed, since the Feistel key was
+   always derived from it by a custom stage. *)
 (* Re-exported so tests can exercise it directly. The library's own module
    shares its name, so sibling modules are otherwise unreachable from outside. *)
 let nfkd = Normalize.nfkd
 
-let derivation_version = "tessarium-kdf-2"
-let hardening_iterations = 200_000
+let derivation_version = "tessarium-kdf-3"
 
 (* For the mnemonic only. BIP-39's English words are lowercase, so folding case
    and trimming here is safe and forgiving of how a phrase was pasted.
@@ -133,26 +135,31 @@ let mnemonic_of_entropy entropy =
          let shift = (required_words - 1 - i) * 11 in
          Wordlist.words.(Z.to_int (Z.logand (Z.shift_right bits shift) (Z.of_int 0x7ff)))))
 
-(* PBKDF2 is deliberately slow. Derive once per session and cache the result;
-   it must never sit in the per-request path. *)
-let derive_key ~mnemonic ~passphrase =
+(* The KDF's two inputs, built HERE and only here: native callers and the
+   browser worker (through the js_of_ocaml export) both take them from this
+   code, so the NFKD and joining rules cannot drift between targets. The
+   salt carries the version, so a future parameter change cannot silently
+   collide with keys derived today; the passphrase rides in the salt with
+   case and whitespace verbatim, per the BIP-39 convention this follows --
+   but NFKD-normalised, which is a different thing (see normalize_mnemonic
+   for why the mnemonic alone is case-folded). The 17-byte version prefix
+   keeps the salt above Argon2's 8-byte floor for any passphrase. *)
+let kdf_password ~mnemonic =
+  Normalize.nfkd (String.concat " " (split_words (normalize_mnemonic mnemonic)))
+
+let kdf_salt ~passphrase = derivation_version ^ Normalize.nfkd passphrase
+
+(* Key derivation is deliberately expensive. Derive once per session and
+   cache the result; it must never sit in the per-request path.
+
+   [kdf] is injected (Tessarium_argon2.kdf natively; the browser derives
+   with the same C as wasm and never calls this function): this library
+   also compiles under js_of_ocaml, where C stubs cannot follow. *)
+let derive_key ~kdf ~mnemonic ~passphrase =
   match validate_mnemonic mnemonic with
   | Error e -> raise (Bad_mnemonic e)
   | Ok () ->
-      let words = split_words (normalize_mnemonic mnemonic) in
-      let seed =
-        Crypto.pbkdf2_sha512
-          ~password:(Normalize.nfkd (String.concat " " words))
-          (* Case and whitespace verbatim, per BIP-39 -- see
-             normalize_mnemonic -- but NFKD-normalised, which BIP-39 also
-             requires and which is a different thing. *)
-          ~salt:(Normalize.nfkd ("mnemonic" ^ passphrase))
-          ~count:2048 ~dklen:64
-      in
-      (* Second stage. The salt carries the version, so a future change to
-         these parameters cannot silently collide with keys derived today. *)
-      Crypto.pbkdf2_sha512 ~password:seed ~salt:derivation_version
-        ~count:hardening_iterations ~dklen:32
+      kdf ~password:(kdf_password ~mnemonic) ~salt:(kdf_salt ~passphrase)
 
 (* ------------------------------------------------------------- addresses *)
 

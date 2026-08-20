@@ -16,6 +16,13 @@ let string_of_hex h =
   String.init (String.length h / 2) (fun i ->
       Char.chr (int_of_string ("0x" ^ String.sub h (2 * i) 2)))
 
+(* The inverse, for handing the KDF inputs to the worker: hex survives the
+   Js.string round trip byte-exactly, which raw OCaml strings do not. *)
+let hex_of_string s =
+  String.concat ""
+    (List.init (String.length s) (fun i ->
+         Printf.sprintf "%02x" (Char.code s.[i])))
+
 let ns_of_deg (d : float) = Z.of_float (Float.round (d *. 1e9))
 let deg_of_ns (z : Z.t) = Z.to_float z /. 1e9
 
@@ -28,13 +35,27 @@ let () =
        val gridVersion = jstr Tessarium.grid_version
        val totalCells = jstr (Z.to_string Tessarium_Table.total_cells)
 
-       (* The browser derives keys with WebCrypto, not with this bundle: our
-          PBKDF2 compiled to JavaScript runs at ~8,500 iterations/second
-          against WebCrypto's 4.1 million, and the hardened derivation is
-          202,048 iterations. These two constants are what the worker must
-          feed it, exported here so there is one source of truth for them. *)
+       (* The browser derives keys with the Argon2id wasm module, not with
+          this bundle -- but the KDF's two INPUTS are built here, by the
+          same OCaml the server runs, so the NFKD and joining rules cannot
+          drift between targets. The worker feeds the returned bytes to the
+          wasm and gets the 32-byte key. Null when the phrase fails
+          validation; the error text comes from validateMnemonic. *)
        val derivationVersion = jstr Tessarium.derivation_version
-       val hardeningIterations = Tessarium.hardening_iterations
+
+       method kdfInputs mnemonic passphrase =
+         match Tessarium.validate_mnemonic (ostr mnemonic) with
+         | Error _ -> Js.null
+         | Ok () ->
+             let mnemonic = ostr mnemonic and passphrase = ostr passphrase in
+             Js.Opt.return
+               (object%js
+                  val password =
+                    jstr (hex_of_string (Tessarium.kdf_password ~mnemonic))
+
+                  val salt =
+                    jstr (hex_of_string (Tessarium.kdf_salt ~passphrase))
+               end)
 
        (* Entropy in, 24 words out. The caller supplies the bytes -- in the
           browser that is `crypto.getRandomValues` -- so the randomness stays

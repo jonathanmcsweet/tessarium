@@ -18,6 +18,9 @@ let check name ok =
     Printf.printf "  FAIL  %s\n" name
   end
 
+(* The production KDF, injected once for the whole suite. *)
+let derive_key = Tessarium.derive_key ~kdf:Tessarium_argon2.kdf
+
 let check_eq name a b =
   check (Printf.sprintf "%s (got %s, want %s)" name a b) (String.equal a b)
 
@@ -56,7 +59,7 @@ let () =
       let passphrase =
         match member "passphrase" v with `String p -> p | _ -> ""
       in
-      let key = Tessarium.derive_key ~mnemonic ~passphrase in
+      let key = derive_key ~mnemonic ~passphrase in
       Hashtbl.replace keys name key;
       check_eq (Printf.sprintf "derive_key[%s]" name) (hex key) (to_str (member "key" v)))
     (to_list (member "key_derivation" json));
@@ -127,17 +130,17 @@ let () =
      "mysecret" produced the same map and every letter's case was thrown away.
      Nothing failed; it just quietly weakened the passphrase. *)
   let m = to_str (member "mnemonic" (List.hd (to_list (member "key_derivation" json)))) in
-  let k p = hex (Tessarium.derive_key ~mnemonic:m ~passphrase:p) in
+  let k p = hex (derive_key ~mnemonic:m ~passphrase:p) in
   check "passphrase case is significant" (k "MySecret" <> k "mysecret");
   check "passphrase case is significant (upper)" (k "MYSECRET" <> k "mysecret");
   check "passphrase whitespace is significant" (k " mysecret " <> k "mysecret");
   check "an empty passphrase is unaffected"
-    (String.equal (k "") (hex (Tessarium.derive_key ~mnemonic:m ~passphrase:"")));
+    (String.equal (k "") (hex (derive_key ~mnemonic:m ~passphrase:"")));
   (* And the mnemonic itself stays forgiving: its words are lowercase by
      definition, so how it was pasted must not matter. *)
   check "mnemonic case and padding do not matter"
     (String.equal
-       (hex (Tessarium.derive_key ~mnemonic:("  " ^ String.uppercase_ascii m ^ "  ") ~passphrase:""))
+       (hex (derive_key ~mnemonic:("  " ^ String.uppercase_ascii m ^ "  ") ~passphrase:""))
        (k ""));
 
   (* Addresses that name no location must be refused, not resolved to
@@ -183,7 +186,7 @@ let () =
   let derived name =
     let v = key_named name in
     hex
-      (Tessarium.derive_key
+      (derive_key
          ~mnemonic:(to_str (member "mnemonic" v))
          ~passphrase:(to_str (member "passphrase" v)))
   in
