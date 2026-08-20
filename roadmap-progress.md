@@ -77,8 +77,11 @@ across the whole corpus (32,596 disagreements).
 **Honesty notes:** SHA-256 remains in two NON-security roles, documented in
 place: the BIP-39 wordlist checksum (typo detection, fixed by that community
 standard) and the download ledger's content ids. PBKDF2-HMAC-SHA512 remains
-the KDF until the Argon2id branch lands. CLAUDE.md names HMAC-SHA256 in two
-places and its own rules forbid editing it without the user; flagged instead.
+the KDF until the Argon2id branch lands. CLAUDE.md's primitive names were
+updated with the user's explicit approval, per its own rule. The review
+caught the deep-sweep claim resting on v1 evidence; the full
+10,061,490-point sweep was re-run under v2 (5 seeds x 2,012,298 points,
+zero disagreements) before the claim was allowed to stand.
 
 ### 2026-08-20 — Search results say where they go
 

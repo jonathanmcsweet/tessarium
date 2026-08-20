@@ -32,7 +32,7 @@ build and a browser build from that one extraction.
 | Offline basemap | Done — PMTiles reader and region extractor in OCaml |
 | Desktop | Done — single binary with the UI embedded; tarball |
 | Theorems | Done — containment, injectivity, round-trip, end to end |
-| JavaScript cross-check | Independent implementation; agrees on 10,061,490 points |
+| JavaScript cross-check | Independent implementation; agrees on 10,061,490 points (re-run under mapping v2) |
 
 ### What "verified" means here, exactly
 
@@ -259,8 +259,10 @@ third, and `fstar/low/` for the machine-integer port whose C must reproduce
 the same vectors — and it remains the only one whose oracle is not F\*
 itself.
 
-It has been run against **10,061,490 points across five keys with zero disagreements (tools/differential-deep.sh)**, and a
-32,298-point version runs in CI. The corpus is deliberately unbalanced towards
+It has been run against **10,061,490 points across five keys with zero
+disagreements (tools/differential-deep.sh)** — re-run in full after the
+2026-08-20 BLAKE2s move, so the number is earned under mapping v2, not
+inherited from v1 — and a 32,298-point version runs in CI. The corpus is deliberately unbalanced towards
 band seams: uniformly random points essentially never land on one, and seams
 are where two bands could both claim a point or leave a gap. Every run,
 including the small one, straddles all 4096 of them.
