@@ -21,6 +21,35 @@ than a git log.
 
 ---
 
+### 2026-08-20 — The C core crosses the FFI, side by side with the extracted core
+
+**Phase:** 1–3
+
+**What:** `ocaml/c_core/`: the KaRaMeL emission committed as vendor code
+(with the krml runtime headers, pinned to the toolchain version;
+`make sync-c-core` refreshes, CI diffs), OCaml externals over
+range-checking stubs (the C refinements are erased, so the stubs check
+every argument before the proved code runs), and a Z-facing wrapper.
+`test_c_core.ml` is the side-by-side wall the roadmap called for:
+15,549 checks per run — encode, decode-of-own-answer, scanned addresses
+including rejections, bounds; corners, a band seam, the pole, both
+antimeridians, 2,000 generated points, three keys. Falsified: flipped
+key packing (13,364 ring), one tampered band-table entry (27 ring).
+Registered in check-suites.sh so a suite that stops running is itself a
+failure.
+
+**Rationale:** The emitted C is committed rather than built from F* on
+every server build so `make build` keeps working without the toolchain
+— the same reasoning as ocaml/extracted, watched the same way. The C
+core lives in its own library (`tessarium_c_core`): the `tessarium`
+library also compiles under js_of_ocaml, and C stubs do not cross into
+the browser. The server does NOT switch yet: the wall runs beside the
+extracted core until the pair has earned "byte-identical" on real use,
+per the recorded phase order.
+
+**Follow-on:** WASM for the browser; then the server answers from the C
+core and the extracted-OCaml core retires.
+
 ### 2026-08-20 — The real round function moves inside the proof
 
 **Phase:** 1–3

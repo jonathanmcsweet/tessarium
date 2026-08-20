@@ -125,6 +125,18 @@ jobs:
             exit 1
           fi
 
+      # The server links a committed copy of the KaRaMeL emission
+      # (ocaml/c_core/vendor); a hand edit or a stale copy after an F*
+      # change must fail, exactly like ocaml/extracted.
+      - name: Committed C core matches a fresh emission
+        run: |
+          export PATH="$HOME/toolchain/fstar/bin:$PATH"
+          opam exec -- make sync-c-core
+          if ! git diff --exit-code --stat ocaml/c_core/vendor; then
+            echo "::error::ocaml/c_core/vendor differs from a fresh KaRaMeL emission -- run make sync-c-core"
+            exit 1
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc

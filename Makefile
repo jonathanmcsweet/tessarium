@@ -81,6 +81,18 @@ test-lowstar:
 	  fstar/low/check_main.c -o _build/low_check
 	./_build/low_check
 
+# Refresh the committed copy of the KaRaMeL-emitted C that the server
+# links (ocaml/c_core/vendor) -- committed generated code, CI-diffed
+# like ocaml/extracted. The krml runtime headers in vendor/ are pinned
+# by hand to the toolchain version; only the module files are copied.
+C_CORE_MODULES := Feistel Grid Codec Api Hmac Core
+sync-c-core:
+	PATH="$(FSTAR_BIN):$$PATH" $(MAKE) -C fstar low-extract
+	@for m in $(C_CORE_MODULES); do \
+	  cp fstar/low/out/Tessarium_Low_$$m.c fstar/low/out/Tessarium_Low_$$m.h ocaml/c_core/vendor/ || exit 1; \
+	done
+	@echo "ocaml/c_core/vendor refreshed"
+
 build:
 	dune build
 

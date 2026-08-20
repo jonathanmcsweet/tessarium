@@ -30,6 +30,7 @@ suites=(
   "pmtiles round-trip|pmtiles round-trips"
   "vector regeneration|vectors reproduce exactly from the verified core"
   "differential sweep|[1-9][0-9]* points checked"
+  "C core side by side|agree on [1-9][0-9]* side-by-side checks"
 )
 
 out="$(dune build @runtest --force 2>&1)"
