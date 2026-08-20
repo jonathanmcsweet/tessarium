@@ -153,7 +153,12 @@ let kdf_password ~mnemonic =
    is enforced HERE -- before any host-specific code -- so the server and
    the browser refuse the same inputs with the same words. 1000 bytes of
    NFKD passphrase plus the 17-byte version prefix stays inside the wasm
-   buffer with margin. *)
+   buffer with margin.
+
+   The password needs no such check: [derive_key] and [kdfInputs] both
+   validate first, and 24 BIP-39 words cannot exceed 215 bytes (the longest
+   word is eight letters). The worker re-checks both lengths anyway, since
+   an unchecked write into wasm memory is worse than a redundant compare. *)
 let max_passphrase_bytes = 1000
 
 let kdf_salt ~passphrase =

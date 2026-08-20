@@ -73,7 +73,11 @@ coordinate checks pin the worker chain (a single dropped password byte rang
 in both the coordinate and NFKD checks). `make sync-argon2` re-downloads
 the pinned release and byte-diffs the vendor tree (a one-byte tamper
 rings); CI runs it plus a rebuild-and-diff of the wasm. The full deep sweep
-was re-run under kdf-3 before its README claim was kept.
+was re-run under kdf-3 before its README claim was kept: 5 seeds x 2,012,298
+points, 10,061,490 total, zero disagreements. That run is also the widest
+KDF cross-check there is -- js/differential.mjs re-derives each seed's key
+with noble's Argon2id, so all five keys agree between the vendored C and an
+independent implementation before a single address is compared.
 
 **Decisions recorded:** the unlock-over-plain-HTTP refusal is kept as
 POLICY (`self.isSecureContext`) now that the technical dependency on
