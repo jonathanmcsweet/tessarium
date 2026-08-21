@@ -42,6 +42,12 @@ let ensure_init () =
 
 let init = ensure_init
 
+(* A second range check, after the one in Tessarium.check_range that every
+   injected call already passed. Kept because test_c_core.ml and any future
+   direct caller reach these functions without that one, and because the
+   emitted C's refinements are erased -- the boundary is the place to refuse.
+   Deliberate duplication, not drift: if the two ever disagree the wall's
+   corner cases fail. *)
 let check_range lat lon =
   if Z.lt lat lat_min || Z.gt lat lat_max then
     invalid_arg (Printf.sprintf "latitude %s out of range" (Z.to_string lat));
@@ -84,8 +90,4 @@ let bounds_of_point ~lat ~lon =
 (* The injected core, as Tessarium.core. The record is what serve.ml
    passes; the functions above are what the side-by-side wall drives. *)
 let core : Tessarium.core =
-  {
-    Tessarium.encode = (fun ~key ~lat ~lon -> encode ~key ~lat ~lon);
-    decode = (fun ~key address -> decode ~key address);
-    bounds_of_point = (fun ~lat ~lon -> bounds_of_point ~lat ~lon);
-  }
+  { Tessarium.encode; decode; bounds_of_point }

@@ -281,7 +281,9 @@ int main(void) {
   }
 
   /* The production composition: encode and decode under real 32-byte keys,
-     against what the OCaml server (extracted core + digestif) computed. */
+     against what the extracted OCaml core with digestif computed -- which
+     is what generates the committed vectors, and no longer what the
+     server's HTTP API answers from. */
   for (int i = 0; i < REAL_E2E_COUNT; i++) {
     K___uint64_t_uint64_t_uint64_t_uint64_t a = Tessarium_Low_Core_core_encode(
         cum_lookup, revec_k0[i], revec_k1[i], revec_k2[i], revec_k3[i],

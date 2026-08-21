@@ -3,11 +3,12 @@ module Tessarium.Low.Core
 /// The PRODUCTION core: the machine-integer cipher and grid instantiated
 /// with the real round function -- keyed BLAKE2s from
 /// Tessarium.Low.Blake2s, 128 bits reduced mod m, mirroring
-/// ocaml/lib/crypto.ml's round_fn. The OCaml server calls this module
-/// over the FFI and the browser runs it as WebAssembly, both today as
-/// side-by-side walls; the extracted-OCaml core with digestif injected
-/// stays the production answer path until those walls have soaked (the
-/// roadmap's switch phase). Tessarium.Low.Check remains the harness
+/// ocaml/lib/crypto.ml's round_fn. The OCaml server's HTTP API answers
+/// from this module over the FFI; the browser runs it as WebAssembly
+/// beside the js_of_ocaml core, which still answers there until the
+/// browser half of the switch lands. Either way the extracted-OCaml core
+/// keeps generating the committed vectors and answering beside this one
+/// in the side-by-side walls. Tessarium.Low.Check remains the harness
 /// instantiation.
 ///
 /// What is proved: the machine reduction below computes the same number as

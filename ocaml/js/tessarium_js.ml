@@ -109,10 +109,7 @@ let () =
 
        method decodeDeg keyHex addr =
          let key = string_of_hex (ostr keyHex) in
-         match
-           Tessarium_Api.decode Tessarium.round_fn key Tessarium.tweak
-             (Tessarium.address_of_string (ostr addr))
-         with
+         match core.Tessarium.decode ~key (Tessarium.address_of_string (ostr addr)) with
          | None -> Js.null
          | Some (lat, lon) ->
              Js.some

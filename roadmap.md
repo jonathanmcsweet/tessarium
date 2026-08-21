@@ -194,7 +194,8 @@ code violates the rule above. Revisit only if a profiler points at the core.
   refactor, not a prerequisite.
 - **Round function is injected, not proved** (and since 2026-08-20 ALSO
   proved: the same function lives inside the proof as machine integers, and
-  the injected copy is what the extracted-OCaml production path still runs).
+  the injected digestif copy is what the browser's js_of_ocaml path still
+  runs; the server's HTTP API answers from the proved one).
   `Tessarium.Feistel` takes `round_fn` as a parameter, and bijectivity does
   not depend on it. It is supplied by `digestif`'s *pure-OCaml* backend
   (keyed BLAKE2s; SHA-256 remains only for the BIP-39 checksum), which
@@ -477,6 +478,15 @@ not cover.
       through the same downloader, from a source whose licence permits it;
       shown with proper attribution. Imagery is far heavier than vector data —
       expect roughly ten times the bytes for the same region and zoom.
+- [ ] **The loading-bar end-to-end check failed once and has not been
+      explained.** On 2026-08-21 "slow tiles raise the loading bar" failed a
+      single `make test` run and passed the three runs around it, with a
+      change that touched no tile-loading code. The test's own header says
+      that path is deterministic, so either the header is wrong or something
+      is genuinely racy — a one-in-four failure is worth more than a shrug,
+      because the next person to see it will assume it is their change.
+      Reproduce under load before trusting the determinism claim.
+
 - [ ] **The non-English translations still want a native speaker.** They have
       been through one adversarial review pass, which found and fixed real
       defects — a French pronoun that attached "your 24 words and this second

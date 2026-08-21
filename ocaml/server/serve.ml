@@ -340,11 +340,17 @@ let serve_file cfg ~root ~segments ~meth ~range_header ~immutable =
       let response, bytes = error cfg ~status:`Not_found "not found" in
       (response, `Not_found, bytes, Http_range.Whole)
 
-(* The arithmetic behind every answer this server gives: the C emitted by
+(* The arithmetic behind every answer the HTTP API gives: the C emitted by
    KaRaMeL from the F* proofs, over the FFI (ocaml/c_core). It replaced the
    extracted-OCaml core here once the side-by-side wall had run beside it
    long enough; that wall still runs on every `make test`, so the two are
-   still compared, and only one of them serves. *)
+   still compared, and only one of them serves.
+
+   Scope, stated plainly: `/api/*` is off unless the server is started with
+   --api, and no UI path uses it. So in the default and desktop
+   configurations this core computes nothing, and every address a user sees
+   still comes from the js_of_ocaml core in the browser -- until the browser
+   half of the switch lands. *)
 let core = Tessarium_c_core.C_core.core
 
 (* ------------------------------------------------------------- session API *)
@@ -513,6 +519,12 @@ let handle_api cfg sessions limiter random ~endpoint ~body ~now =
               | Some address -> (
                   match Tessarium.decode ~core ~key address with
                   | exception Tessarium.Invalid_address e -> bad e
+                  (* The C core refuses arguments outside its proved domain
+                     rather than computing over them. address_of_string cannot
+                     produce such a tuple, so this is unreachable today; it is
+                     here so an unreachable case stays a 400 rather than a
+                     dropped connection if that ever stops being true. *)
+                  | exception Invalid_argument e -> bad e
                   | Error e -> error cfg ~status:`Not_found e
                   | Ok (lat, lon) ->
                       respond_json cfg ~status:`OK

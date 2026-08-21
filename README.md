@@ -17,8 +17,10 @@ same planet. An address is meaningless to anyone who does not have your phrase.
 
 ## Status
 
-The core is implemented in F\*, extracts to OCaml, and runs in both a native
-build and a browser build from that one extraction.
+The core is implemented in F\* and extracts twice: to OCaml, which the
+browser runs through js_of_ocaml, and to C via KaRaMeL, which the server's
+HTTP API now answers from over an FFI. Both extractions are checked against
+each other on every build.
 
 | Component | State |
 |---|---|
@@ -64,10 +66,15 @@ committed `bands.json`.
 **What is not proved, and cannot be.** That the mapping is *unguessable*. The
 strongest honest claim is "provably reversible for any round function, and
 unpredictable assuming keyed BLAKE2s behaves as a PRF." The second half is
-an assumption, and a standard one, but it is an assumption. Also unproved: the
-F\* extraction pipeline and `ocamlopt`, which are trusted; `digestif`'s
-BLAKE2s and SHA-2, which are vector-tested, not verified; and every line of
-the server, the UI and the PMTiles code, none of which is F\* at all.
+an assumption, and a standard one, but it is an assumption. Also unproved:
+the F\* extraction pipelines and the compilers after them, which are trusted
+— for the browser that is the OCaml extraction, `ocamlopt`/js_of_ocaml and
+`digestif`'s vector-tested BLAKE2s; for the server's HTTP API it is instead
+KaRaMeL, the C compiler, and the 130 hand-written lines of FFI plumbing in
+`ocaml/c_core/c_core_stubs.c`, which are not F\* and not proved. The round
+function is proved there rather than injected, so digestif leaves that path.
+Unproved on both paths: every line of the server, the UI and the PMTiles
+code, none of which is F\* at all.
 
 The extraction pipeline, while still unproved, is no longer merely trusted —
 three checks now watch it, and a divergence on any checked value fails the
@@ -110,9 +117,11 @@ runtime beyond the proof is F\*'s `.krml` emission, krml itself and the C
 compiler. The real round function -- keyed BLAKE2s, chosen when the
 project moved its security functions off NIST designs -- lives inside the
 proof as pure machine integers (`fstar/low/Tessarium.Low.Blake2s.fst`),
-pinned to the RFC 7693 and keyed KAT vectors; the same emitted C runs beside
-the server over an FFI and beside the browser as WebAssembly, each behind a
-side-by-side wall, until those walls have soaked enough to switch.
+pinned to the RFC 7693 and keyed KAT vectors. The server's HTTP API answers
+from that emitted C over an FFI; the browser still answers from the OCaml
+extraction, with the same C compiled to WebAssembly running beside it behind
+a side-by-side wall until that half switches too. Both walls run on every
+build, so the two extractions are still compared whichever one serves.
 
 Proof establishes that the grid is *consistent*, not that it is *well
 designed*. No theorem here says a 3 m square is the right size.

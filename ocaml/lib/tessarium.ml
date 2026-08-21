@@ -245,17 +245,25 @@ let check_range lat lon =
 
 (* The arithmetic core, injected -- the same shape as [derive_key ~kdf].
 
-   Two implementations answer this signature and must answer identically:
-   [extracted_core] below (the F*-extracted OCaml with digestif's round
-   function) and Tessarium_c_core (the same F*, extracted to C by KaRaMeL
-   and linked over the FFI). Injecting rather than choosing here is what
-   lets the server run one while the tests drive both against each other,
-   and what makes the switch a one-value change at a call site instead of
-   an edit inside this module.
+   Two implementations answer this signature: [extracted_core] below (the
+   F*-extracted OCaml with digestif's round function) and
+   Tessarium_c_core (the same F*, extracted to C by KaRaMeL and linked
+   over the FFI). Injecting rather than choosing here is what lets the
+   server run one while the tests drive both against each other, and what
+   makes the switch a one-value change at a call site instead of an edit
+   inside this module.
 
-   Only the arithmetic crosses this boundary. The wordlist codec, the range
-   checks and the user-facing messages stay here, so both cores produce the
-   same words and the same errors for the same input. *)
+   They agree on every input the functions BELOW can hand them, which is
+   the domain that matters and the one the side-by-side wall sweeps. They
+   do not agree on the whole domain this signature admits: the C core
+   refuses a key that is not 32 bytes and a word index at or above 2048,
+   where the extracted core computes over unbounded nats. Callers reach
+   these functions through the wordlist codec and [check_range], which
+   cannot produce either.
+
+   Only the arithmetic crosses this boundary. The wordlist codec, the
+   range checks on the way in, and the user-facing messages stay here, so
+   whichever core is injected produces the same words and the same errors. *)
 type core = {
   encode : key:string -> lat:Z.t -> lon:Z.t -> Z.t * Z.t * Z.t * Z.t;
   decode : key:string -> Z.t * Z.t * Z.t * Z.t -> (Z.t * Z.t) option;
