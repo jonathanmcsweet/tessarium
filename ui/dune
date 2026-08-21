@@ -1,0 +1,4 @@
+; The UI is built by Vite, not by dune. Nothing here is a dune target; the
+; tree is carried only so js/worker-differential.mjs can declare
+; public/core.worker.js as a dependency and re-run when it changes.
+(data_only_dirs *)

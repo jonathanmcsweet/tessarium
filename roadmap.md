@@ -156,8 +156,8 @@ the machine-integer proof module that now accompanies the primitive.)
 |---|---|---|
 | Core (grid, Feistel, codec) | F\* | Yes |
 | Server / CLI target | OCaml 5.3 (via F\* extraction) | No — generated artifact |
-| Browser target | JS (js_of_ocaml over the *same* extracted OCaml) | No — generated artifact |
-| Round function | `digestif` pure-OCaml keyed BLAKE2s, injected | No — standard primitive, vector-tested |
+| Browser target | wasm (KaRaMeL C via zig) for the arithmetic; js_of_ocaml for the codec, BIP-39 and the KDF's inputs | No — generated artifacts |
+| Round function | proved inside the core on both answer paths; `digestif`'s keyed BLAKE2s injected into the extracted OCaml, which now only generates vectors and answers beside it in the walls | The proved one, yes |
 | HTTP server | OCaml — Eio + cohttp-eio | No |
 | UI | TypeScript, Vite, React, MapLibre GL | No |
 | Basemap | Protomaps PMTiles, self-hosted or bundled | n/a |
@@ -187,15 +187,21 @@ code violates the rule above. Revisit only if a profiler points at the core.
 
 ### Application and delivery
 
-- **One extraction, two consumers.** F\* extracts to OCaml once. The native
-  build is the server and CLI; `js_of_ocaml` compiles that *same* extracted
-  OCaml to the JavaScript the browser runs. No second extraction target, no
-  hand-written client. Low\* → C → WASM stays available later as a performance
-  refactor, not a prerequisite.
+- **One core, two consumers.** ~~F\* extracts to OCaml once; `js_of_ocaml`
+  compiles that same extracted OCaml to the JavaScript the browser runs. Low\*
+  → C → WASM stays available later as a performance refactor, not a
+  prerequisite.~~ SUPERSEDED (2026-08-21): the Low\* → C path landed and both
+  hosts now compute with it — natively over the FFI on the server, as wasm in
+  the browser. What the decision was protecting is intact and is the reason it
+  could be superseded safely: there is still no second implementation and no
+  hand-written client. The extracted OCaml did not go away; it generates the
+  vectors and answers beside the C in the side-by-side walls, which is what
+  makes the switch checkable rather than a leap.
 - **Round function is injected, not proved** (and since 2026-08-20 ALSO
-  proved: the same function lives inside the proof as machine integers, and
-  the injected digestif copy is what the browser's js_of_ocaml path still
-  runs; the server's HTTP API answers from the proved one).
+  proved: the same function lives inside the proof as machine integers. Since
+  2026-08-21 the proved one is what BOTH answer paths run, and the injected
+  digestif copy computes only for the extracted core in the walls and the
+  vector generator).
   `Tessarium.Feistel` takes `round_fn` as a parameter, and bijectivity does
   not depend on it. It is supplied by `digestif`'s *pure-OCaml* backend
   (keyed BLAKE2s; SHA-256 remains only for the BIP-39 checksum), which
@@ -308,26 +314,25 @@ The theorem set is complete and in the ledger. What is left is narrower.
       byte-identical rebuilds), a shim mirroring the FFI stubs' checks,
       and js/wasm-differential.mjs replaying the differential corpus
       through it in every `make test` (32,298 points: every address,
-      every centre, per-axis bounds containment, 11,454 rejections). Not wired into
-      the UI: the app still answers from the js_of_ocaml core. The round
+      every centre, per-axis bounds containment, 11,454 rejections). The round
       function primitive CHANGED (2026-08-20, keyed BLAKE2s-256, mapping
       `tessarium/v2/fe1`): the whole chain above -- proof module
       (Low.Blake2s replacing Low.Hmac; two compressions, native keying,
       little-endian throughout), vendored C, wasm (14.1 KB now), vectors,
       walls -- moved together, pinned by RFC 7693 + keyed KATs and
-      digestif/noble recomputations; see the ledger. The SERVER HALF of the
-      switch LANDED (2026-08-21, ledger): `Tessarium.core` is injected
-      like `~kdf`, serve.ml passes the C core, and the extracted core keeps
-      generating the vectors and answering beside it in the wall. What is
-      still open is the BROWSER half: the UI answers from the js_of_ocaml
-      core, and moving it to wasm/core.wasm needs the band table handed to
-      the module (a new jsoo export), the address codec kept where the
-      wordlist is, and the grid walk decided — it drives bounds_of_point in
-      a loop, so it either moves into the wasm glue or stays a JS driver
-      over the wasm's bounds. The CSP already allows wasm and the worker
-      already loads a wasm module and holds the raw 32-byte key, both since
-      the Argon2id KDF landed. One narrower gap
-      remains in the evaluator leg: seven grid points is a floor, not a
+      digestif/noble recomputations; see the ledger. The SWITCH LANDED, both halves
+      (2026-08-21, ledger): `Tessarium.core` is injected like `~kdf`,
+      serve.ml passes the C core, and the worker answers encode/decode/grid
+      from wasm/core.wasm — so every address a user sees is now computed by
+      the emitted C. js_of_ocaml keeps what is not arithmetic (the wordlist
+      codec, BIP-39, the KDF's inputs) and hands the module its band table,
+      which `seal_cum` re-checks in full. The grid walk stayed a JS driver
+      over the proved `bounds` rather than moving into the glue; that is a
+      second driver over one proved function, so js/worker-differential.mjs
+      drives the real worker against the OCaml one on every `make test`, and
+      it is also what makes WHICH core answers observable — the sandbox owns
+      fetch, so a worker that went quietly back to js_of_ocaml fails it. One
+      narrower gap remains in the evaluator leg: seven grid points is a floor, not a
       ceiling — the leg costs ~3 minutes and scales linearly if it ever
       earns more. Rerun
       the deep sweep after any change to the extraction pipeline or the
@@ -363,6 +368,20 @@ The theorem set is complete and in the ledger. What is left is narrower.
 The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
+
+- [ ] **The worker's error messages are English, in six locales.** Everything
+      the UI says lives in `ui/messages/` except what `core.worker.js` throws:
+      "locked", the malformed-address message the core supplies, "that point
+      is outside the mapped range", the 35%-of-combinations explanation, and
+      the band-table refusals added by the browser half of the switch. The
+      display edge (`MapView`, `AddressPanel`) puts `error.message` straight
+      into a toast, so a French user gets English at exactly the moment
+      something went wrong. The fix is a stable code alongside the message and
+      a `code -> m.*()` map at the edge; the messages themselves then move to
+      the catalogue like every other string. Noted here rather than fixed with
+      the switch because it predates it — the switch enlarged the surface
+      without creating it — and because it is six locales of new keys, not a
+      worker change.
 
 - [ ] **Search context follow-ups.** Result rows now carry country,
       subdivision and distance (ledger, 2026-08-20); three sharp edges

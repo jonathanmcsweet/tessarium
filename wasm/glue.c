@@ -1,6 +1,7 @@
-/* The browser face of the KaRaMeL-emitted verified core.
+/* The browser's verified core. THIS is the arithmetic behind every address
+   the UI shows.
 
-   Compiled from the SAME vendored C the server's HTTP API now answers
+   Compiled from the SAME vendored C the server's HTTP API answers
    from over the FFI (ocaml/c_core/vendor) to wasm32-wasi by a pinned
    zig -- one verified artifact chain, two hosts. `make sync-wasm`
    rebuilds; CI rebuilds and byte-diffs the committed module. Local
@@ -23,10 +24,13 @@
    which table; the wall feeds prefix sums of the independent
    implementation's bands.json, so a drift between the two tables rings).
 
-   NOT wired into the UI yet: the app still answers from the js_of_ocaml
-   core. This module runs beside it under js/wasm-differential.mjs until
-   the switch phase, exactly like the server-side story. The eventual UI
-   switch also needs 'wasm-unsafe-eval' in the CSP; noted in the roadmap. */
+   Wired into the UI since the browser half of the switch: the worker
+   loads this module and answers encode, decode and grid from it, with
+   js_of_ocaml keeping the wordlist codec, BIP-39 and the band table.
+   js/wasm-differential.mjs still replays the corpus through it on every
+   `make test`, and js/worker-differential.mjs drives the real worker
+   against the OCaml driver the server uses. The CSP already carries
+   'wasm-unsafe-eval' (serve.ml), which the Argon2id KDF needed first. */
 
 #include <stdint.h>
 

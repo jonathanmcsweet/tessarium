@@ -50,7 +50,10 @@ export default defineConfig({
       "/basemap": backend,
       "/api": backend,
       "/healthz": backend,
-      // The worker's KDF module is embedded in the backend, not in public/.
+      // The worker's two wasm modules -- the KDF and the map core -- are
+      // embedded in the backend, not in public/. So in dev they come from the
+      // last `make ui` and can lag wasm/*.wasm; rerun it after `make sync-wasm`
+      // or the browser keeps computing with the old module.
       "/argon2.wasm": backend,
       "/core.wasm": backend,
     },

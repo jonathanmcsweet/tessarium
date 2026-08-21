@@ -59,3 +59,29 @@
  (deps argon2-differential.mjs %{project_root}/wasm/argon2.wasm
   %{project_root}/package.json %{project_root}/package-lock.json)
  (action (run node %{dep:argon2-differential.mjs} %{project_root}/wasm/argon2.wasm)))
+
+; The real browser worker, driven in node against the extracted core. Unlike
+; every other rule here this one's subject is not a library but the shipped
+; artifact: ui/public/core.worker.js, loaded unmodified into a sandbox that
+; owns its globals. That is what makes "the browser answers from the wasm
+; core" observable -- the sandbox owns fetch, so a worker that quietly went
+; back to js_of_ocaml never asks for core.wasm and this rule fails.
+;
+; It depends on both committed wasm modules because it runs the whole chain:
+; unlock derives with argon2.wasm and the addresses come out of core.wasm.
+(rule
+ (alias runtest)
+ (deps
+  worker-differential.mjs
+  %{project_root}/ui/public/core.worker.js
+  %{project_root}/ocaml/js/tessarium_js.bc.js
+  %{project_root}/wasm/core.wasm
+  %{project_root}/wasm/argon2.wasm
+  %{project_root}/vectors/vectors.json)
+ (action
+  (run node %{dep:worker-differential.mjs}
+   %{project_root}/ui/public/core.worker.js
+   %{project_root}/ocaml/js/tessarium_js.bc.js
+   %{project_root}/wasm/core.wasm
+   %{project_root}/wasm/argon2.wasm
+   %{project_root}/vectors/vectors.json)))

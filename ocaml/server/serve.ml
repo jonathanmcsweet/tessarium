@@ -43,7 +43,9 @@ let content_security_policy cfg =
     [
       "default-src 'self'";
       (* 'wasm-unsafe-eval' admits WebAssembly.compile and nothing else --
-         scripts stay 'self'-only. The worker's Argon2id KDF needs it. *)
+         scripts stay 'self'-only. Both of the worker's wasm modules need it:
+         the Argon2id KDF and, since the browser half of the switch, the map
+         core that computes every address the UI shows. *)
       "script-src 'self' 'wasm-unsafe-eval'";
       "style-src 'self' 'unsafe-inline'";
       "img-src 'self' data: blob:";

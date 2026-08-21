@@ -34,6 +34,15 @@ let key = null;
    result to display, not an exception to handle. */
 class Refused extends Error {}
 
+/* The strings thrown from here are English, and the display edge
+   (MapView, AddressPanel) puts them in a toast verbatim -- so a French user
+   sees English. That is a known gap, not an oversight: the app ships in six
+   locales and every other user-facing string lives in ui/messages/. Closing
+   it means the worker returning a stable code alongside the message and the
+   edge mapping the code to m.*(), which is its own piece of work and is in
+   roadmap.md. Until then, do not add strings here that a user can reach
+   without also adding them there. */
+
 /* Key derivation runs on the Argon2id wasm module (argon2.wasm) -- the
    SAME vendored reference C the server links, zig-compiled, so the browser
    and the server run one implementation of the primitive. (The old
@@ -79,13 +88,29 @@ async function loadWasm(path) {
   return instance.exports;
 }
 
+/* Both modules are memoised as PROMISES rather than as results. Memoising the
+   result looks equivalent and is not: nothing is assigned until two awaits
+   have resolved, so two messages arriving before the first load finishes each
+   compile a module and each reserve its own linear memory. The map core is
+   257 pages, and `queries.ts` issues encode and grid together, so the cold
+   first click hit that race every time. The `catch` reset is what keeps a
+   failed load retryable -- without it one 404 would poison the cache for the
+   life of the tab. */
+const once = (load) => {
+  let pending = null;
+  return () => {
+    if (!pending) {
+      pending = load().catch((e) => {
+        pending = null;
+        throw e;
+      });
+    }
+    return pending;
+  };
+};
+
 /* The KDF. Instantiated once, on first unlock. */
-let argon2 = null;
-async function loadArgon2() {
-  if (argon2) return argon2;
-  argon2 = await loadWasm("/argon2.wasm");
-  return argon2;
-}
+const loadArgon2 = once(() => loadWasm("/argon2.wasm"));
 
 /* The map core: the same F* the server's HTTP API answers from, compiled to
    wasm instead of to native C. It arrives knowing no geography -- the band
@@ -94,9 +119,17 @@ async function loadArgon2() {
    (base, monotonicity, step bound, grand total) before the module will
    answer anything. A table that fails that check leaves the core unusable
    rather than quietly wrong. */
-let mapCore = null;
-async function loadMapCore() {
-  if (mapCore) return mapCore;
+const loadMapCore = once(async () => {
+  /* `make ui` does not depend on `make build`, so a stale `_build` ships a
+     bundle that predates these three exports. Without this the first symptom
+     is `core.cumTable is not a function` from inside a grid refresh, which
+     MapView swallows -- the grid just never appears and nothing says why. */
+  if (typeof core.cumTable !== "function") {
+    throw new Refused(
+      "the js_of_ocaml bundle predates the wasm core -- run `make build`, "
+        + "then `make ui`",
+    );
+  }
   const exports = await loadWasm("/core.wasm");
   /* A method on the bundle, not a property: js_of_ocaml exposes `val` as a
      field and `method` as a callable, and reading the callable hands
@@ -110,17 +143,29 @@ async function loadMapCore() {
   if (!exports.seal_cum()) {
     throw new Refused("the band table failed the core's shape check");
   }
-  mapCore = exports;
-  return mapCore;
-}
+  return exports;
+});
 
 /* Integer nanodegrees, as the whole design requires: the only float here is
-   the degree the UI speaks, converted once at this boundary. 1.8e11 is far
-   below 2^53, so the multiply is exact and the rounding is the same one the
-   OCaml boundary does. */
+   the degree the UI speaks, converted once at this boundary.
+
+   `d * 1e9` is a correctly-rounded double, NOT the exact decimal product --
+   51.5074 * 1e9 is a hair under 51507400000 in exact arithmetic and lands on
+   it only because the double rounds there. What matters is the tie-break, and
+   Math.round alone gets it wrong: it breaks ties toward +Infinity, while
+   OCaml's Float.round -- which is what this boundary used to run, through
+   js_of_ocaml -- breaks them away from zero. They disagree on exactly the
+   negative halves, so a coordinate whose product is k + 0.5 AND which sits on
+   a cell boundary would have landed in a different cell and produced a
+   different address on the two paths. Rare, unreachable from a map click, and
+   precisely the class of one-unit boundary error this project exists to rule
+   out. */
 const LAT_MIN = -90000000000n;
 const LON_MIN = -180000000000n;
-const nsOfDeg = (d) => BigInt(Math.round(d * 1e9));
+const nsOfDeg = (d) => {
+  const p = d * 1e9;
+  return BigInt(p >= 0 ? Math.round(p) : -Math.round(-p));
+};
 const degOfNs = (ns) => Number(ns) / 1e9;
 
 /* The key as the eight little-endian words the core's ABI takes -- BLAKE2s's
@@ -133,10 +178,29 @@ const keyWords = (hex) =>
     );
   });
 
-const outWords = (m, n) =>
-  Array.from(
-    new BigUint64Array(m.memory.buffer, m.out_ptr(), n),
-  );
+/* The core's four-word out block, read through a view that is rebuilt only
+   when the underlying buffer is replaced. Nothing on these paths grows the
+   memory, so in practice it is built once -- but a detached view throws
+   rather than reading stale bytes, so the identity check is the cheap way to
+   stay correct if that ever changes. A fresh view per call is what the grid
+   walk made expensive: 12,000 cells a viewport, two allocations each. */
+let outCache = null;
+let outBuffer = null;
+const outWords = (m) => {
+  if (outBuffer !== m.memory.buffer) {
+    outBuffer = m.memory.buffer;
+    outCache = new BigUint64Array(outBuffer, m.out_ptr(), 4);
+  }
+  return outCache;
+};
+
+/* js_of_ocaml raises OCaml exceptions as ARRAYS -- [tag, exn_id, ..., payload]
+   -- not as Errors, so `e.message` is undefined and String(e) hands the user
+   a comma-joined dump with the useful sentence buried at the end. The payload
+   is the last element. Anything else (a genuine Error, a thrown string) falls
+   through unchanged. */
+const ocamlMessage = (e) =>
+  Array.isArray(e) ? String(e[e.length - 1]) : String(e?.message ?? e);
 
 async function deriveKey(mnemonic, passphrase) {
   const inputs = core.kdfInputs(mnemonic, passphrase);
@@ -232,17 +296,26 @@ const ops = {
   async encode({ lat, lon }) {
     if (key === null) throw new Refused("locked");
     const m = await loadMapCore();
+    /* Re-read after the await, not before it. These ops were synchronous
+       until the core moved to wasm; now a `lock` can land while the first
+       call is still fetching and compiling, and `keyWords(null)` would put
+       a TypeError in the user's toast instead of "locked". */
+    const k = key;
+    if (k === null) throw new Refused("locked");
     if (
-      !m.encode(
-        ...keyWords(key),
-        nsOfDeg(lat) - LAT_MIN,
-        nsOfDeg(lon) - LON_MIN,
-      )
+      !m.encode(...keyWords(k), nsOfDeg(lat) - LAT_MIN, nsOfDeg(lon) - LON_MIN)
     ) {
       throw new Refused("that point is outside the mapped range");
     }
-    const [w1, w2, w3, n] = outWords(m, 4).map(Number);
-    return { address: core.addressOfIndices(w1, w2, w3, n) };
+    const out = outWords(m);
+    return {
+      address: core.addressOfIndices(
+        Number(out[0]),
+        Number(out[1]),
+        Number(out[2]),
+        Number(out[3]),
+      ),
+    };
   },
 
   async decode({ address }) {
@@ -254,18 +327,26 @@ const ops = {
       /* A malformed address is a typo, not a fault. The core's message names
          the specific problem -- which word, which part -- so it is passed
          through rather than replaced with something generic. */
-      throw new Refused(String(e.message ?? e));
+      throw new Refused(ocamlMessage(e));
     }
     const m = await loadMapCore();
+    const k = key;
+    if (k === null) throw new Refused("locked");
     const rc = m.decode(
-      ...keyWords(key),
+      ...keyWords(k),
       BigInt(idx.w1),
       BigInt(idx.w2),
       BigInt(idx.w3),
       BigInt(idx.n),
     );
+    /* Not a refusal: -1 means an argument outside the core's domain, which
+       `indicesOfAddress` cannot produce -- it resolves words through the
+       wordlist (0..2047) and a four-digit number. So this is unreachable, and
+       if an ABI change ever made it reachable it must not be dressed up as
+       the user's typo. A plain Error, deliberately: Refused is the class for
+       things the user did. */
     if (rc === -1) {
-      throw new Refused("that address is outside the address space");
+      throw new Error("the core refused an address the codec produced");
     }
     if (rc === 0) {
       throw new Refused(
@@ -278,13 +359,18 @@ const ops = {
   },
 
   /* The grid overlay. Needs no key -- it is pure geometry -- and every cell
-     corner comes from the proved `bounds`; this walk only decides which
-     cells to ask about. It steps by taking each cell's upper edge as the
-     next cell's lower edge, which is exact because the bounds are half-open
-     at the high edge, and it steps in BigInt nanodegrees because a boundary
-     landing one unit out is the exact bug this project exists to rule out.
-     Ported from Tessarium.cells_in_bounds, which drove the same proved
-     function from OCaml and still does for the server. */
+     corner comes from the proved `bounds`; this walk only decides which cells
+     to ask about. It steps by taking each cell's upper edge as the next
+     cell's lower edge, which is exact because the bounds are half-open at the
+     high edge, and it steps in BigInt nanodegrees because a boundary landing
+     one unit out is the exact bug this project exists to rule out.
+
+     A transcription of Tessarium.cells_in_bounds, which still drives the
+     server. Two drivers over one proved function is a real cost, so they are
+     pinned to each other: js/worker-differential.mjs drives this worker and
+     the OCaml walk in one process on every `make test`, over the corners
+     where they used to disagree. `limit` counts CELLS, not the four numbers each one contributes
+     to the flat array -- getting that wrong quartered the grid. */
   async grid({ latLo, lonLo, latHi, lonHi, limit }) {
     const m = await loadMapCore();
     const clamp = (lo, hi, v) => (v < lo ? lo : v > hi ? hi : v);
@@ -293,44 +379,55 @@ const ops = {
     const lonLoNs = clamp(LON_MIN, -LON_MIN, nsOfDeg(lonLo));
     const lonHiNs = clamp(LON_MIN, -LON_MIN, nsOfDeg(lonHi));
     const cells = [];
+    let count = 0;
     let truncated = false;
     if (latLoNs <= latHiNs && lonLoNs <= lonHiNs) {
       let lat = latLoNs;
-      walk: while (lat <= latHiNs) {
-        if (cells.length >= limit) {
+      for (;;) {
+        if (lat > latHiNs) break;
+        if (count >= limit) {
           truncated = true;
           break;
         }
         /* Within one row every cell shares the row's latitude bounds, so the
-           row's upper edge comes out of the first cell in it. */
+           row's upper edge comes out of the first cell in it. `cut` is the
+           row reporting that it stopped with cells still owed. */
         let rowTop = lat + 1n;
-        for (let lon = lonLoNs; lon <= lonHiNs;) {
-          if (cells.length >= limit) {
-            truncated = true;
-            break walk;
+        let cut = false;
+        for (let lon = lonLoNs;;) {
+          if (lon > lonHiNs) break;
+          if (count >= limit) {
+            cut = true;
+            break;
           }
           if (!m.bounds(lat - LAT_MIN, lon - LON_MIN)) {
             throw new Refused("the grid walk left the mapped range");
           }
-          const [a, b, c, d] = outWords(m, 4);
-          const latLoC = a + LAT_MIN, latHiC = b + LAT_MIN;
-          const lonLoC = c + LON_MIN, lonHiC = d + LON_MIN;
+          const out = outWords(m);
+          const latLoC = out[0] + LAT_MIN, latHiC = out[1] + LAT_MIN;
+          const lonLoC = out[2] + LON_MIN, lonHiC = out[3] + LON_MIN;
           rowTop = latHiC;
-          /* A cell whose upper edge does not advance would loop forever. It
-             cannot happen -- widths are positive -- but the guard costs
-             nothing and a hung tab costs a lot. */
+          /* A cell whose upper edge does not advance would loop forever.
+             This one DOES fire, at lon_max, where the last cell in a row is
+             clamped to zero width -- so it ends the row and the walk carries
+             on to the next one. Ending the walk here drew a single row for
+             any viewport touching the antimeridian. Nothing is owed, so no
+             truncation either. */
           if (lonHiC <= lon) break;
           cells.push(latLoC, latHiC, lonLoC, lonHiC);
+          count += 1;
           lon = lonHiC;
         }
-        if (rowTop <= lat) break;
+        if (cut || rowTop <= lat) {
+          truncated = true;
+          break;
+        }
         lat = rowTop;
       }
-      if (lat <= latHiNs && !truncated) truncated = cells.length >= limit;
     }
     const flat = new Float64Array(cells.length);
     for (let i = 0; i < cells.length; i++) flat[i] = degOfNs(cells[i]);
-    return { cells: flat, count: cells.length / 4, truncated };
+    return { cells: flat, count, truncated };
   },
   /* There is deliberately no bulk-address operation here.
 
@@ -352,8 +449,12 @@ self.onmessage = async (event) => {
     return;
   }
   try {
-    /* `unlock` is async because the wasm KDF is; the rest are synchronous and
-       await passes them straight through. */
+    /* `unlock`, `encode`, `decode` and `grid` are async: the KDF and the map
+       core are both wasm modules, loaded on first use. `validate`, `generate`,
+       `lock` and `status` stay synchronous and await passes them straight
+       through. The consequence for anything added here: an op that reads
+       `key` must re-read it AFTER every await, because `lock` can land in
+       between. */
     const result = await handler(payload ?? {});
     /* Hand the cell array over rather than copying it. A z20 viewport is a few
        thousand cells; copying that on every map movement is a frame budget

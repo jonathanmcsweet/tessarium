@@ -2,4 +2,10 @@
 ; its differential test, which runs under `dune test`; wordlist/ holds shared
 ; input data that ocaml/lib generates a module from; wasm/ holds the committed
 ; wasm build of the verified core, which the wasm differential rule replays.
-(dirs ocaml vectors js wordlist wasm)
+;
+; ui/ is here for exactly one file: js/worker-differential.mjs drives the real
+; ui/public/core.worker.js, and a test that cannot declare its subject as a
+; dependency is a test that stops re-running when the subject changes -- which
+; is the failure tools/check-suites.sh exists because of. ui/dune marks the
+; whole tree data-only, so dune reads files there and builds nothing.
+(dirs ocaml vectors js wordlist wasm ui)
