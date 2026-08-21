@@ -92,6 +92,14 @@ now in roadmap.md as its own item, because the switch enlarged that surface
 without creating it. `CLAUDE.md:107` still says the browser runs the OCaml
 extraction, which is now false — left for the user, who owns that file.
 
+And one cost this branch owes: it made the "slow tiles raise the loading bar"
+end-to-end check flaky. Measured, not guessed — master 0 failures in 9 runs,
+this branch 3 in 11. The evidence points at the check's setup racing rather
+than at the bar, and it is recorded in roadmap.md with the numbers. It is left
+failing occasionally rather than tuned until green, because a check that was
+adjusted until it stopped complaining about a branch is no longer evidence
+about anything.
+
 ---
 
 ### 2026-08-21 — The server's HTTP API answers from the proved C core

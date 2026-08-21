@@ -497,14 +497,31 @@ not cover.
       through the same downloader, from a source whose licence permits it;
       shown with proper attribution. Imagery is far heavier than vector data —
       expect roughly ten times the bytes for the same region and zoom.
-- [ ] **The loading-bar end-to-end check failed once and has not been
-      explained.** On 2026-08-21 "slow tiles raise the loading bar" failed a
-      single `make test` run and passed the three runs around it, with a
-      change that touched no tile-loading code. The test's own header says
-      that path is deterministic, so either the header is wrong or something
-      is genuinely racy — a one-in-four failure is worth more than a shrug,
-      because the next person to see it will assume it is their change.
-      Reproduce under load before trusting the determinism claim.
+- [ ] **"Slow tiles raise the loading bar" is racy, and the browser half of
+      the switch made it worse.** Measured on 2026-08-21, `make test-ui` run
+      repeatedly on one machine: master failed 0 of 9, the switch branch 3 of
+      11. So it is not pre-existing noise — this change perturbed it — even
+      though it touches no tile-loading code at all.
+
+      What the evidence points at is the SETUP, not the bar. Adding a single
+      extra `page.evaluate` round trip between installing the 500 ms tile
+      delay and calling `setTiles` made it pass 10 of 10, four of those under
+      deliberate CPU load. That is consistent with the refetch beating the
+      interception into place: undelayed tiles arrive, the map reaches `idle`
+      inside the tracker's 300 ms window, and the bar is correctly never
+      shown. It is NOT conclusive — 10 clean runs at the observed 27% rate has
+      about a 4% chance of happening anyway — which is exactly why this is
+      still open.
+
+      The fix is to assert the premise rather than assume it: the check should
+      require that the delay handler actually ran, so "the setup did not take"
+      fails as itself instead of as a missing bar. There may also be a real
+      user-facing edge underneath — the tracker cancels on ANY `idle`, so a
+      spurious one just after `dataloading` suppresses the bar for the rest of
+      that load. Worth confirming before rewriting the check.
+
+      Not fixed with the switch because tuning an unrelated check until it
+      passes, on a branch that made it fail, is how a real signal gets lost.
 
 - [ ] **The non-English translations still want a native speaker.** They have
       been through one adversarial review pass, which found and fixed real
