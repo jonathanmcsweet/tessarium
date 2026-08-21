@@ -21,6 +21,60 @@ than a git log.
 
 ---
 
+### 2026-08-21 — Coming back costs nothing, and a long fly-to stops flying
+
+**Phase:** 6 · **Branch:** perf/http-caching-and-fly
+
+**What:** Every cacheable response now carries an ETag and answers a matching
+`If-None-Match` with an empty 304 — tiles (hashed per request, because a
+browse-cache download replaces them under the same URL), embedded UI assets
+(hashed at build time by `gen_assets`, so the 5 MB core is not re-hashed to
+say "unchanged"), and files off disk (size and mtime). Measured against the
+running server over the 56 requests a session makes: **5177 KB → 0.1 KB** on a
+second visit, 52 of them 304. Locking and unlocking pays the same nothing,
+which was the third report.
+
+`flyTo` no longer takes a fixed `duration: 1200`. Both call sites go through
+`ui/src/core/camera.ts`, which hands MapLibre a `speed` and a `maxDuration` and
+lets it decide: a journey it can animate inside 1.2 s is animated, anything
+longer lands at once. And the loading bar's `idle` is no longer the only way
+down — while the bar is up, `MapView` asks the map directly on a 250 ms poll.
+
+**Rationale:** Validators rather than lifetimes. `no-cache` was correct and
+stays: an update or a removal really does change tiles under the same URL. It
+was never the problem — a rule that says "ask" with nothing to ask about is
+answered in full every time.
+
+Jumping rather than a slower flight, because a slower flight does not fix it.
+`flyTo` arcs out to a zoom that fits the whole journey, and from street zoom
+that is zoom levels the map holds no tiles for — which is why one city in
+Georgia to the next looked exactly like London to Atlanta. A jump asks for the
+destination and nothing else. The cost is that long searches no longer show
+the journey; reduced-motion users already got this behaviour, so it is now the
+same for everyone past 1.2 seconds.
+
+The stuck loading bar was found by this branch and belongs to it: MapLibre
+fires `idle` from inside a render and renders only while something is dirty,
+so a load that resolves with nothing new to draw could raise the bar and never
+lower it. Rare while every tile was a fresh download, ordinary once they come
+back from cache in milliseconds — it failed the end-to-end suite twice in
+three runs with the map itself reporting fully loaded.
+
+The end-to-end check that was recorded as flaky was neither flaky nor
+tuned. Instrumented instead: the bar goes up at 318 ms and down at 568 ms,
+and the check raced a `waitForSelector` against that window — a missed window
+and a bar that never appeared were the same failure. It now records the bar
+through an observer set before the refetch, and separately asserts that the
+interception took at all, so "the setup did not take" fails as itself. Three
+runs green, and it fails correctly against a tracker that never shows and
+against a route that intercepts nothing.
+
+**Follow-on:** Content-hashing the three fixed assets so they need no round
+trip at all, and the tracker's other direction — a spurious `idle` cancelling
+a pending show — both in roadmap.md. Also fixed in passing: every
+`waitForFunction` in the end-to-end suite passed its timeout as the page
+function's ARGUMENT, so two waits that said sixty seconds spent thirty.
+
 ### 2026-08-21 — One search box, and addresses stop leaving the browser
 
 **Phase:** 6 · **Branch:** fix/search-address-privacy

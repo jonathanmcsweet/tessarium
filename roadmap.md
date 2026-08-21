@@ -369,38 +369,19 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
-- [ ] **Every response is `no-cache` with no validator, so the app
-      re-downloads itself on every load.** Measured 2026-08-21 against the
-      running server: a second visit in the same browser profile re-fetched
-      **10.2 MB**, with 54 tiles answered `200` and not one `304`.
-      `cache-control: no-cache` without an ETag or Last-Modified does not mean
-      "revalidate cheaply" — it means "refetch in full", every time. The
-      biggest single item is `/tessarium.js` at **5.1 MB**, which is not
-      content-hashed and so cannot be `immutable` the way Vite's own bundle
-      already is; then ~3 MB of tiles and ~0.5 MB of glyphs per session.
+- [ ] **Three fixed assets still cost a round trip each.** ETags mean a
+      returning visit re-downloads nothing, but it still asks about
+      everything: `/tessarium.js`, `/core.wasm` and `/argon2.wasm` change
+      only when the binary is rebuilt, and could be content-hashed and served
+      `immutable` like `/assets/index-*.js`, at which point the browser stops
+      asking at all.
 
-      Locally that costs about two seconds and hides. Reported from use over a
-      VS Code port forward, where the same 10 MB across ~65 round trips took
-      roughly twenty seconds, and where locking and unlocking paid it again
-      because `MapView` unmounts on lock and `map.remove()` takes MapLibre's
-      in-memory cache with it — the only cache that currently exists.
-
-      The fix is validators, not longer lifetimes: an ETag on tiles, glyphs
-      and the wasm modules keeps the stated reason for `no-cache` intact (an
-      update or a removal changes tiles under the same URL) while turning
-      those bodies into empty 304s. `tessarium.js` and the two `.wasm`
-      modules should be content-hashed and served `immutable`, like
-      `/assets/index-*.js`.
-
-- [ ] **A long fly-to shows grey rather than a coarse map.** `flyTo` uses a
-      fixed `duration: 1200` and lands at `zoom: max(current, 20)` whatever
-      the distance, so London to Atlanta has to arc out to world zoom and back
-      in 1.2 s. The low-zoom tiles ARE requested — z2, z3, z5 and z6 all go
-      out — but they are 50–85 KB each and arrive after the animation has
-      finished, so the screen is grey and then the destination appears.
-      Scaling the duration with distance, or jumping outright beyond some
-      threshold, would at least make the wait legible. Depends on the caching
-      item above to be worth much: the coarse tiles are re-fetched every time.
+      Deliberately not done with the validators. It is a build change, not a
+      server one — the names have to reach `core.worker.js`, which is a file
+      in `public/` that no bundler rewrites — and the win is three empty
+      round trips out of the fifty-odd a visit makes, because tiles and
+      glyphs must keep revalidating either way. Worth doing when the worker's
+      own loading is next touched, not on its own.
 
 - [ ] **Arriving at an address does not select its square.** The search box
       flies the camera to the square an address names, at zoom 20, but the
@@ -539,31 +520,17 @@ not cover.
       through the same downloader, from a source whose licence permits it;
       shown with proper attribution. Imagery is far heavier than vector data —
       expect roughly ten times the bytes for the same region and zoom.
-- [ ] **"Slow tiles raise the loading bar" is racy, and the browser half of
-      the switch made it worse.** Measured on 2026-08-21, `make test-ui` run
-      repeatedly on one machine: master failed 0 of 9, the switch branch 3 of
-      11. So it is not pre-existing noise — this change perturbed it — even
-      though it touches no tile-loading code at all.
+- [ ] **The loading tracker cancels a pending show on ANY `idle`.** A
+      spurious one just after `dataloading` — and MapLibre fires plenty,
+      because `idle` means "nothing dirty this render", not "the load
+      finished" — suppresses the bar for the rest of that load. Unexamined,
+      and user-facing rather than a test artefact: the symptom is a long
+      fetch with no indication that anything is happening.
 
-      What the evidence points at is the SETUP, not the bar. Adding a single
-      extra `page.evaluate` round trip between installing the 500 ms tile
-      delay and calling `setTiles` made it pass 10 of 10, four of those under
-      deliberate CPU load. That is consistent with the refetch beating the
-      interception into place: undelayed tiles arrive, the map reaches `idle`
-      inside the tracker's 300 ms window, and the bar is correctly never
-      shown. It is NOT conclusive — 10 clean runs at the observed 27% rate has
-      about a 4% chance of happening anyway — which is exactly why this is
-      still open.
-
-      The fix is to assert the premise rather than assume it: the check should
-      require that the delay handler actually ran, so "the setup did not take"
-      fails as itself instead of as a missing bar. There may also be a real
-      user-facing edge underneath — the tracker cancels on ANY `idle`, so a
-      spurious one just after `dataloading` suppresses the bar for the rest of
-      that load. Worth confirming before rewriting the check.
-
-      Not fixed with the switch because tuning an unrelated check until it
-      passes, on a branch that made it fail, is how a real signal gets lost.
+      Found while fixing the opposite direction (a bar raised and never
+      lowered, since fixed by asking the map rather than waiting to be told).
+      Not fixed with it because nothing has yet shown it happening to a real
+      user, and the tracker's flicker guard is what would have to change.
 
 - [ ] **The non-English translations still want a native speaker.** They have
       been through one adversarial review pass, which found and fixed real

@@ -104,7 +104,10 @@ square and get its address; paste an address and fly back to that square.
 - `fstar/` — the verified core. All modules verify, no admits.
 - `ocaml/extracted/` — F\* output. **Build artifact, never edited.**
 - `ocaml/lib/` — key derivation, crypto, public API over the extracted core.
-- `ocaml/js/` — js_of_ocaml bindings; the browser runs this same extraction.
+- `ocaml/js/` — js_of_ocaml bindings. The browser no longer computes with
+  them: encode, decode and cell bounds come from `wasm/core.wasm`, the same
+  F\* by way of KaRaMeL. This bundle supplies what that cannot — the wordlist
+  codec, BIP-39, the KDF's inputs, the band table.
 - `ocaml/server/` — Eio HTTP server. Also the desktop binary.
 - `ocaml/pmtiles/` — PMTiles v3 reader and region extractor.
 - `ui/` — Vite + React + MapLibre GL. The key lives in a Web Worker.

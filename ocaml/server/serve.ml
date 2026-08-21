@@ -89,6 +89,20 @@ let respond_json cfg ~status json =
 let error cfg ~status message =
   respond_json cfg ~status (`Assoc [ ("error", `String message) ])
 
+(* "You already have this." A 304 carries the validator and the freshness rule
+   that produced it, and no body -- and so no content-length, because there is
+   no representation here to describe. `Expert` for the same reason the 204
+   below is: cohttp's string-body path would frame it as one. *)
+let not_modified cfg ~etag ~cache_control ~vary =
+  let headers =
+    Http.Header.of_list
+      (("etag", etag)
+      :: ("cache-control", cache_control)
+      :: (vary @ security_headers cfg))
+  in
+  let response = Http.Response.make ~status:`Not_modified ~headers () in
+  (`Expert (response, fun _ic _oc -> ()), `Not_modified, 0, Http_range.Whole)
+
 (* Used by tiles and embedded assets alike: gzip is served as-is to a client
    that accepts it and inflated for one that does not -- browsers all accept
    it, and the exceptions are curl and scripts, which should still work. *)
@@ -211,31 +225,50 @@ let serve_tile cfg ~basemap_root ~meth ~client_headers ~z ~x ~y =
       let response = Http.Response.make ~status:`No_content ~headers () in
       (`Expert (response, fun _ic _oc -> ()), `No_content, 0, Http_range.Whole)
   | Some (bytes, header) ->
-      let bytes, encoding =
+      let bytes, enc =
         match header.Pmtiles.Header.tile_compression with
         | Pmtiles.Header.Gzip when accepts_gzip client_headers ->
-            (bytes, [ ("content-encoding", "gzip") ])
-        | Pmtiles.Header.Gzip -> (Gzip.decompress bytes, [])
-        | Pmtiles.Header.Brotli -> (bytes, [ ("content-encoding", "br") ])
-        | Pmtiles.Header.Zstd -> (bytes, [ ("content-encoding", "zstd") ])
-        | Pmtiles.Header.None_ | Pmtiles.Header.Unknown -> (bytes, [])
+            (bytes, Some "gzip")
+        | Pmtiles.Header.Gzip -> (Gzip.decompress bytes, None)
+        | Pmtiles.Header.Brotli -> (bytes, Some "br")
+        | Pmtiles.Header.Zstd -> (bytes, Some "zstd")
+        | Pmtiles.Header.None_ | Pmtiles.Header.Unknown -> (bytes, None)
       in
-      let headers =
-        Http.Header.of_list
-          (("content-type", "application/x-protobuf")
-          :: ("content-length", string_of_int (String.length bytes))
-          (* Revalidate, never trust: an update or removal changes tiles
-             under the same URL. MapLibre's own in-memory cache carries the
-             session; the style's ?v= carries the swaps. *)
-          :: ("cache-control", "no-cache")
-          :: ("vary", "accept-encoding")
-          :: (encoding @ security_headers cfg))
+      let encoding =
+        match enc with None -> [] | Some e -> [ ("content-encoding", e) ]
       in
-      let response = Http.Response.make ~status:`OK ~headers () in
-      (* HEAD gets the headers and no body, or the tile bytes would be
-         parsed as the start of the next response on this connection. *)
-      let write _ic oc = if meth <> `HEAD then Write.string oc bytes in
-      (`Expert (response, write), `OK, String.length bytes, Http_range.Whole)
+      (* Hashed per request rather than derived from the archive, because the
+         archive is exactly what changes underneath: a browse-cache download
+         lands new tiles at URLs the browser already holds, and cache.pmtiles
+         is then renamed into place. A tag over the bytes cannot miss that.
+         The cost is a hash of a tile already read into memory, which is what
+         we are spending to avoid sending it. *)
+      let etag = Http_cache.of_bytes ~encoding:enc bytes in
+      let vary = [ ("vary", "accept-encoding") ] in
+      if
+        Http_cache.is_fresh
+          ~if_none_match:(Http.Header.get client_headers "if-none-match")
+          ~etag
+      then not_modified cfg ~etag ~cache_control:"no-cache" ~vary
+      else
+        let headers =
+          Http.Header.of_list
+            (("content-type", "application/x-protobuf")
+            :: ("content-length", string_of_int (String.length bytes))
+            (* Revalidate, never trust: an update or removal changes tiles
+               under the same URL. The ETag above is what makes that cheap --
+               the rule is unchanged, the answer is now an empty 304 rather
+               than the tile again. MapLibre's own in-memory cache carries the
+               session; the style's ?v= carries the swaps. *)
+            :: ("cache-control", "no-cache")
+            :: ("etag", etag)
+            :: (vary @ encoding @ security_headers cfg))
+        in
+        let response = Http.Response.make ~status:`OK ~headers () in
+        (* HEAD gets the headers and no body, or the tile bytes would be
+           parsed as the start of the next response on this connection. *)
+        let write _ic oc = if meth <> `HEAD then Write.string oc bytes in
+        (`Expert (response, write), `OK, String.length bytes, Http_range.Whole)
 
 (* ------------------------------------------------------- embedded assets *)
 
@@ -249,26 +282,42 @@ let serve_tile cfg ~basemap_root ~meth ~client_headers ~z ~x ~y =
 let serve_embedded cfg ~segments ~meth ~headers =
   match Embedded_assets.find (String.concat "/" segments) with
   | None -> None
-  | Some packed ->
+  | Some (digest, packed) ->
       let gzipped = accepts_gzip headers in
-      let body = if gzipped then packed else Gzip.decompress packed in
       let name = match List.rev segments with [] -> "" | n :: _ -> n in
-      let extra =
-        if gzipped then [ ("content-encoding", "gzip") ] else []
+      let extra = if gzipped then [ ("content-encoding", "gzip") ] else [] in
+      (* Cached responses vary by whether the client took the gzip, so a
+         shared cache must not hand one client the other's bytes -- and the
+         two encodings are two representations, so they get two tags. *)
+      let vary = [ ("vary", "accept-encoding") ] in
+      let etag =
+        Http_cache.of_digest
+          ~encoding:(if gzipped then Some "gzip" else None)
+          digest
       in
-      let headers_out =
-        Http.Header.of_list
-          (("content-type", Url_path.content_type name)
-          :: ("content-length", string_of_int (String.length body))
-          :: ("cache-control", Url_path.cache_control segments)
-          (* Cached responses vary by whether the client took the gzip, so a
-             shared cache must not hand one client the other's bytes. *)
-          :: ("vary", "accept-encoding")
-          :: (extra @ security_headers cfg))
-      in
-      let response = Http.Response.make ~status:`OK ~headers:headers_out () in
-      let write _ic oc = if meth <> `HEAD then Write.string oc body in
-      Some (`Expert (response, write), `OK, String.length body, Http_range.Whole)
+      let cache_control = Url_path.cache_control segments in
+      if
+        Http_cache.is_fresh
+          ~if_none_match:(Http.Header.get headers "if-none-match")
+          ~etag
+      then Some (not_modified cfg ~etag ~cache_control ~vary)
+      else
+        (* Decompressed only once we know we are sending it. This is where
+           the 5 MB core lives, and a reload that ends in a 304 should not
+           inflate it to say so. *)
+        let body = if gzipped then packed else Gzip.decompress packed in
+        let headers_out =
+          Http.Header.of_list
+            (("content-type", Url_path.content_type name)
+            :: ("content-length", string_of_int (String.length body))
+            :: ("cache-control", cache_control)
+            :: ("etag", etag)
+            :: (vary @ extra @ security_headers cfg))
+        in
+        let response = Http.Response.make ~status:`OK ~headers:headers_out () in
+        let write _ic oc = if meth <> `HEAD then Write.string oc body in
+        Some
+          (`Expert (response, write), `OK, String.length body, Http_range.Whole)
 
 (* ----------------------------------------------------------- file serving *)
 
@@ -289,27 +338,43 @@ let stream_region file ~offset ~length oc =
   in
   go ~offset:(Optint.Int63.of_int offset) ~remaining:length
 
-let file_size file =
-  Optint.Int63.to_int (Eio.File.size file)
-
 (* Serving a file is `Expert` rather than `Response` because the body has to be
    written while the file is still open. cohttp-eio applies the response
    closure after the callback returns, so a `with_open_in` around a `Response`
    closes the file before a single byte is written. *)
-let serve_file cfg ~root ~segments ~meth ~range_header ~immutable =
+let serve_file cfg ~root ~segments ~meth ~range_header ~if_none_match ~immutable
+    =
   let path = List.fold_left Eio.Path.( / ) root segments in
   match Eio.Path.kind ~follow:true path with
   | `Regular_file ->
-      let size = Eio.Path.with_open_in path file_size in
+      let stat = Eio.Path.stat ~follow:true path in
+      let size = Optint.Int63.to_int stat.Eio.File.Stat.size in
       let range = Http_range.parse ~header:range_header ~length:size in
       let name = match List.rev segments with [] -> "" | n :: _ -> n in
+      let cache_control =
+        if immutable then Url_path.cache_control segments else "no-cache"
+      in
+      (* Size and mtime rather than a hash of the contents: these are the
+         glyphs and sprites, and also map.pmtiles, which is a gigabyte served
+         in ranges. Reading a file end to end to decide whether to send it
+         would cost more than sending it. *)
+      let etag =
+        Http_cache.of_stamp ~encoding:None ~size
+          ~mtime:stat.Eio.File.Stat.mtime
+      in
       let base =
         ("content-type", Url_path.content_type name)
         :: ("accept-ranges", "bytes")
-        :: ( "cache-control",
-             if immutable then Url_path.cache_control segments else "no-cache" )
+        :: ("cache-control", cache_control)
+        :: ("etag", etag)
         :: security_headers cfg
       in
+      (* Ahead of the range: If-None-Match beats Range (RFC 9110 13.1.1), so
+         a client holding the current bytes gets a 304 whether it asked for
+         all of them or a window. *)
+      if Http_cache.is_fresh ~if_none_match ~etag then
+        not_modified cfg ~etag ~cache_control ~vary:[]
+      else
       let status, offset, length, extra =
         match range with
         | Http_range.Whole -> (`OK, 0, size, [])
@@ -878,6 +943,9 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
     let target = Http.Request.resource request in
     let route = Route.of_request ~meth ~target in
     let range_header = Http.Header.get (Http.Request.headers request) "range" in
+    let if_none_match =
+      Http.Header.get (Http.Request.headers request) "if-none-match"
+    in
     let result, status, bytes, range =
       match route with
       | Route.Health ->
@@ -950,7 +1018,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
           simple (serve_tilejson cfg ~basemap_root ~host ~query) `OK
       | Route.Basemap segments ->
           serve_file cfg ~root:basemap_root ~segments ~meth ~range_header
-            ~immutable:false
+            ~if_none_match ~immutable:false
       | Route.Asset segments -> (
           let headers = Http.Request.headers request in
           (* Embedded first, then the directory -- so when the binary carries
@@ -961,7 +1029,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
           let from_disk () =
             let served =
               serve_file cfg ~root:ui_root ~segments ~meth ~range_header
-                ~immutable:true
+                ~if_none_match ~immutable:true
             in
             let _, status, _, _ = served in
             (* A single-page app owns its own routes: /somewhere must return
@@ -974,7 +1042,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
               | Some shell -> shell
               | None ->
                   serve_file cfg ~root:ui_root ~segments:[ "index.html" ] ~meth
-                    ~range_header:None ~immutable:false
+                    ~range_header:None ~if_none_match ~immutable:false
             else served
           in
           match serve_embedded cfg ~segments ~meth ~headers with

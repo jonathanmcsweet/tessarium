@@ -143,13 +143,20 @@ check(
 );
 
 /* The 4.4 MB core has to load inside the worker before validation replies.
-   If js_of_ocaml exported to the wrong global, this is where it hangs. */
+   If js_of_ocaml exported to the wrong global, this is where it hangs.
+
+   The `null` in every waitForFunction below is the argument passed to the
+   page function, and it is there because the third parameter is the options.
+   Without it the timeout is read as that argument and silently discarded --
+   which is how a wait that says sixty seconds spent thirty, and reported
+   Playwright's default in the failure rather than its own number. */
 await page.locator("#phrase").fill("abandon abandon abandon");
 await page.waitForFunction(
   () =>
     document.querySelector(".phrase-status")?.textContent?.includes(
       "expected 24 words",
     ),
+  null,
   { timeout: 30_000 },
 );
 check(
@@ -171,6 +178,7 @@ await page.waitForFunction(
     return t.includes("24/24")
       && (t.includes("checksum failed") || t.includes("checksum valid"));
   },
+  null,
   { timeout: 30_000 },
 );
 check(
@@ -497,6 +505,7 @@ await worldButton.waitFor({ state: "visible", timeout: 10_000 });
 check("an empty basemap leads with the world map offer", true);
 await page.waitForFunction(
   () => !document.querySelector(".download-world button")?.disabled,
+  null,
   { timeout: 30_000 },
 );
 await worldButton.click();
@@ -506,6 +515,7 @@ await page.waitForFunction(
     [...document.querySelectorAll("[data-sonner-toast]")].some((t) =>
       (t.textContent ?? "").includes("Maps downloaded")
     ),
+  null,
   { timeout: 30_000 },
 );
 check("the download completes with a toast", true);
@@ -513,13 +523,17 @@ check(
   "and the toast carries a close button for keyboard users",
   (await page.locator("[data-sonner-toast] [data-close-button]").count()) >= 1,
 );
-await page.waitForFunction(() => !document.querySelector(".banner"), {
+await page.waitForFunction(() => !document.querySelector(".banner"), null, {
   timeout: 10_000,
 });
 check("the banner clears once maps exist", true);
-await page.waitForFunction(() => !document.querySelector(".download-card"), {
-  timeout: 10_000,
-});
+await page.waitForFunction(
+  () => !document.querySelector(".download-card"),
+  null,
+  {
+    timeout: 10_000,
+  },
+);
 check("the card closes itself", true);
 
 /* The grid overlay must survive the style swap that follows a completed
@@ -540,6 +554,7 @@ const gridRefilled = await page
   .waitForFunction(
     () =>
       (window.__tessarium_map?.querySourceFeatures("grid").length ?? 0) > 0,
+    null,
     { timeout: 30_000 },
   )
   .then(() => true, () => false);
@@ -555,6 +570,7 @@ check("and the grid refills after the swap", gridRefilled);
 const sourceDepth = await page
   .waitForFunction(
     () => window.__tessarium_map?.getSource("protomaps")?.maxzoom === 6,
+    null,
     { timeout: 30_000 },
   )
   .then(() => true, () => false);
@@ -608,24 +624,55 @@ check(
 const viewButton = page.locator(".download-view button");
 await page.waitForFunction(
   () => !document.querySelector(".download-view button")?.disabled,
+  null,
   { timeout: 30_000 },
 );
 await viewButton.click();
 check("the view download completes at generation two", await awaitDone(2));
-await page.waitForFunction(() => !document.querySelector(".download-card"), {
-  timeout: 10_000,
-});
+await page.waitForFunction(
+  () => !document.querySelector(".download-card"),
+  null,
+  {
+    timeout: 10_000,
+  },
+);
 
-/* The loading bar, on real traffic, deterministically: wait for quiet,
-   delay every tile past the tracker's 300 ms threshold, then tell the
-   vector source to reload its tiles (same URLs plus a marker param --
-   the app-visible way to force refetches without racing a download's
-   style swap, which flaked). The bar must appear while tiles drip in
-   and vanish at idle. */
-await page.waitForFunction(() => !document.querySelector(".map-loading"), {
-  timeout: 60_000,
+/* The loading bar, on real traffic: wait for quiet, delay every tile past
+   the tracker's 300 ms threshold, then tell the vector source to reload its
+   tiles (same URLs plus a marker param -- the app-visible way to force
+   refetches without racing a download's style swap, which flaked). The bar
+   must appear while tiles drip in and vanish at idle.
+
+   RECORDED, not sampled. This used to race a `waitForSelector` against a bar
+   whose whole life is the delay: measured at 318 ms up, 568 ms down, and the
+   wait can lose a window that short. A missed window and a bar that never
+   appeared are then the same failure, which is how this check spent a while
+   being called flaky. An observer set before the refetch cannot miss it --
+   the flag it sets is sticky, so the assertion is about what happened rather
+   than about what is on screen at the moment it is asked.
+
+   And the premise is asserted too: if the interception did not take, no tile
+   was ever slow, and "the bar did not appear" is the correct answer to a
+   question that was never posed. That failure now says so itself. */
+await page.waitForFunction(
+  () => !document.querySelector(".map-loading"),
+  null,
+  {
+    timeout: 60_000,
+  },
+);
+await page.evaluate(() => {
+  window.__barSeen = document.querySelector(".map-loading") !== null;
+  window.__barWatch = new MutationObserver(() => {
+    if (document.querySelector(".map-loading") !== null) {
+      window.__barSeen = true;
+    }
+  });
+  window.__barWatch.observe(document.body, { childList: true, subtree: true });
 });
+let delayedTiles = 0;
 await page.route("**/tiles/**", async (route) => {
+  delayedTiles += 1;
   await new Promise((done) => setTimeout(done, 500));
   try {
     await route.continue();
@@ -635,14 +682,18 @@ await page.route("**/tiles/**", async (route) => {
        Either way there is nothing left to slow down. */
   }
 });
-const barSeen = page
-  .waitForSelector(".map-loading", { timeout: 30_000 })
-  .then(() => true, () => false);
 await page.evaluate(() => {
   const src = window.__tessarium_map.getSource("protomaps");
   src.setTiles(src.tiles.map((u) => `${u}&e2e_bar=1`));
 });
-check("slow tiles raise the loading bar", await barSeen);
+const barSeen = await page
+  .waitForFunction(() => window.__barSeen === true, null, { timeout: 30_000 })
+  .then(() => true, () => false);
+check(
+  `the refetch actually went through the delay (${delayedTiles} tiles)`,
+  delayedTiles > 0,
+);
+check("slow tiles raise the loading bar", barSeen);
 check(
   "the bar names itself for the screen reader",
   await page.evaluate(() =>
@@ -653,10 +704,17 @@ check(
   ),
 );
 await page.unroute("**/tiles/**");
-await page.waitForFunction(() => !document.querySelector(".map-loading"), {
-  timeout: 60_000,
-});
-check("the bar hides once the map settles", true);
+/* Caught rather than thrown, so a bar that never comes down is reported as
+   the failure it is instead of aborting the run and taking every check after
+   it with it. That is how it presented the first time: a timeout, no tally,
+   and nothing saying which assertion had been reached. */
+const settled = await page
+  .waitForFunction(() => !document.querySelector(".map-loading"), null, {
+    timeout: 60_000,
+  })
+  .then(() => true, () => false);
+check("the bar hides once the map settles", settled);
+await page.evaluate(() => window.__barWatch?.disconnect());
 
 /* Merged, not replaced: bytes 100-101 of a PMTiles header are its min and
    max zoom, and only the union of both downloads spans 0 to 15. */
@@ -681,6 +739,7 @@ await page.waitForFunction(
   () =>
     (document.querySelector(".download-view .hint")?.textContent ?? "")
       .includes("You already have"),
+  null,
   { timeout: 30_000 },
 );
 check("re-asking for a held area says so instead of re-quoting", true);
@@ -709,6 +768,7 @@ await ukEntry
   .check();
 await page.waitForFunction(
   () => !document.querySelector(".download-region-offer button")?.disabled,
+  null,
   { timeout: 30_000 },
 );
 check("picking a country by name yields a real estimate", true);
@@ -730,6 +790,7 @@ await page.waitForFunction(
   () =>
     (document.querySelector(".download-region-offer .hint")?.textContent ?? "")
       .includes("Places selected: 2"),
+  null,
   { timeout: 30_000 },
 );
 check(
@@ -741,9 +802,13 @@ check(
   "the two-place download completes at generation three",
   await awaitDone(3),
 );
-await page.waitForFunction(() => !document.querySelector(".download-card"), {
-  timeout: 10_000,
-});
+await page.waitForFunction(
+  () => !document.querySelector(".download-card"),
+  null,
+  {
+    timeout: 10_000,
+  },
+);
 
 /* And a federation exposes its states and cities as checkboxes: the United
    States entry must offer more than forty states, plus named cities. */
@@ -782,13 +847,18 @@ await page.waitForFunction(
   () =>
     (document.querySelector(".download-region-offer .hint")?.textContent ?? "")
       .includes("already have"),
+  null,
   { timeout: 30_000 },
 );
 check("a two-box antimeridian country estimates cleanly", true);
 await page.locator(".download-card .icon-button").click();
-await page.waitForFunction(() => !document.querySelector(".download-card"), {
-  timeout: 10_000,
-});
+await page.waitForFunction(
+  () => !document.querySelector(".download-card"),
+  null,
+  {
+    timeout: 10_000,
+  },
+);
 
 /* ----------------------------- place search --------------------------------
 
@@ -1153,9 +1223,13 @@ check(
     .then(() => true, () => false),
 );
 await page.locator(".map-actions button").click();
-await page.waitForFunction(() => !document.querySelector(".download-card"), {
-  timeout: 10_000,
-});
+await page.waitForFunction(
+  () => !document.querySelector(".download-card"),
+  null,
+  {
+    timeout: 10_000,
+  },
+);
 
 /* An answer that arrives late must not paint over a newer one.
 
@@ -1266,6 +1340,7 @@ await page.waitForSelector(".download-ledger", { timeout: 10_000 });
 const fourRows = await page
   .waitForFunction(
     () => document.querySelectorAll(".ledger-row").length === 4,
+    null,
     { timeout: 30_000 },
   )
   .then(() => true, () => false);
@@ -1301,9 +1376,13 @@ for (let i = 0; i < 40 && !saved30; i++) {
 }
 check("the reminder write reaches the server", saved30);
 await page.locator(".download-card .icon-button").click();
-await page.waitForFunction(() => !document.querySelector(".download-card"), {
-  timeout: 10_000,
-});
+await page.waitForFunction(
+  () => !document.querySelector(".download-card"),
+  null,
+  {
+    timeout: 10_000,
+  },
+);
 await openButton.click();
 await page.waitForSelector(".ledger-reminder select", { timeout: 10_000 });
 check(
@@ -1325,6 +1404,7 @@ await viewRow.locator("button").nth(1).click();
 const rowGone = await page
   .waitForFunction(
     () => document.querySelectorAll(".ledger-row").length === 3,
+    null,
     { timeout: 30_000 },
   )
   .then(() => true, () => false);
@@ -1337,6 +1417,7 @@ const removedToast = await page
         /* Either wording is correct: bytes freed, or all tiles shared. */
         return text.includes("Maps removed") || text.includes("Map removed");
       }),
+    null,
     { timeout: 10_000 },
   )
   .then(() => true, () => false);
@@ -1363,9 +1444,13 @@ await page
   .nth(0)
   .click();
 check("an update of a clipped region completes", await awaitDone(6));
-await page.waitForFunction(() => !document.querySelector(".download-card"), {
-  timeout: 10_000,
-});
+await page.waitForFunction(
+  () => !document.querySelector(".download-card"),
+  null,
+  {
+    timeout: 10_000,
+  },
+);
 
 /* ------------------- multi-part downloads and resume ----------------------
 
@@ -1661,7 +1746,9 @@ const goToAddress = async (address) => {
   await page.locator("#place-search-input").fill(address);
   await page.waitForSelector(".place-option", { timeout: 15_000 });
   await page.locator(".place-option").first().click();
-  await page.waitForTimeout(2000); // the 1.2 s flight, plus settling
+  /* At most a 1.2 s flight, and for anything off-screen no flight at all --
+     see ui/src/core/camera.ts. Either way this is long enough. */
+  await page.waitForTimeout(2000);
 };
 
 /* The round trip the whole project is for, driven entirely through the UI:
@@ -1966,6 +2053,209 @@ check(
 );
 
 await browser.close();
+
+/* ----------------------------- coming back --------------------------------
+
+   The complaint this answers: opening the app a second time downloaded
+   everything it had already downloaded. Every response was `cache-control:
+   no-cache` with no validator attached, and `no-cache` means "ask", not
+   "refetch" -- but with nothing to ask ABOUT, every question was answered in
+   full. Over a forwarded port that was about ten megabytes and twenty
+   seconds, on a map the browser already had.
+
+   A browser rather than a protocol test, because the claim is about one: that
+   it stores these responses, revalidates them, and is told they have not
+   changed. A server emitting a correct ETag that no client ever sends back
+   would pass a protocol test and fix nothing a user would notice.
+
+   Two visits in one context, so the second one meets the first one's cache.
+   Bytes off the wire, not status codes: a response the browser never asked
+   for at all is a better outcome than a 304, and counting 304s would score it
+   as a failure. */
+const revisitBrowser = await chromium.launch();
+const revisitContext = await revisitBrowser.newContext({
+  viewport: { width: 1280, height: 900 },
+});
+
+const visit = async () => {
+  const p = await revisitContext.newPage();
+  const rows = [];
+  const pending = [];
+  p.on("requestfinished", (req) => {
+    pending.push(
+      req.sizes()
+        .then(async (size) => {
+          const res = await req.response();
+          rows.push({
+            path: new URL(req.url()).pathname,
+            method: req.method(),
+            status: res ? res.status() : 0,
+            /* -1 means the browser did not report a transfer size, which is
+               what it says for a response it did not take off the wire.
+               Counted as nothing sent, and counted separately as well, so a
+               run where the number went unknown rather than to zero says
+               so. */
+            bytes: Math.max(0, size.responseBodySize),
+            unknown: size.responseBodySize < 0,
+          });
+        })
+        .catch(() => {}),
+    );
+  });
+  /* All the way in, both times. A bare page load reaches neither of the two
+     heavy things: the core loads when the worker is first asked a question,
+     and the map does not exist until the phrase is accepted. Measuring a
+     visit that stops at the gate would report a saving on a fifth of what a
+     visit actually costs. */
+  await p.goto(base, { waitUntil: "networkidle" });
+  await p.locator("#phrase").fill(sampleMnemonic);
+  await p.waitForSelector(".valid", { timeout: 60_000 });
+  await p.locator("button[type=submit]").click();
+  await p.waitForSelector(".map-wrap", { timeout: 60_000 });
+  await p.waitForFunction(
+    () => window.__tessarium_map?.areTilesLoaded() === true,
+    null,
+    { timeout: 60_000 },
+  );
+  await p.waitForLoadState("networkidle");
+  await Promise.all(pending);
+  await p.close();
+  return rows;
+};
+
+const firstVisit = await visit();
+const secondVisit = await visit();
+const bodyBytes = (rows) =>
+  rows.filter((r) => r.method === "GET").reduce((n, r) => n + r.bytes, 0);
+const first = bodyBytes(firstVisit);
+const second = bodyBytes(secondVisit);
+
+/* Printed rather than only asserted: this is a number the project makes a
+   claim about, and a threshold that passes says nothing about how much room
+   is left under it. */
+console.log(
+  `  revisit ${Math.round(second / 1024)} KB against ${
+    Math.round(first / 1024)
+  } KB, ${firstVisit.length} requests, ${
+    secondVisit.filter((r) => r.unknown).length
+  } of unknown size`,
+);
+
+/* Without a first visit that actually downloaded something, the second one
+   costing nothing would mean nothing. */
+check(
+  `the first visit downloads the app (${Math.round(first / 1024)} KB)`,
+  first > 512 * 1024,
+);
+check(
+  `the core is part of it (${
+    firstVisit.filter((r) => r.path === "/tessarium.js").length
+  } request)`,
+  firstVisit.some((r) => r.path === "/tessarium.js" && r.bytes > 100 * 1024),
+);
+check(
+  `coming back re-downloads almost nothing (${
+    Math.round(second / 1024)
+  } KB against ${Math.round(first / 1024)} KB)`,
+  second < first / 20,
+);
+/* Named separately because it is the single biggest item and the one the
+   complaint was really about. */
+const coreAgain = secondVisit.filter((r) =>
+  r.path === "/tessarium.js" && r.bytes > 0
+);
+check(
+  `the 5 MB core is not sent again (${coreAgain.length} resends)`,
+  coreAgain.length === 0,
+);
+/* Whatever the second visit did pay for, name it, so a regression that
+   re-downloads one large thing is legible rather than a total that drifted. */
+if (second >= first / 20) {
+  for (
+    const r of secondVisit.filter((r) => r.bytes > 4096).sort((a, b) =>
+      b.bytes - a.bytes
+    ).slice(0, 8)
+  ) console.log(`    re-sent ${Math.round(r.bytes / 1024)} KB  ${r.path}`);
+}
+
+/* The map's own bytes are most of the weight, so a run where the map never
+   asked for a tile would report a saving it did not make. */
+const firstTiles = firstVisit.filter((r) =>
+  r.path.startsWith("/tiles/") && r.bytes > 0
+);
+check(
+  `the map fetched tiles on the way in (${firstTiles.length})`,
+  firstTiles.length > 0,
+);
+check(
+  `and asks for none of them again (${
+    secondVisit.filter((r) => r.path.startsWith("/tiles/") && r.bytes > 0)
+      .length
+  })`,
+  secondVisit.every((r) => !r.path.startsWith("/tiles/") || r.bytes === 0),
+);
+
+await revisitBrowser.close();
+
+/* The conditional itself, at the protocol level: the properties a browser
+   depends on but does not reveal when it is working. */
+const conditional = async (path) => {
+  const plain = await fetch(`${base}${path}`);
+  const sent = (await plain.arrayBuffer()).byteLength;
+  const tag = plain.headers.get("etag");
+  if (!tag) return { tag: null, status: plain.status, sent, length: -1 };
+  const again = await fetch(`${base}${path}`, {
+    headers: { "if-none-match": tag },
+  });
+  const length = (await again.arrayBuffer()).byteLength;
+  return { tag, status: again.status, length, sent };
+};
+
+const coreCond = await conditional("/tessarium.js");
+check(
+  `an embedded asset carries an ETag and answers 304 with no body (sent ${coreCond.sent} then ${coreCond.length})`,
+  coreCond.tag !== null && coreCond.status === 304 && coreCond.sent > 0
+    && coreCond.length === 0,
+);
+/* Two encodings are two representations. A client holding the gzipped bytes
+   must not be told its copy is current when the tag it sent describes the
+   other one -- it would decode gzip as UTF-8. */
+const gz = await fetch(`${base}/tessarium.js`, {
+  headers: { "accept-encoding": "gzip" },
+});
+await gz.arrayBuffer();
+const identityTagged = await fetch(`${base}/tessarium.js`, {
+  headers: {
+    "accept-encoding": "identity",
+    "if-none-match": gz.headers.get("etag"),
+  },
+});
+await identityTagged.arrayBuffer();
+check(
+  "a gzip tag does not match the identity representation",
+  identityTagged.status === 200,
+);
+
+/* A file off disk, whose tag is its size and modification time rather than a
+   hash: the sprite sheet, because the fixture's one glyph file is empty and a
+   304 for it would be indistinguishable from a 200. */
+const sprite = await conditional("/basemap/sprites/v4/light.png");
+check(
+  `a file off disk revalidates too (sent ${sprite.sent} then ${sprite.length})`,
+  sprite.tag !== null && sprite.status === 304 && sprite.sent > 0
+    && sprite.length === 0,
+);
+
+/* A tile the app itself fetched on the first visit, rather than a guessed
+   z/x/y: tiles are most of the bytes, and their tag is over the bytes because
+   the archive under them can be replaced while the server runs. */
+const someTile = firstTiles[0];
+const tileCond = someTile ? await conditional(someTile.path) : null;
+check(
+  `a tile revalidates too (${someTile?.path ?? "no tile was fetched"})`,
+  tileCond !== null && tileCond.status === 304 && tileCond.length === 0
+    && tileCond.sent > 0,
+);
 
 /* ------------------ browse cache prune coherence (main) -------------------
 

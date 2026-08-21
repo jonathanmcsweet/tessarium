@@ -33,7 +33,7 @@
 (executable
  (name gen_assets)
  (modules gen_assets)
- (libraries gzip))
+ (libraries digestif gzip))
 
 ; The basemap fixture the end-to-end test downloads from: a tiny valid
 ; PMTiles archive plus the sprite/glyph tarball. Lets the e2e exercise the
