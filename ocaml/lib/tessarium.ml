@@ -243,15 +243,41 @@ let check_range lat lon =
   if Z.lt lon lon_min || Z.gt lon lon_max then
     invalid_arg (Printf.sprintf "longitude %s out of range" (Z.to_string lon))
 
-let encode_z ~key ~lat ~lon =
+(* The arithmetic core, injected -- the same shape as [derive_key ~kdf].
+
+   Two implementations answer this signature and must answer identically:
+   [extracted_core] below (the F*-extracted OCaml with digestif's round
+   function) and Tessarium_c_core (the same F*, extracted to C by KaRaMeL
+   and linked over the FFI). Injecting rather than choosing here is what
+   lets the server run one while the tests drive both against each other,
+   and what makes the switch a one-value change at a call site instead of
+   an edit inside this module.
+
+   Only the arithmetic crosses this boundary. The wordlist codec, the range
+   checks and the user-facing messages stay here, so both cores produce the
+   same words and the same errors for the same input. *)
+type core = {
+  encode : key:string -> lat:Z.t -> lon:Z.t -> Z.t * Z.t * Z.t * Z.t;
+  decode : key:string -> Z.t * Z.t * Z.t * Z.t -> (Z.t * Z.t) option;
+  bounds_of_point : lat:Z.t -> lon:Z.t -> Z.t * Z.t * Z.t * Z.t;
+}
+
+let extracted_core =
+  {
+    encode = (fun ~key ~lat ~lon -> Api.encode Crypto.round_fn key tweak lat lon);
+    decode = (fun ~key address -> Api.decode Crypto.round_fn key tweak address);
+    bounds_of_point = (fun ~lat ~lon -> Api.bounds_of_point lat lon);
+  }
+
+let encode_z ~core ~key ~lat ~lon =
   check_range lat lon;
-  address_to_string (Api.encode Crypto.round_fn key tweak lat lon)
+  address_to_string (core.encode ~key ~lat ~lon)
 
-let encode ~key ~lat_ns ~lon_ns =
-  encode_z ~key ~lat:(Z.of_int lat_ns) ~lon:(Z.of_int lon_ns)
+let encode ~core ~key ~lat_ns ~lon_ns =
+  encode_z ~core ~key ~lat:(Z.of_int lat_ns) ~lon:(Z.of_int lon_ns)
 
-let decode ~key addr =
-  match Api.decode Crypto.round_fn key tweak (address_of_string addr) with
+let decode ~core ~key addr =
+  match core.decode ~key (address_of_string addr) with
   | None ->
       Error
         "address does not correspond to any location (about 35% of word \
@@ -260,12 +286,14 @@ let decode ~key addr =
 
 (* Cell corners for the grid overlay: (lat_lo, lat_hi, lon_lo, lon_hi),
    half-open at the high edge. *)
-let cell_bounds_z ~lat ~lon =
+let cell_bounds_z ~core ~lat ~lon =
   check_range lat lon;
-  Api.bounds_of_point lat lon
+  core.bounds_of_point ~lat ~lon
 
-let cell_bounds ~lat_ns ~lon_ns =
-  let a, b, c, d = cell_bounds_z ~lat:(Z.of_int lat_ns) ~lon:(Z.of_int lon_ns) in
+let cell_bounds ~core ~lat_ns ~lon_ns =
+  let a, b, c, d =
+    cell_bounds_z ~core ~lat:(Z.of_int lat_ns) ~lon:(Z.of_int lon_ns)
+  in
   (Z.to_int a, Z.to_int b, Z.to_int c, Z.to_int d)
 
 (* Every cell overlapping a bounding box, for the map's grid overlay.
@@ -282,7 +310,7 @@ let cell_bounds ~lat_ns ~lon_ns =
    [limit] bounds the work: the caller asks for a viewport, and a viewport
    zoomed out far enough covers more cells than any renderer wants. Truncation
    is reported rather than silent. *)
-let cells_in_bounds ~lat_lo ~lon_lo ~lat_hi ~lon_hi ~limit =
+let cells_in_bounds ~core ~lat_lo ~lon_lo ~lat_hi ~lon_hi ~limit =
   let clamp lo hi v = if Z.lt v lo then lo else if Z.gt v hi then hi else v in
   let lat_lo = clamp lat_min lat_max lat_lo
   and lat_hi = clamp lat_min lat_max lat_hi
@@ -298,7 +326,7 @@ let cells_in_bounds ~lat_lo ~lon_lo ~lat_hi ~lon_hi ~limit =
         let rec cols lon acc count row_top =
           if Z.gt lon lon_hi || count >= limit then (acc, count, row_top)
           else
-            let a, b, c, d = cell_bounds_z ~lat ~lon in
+            let a, b, c, d = cell_bounds_z ~core ~lat ~lon in
             (* A cell whose upper edge does not advance would loop forever.
                It cannot happen -- widths are positive -- but the guard costs
                nothing and a hung tab costs a lot. *)

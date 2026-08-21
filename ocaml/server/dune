@@ -21,6 +21,7 @@
  (libraries
   tessarium
   tessarium_argon2
+  tessarium_c_core
   cohttp-eio
   eio
   eio_main

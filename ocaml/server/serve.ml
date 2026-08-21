@@ -340,6 +340,13 @@ let serve_file cfg ~root ~segments ~meth ~range_header ~immutable =
       let response, bytes = error cfg ~status:`Not_found "not found" in
       (response, `Not_found, bytes, Http_range.Whole)
 
+(* The arithmetic behind every answer this server gives: the C emitted by
+   KaRaMeL from the F* proofs, over the FFI (ocaml/c_core). It replaced the
+   extracted-OCaml core here once the side-by-side wall had run beside it
+   long enough; that wall still runs on every `make test`, so the two are
+   still compared, and only one of them serves. *)
+let core = Tessarium_c_core.C_core.core
+
 (* ------------------------------------------------------------- session API *)
 
 (* Off by default, and the README has to say which mode is running. Enabling it
@@ -492,7 +499,7 @@ let handle_api cfg sessions limiter random ~endpoint ~body ~now =
           with_key (fun key ->
               match (z_field "lat_ns" json, z_field "lon_ns" json) with
               | Some lat, Some lon -> (
-                  match Tessarium.encode_z ~key ~lat ~lon with
+                  match Tessarium.encode_z ~core ~key ~lat ~lon with
                   | exception Invalid_argument e -> bad e
                   | address ->
                       respond_json cfg ~status:`OK
@@ -504,7 +511,7 @@ let handle_api cfg sessions limiter random ~endpoint ~body ~now =
               match string_field "address" json with
               | None -> bad "missing address"
               | Some address -> (
-                  match Tessarium.decode ~key address with
+                  match Tessarium.decode ~core ~key address with
                   | exception Tessarium.Invalid_address e -> bad e
                   | Error e -> error cfg ~status:`Not_found e
                   | Ok (lat, lon) ->

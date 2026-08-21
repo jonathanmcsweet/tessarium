@@ -1,3 +1,7 @@
+(* The extracted core: this benchmark exists to price the round function
+   through digestif, which is what the extracted core injects. *)
+let core = Tessarium.extracted_core
+
 let () =
   let key =
     Tessarium.derive_key ~kdf:Tessarium_argon2.kdf
@@ -11,7 +15,7 @@ let () =
   let t0 = Unix.gettimeofday () in
   for i = 0 to n - 1 do
     ignore
-      (Tessarium.encode_z ~key
+      (Tessarium.encode_z ~core ~key
          ~lat:(Z.of_int (511111111 + i))
          ~lon:(Z.of_int (-131111111 + i)))
   done;

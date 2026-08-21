@@ -21,6 +21,50 @@ than a git log.
 
 ---
 
+### 2026-08-21 — The server answers from the proved C core
+
+**Phase:** 1–3 · **Branch:** feat/server-c-core-switch
+
+**What:** The first half of the switch. `Tessarium.core` is now an injected
+record — `encode`, `decode`, `bounds_of_point` — in the same shape as
+`derive_key ~kdf`. `serve.ml` injects `Tessarium_c_core.C_core.core`, so
+every address the HTTP API returns is computed by the C that KaRaMeL emitted
+from the F* proofs. The extracted-OCaml core is unchanged and un-retired: it
+still generates the committed vectors, still feeds the evaluator leg and
+gen_check, still drives the differential corpus the JS oracle and the wasm
+build are checked against, and still answers beside the C core in
+test_c_core.ml's 15,549-check wall on every `make test`.
+
+**Rationale:**
+
+- *Injected, not switched inside the module.* The alternative was calling
+  `Tessarium_c_core` directly from serve.ml, which would have duplicated the
+  wordlist codec, the range checks and two user-facing error strings across
+  two call paths. Injection keeps one composition and one set of messages, and
+  makes "which core serves" a one-value change at the call site — the property
+  the phase order asked for.
+- *Only the arithmetic crosses.* The record carries integer coordinates and
+  word indices. Address formatting and parsing stay in `ocaml/lib`, so both
+  cores necessarily produce the same words and the same errors.
+- *init before serving.* `C_core.init ()` runs in `main.ml` before
+  `Eio_main.run`, because the C globals and the `initialised` ref are
+  unsynchronised and a later second domain would otherwise race them.
+
+**Falsified:** the switch was shown to be real, not cosmetic. With the FFI
+stub's first output word shifted by one, the running server answered
+`craft.move.flavor.0693` for (48.8566, 2.3522); with the stub restored it
+answered `cradle.move.flavor.0693` — and the independent JS oracle (noble
+BLAKE2s, noble Argon2id, hand-written grid, sharing no code with either core)
+computes `cradle.move.flavor.0693` for the same phrase and point. A server
+still wired to the extracted core could not have moved.
+
+**Notes:** `ocaml/c_core` gained a dependency on `tessarium` for the record
+type; no cycle, since the pure library does not know the C core exists (and
+cannot, as it also compiles under js_of_ocaml). One browser-suite run failed
+on "slow tiles raise the loading bar" and passed on the three runs around it —
+the pre-existing loading-bar timing flake, not this change; recorded rather
+than waved away.
+
 ### 2026-08-20 — The KDF moves to Argon2id (kdf-3)
 
 **Phase:** 4 (security hardening) · **Branch:** feat/argon2id-kdf

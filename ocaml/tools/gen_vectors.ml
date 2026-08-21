@@ -17,6 +17,10 @@
 
 (* Paths are overridable so dune can run --check inside its sandbox, where
    nothing sits where the source tree says it does. *)
+(* The extracted core: the committed vectors are the extraction's own
+   answers, and every other leg is checked against them. *)
+let core = Tessarium.extracted_core
+
 let positional =
   Array.to_list Sys.argv |> List.tl |> List.filter (fun a -> a <> "--check")
 
@@ -122,7 +126,7 @@ let generate inputs =
                ("lat_ns", `Int lat);
                ("lon_ns", `Int lon);
                ( "address",
-                 `String (Tessarium.encode ~key:addr_key ~lat_ns:lat ~lon_ns:lon) );
+                 `String (Tessarium.encode ~core ~key:addr_key ~lat_ns:lat ~lon_ns:lon) );
              ])
   in
 
@@ -150,7 +154,7 @@ let generate inputs =
                ("lat_ns", `Int lat);
                ("lon_ns", `Int lon);
                ( "address",
-                 `String (Tessarium.encode ~key:nfkd_key ~lat_ns:lat ~lon_ns:lon) );
+                 `String (Tessarium.encode ~core ~key:nfkd_key ~lat_ns:lat ~lon_ns:lon) );
              ])
   in
 
@@ -178,7 +182,7 @@ let generate inputs =
               Z.of_int (i * 13 mod 2048),
               Z.of_int (i * 3 mod 10000) )
         in
-        match Tessarium.decode ~key:addr_key addr with
+        match Tessarium.decode ~core ~key:addr_key addr with
         | Error _ -> search (i + 1) (addr :: found)
         | Ok _ -> search (i + 1) found
     in
