@@ -210,6 +210,13 @@ let () =
            (Tessarium.address_to_string
               (Z.of_int w1, Z.of_int w2, Z.of_int w3, Z.of_int n))
 
+       (* "complete" | "partial" | "no" -- see Tessarium.address_shape.
+          The search box asks this BEFORE it asks the server anything, so
+          that an address never reaches the place index. A string rather
+          than a boolean because "not yet, keep quiet" is a third answer and
+          collapsing it into either of the other two leaks or annoys. *)
+       method addressShape s = jstr (Tessarium.address_shape_string (ostr s))
+
        (* Raises Invalid_address, exactly as the typed path does -- the
           message names which word or which part is wrong. *)
        method indicesOfAddress addr =

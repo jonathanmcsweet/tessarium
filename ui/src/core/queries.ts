@@ -28,6 +28,7 @@ export const core = (): Core => (instance ??= new Core());
 
 export const keys = {
   validate: (phrase: string) => ["validate", phrase] as const,
+  addressShape: (text: string) => ["address-shape", text] as const,
   grid: (bounds: Bounds, limit: number) => ["grid", bounds, limit] as const,
   encode: (lat: number, lon: number) => ["encode", lat, lon] as const,
 };
@@ -67,13 +68,42 @@ export function useLock() {
     onSettled: () => {
       client.removeQueries({ queryKey: ["encode"] });
       client.removeQueries({ queryKey: ["validate"] });
+      /* Key-derived like an encoded address, and for the same reason it must
+         not outlive the key: a decoded point IS a place the user went to
+         under this phrase. The shape cache stays -- it is pure string
+         analysis and says nothing about anyone's map. */
+      client.removeQueries({ queryKey: ["address-lookup"] });
     },
   });
 }
 
-export function useDecodeAddress() {
-  return useMutation({
-    mutationFn: (address: string) => core().decode(address),
+/* Cached forever, like phrase validation and for the same reason: the shape
+   of a given string cannot change. Runs on every keystroke, ahead of the
+   search, and its answer decides whether a request happens at all. */
+export function useAddressShape(text: string) {
+  const trimmed = text.trim();
+  return useQuery({
+    queryKey: keys.addressShape(trimmed),
+    queryFn: () => core().addressShape(trimmed),
+    enabled: trimmed.length > 0,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+}
+
+/* Resolving an address typed into the search box. A query rather than a
+   mutation because the search box asks as you type and the same text must
+   not be re-derived on every keystroke -- and because "that address names no
+   location" is an answer to display beside the box, not an event.
+
+   Dropped on lock: see useLock. */
+export function useAddressLookup(address: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["address-lookup", address] as const,
+    queryFn: () => core().decode(address),
+    enabled,
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 }
 

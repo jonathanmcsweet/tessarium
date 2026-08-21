@@ -215,6 +215,61 @@ let split_address s =
   in
   String.split_on_char '.' norm |> List.filter (fun p -> p <> "")
 
+(* Does this text name an address -- and if not, might it be about to?
+
+   One input now serves both place names and addresses, and the two must not
+   be confused in either direction. An address is a secret: sending one to the
+   place index would put it in a request, in a log, and (in a hosted
+   deployment) on a network. Answering "paper.later.curve.0851" with a village
+   in France called Papere is the same bug seen from the other side.
+
+   The decision lives here, beside the format it is about, rather than as a
+   second parser in TypeScript that would drift from this one the first time
+   the format moved.
+
+   [Complete] is the shape [address_of_string] accepts. The WORDS are not
+   checked: a mistyped word is still an address attempt, and the honest answer
+   to it is "that is not a BIP-39 word", not a place three hundred miles away.
+
+   [Partial] is text on its way to becoming an address, and it exists only so
+   that nothing is sent while a user is still typing one. The test is a dot
+   used as address punctuation -- one with nothing after it, or with a
+   non-space after it. "dream." is a third of a secret and "dream.tourist" is
+   two thirds; both must stay in the browser. "st. louis" and "mt. fuji" are
+   places, and the space after the dot is what separates them.
+
+   It is deliberately not "three or more dotted parts", which was the first
+   rule here and let "dream.tourist." through to the index. Nor is it "four
+   parts and a short number", which would swallow "highway 4 exit 12".
+
+   The bias runs one way on purpose. "route 66 exit 1234" is read as an
+   address and answered with "'route' is not a BIP-39 word" rather than
+   searched. Failing towards silence costs a search; failing the other way
+   spends a secret, and only one of those can be taken back. *)
+type address_shape = Complete | Partial | Not_address
+
+let address_shape s =
+  let digits t = t <> "" && String.for_all (fun c -> c >= '0' && c <= '9') t in
+  (* A dot with nothing after it, or with a non-space after it, is address
+     punctuation. A dot followed by a space is an abbreviation: "st. louis"
+     and "mt. fuji" are places and have to stay searchable, while "dream."
+     and "dream.tourist" are the first and second thirds of a secret. *)
+  let n = String.length s in
+  let tight_dot = ref false in
+  String.iteri
+    (fun i c ->
+      if c = '.' && (i = n - 1 || s.[i + 1] <> ' ') then tight_dot := true)
+    (String.trim s);
+  match split_address s with
+  | [ _; _; _; num ] when digits num && String.length num = 4 -> Complete
+  | _ -> if !tight_dot then Partial else Not_address
+
+let address_shape_string s =
+  match address_shape s with
+  | Complete -> "complete"
+  | Partial -> "partial"
+  | Not_address -> "no"
+
 let address_of_string s =
   match split_address s with
   | [ a; b; c; num ] ->

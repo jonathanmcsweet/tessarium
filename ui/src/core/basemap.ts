@@ -326,14 +326,20 @@ export type PlaceResult = z.infer<typeof PlaceResult>;
 
 const PlaceResults = z.object({ results: z.array(PlaceResult) });
 
-export function usePlaceSearch(query: string) {
+/* [allowed] is the privacy gate, and it is a required argument rather than an
+   option with a default because the default would be the wrong one. An
+   address must never reach the place index, and the caller is the only party
+   that knows whether what was typed is an address. Passing false leaves the
+   query disabled, which means no request is made at all -- not a request
+   whose result is discarded. */
+export function usePlaceSearch(query: string, allowed: boolean) {
   const trimmed = query.trim();
   return useQuery({
     queryKey: ["place-search", trimmed],
     queryFn: () =>
       post(PlaceResults, "basemap-search", { q: trimmed, limit: 8 }),
     /* Two characters is where the answer stops being "most of the map". */
-    enabled: trimmed.length >= 2,
+    enabled: allowed && trimmed.length >= 2,
     /* The index only changes when a region is downloaded or removed, so a
        repeated query is genuinely the same answer. */
     staleTime: 5 * 60_000,

@@ -332,6 +332,7 @@ export function MapView() {
   const selection = useAppStore((s) => s.selection);
   const select = useAppStore((s) => s.select);
   const flyTo = useAppStore((s) => s.flyTo);
+  const requestFlyTo = useAppStore((s) => s.requestFlyTo);
   /* Read during render, not inside the effect: the component re-renders
      when the locale changes, so this is the honest dependency. */
   useAppStore((s) => s.locale);
@@ -987,6 +988,11 @@ export function MapView() {
               zoom: Math.max(map.getZoom(), 15),
             });
           }}
+          /* An address names one square, so this goes all the way in and
+             selects it -- the same treatment a click on that square gets.
+             requestFlyTo, not map.flyTo, because the selection is driven off
+             the same store the panel reads. */
+          onPickAddress={(lon, lat) => requestFlyTo(lat, lon)}
         />
       </div>
       <div className="map-actions">

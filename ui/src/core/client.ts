@@ -44,6 +44,13 @@ const Status = z.object({
 const Address = z.object({ address: z.string() });
 const Point = z.object({ lat: z.number(), lon: z.number() });
 const Mnemonic = z.object({ mnemonic: z.string() });
+/* "complete" -- decode it; "partial" -- someone is mid-address, say and send
+   nothing; "no" -- a place name, search for it. The enum is checked here so
+   an unrecognised fourth answer fails loudly rather than silently falling
+   through to the search branch, which is the branch that transmits. */
+const AddressShape = z.object({
+  shape: z.enum(["complete", "partial", "no"]),
+});
 
 /* The cells arrive as a transferred Float64Array, not a plain array: a z20
    viewport is a few thousand cells and copying that on every map movement is
@@ -136,6 +143,10 @@ export class Core {
 
   encode(lat: number, lon: number) {
     return this.#call(Address, "encode", { lat, lon });
+  }
+
+  addressShape(text: string) {
+    return this.#call(AddressShape, "addressShape", { text });
   }
 
   decode(address: string) {

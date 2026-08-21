@@ -6,9 +6,9 @@
    -- and the eye toggle here takes that to none. */
 
 import { Copy, Eye, EyeOff, Lock } from "lucide-react";
-import { type FormEvent, useState } from "react";
+
 import { toast } from "sonner";
-import { useDecodeAddress, useLock } from "../core/queries";
+import { useLock } from "../core/queries";
 import { formatCoord } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
@@ -23,19 +23,14 @@ const MASK = "••••••.••••••.••••••.•••
 const COORD_MASK = "••.•••••••";
 
 export function AddressPanel() {
-  const [query, setQuery] = useState("");
-  const [invalid, setInvalid] = useState(false);
-
   const selection = useAppStore((s) => s.selection);
   const concealed = useAppStore((s) => s.concealed);
   const toggleConcealed = useAppStore((s) => s.toggleConcealed);
   const coordsConcealed = useAppStore((s) => s.coordsConcealed);
   const toggleCoordsConcealed = useAppStore((s) => s.toggleCoordsConcealed);
-  const requestFlyTo = useAppStore((s) => s.requestFlyTo);
   const setLocked = useAppStore((s) => s.setLocked);
 
   const lock = useLock();
-  const decode = useDecodeAddress();
 
   async function copy() {
     if (!selection) return;
@@ -63,21 +58,6 @@ export function AddressPanel() {
          screen, so the fallback tells the user how to get at it. */
       toastError(m.panel_coords_copy_failed());
     }
-  }
-
-  function lookup(event: FormEvent) {
-    event.preventDefault();
-    setInvalid(false);
-    decode.mutate(query, {
-      onSuccess: ({ lat, lon }) => {
-        requestFlyTo(lat, lon);
-        toast.success(m.panel_found());
-      },
-      onError: (error) => {
-        setInvalid(true);
-        toastError(error instanceof Error ? error.message : String(error));
-      },
-    });
   }
 
   return (
@@ -172,39 +152,6 @@ export function AddressPanel() {
             </>
           )
           : <p className="hint">{m.panel_no_selection()}</p>}
-      </section>
-
-      <section className="lookup">
-        <h2 id="lookup-heading">{m.panel_find_title()}</h2>
-        <form onSubmit={lookup}>
-          <label className="sr-only" htmlFor="lookup-input">
-            {m.panel_find_label()}
-          </label>
-          <input
-            id="lookup-input"
-            type="text"
-            spellCheck={false}
-            autoComplete="off"
-            autoCapitalize="off"
-            aria-invalid={invalid}
-            aria-describedby="lookup-hint"
-            placeholder={m.panel_find_placeholder()}
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setInvalid(false);
-            }}
-          />
-          <button
-            type="submit"
-            disabled={query.trim() === "" || decode.isPending}
-          >
-            {m.panel_go()}
-          </button>
-        </form>
-        <p className="hint" id="lookup-hint">
-          {m.panel_prefix_hint({ example: m.panel_prefix_example() })}
-        </p>
       </section>
 
       <footer className="panel-foot">
