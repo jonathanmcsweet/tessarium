@@ -34,6 +34,7 @@ suites=(
   "wasm core|wasm core: [1-9][0-9]* points checked, 0 disagreements expected, 0 found"
   "argon2 kdf|argon2 kdf: wasm and noble agree on [1-9][0-9]* derivations"
   "argon2 known answers|argon2id answers for [1-9][0-9]* known-answer checks"
+  "browser worker|worker differential: [1-9][0-9]* checks, 0 failures"
 )
 
 out="$(dune build @runtest --force 2>&1)"

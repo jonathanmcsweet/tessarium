@@ -17,10 +17,12 @@ same planet. An address is meaningless to anyone who does not have your phrase.
 
 ## Status
 
-The core is implemented in F\* and extracts twice: to OCaml, which the
-browser runs through js_of_ocaml, and to C via KaRaMeL, which the server's
-HTTP API now answers from over an FFI. Both extractions are checked against
-each other on every build.
+The core is implemented in F\* and extracts twice: to OCaml and to C via
+KaRaMeL. Both hosts now compute with the C — the server's HTTP API links it
+natively over an FFI, the browser runs the same C compiled to WebAssembly —
+and the OCaml extraction generates the vectors and answers beside it in a
+side-by-side wall. Both extractions are checked against each other on every
+build.
 
 | Component | State |
 |---|---|
@@ -68,11 +70,15 @@ strongest honest claim is "provably reversible for any round function, and
 unpredictable assuming keyed BLAKE2s behaves as a PRF." The second half is
 an assumption, and a standard one, but it is an assumption. Also unproved:
 the F\* extraction pipelines and the compilers after them, which are trusted
-— for the browser that is the OCaml extraction, `ocamlopt`/js_of_ocaml and
-`digestif`'s vector-tested BLAKE2s; for the server's HTTP API it is instead
-KaRaMeL, the C compiler, and the 130 hand-written lines of FFI plumbing in
-`ocaml/c_core/c_core_stubs.c`, which are not F\* and not proved. The round
-function is proved there rather than injected, so digestif leaves that path.
+— for both hosts that is now KaRaMeL plus a compiler and a hand-written
+shim: the C compiler and the 130 lines of `ocaml/c_core/c_core_stubs.c` for
+the server's HTTP API, a pinned zig and the ~118 lines of `wasm/glue.c` for
+the browser. Neither shim is F\* and neither is proved. The round function is
+proved inside the core rather than injected, so `digestif` computes nothing
+on either answer path. What the browser still takes from the OCaml extraction
+through js_of_ocaml is everything that is not the arithmetic: the wordlist
+codec both ways, BIP-39 validation and generation, the KDF's inputs, and the
+band table it hands the wasm module at load.
 Unproved on both paths: every line of the server, the UI and the PMTiles
 code, none of which is F\* at all.
 
@@ -118,10 +124,11 @@ compiler. The real round function -- keyed BLAKE2s, chosen when the
 project moved its security functions off NIST designs -- lives inside the
 proof as pure machine integers (`fstar/low/Tessarium.Low.Blake2s.fst`),
 pinned to the RFC 7693 and keyed KAT vectors. The server's HTTP API answers
-from that emitted C over an FFI; the browser still answers from the OCaml
-extraction, with the same C compiled to WebAssembly running beside it behind
-a side-by-side wall until that half switches too. Both walls run on every
-build, so the two extractions are still compared whichever one serves.
+from that emitted C over an FFI, and the browser answers from the same C
+compiled to WebAssembly. The OCaml extraction has not been retired: it
+generates the committed vectors and answers beside the C in a side-by-side
+wall on every build, so the two extractions are still compared even though
+only one of them serves.
 
 Proof establishes that the grid is *consistent*, not that it is *well
 designed*. No theorem here says a 3 m square is the right size.

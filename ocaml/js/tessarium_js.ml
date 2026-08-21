@@ -26,9 +26,15 @@ let hex_of_string s =
 let ns_of_deg (d : float) = Z.of_float (Float.round (d *. 1e9))
 let deg_of_ns (z : Z.t) = Z.to_float z /. 1e9
 
-(* The extracted core, compiled to JavaScript alongside this file. The
-   browser's wasm build of the same F* is a separate phase; until it lands
-   the bundle answers from here. *)
+(* The extracted core, compiled to JavaScript alongside this file.
+
+   It is no longer what the app computes with. Since the browser half of the
+   switch landed, the worker's encode, decode and grid answer from
+   wasm/core.wasm -- the same F* by way of KaRaMeL and zig -- and this bundle
+   supplies what that module cannot: the wordlist codec both ways, BIP-39
+   validation and generation, the KDF's inputs, and the band table itself.
+   [core] therefore backs only the exports below that the vector suite still
+   drives (ocaml/js/test/test_vectors.cjs). Nothing a user does reaches it. *)
 let core = Tessarium.extracted_core
 
 let jstr = Js.string
@@ -102,7 +108,17 @@ let () =
                   val lonNs = jstr (Z.to_string lon)
                end)
 
-       (* Degree convenience wrappers for the map, which works in degrees. *)
+       (* ------------------------------------------- the degree wrappers
+
+          The app no longer calls any of the four below: the worker converts
+          degrees to nanodegrees at its own boundary and asks the wasm core.
+          They are kept, and they are not dead weight -- they are the OCaml
+          side of js/worker-differential.mjs, which drives the real worker and
+          these in one process and requires them to agree point for point,
+          address for address, cell for cell. That is what stops the worker's
+          conversion and its cell walk from drifting away from the extraction
+          they were transcribed from. Delete these and that wall has nothing
+          to compare against. *)
        method encodeDeg keyHex lat lon =
          let key = string_of_hex (ostr keyHex) in
          jstr (Tessarium.encode_z ~core ~key ~lat:(ns_of_deg lat) ~lon:(ns_of_deg lon))
@@ -118,8 +134,7 @@ let () =
                   val lon = deg_of_ns lon
                end)
 
-       (* Corners of the cell containing a point, in degrees. This is what
-          draws the grid overlay. *)
+       (* Corners of the cell containing a point, in degrees. *)
        method cellBoundsDeg lat lon =
          let a, b, c, d =
            Tessarium.cell_bounds_z ~core ~lat:(ns_of_deg lat) ~lon:(ns_of_deg lon)
@@ -138,10 +153,12 @@ let () =
           few thousand cells, and allocating four JS objects per cell to throw
           away on the next map movement is how a map loses its frame budget.
 
-          The walk itself happens in the core, in integer nanodegrees. Stepping
-          cell to cell in JavaScript would mean crossing cell boundaries in
-          floating point, which is the one thing the integer grid exists to
-          prevent. *)
+          The browser's overlay is walked in ui/public/core.worker.js now,
+          over the wasm core's `bounds`. That walk is in BigInt nanodegrees,
+          NOT in floats -- crossing a cell boundary in floating point is the
+          one thing the integer grid exists to prevent, and moving the walk
+          out of OCaml did not relax it. This method is the reference the
+          walk is held to, in js/worker-differential.mjs. *)
        method gridForBounds latLo lonLo latHi lonHi limit =
          let cells, truncated =
            Tessarium.cells_in_bounds ~core ~lat_lo:(ns_of_deg latLo)
@@ -162,5 +179,45 @@ let () =
            val cells = flat
            val count = n
            val truncated = Js.bool truncated
+         end
+
+       (* ---------------------------------------------- the wasm core's needs
+
+          The browser answers from wasm/core.wasm, which is the same F*
+          extracted to C. Two things it cannot supply for itself, both of
+          them data this bundle already holds:
+
+          - the band table, which the wasm needs handed over and sealed
+            before it can answer. Float64Array because every entry is below
+            2^53 and therefore exact, and because a typed array crosses to
+            JavaScript without a per-element conversion.
+          - the wordlist codec, both directions. The proved core works in
+            indices; turning those into words and back is the one part of an
+            address that is not arithmetic, and it stays here so there is a
+            single wordlist in the browser rather than a second copy shipped
+            beside the wasm. *)
+       method cumTable =
+         let t = Tessarium_Table_Data.cumcols_list in
+         let n = List.length t in
+         let a = new%js Typed_array.float64Array n in
+         List.iteri
+           (fun i v -> Typed_array.set a i (Js.number_of_float (Z.to_float v)))
+           t;
+         a
+
+       method addressOfIndices w1 w2 w3 n =
+         jstr
+           (Tessarium.address_to_string
+              (Z.of_int w1, Z.of_int w2, Z.of_int w3, Z.of_int n))
+
+       (* Raises Invalid_address, exactly as the typed path does -- the
+          message names which word or which part is wrong. *)
+       method indicesOfAddress addr =
+         let w1, w2, w3, n = Tessarium.address_of_string (ostr addr) in
+         object%js
+           val w1 = Z.to_int w1
+           val w2 = Z.to_int w2
+           val w3 = Z.to_int w3
+           val n = Z.to_int n
          end
     end)

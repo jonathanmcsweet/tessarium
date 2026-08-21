@@ -21,6 +21,87 @@ than a git log.
 
 ---
 
+### 2026-08-21 — The browser answers from the proved core, and the switch completes
+
+**Phase:** 1–3 · **Branch:** feat/ui-wasm-core-switch
+
+**What:** The second half. `ui/public/core.worker.js` answers `encode`,
+`decode` and `grid` from `wasm/core.wasm` — the same vendored C the server
+links, compiled to wasm32 by the pinned zig. With the server half from earlier
+today, every address any user sees on either host is now computed by the C
+KaRaMeL emitted from the F* proofs. js_of_ocaml keeps everything that is not
+arithmetic: the wordlist codec both directions (three new exports —
+`cumTable`, `addressOfIndices`, `indicesOfAddress`), BIP-39 validation and
+generation, the KDF's inputs, and the band table it hands the module at load,
+which `seal_cum` re-checks in full — base, monotonicity, step bound, grand
+total — before the core will answer anything.
+
+**Rationale:**
+
+- *The grid walk stayed in JavaScript.* The roadmap left two options: move the
+  cell walk into `wasm/glue.c` beside `bounds`, or keep it as a driver over
+  the wasm's `bounds`. The driver won because the walk is not arithmetic — it
+  decides which cells to ask about, and every corner it reports comes from the
+  proved function either way. The cost is real and is the reason for the new
+  wall below: two drivers over one proved function is exactly the duplication
+  this project refuses everywhere else, so it is only tolerable while
+  something holds the two to each other.
+- *BigInt, not floats.* The walk steps in integer nanodegrees for the same
+  reason the OCaml one does. The single float boundary is the degree the UI
+  speaks, converted once — and it converts with ties away from zero, matching
+  OCaml's `Float.round`, not `Math.round`, which breaks them toward +Infinity
+  and moves points on negative half-units into a different cell.
+
+**A new wall, because the old ones structurally could not see this.**
+`js/worker-differential.mjs` loads the shipped worker unmodified into a node
+sandbox that owns its globals and drives the real message protocol. Because
+the sandbox owns `fetch`, "the browser answers from the wasm core" is
+*observed*: a worker quietly reverted to js_of_ocaml never requests
+`/core.wasm`, and the check fails. That closes the same hole the server half
+had to close with a fingerprint in `test_server.ml` — the side-by-side walls
+prove the two cores agree, which is precisely why they cannot say which one
+answered. It also pins the transcription: 104 checks over 400 points, the
+committed rejections, and 19 named viewports including both poles, the
+antimeridian, inverted and zero-area boxes, and every limit from 0 up.
+
+**Falsified, four ways.** Reverting `encode` to `core.encodeDeg` fails the two
+which-core checks. Restoring the `limit`-against-array-length bug fails 7.
+Putting `Math.round` back fails the negative-half-unit viewport. Reverting the
+OCaml truncation fix fails 3.
+
+**Two bugs it found, both introduced by this branch:**
+
+- *The grid drew a quarter of its cells.* `limit` counts cells; the walk
+  compared it against the flat array's length, which holds four numbers per
+  cell. A z19 viewport rendered 3,000 of 6,004 cells and raised the "too many
+  squares" banner, at an everyday zoom.
+- *A viewport touching the antimeridian drew one row.* Found while falsifying
+  the truncation fix, and introduced by that fix: the zero-width guard fires
+  for real at `lon_max`, where the last cell in a row is clamped, so ending
+  the walk there instead of the row stopped the grid after the first row.
+
+**Also corrected, and the larger share of the work:** `truncated` meant two
+different things. `cells_in_bounds` reported `false` when the limit ran out
+inside the last row — cells dropped, caller told the grid was complete. Both
+sides now mean "at least one overlapping cell was not returned", verified to
+change no cell anywhere (0 differences over 305 viewports against master) and
+to change truncation only where master was wrong.
+
+**Follow-on:** The worker's error strings are English in a six-locale app;
+now in roadmap.md as its own item, because the switch enlarged that surface
+without creating it. `CLAUDE.md:107` still says the browser runs the OCaml
+extraction, which is now false — left for the user, who owns that file.
+
+And one cost this branch owes: it made the "slow tiles raise the loading bar"
+end-to-end check flaky. Measured, not guessed — master 0 failures in 9 runs,
+this branch 3 in 11. The evidence points at the check's setup racing rather
+than at the bar, and it is recorded in roadmap.md with the numbers. It is left
+failing occasionally rather than tuned until green, because a check that was
+adjusted until it stopped complaining about a branch is no longer evidence
+about anything.
+
+---
+
 ### 2026-08-21 — The server's HTTP API answers from the proved C core
 
 **Phase:** 1–3 · **Branch:** feat/server-c-core-switch

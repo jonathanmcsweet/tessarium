@@ -72,11 +72,14 @@ for (const a of v.invalid_addresses) {
 const b = C.cellBoundsDeg(51.5074, -0.1278);
 check("cellBoundsDeg ordered", b.latLo < b.latHi && b.lonLo < b.lonHi);
 
-// The grid overlay. This walk happens in the core rather than in JavaScript,
-// so what is checked here is that it tiles: no gaps, no overlaps, and every
-// cell reporting itself as the cell its own centre belongs to. A gap or an
-// overlap is invisible on screen at these scales and would show up only as an
-// address that disagrees with the square the user clicked.
+// The grid overlay, as the extracted core walks it. This is no longer the
+// walk the browser runs -- the worker transcribed it into BigInt JavaScript
+// over the wasm core when the switch landed, and js/worker-differential.mjs
+// holds the two to each other. What is checked here is the property the
+// transcription has to preserve: that it tiles. No gaps, no overlaps, and
+// every cell reporting itself as the cell its own centre belongs to. A gap or
+// an overlap is invisible on screen at these scales and would show up only as
+// an address that disagrees with the square the user clicked.
 {
   const lat0 = 51.5074, lon0 = -0.1278;
   const d = 0.0004; // roughly 45 m, a few dozen cells across
