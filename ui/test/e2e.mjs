@@ -425,7 +425,13 @@ const postJson = async (endpoint, body) =>
 
 /* Tiles are served through /tiles across the archives, and a tile nobody
    holds is a quiet 204 -- past the coverage edge the map must render
-   nothing, not log an error per pan. */
+   nothing, not log an error per pan.
+
+   NOT 404, and this was tried: MapLibre's vector source swallows a 404 on
+   purpose (`if (err && err.status !== 404) throw err`) and files it as an
+   empty tile, so the two statuses are indistinguishable to the map and 404
+   buys only a red line in devtools. What keeps the coarse map on screen is
+   the source's maxzoom telling the truth, not the status code. */
 check(
   "a tile with no archive behind it is 204, not an error",
   (await fetch(`${base}/tiles/0/0/0.mvt`)).status === 204,
@@ -2067,6 +2073,86 @@ check(
   }, ${nfkdSample.lon_ns / 1e9})`,
   nearly(nfkdLat, nfkdSample.lat_ns / 1e9)
     && nearly(nfkdLon, nfkdSample.lon_ns / 1e9),
+);
+
+/* ------------------ the coarse map stays under you -------------------------
+
+   Reported from use: zoom into an area you only have the low-resolution map
+   for, watch it zoom in cleanly, and then watch the map you were looking at
+   be replaced by grey.
+
+   MapLibre keeps a stretched coarse tile on screen only while the finer tile
+   has NO data -- and an empty answer IS data, meaning "this square is
+   genuinely blank", so it wins and the coarse map goes. Changing the status
+   to 404 does not help: the vector source swallows a 404 by design and files
+   it as the same empty tile. What decides this is the source's maxzoom. While
+   it claims more depth than the archive holds here, MapLibre keeps asking for
+   tiles that will never come; when it tells the truth, MapLibre overzooms the
+   coarse tile instead, which is measurably what a user wants to see.
+
+   The situation needs an archive that CLAIMS depth it does not have
+   everywhere, which is what this server now holds: London to zoom 15, and a
+   thinner cone of low zooms around it. So the source advertises maxzoom 15,
+   MapLibre asks for zoom 15 wherever you go, and just west of the downloaded
+   box there is nothing to answer with. That is the reported situation
+   exactly, and it is why the shallow-archive server cannot stand in for it --
+   there the source advertises zoom 6, MapLibre never asks for more, and
+   nothing is ever missing.
+
+   Asserted through querySourceFeatures, which reads the tiles the source is
+   RENDERING FROM, rather than off the screen: the fixture's tiles are
+   deliberately unstyled, so nothing is drawn either way and a screenshot
+   could not tell the two outcomes apart. */
+const thinLon = -0.30;
+const thinLat = 51.50;
+const deepThin = tileAt(thinLon, thinLat, 15);
+const coarseThin = tileAt(thinLon, thinLat, 8);
+
+/* The premise, stated rather than assumed: this really is a place with a
+   coarse map and no detail. Without both halves the check below passes for
+   the wrong reason. */
+check(
+  "just west of the download there is no deep tile",
+  (await fetch(`${base}/tiles/15/${deepThin.x}/${deepThin.y}.mvt`)).status
+    === 204,
+);
+check(
+  "but there is a coarse one",
+  (await fetch(`${base}/tiles/8/${coarseThin.x}/${coarseThin.y}.mvt`)).status
+    === 200,
+);
+
+const drawnFrom = async (zoom) => {
+  await page.evaluate(
+    ([lon, lat, z]) =>
+      window.__tessarium_map.jumpTo({ center: [lon, lat], zoom: z }),
+    [thinLon, thinLat, zoom],
+  );
+  await page.waitForFunction(
+    () => window.__tessarium_map?.areTilesLoaded() === true,
+    null,
+    { timeout: 30_000 },
+  ).catch(() => {});
+  await page.waitForTimeout(1500);
+  return await page.evaluate(() =>
+    window.__tessarium_map.querySourceFeatures("protomaps", {
+      sourceLayer: "fixture",
+    }).length
+  );
+};
+
+/* At a zoom the archive covers, there is a map to lose. */
+const coarseDrawn = await drawnFrom(8);
+check(
+  `the coarse map is there to begin with (${coarseDrawn} features)`,
+  coarseDrawn > 0,
+);
+/* And it is still there after zooming past everything that was downloaded --
+   which is the whole point: the screen must not go blank under you. */
+const deepDrawn = await drawnFrom(16);
+check(
+  `zooming past what was downloaded keeps it (${deepDrawn} features rendered)`,
+  deepDrawn > 0,
 );
 
 await browser.close();
