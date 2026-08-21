@@ -225,44 +225,97 @@ let split_address s =
 
    The decision lives here, beside the format it is about, rather than as a
    second parser in TypeScript that would drift from this one the first time
-   the format moved.
+   the format moved. It has to cover EVERY spelling [split_address] accepts --
+   `,` `/` space `-` `_` `.` -- and an earlier version covered only the dot,
+   which left "vacuum-penalty-health-347" (three words and three of four
+   digits) going to the place index on its way to being typed.
 
    [Complete] is the shape [address_of_string] accepts. The WORDS are not
    checked: a mistyped word is still an address attempt, and the honest answer
    to it is "that is not a BIP-39 word", not a place three hundred miles away.
 
    [Partial] is text on its way to becoming an address, and it exists only so
-   that nothing is sent while a user is still typing one. The test is a dot
-   used as address punctuation -- one with nothing after it, or with a
-   non-space after it. "dream." is a third of a secret and "dream.tourist" is
-   two thirds; both must stay in the browser. "st. louis" and "mt. fuji" are
-   places, and the space after the dot is what separates them.
+   that nothing is sent while a user is still typing one. Two tests, because
+   the separators fall into two groups:
 
-   It is deliberately not "three or more dotted parts", which was the first
-   rule here and let "dream.tourist." through to the index. Nor is it "four
-   parts and a short number", which would swallow "highway 4 exit 12".
+   - PUNCTUATION a place name does not use that way: a dot, comma, slash or
+     underscore with nothing after it, or a non-space after it. "st. louis"
+     and "Fixtureville, ZZ" put a space after theirs; "dream." and
+     "dream,tourist" do not. This catches a mistyped address too, since it
+     looks at the punctuation rather than at the words.
+   - THE WORDLIST, for space and dash, which places genuinely use: "new york
+     city" and "Stratford-upon-Avon" are places. Two or more BIP-39 words is
+     what separates them -- each of those has exactly one ("city", "upon"),
+     while two thirds of an address has two. Digits do not count towards it,
+     or "highway 4 exit 12" would be withheld, and the match is exact rather
+     than by four-letter prefix, or "orange county" would be.
 
    The bias runs one way on purpose. "route 66 exit 1234" is read as an
    address and answered with "'route' is not a BIP-39 word" rather than
-   searched. Failing towards silence costs a search; failing the other way
+   searched, and a place that happens to be two BIP-39 words ("Canyon River")
+   is withheld. Failing towards silence costs a search; failing the other way
    spends a secret, and only one of those can be taken back. *)
 type address_shape = Complete | Partial | Not_address
 
 let address_shape s =
   let digits t = t <> "" && String.for_all (fun c -> c >= '0' && c <= '9') t in
-  (* A dot with nothing after it, or with a non-space after it, is address
-     punctuation. A dot followed by a space is an abbreviation: "st. louis"
-     and "mt. fuji" are places and have to stay searchable, while "dream."
-     and "dream.tourist" are the first and second thirds of a secret. *)
-  let n = String.length s in
-  let tight_dot = ref false in
+  let t = String.trim s in
+  let n = String.length t in
+  let tight = ref false in
   String.iteri
     (fun i c ->
-      if c = '.' && (i = n - 1 || s.[i + 1] <> ' ') then tight_dot := true)
-    (String.trim s);
-  match split_address s with
+      if
+        (c = '.' || c = ',' || c = '/' || c = '_')
+        && (i = n - 1 || t.[i + 1] <> ' ')
+      then tight := true)
+    t;
+  let parts = split_address s in
+  (* Exact membership, NOT resolve_word: the four-letter prefix rule resolves
+     "county" to "country" and "penalty" to itself alike, and counting those
+     withheld "orange county" from the place index. The cost is that the
+     abbreviated spelling is only recognised once it is complete -- "drea tour
+     cree" reads as a place name until its number arrives. *)
+  let is_word p = (not (digits p)) && Hashtbl.mem Wordlist.index p in
+  (* The LAST part is the one being typed, so it counts when it can still only
+     become one word: "vacuum pena" is an address, because nothing but
+     "penalty" starts that way. Uniqueness is what keeps it safe -- "orange
+     county" does not count, because no BIP-39 word starts with "county", and
+     "north can" does not, because seven do. *)
+  let becoming_word p =
+    p <> "" && (not (digits p))
+    && (not (Hashtbl.mem Wordlist.index p))
+    && (let n = String.length p in
+        1
+        = Array.fold_left
+            (fun acc w ->
+              if String.length w > n && String.sub w 0 n = p then acc + 1
+              else acc)
+            0 Wordlist.words)
+  in
+  let rec count = function
+    | [] -> 0
+    | [ last ] -> if is_word last || becoming_word last then 1 else 0
+    | p :: rest -> (if is_word p then 1 else 0) + count rest
+  in
+  let words = count parts in
+  (* The UNTRIMMED string: "dream " is a word and a keystroke, and trimming it
+     first would make it indistinguishable from "dream" alone -- which is a
+     place name someone might mean. *)
+  let ends_with_sep =
+    String.length s > 0
+    &&
+    match s.[String.length s - 1] with
+    | '.' | ',' | '/' | '_' | '-' | ' ' -> true
+    | _ -> false
+  in
+  match parts with
   | [ _; _; _; num ] when digits num && String.length num = 4 -> Complete
-  | _ -> if !tight_dot then Partial else Not_address
+  | _ when !tight -> Partial
+  | _ when words >= 2 -> Partial
+  (* One word and a separator after it: the second word is being typed. A
+     lone "orange" with nothing after it stays a place. *)
+  | [ _ ] when words = 1 && ends_with_sep -> Partial
+  | _ -> Not_address
 
 let address_shape_string s =
   match address_shape s with

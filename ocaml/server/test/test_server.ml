@@ -1258,18 +1258,52 @@ let () =
          index because it counted parts rather than punctuation *)
       ("dream.", "partial");
       ("dream.tourist", "partial");
+      (* Trailing whitespace must not turn a trailing dot into an
+         abbreviation. It did: the scan walked the TRIMMED string while
+         measuring the untrimmed one, so the last index never matched and
+         "dream. " was read as "dream" plus a space -- a word of someone's
+         address, sent to the place index. *)
+      ("dream. ", "partial");
+      ("dream.  ", "partial");
+      ("dream.tourist. ", "partial");
+      (".", "partial");
+      (* Every separator address_of_string accepts, mid-typing. An earlier
+         rule looked only at the dot, so all five of the others sent three
+         words and three of four digits to the place index. *)
+      ("vacuum penalty health", "partial");
+      ("vacuum penalty health 347", "partial");
+      ("vacuum-penalty-health-347", "partial");
+      ("vacuum_penalty_health_347", "partial");
+      ("vacuum,penalty,health,347", "partial");
+      ("vacuum/penalty/health/347", "partial");
+      ("vacuum.penalty.health.347", "partial");
+      (* two words is enough to say it is not a place *)
+      ("vacuum penalty", "partial");
+      ("dream tourist", "partial");
+      (* and the word being typed counts once only one word can finish it *)
+      ("vacuum pena", "partial");
       (* place names, which must still be searched *)
       ("atlanta", "no");
       ("new york city", "no");
       (* a dot followed by a space is an abbreviation, not a separator *)
       ("st. louis", "no");
       ("mt. fuji", "no");
+      ("st. louis ", "no");
       ("Fixtureville, ZZ", "no");
       ("fixture ville", "no");
       ("", "no");
       (* four space-separated parts ending in a short number is a place, not a
          half-typed address: "highway 4 exit 12" must reach the index *)
       ("highway 4 exit 12", "no");
+      (* One BIP-39 word does not make a place an address: "city", "upon" and
+         "orange" are all in the wordlist. The match is exact rather than by
+         four-letter prefix, or "county" resolving to "country" would take
+         "orange county" off the index. *)
+      ("Stratford-upon-Avon", "no");
+      ("orange county", "no");
+      ("orange", "no");
+      ("Baden-Baden", "no");
+      ("los angeles", "no");
     ];
   (* And the direction the bias runs: a place name shaped exactly like an
      address is read as an address and refused, rather than searched. Stated

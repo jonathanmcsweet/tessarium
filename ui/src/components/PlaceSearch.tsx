@@ -23,6 +23,7 @@
 
 import { Search } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { type PlaceResult, usePlaceSearch } from "../core/basemap";
 import {
   bearing8,
@@ -55,9 +56,9 @@ const DEBOUNCE_MS = 250;
 export function PlaceSearch(
   { onPick, onPickAddress, center }: {
     onPick: (lon: number, lat: number) => void;
-    /* Separate from onPick because arriving at an address should select the
-       square as well as move the map -- the user asked about a square, not
-       about a neighbourhood. */
+    /* Separate from onPick because an address names a square rather than a
+       neighbourhood, so it is worth arriving closer. Both only move the
+       camera. */
     onPickAddress: (lon: number, lat: number) => void;
     /* Where the map is now, for "how far would this take me" -- null
        before the map exists. A function, not a value: the centre moves
@@ -100,6 +101,13 @@ export function PlaceSearch(
      no "too short to be meaningful" for text already known to be one. */
   const listOpen = open
     && (isAddress || isPartial || debounced.trim().length >= 2);
+  /* An address resolves to exactly one option; a place query to a list. The
+     partial and error states render a paragraph and NO listbox, so they must
+     not be advertised as one -- aria-controls pointing at an id that is not
+     in the document is a dangling reference, and "expanded" with nothing to
+     enter is a dead end for a screen reader. */
+  const addressOption = isAddress && !addressError && Boolean(lookup.data);
+  const hasListbox = listOpen && (addressOption || results.length > 0);
 
   /* Clicking away closes the list; the input keeps what was typed, because
      losing it would mean retyping to see the same answers. */
@@ -132,6 +140,7 @@ export function PlaceSearch(
     const point = lookup.data;
     if (!point) return;
     onPickAddress(point.lon, point.lat);
+    toast.success(m.search_found());
     setText("");
     setOpen(false);
   };
@@ -184,11 +193,15 @@ export function PlaceSearch(
           id="place-search-input"
           type="text"
           role="combobox"
-          aria-expanded={listOpen}
-          aria-controls={listOpen ? listId : undefined}
+          aria-expanded={hasListbox}
+          aria-controls={hasListbox ? listId : undefined}
           aria-autocomplete="list"
-          aria-activedescendant={listOpen && results.length > 0
-            ? `${listId}-${active}`
+          /* Must point at the option being rendered, whichever branch drew
+             it. Guarding on the place results alone left the address option
+             -- the one thing a user needs announced when an address
+             resolves -- referenced by nothing. */
+          aria-activedescendant={hasListbox
+            ? `${listId}-${addressOption ? 0 : active}`
             : undefined}
           autoComplete="off"
           spellCheck={false}
@@ -254,7 +267,8 @@ export function PlaceSearch(
           {isPartial
             ? (
               <p className="place-empty" role="status">
-                {m.search_address_partial()}
+                {m.search_address_partial()}{" "}
+                {m.search_prefix_hint({ example: m.search_prefix_example() })}
               </p>
             )
             : isAddress

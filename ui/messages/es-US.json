@@ -103,7 +103,7 @@
   "panel_reveal": "Mostrar esta dirección",
   "panel_this_square": "Este cuadrado",
   "search_address_local": "Las direcciones se resuelven en este dispositivo. Solo se buscan nombres de lugares.",
-  "search_address_partial": "Estás escribiendo una dirección: no se envía nada mientras tanto.",
+  "search_address_partial": "Esto parece una dirección, así que no se está buscando.",
   "search_away": "{distance} km {direction}",
   "search_dir_e": "E",
   "search_dir_n": "N",

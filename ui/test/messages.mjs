@@ -24,9 +24,18 @@ const base = "en-US.json";
 const NOT_TRANSLATABLE = [
   "app_name",
   "gate_phrase_placeholder",
-  "panel_find_placeholder",
-  "panel_prefix_example",
+  "search_prefix_example",
 ];
+
+/* The same protection for a message that is prose AROUND a literal, where
+   equality across locales is the wrong test. The address example moved into
+   the search placeholder when the panel's lookup form was retired, and its
+   old key left this list -- so the literal was translatable again, silently,
+   which is the exact failure the list above exists to prevent. A translated
+   example would show a French reader an address that cannot be typed in. */
+const MUST_CONTAIN = {
+  search_placeholder: "dream.tourist.creek.2703",
+};
 
 let checks = 0;
 let failures = 0;
@@ -92,7 +101,21 @@ for (const file of files) {
         value === reference[key],
       );
     }
+    if (key in MUST_CONTAIN) {
+      check(
+        `${file}:${key} still carries the untranslatable ${MUST_CONTAIN[key]}`,
+        typeof value === "string" && value.includes(MUST_CONTAIN[key]),
+      );
+    }
   }
+}
+
+/* Both lists must name keys that exist, or an entry retired with its message
+   stops protecting anything and nothing says so. That happened: the address
+   example's key was renamed and its guard was left pointing at the old
+   name. */
+for (const key of [...NOT_TRANSLATABLE, ...Object.keys(MUST_CONTAIN)]) {
+  check(`the guard for ${key} names a message that exists`, key in reference);
 }
 
 /* French puts a no-break space before a high punctuation mark, and there are

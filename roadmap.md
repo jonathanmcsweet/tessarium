@@ -402,6 +402,15 @@ not cover.
       threshold, would at least make the wait legible. Depends on the caching
       item above to be worth much: the coarse tiles are re-fetched every time.
 
+- [ ] **Arriving at an address does not select its square.** The search box
+      flies the camera to the square an address names, at zoom 20, but the
+      panel still shows whatever was selected before — the user has to click
+      the square they just asked for. The old panel form behaved the same way,
+      so this is not a regression, but with one box doing both it reads as
+      one. `requestFlyTo` would need to select on arrival, which means the
+      fly-to effect calling the same encode-and-select path the click handler
+      uses rather than only `map.flyTo`.
+
 - [ ] **The worker's error messages are English, in six locales.** Everything
       the UI says lives in `ui/messages/` except what `core.worker.js` throws:
       "locked", the malformed-address message the core supplies, "that point

@@ -103,7 +103,7 @@
   "panel_reveal": "Afficher cette adresse",
   "panel_this_square": "Ce carré",
   "search_address_local": "Les adresses sont résolues sur cet appareil. Seuls les noms de lieux sont recherchés.",
-  "search_address_partial": "Adresse en cours de saisie : rien n’est envoyé pendant que vous tapez.",
+  "search_address_partial": "Ceci ressemble à une adresse : aucune recherche n’est lancée.",
   "search_away": "{distance} km {direction}",
   "search_dir_e": "E",
   "search_dir_n": "N",

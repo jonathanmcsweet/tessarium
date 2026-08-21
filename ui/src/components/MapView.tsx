@@ -988,10 +988,13 @@ export function MapView() {
               zoom: Math.max(map.getZoom(), 15),
             });
           }}
-          /* An address names one square, so this goes all the way in and
-             selects it -- the same treatment a click on that square gets.
-             requestFlyTo, not map.flyTo, because the selection is driven off
-             the same store the panel reads. */
+          /* An address names one square, so this goes all the way in --
+             requestFlyTo lands at zoom 20 where onPick stops at 15. It moves
+             the CAMERA only: the panel still shows whatever was selected
+             before, and the square becomes the selection when the user
+             clicks it or presses Enter on the canvas. Selecting on arrival
+             would be better and is in the roadmap; saying it happens here
+             would just be untrue. */
           onPickAddress={(lon, lat) => requestFlyTo(lat, lon)}
         />
       </div>

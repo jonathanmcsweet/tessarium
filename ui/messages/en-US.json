@@ -103,7 +103,7 @@
   "panel_reveal": "Show this address",
   "panel_this_square": "This square",
   "search_address_local": "Addresses are resolved on this device. Only place names are looked up.",
-  "search_address_partial": "Finishing an address — nothing is sent while you type.",
+  "search_address_partial": "This looks like an address, so it is not being searched for.",
   "search_away": "{distance} km {direction}",
   "search_dir_e": "E",
   "search_dir_n": "N",

@@ -1,5 +1,8 @@
-/* The side panel: the address of the selected square, and a box to look one
-   up.
+/* The side panel: the address of the selected square.
+
+   Looking an address UP happens in the map's search box, which takes both a
+   place name and an address -- see PlaceSearch. The form that used to live
+   here is gone rather than duplicated.
 
    This is the only place an address is ever displayed. The map draws bare
    squares, so a screenshot or a shared screen gives away one address at most

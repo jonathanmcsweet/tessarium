@@ -65,11 +65,32 @@ fails both wire checks — the e2e types the address one character at a time and
 watches `/api/basemap-search`, because the leak it prevents happens while
 someone is still typing. Not clearing the box fails the two exposure checks.
 
-**Follow-on:** Two residuals, both recorded rather than papered over. An
-address typed with SPACES rather than dots is not classified as partial until
-it is complete, so `dream tourist creek` reaches the index; catching that
-without breaking ordinary multi-word place names needs the wordlist, not
-punctuation. And `route 66 exit 1234` is refused as above.
+**The review found the rule covered one spelling in six.** `split_address`
+accepts `,` `/` space `-` `_` and `.`, and the first classifier looked only at
+the dot — so `vacuum-penalty-health-347`, three words and three of four
+digits, went to the place index on its way to being typed. Measured across the
+prefixes of one vector address: 22 of 24 sendable for each non-dot spelling.
+The rule now has two halves, because the separators do:
+
+- punctuation a place name does not use that way (`.` `,` `/` `_` with
+  nothing after it or a non-space after it), which also catches a mistyped
+  address because it looks at punctuation rather than words;
+- the wordlist, for space and dash, which places do use. Two or more BIP-39
+  words is what separates `vacuum penalty health` from `new york city` and
+  `Stratford-upon-Avon` — each of those has exactly one (`city`, `upon`).
+  Matched exactly, not by four-letter prefix, or `county` resolving to
+  `country` would take `orange county` off the index; digits excluded, or
+  `highway 4 exit 12` would go.
+
+After: 34 sendable prefixes across all six spellings out of 150, worst case
+one complete word plus two letters of the next.
+
+**Follow-on:** Three residuals, recorded rather than papered over. A first
+word plus a two-letter start of the second still reaches the index (`vacuum
+pe`) — closing it means withholding `city hall`, which is a worse trade.
+`route 66 exit 1234` is read as an address. And the four-letter prefix
+spelling (`drea tour cree`) reads as a place name until its number arrives,
+because exact matching is what keeps `orange county` searchable.
 
 ---
 

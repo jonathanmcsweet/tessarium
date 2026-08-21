@@ -10,7 +10,7 @@
    - queries for questions with stable answers (is this phrase valid, which
      cells cover this box, what is this square called). Pure functions of
      their inputs, so `staleTime: Infinity` is exactly right.
-   - mutations for actions (unlock, lock, generate, look up an address). */
+   - mutations for actions (unlock, lock, generate). */
 
 import {
   type QueryClient,
@@ -29,6 +29,7 @@ export const core = (): Core => (instance ??= new Core());
 export const keys = {
   validate: (phrase: string) => ["validate", phrase] as const,
   addressShape: (text: string) => ["address-shape", text] as const,
+  addressLookup: (address: string) => ["address-lookup", address] as const,
   grid: (bounds: Bounds, limit: number) => ["grid", bounds, limit] as const,
   encode: (lat: number, lon: number) => ["encode", lat, lon] as const,
 };
@@ -68,11 +69,17 @@ export function useLock() {
     onSettled: () => {
       client.removeQueries({ queryKey: ["encode"] });
       client.removeQueries({ queryKey: ["validate"] });
-      /* Key-derived like an encoded address, and for the same reason it must
-         not outlive the key: a decoded point IS a place the user went to
-         under this phrase. The shape cache stays -- it is pure string
-         analysis and says nothing about anyone's map. */
+      /* A decoded point IS a place the user went to under this phrase, so it
+         goes the way an encoded address does.
+
+         The shape cache goes too, and for a reason worth stating: its VALUE
+         is three harmless words, but its KEY is the address that was typed.
+         A cache is as sensitive as the more sensitive of the two, and lock's
+         promise is that walking away leaves nothing behind. Re-deriving a
+         shape costs one postMessage, so there is no argument for keeping
+         it. */
       client.removeQueries({ queryKey: ["address-lookup"] });
+      client.removeQueries({ queryKey: ["address-shape"] });
     },
   });
 }
@@ -98,9 +105,14 @@ export function useAddressShape(text: string) {
 
    Dropped on lock: see useLock. */
 export function useAddressLookup(address: string, enabled: boolean) {
+  /* Trimmed before it becomes a key, as the shape query is: otherwise a
+     pasted address with a stray space is a second cache entry holding the
+     same decoded point, and every such entry is something lock has to
+     purge. */
+  const trimmed = address.trim();
   return useQuery({
-    queryKey: ["address-lookup", address] as const,
-    queryFn: () => core().decode(address),
+    queryKey: keys.addressLookup(trimmed),
+    queryFn: () => core().decode(trimmed),
     enabled,
     staleTime: Infinity,
     gcTime: Infinity,

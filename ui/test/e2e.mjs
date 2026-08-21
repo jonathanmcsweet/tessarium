@@ -941,29 +941,67 @@ const watchSearch = (request) => {
 page.on("request", watchSearch);
 
 const addressForSearch = sample.address;
-await page.locator("#place-search-input").fill("");
-await page.waitForTimeout(400);
-searchRequests.length = 0;
+/* The same address in a spelling that uses a different separator. Every one
+   of `, / - _ .` and space is accepted by address_of_string, and an earlier
+   version of the classifier looked only at dots -- so the dashed spelling
+   sent three words and three of four digits to the index on its way to being
+   typed. Testing one spelling would not have caught that. */
+const addressDashed = sample.address.replace(/[.]/g, "-");
 
-/* Typed a character at a time, because the leak this prevents happens while
-   someone is still typing: "paper.later.curve" is two thirds of a secret and
-   is what a debounced search would have sent. */
-await page.locator("#place-search-input").pressSequentially(addressForSearch, {
-  delay: 30,
-});
-await page.waitForTimeout(900);
-check(
-  `typing an address sends nothing to the place index (${searchRequests.length} requests)`,
-  searchRequests.length === 0,
-);
-check(
-  "and no request carried any part of it",
-  !searchRequests.some((body) =>
-    addressForSearch.split(/[.]/).some((word) =>
-      word.length > 2 && body.includes(word)
-    )
-  ),
-);
+/* DEBOUNCE_MS in PlaceSearch is 250, so the delay here must be LONGER than
+   that or no intermediate value ever reaches the classifier and this checks
+   only that the finished address is withheld. At 30 ms every keystroke reset
+   the timer and exactly one value -- the complete address -- was ever
+   classified, which made the check pass against a version with no partial
+   handling at all. */
+const typeAndWatch = async (text) => {
+  await page.locator("#place-search-input").fill("");
+  await page.waitForTimeout(400);
+  searchRequests.length = 0;
+  await page.locator("#place-search-input").pressSequentially(text, {
+    delay: 300,
+  });
+  await page.waitForTimeout(700);
+  return searchRequests.slice();
+};
+
+/* The guarantee is NOT "nothing is sent" -- a lone "vacuum" is a BIP-39 word
+   and also an English one, and withholding every single word would take
+   "orange", "river" and "city hall" off the place index for no privacy gain.
+   The guarantee is that nothing recognisable as an ADDRESS is sent: never two
+   of the three words, never the number, never the whole thing. That is the
+   difference between a leak and a search.
+
+   Stated this precisely because the first version of this check said "sends
+   nothing" and passed only because it typed faster than the debounce. */
+const addressWords = sample.address.split(".");
+const addressNumber = addressWords[3];
+const countWords = (body) =>
+  addressWords.slice(0, 3).filter((w) => body.includes(w)).length;
+
+for (
+  const [label, text] of [
+    ["dotted", addressForSearch],
+    ["dash-separated", addressDashed],
+  ]
+) {
+  const sent = await typeAndWatch(text);
+  const worst = Math.max(0, ...sent.map(countWords));
+  check(
+    `typing a ${label} address never sends two of its words (worst ${worst}: ${
+      JSON.stringify(sent.filter((b) => countWords(b) >= 2))
+    })`,
+    worst <= 1,
+  );
+  check(
+    `typing a ${label} address never sends its number`,
+    !sent.some((body) => body.includes(addressNumber)),
+  );
+  check(
+    `typing a ${label} address never sends the whole thing`,
+    !sent.some((body) => body.includes(text)),
+  );
+}
 
 /* And it resolves: the address offered is the one typed, and taking it lands
    on the square that address names -- the vector's own point. */
