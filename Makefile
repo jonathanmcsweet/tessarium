@@ -171,6 +171,7 @@ build:
 ui:
 	cd ui && npm ci --no-audit --no-fund && npm run build
 	cp wasm/argon2.wasm ui/dist/argon2.wasm
+	cp wasm/core.wasm ui/dist/core.wasm
 	rm -rf ocaml/server/ui_dist
 	cp -r ui/dist ocaml/server/ui_dist
 	@echo "  UI copied to ocaml/server/ui_dist; run 'make build' to embed it"

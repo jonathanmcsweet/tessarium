@@ -52,6 +52,7 @@ export default defineConfig({
       "/healthz": backend,
       // The worker's KDF module is embedded in the backend, not in public/.
       "/argon2.wasm": backend,
+      "/core.wasm": backend,
     },
   },
 });

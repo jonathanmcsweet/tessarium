@@ -59,14 +59,14 @@ const bytesOfHex = (h) =>
     (_, i) => parseInt(h.slice(2 * i, 2 * i + 2), 16),
   );
 
-/* Instantiated once, on first unlock. The module's single import is wasi
-   random_get, wanted by the prebuilt libc's stack guard; deterministic
-   zeros are fine for it, and anything MORE appearing in the import list is
-   refused -- the same allow-list discipline as the differential wall. */
-let argon2 = null;
-async function loadArgon2() {
-  if (argon2) return argon2;
-  const mod = await WebAssembly.compileStreaming(fetch("/argon2.wasm"));
+/* Both wasm modules are built the same way and load the same way. Their
+   single import is wasi random_get, wanted by the prebuilt libc's stack
+   guard; deterministic zeros are fine for it, and anything MORE appearing
+   in the import list is refused -- the same allow-list discipline as the
+   differential walls, which is what makes "this module computes and does
+   not reach anywhere" checkable rather than asserted. */
+async function loadWasm(path) {
+  const mod = await WebAssembly.compileStreaming(fetch(path));
   for (const imp of WebAssembly.Module.imports(mod)) {
     if (imp.module !== "wasi_snapshot_preview1" || imp.name !== "random_get") {
       throw new Refused(`unexpected wasm import ${imp.module}.${imp.name}`);
@@ -76,9 +76,67 @@ async function loadArgon2() {
     wasi_snapshot_preview1: { random_get: () => 0 },
   });
   instance.exports._initialize();
-  argon2 = instance.exports;
+  return instance.exports;
+}
+
+/* The KDF. Instantiated once, on first unlock. */
+let argon2 = null;
+async function loadArgon2() {
+  if (argon2) return argon2;
+  argon2 = await loadWasm("/argon2.wasm");
   return argon2;
 }
+
+/* The map core: the same F* the server's HTTP API answers from, compiled to
+   wasm instead of to native C. It arrives knowing no geography -- the band
+   table crosses from the js_of_ocaml bundle, which holds the table the
+   proofs were discharged against, and `seal_cum` re-checks its whole shape
+   (base, monotonicity, step bound, grand total) before the module will
+   answer anything. A table that fails that check leaves the core unusable
+   rather than quietly wrong. */
+let mapCore = null;
+async function loadMapCore() {
+  if (mapCore) return mapCore;
+  const exports = await loadWasm("/core.wasm");
+  /* A method on the bundle, not a property: js_of_ocaml exposes `val` as a
+     field and `method` as a callable, and reading the callable hands
+     seal_cum a function instead of a table. */
+  const table = core.cumTable();
+  for (let i = 0; i < table.length; i++) {
+    if (!exports.set_cum(i, BigInt(table[i]))) {
+      throw new Refused(`the band table was refused at entry ${i}`);
+    }
+  }
+  if (!exports.seal_cum()) {
+    throw new Refused("the band table failed the core's shape check");
+  }
+  mapCore = exports;
+  return mapCore;
+}
+
+/* Integer nanodegrees, as the whole design requires: the only float here is
+   the degree the UI speaks, converted once at this boundary. 1.8e11 is far
+   below 2^53, so the multiply is exact and the rounding is the same one the
+   OCaml boundary does. */
+const LAT_MIN = -90000000000n;
+const LON_MIN = -180000000000n;
+const nsOfDeg = (d) => BigInt(Math.round(d * 1e9));
+const degOfNs = (ns) => Number(ns) / 1e9;
+
+/* The key as the eight little-endian words the core's ABI takes -- BLAKE2s's
+   own byte order, the same packing the FFI stubs do natively. */
+const keyWords = (hex) =>
+  Array.from({ length: 8 }, (_, i) => {
+    const w = hex.slice(i * 8, i * 8 + 8);
+    return BigInt(
+      "0x" + w.slice(6, 8) + w.slice(4, 6) + w.slice(2, 4) + w.slice(0, 2),
+    );
+  });
+
+const outWords = (m, n) =>
+  Array.from(
+    new BigUint64Array(m.memory.buffer, m.out_ptr(), n),
+  );
 
 async function deriveKey(mnemonic, passphrase) {
   const inputs = core.kdfInputs(mnemonic, passphrase);
@@ -168,38 +226,111 @@ const ops = {
     };
   },
 
-  encode({ lat, lon }) {
+  /* Arithmetic from the wasm core; words from the js_of_ocaml bundle. The
+     split is the honest one: the proved code computes an index, and turning
+     an index into three words is a wordlist lookup, not arithmetic. */
+  async encode({ lat, lon }) {
     if (key === null) throw new Refused("locked");
-    return { address: core.encodeDeg(key, lat, lon) };
+    const m = await loadMapCore();
+    if (
+      !m.encode(
+        ...keyWords(key),
+        nsOfDeg(lat) - LAT_MIN,
+        nsOfDeg(lon) - LON_MIN,
+      )
+    ) {
+      throw new Refused("that point is outside the mapped range");
+    }
+    const [w1, w2, w3, n] = outWords(m, 4).map(Number);
+    return { address: core.addressOfIndices(w1, w2, w3, n) };
   },
 
-  decode({ address }) {
+  async decode({ address }) {
     if (key === null) throw new Refused("locked");
-    let point;
+    let idx;
     try {
-      point = core.decodeDeg(key, address);
+      idx = core.indicesOfAddress(address);
     } catch (e) {
       /* A malformed address is a typo, not a fault. The core's message names
          the specific problem -- which word, which part -- so it is passed
          through rather than replaced with something generic. */
       throw new Refused(String(e.message ?? e));
     }
-    if (point === null) {
+    const m = await loadMapCore();
+    const rc = m.decode(
+      ...keyWords(key),
+      BigInt(idx.w1),
+      BigInt(idx.w2),
+      BigInt(idx.w3),
+      BigInt(idx.n),
+    );
+    if (rc === -1) {
+      throw new Refused("that address is outside the address space");
+    }
+    if (rc === 0) {
       throw new Refused(
         "That address does not correspond to any location. About 35% of "
           + "word combinations do not, which is what makes a typo obvious.",
       );
     }
-    return { lat: point.lat, lon: point.lon };
+    const [dlat, dlon] = outWords(m, 2);
+    return { lat: degOfNs(dlat + LAT_MIN), lon: degOfNs(dlon + LON_MIN) };
   },
 
-  /* The grid overlay. Needs no key -- it is pure geometry -- but is served
-     from here so there is one copy of the core in the process rather than
-     two, and because the walk itself must happen in the core's integer
-     arithmetic rather than in JavaScript floats. */
-  grid({ latLo, lonLo, latHi, lonHi, limit }) {
-    const g = core.gridForBounds(latLo, lonLo, latHi, lonHi, limit);
-    return { cells: g.cells, count: g.count, truncated: g.truncated };
+  /* The grid overlay. Needs no key -- it is pure geometry -- and every cell
+     corner comes from the proved `bounds`; this walk only decides which
+     cells to ask about. It steps by taking each cell's upper edge as the
+     next cell's lower edge, which is exact because the bounds are half-open
+     at the high edge, and it steps in BigInt nanodegrees because a boundary
+     landing one unit out is the exact bug this project exists to rule out.
+     Ported from Tessarium.cells_in_bounds, which drove the same proved
+     function from OCaml and still does for the server. */
+  async grid({ latLo, lonLo, latHi, lonHi, limit }) {
+    const m = await loadMapCore();
+    const clamp = (lo, hi, v) => (v < lo ? lo : v > hi ? hi : v);
+    const latLoNs = clamp(LAT_MIN, -LAT_MIN, nsOfDeg(latLo));
+    const latHiNs = clamp(LAT_MIN, -LAT_MIN, nsOfDeg(latHi));
+    const lonLoNs = clamp(LON_MIN, -LON_MIN, nsOfDeg(lonLo));
+    const lonHiNs = clamp(LON_MIN, -LON_MIN, nsOfDeg(lonHi));
+    const cells = [];
+    let truncated = false;
+    if (latLoNs <= latHiNs && lonLoNs <= lonHiNs) {
+      let lat = latLoNs;
+      walk: while (lat <= latHiNs) {
+        if (cells.length >= limit) {
+          truncated = true;
+          break;
+        }
+        /* Within one row every cell shares the row's latitude bounds, so the
+           row's upper edge comes out of the first cell in it. */
+        let rowTop = lat + 1n;
+        for (let lon = lonLoNs; lon <= lonHiNs;) {
+          if (cells.length >= limit) {
+            truncated = true;
+            break walk;
+          }
+          if (!m.bounds(lat - LAT_MIN, lon - LON_MIN)) {
+            throw new Refused("the grid walk left the mapped range");
+          }
+          const [a, b, c, d] = outWords(m, 4);
+          const latLoC = a + LAT_MIN, latHiC = b + LAT_MIN;
+          const lonLoC = c + LON_MIN, lonHiC = d + LON_MIN;
+          rowTop = latHiC;
+          /* A cell whose upper edge does not advance would loop forever. It
+             cannot happen -- widths are positive -- but the guard costs
+             nothing and a hung tab costs a lot. */
+          if (lonHiC <= lon) break;
+          cells.push(latLoC, latHiC, lonLoC, lonHiC);
+          lon = lonHiC;
+        }
+        if (rowTop <= lat) break;
+        lat = rowTop;
+      }
+      if (lat <= latHiNs && !truncated) truncated = cells.length >= limit;
+    }
+    const flat = new Float64Array(cells.length);
+    for (let i = 0; i < cells.length; i++) flat[i] = degOfNs(cells[i]);
+    return { cells: flat, count: cells.length / 4, truncated };
   },
   /* There is deliberately no bulk-address operation here.
 

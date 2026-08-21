@@ -163,4 +163,44 @@ let () =
            val count = n
            val truncated = Js.bool truncated
          end
+
+       (* ---------------------------------------------- the wasm core's needs
+
+          The browser answers from wasm/core.wasm, which is the same F*
+          extracted to C. Three things it cannot supply for itself, all of
+          them data this bundle already holds:
+
+          - the band table, which the wasm needs handed over and sealed
+            before it can answer. Float64Array because every entry is below
+            2^53 and therefore exact, and because a typed array crosses to
+            JavaScript without a per-element conversion.
+          - the wordlist codec, both directions. The proved core works in
+            indices; turning those into words and back is the one part of an
+            address that is not arithmetic, and it stays here so there is a
+            single wordlist in the browser rather than a second copy shipped
+            beside the wasm. *)
+       method cumTable =
+         let t = Tessarium_Table_Data.cumcols_list in
+         let n = List.length t in
+         let a = new%js Typed_array.float64Array n in
+         List.iteri
+           (fun i v -> Typed_array.set a i (Js.number_of_float (Z.to_float v)))
+           t;
+         a
+
+       method addressOfIndices w1 w2 w3 n =
+         jstr
+           (Tessarium.address_to_string
+              (Z.of_int w1, Z.of_int w2, Z.of_int w3, Z.of_int n))
+
+       (* Raises Invalid_address, exactly as the typed path does -- the
+          message names which word or which part is wrong. *)
+       method indicesOfAddress addr =
+         let w1, w2, w3, n = Tessarium.address_of_string (ostr addr) in
+         object%js
+           val w1 = Z.to_int w1
+           val w2 = Z.to_int w2
+           val w3 = Z.to_int w3
+           val n = Z.to_int n
+         end
     end)
