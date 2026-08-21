@@ -5,8 +5,8 @@
    "binary plus a directory that has to travel with it".
 
    Assets are stored gzipped and served with `Content-Encoding: gzip` rather
-   than decompressed at startup. The js_of_ocaml core is 4.4 MB and compresses
-   to about a tenth of that, and an OCaml source file containing a 4.4 MB
+   than decompressed at startup. The js_of_ocaml core is 5 MB and compresses
+   to about a tenth of that, and an OCaml source file containing a 5 MB
    string literal is slow to compile and large in the binary. Serving the
    compressed bytes straight through avoids both, and is what a browser wants
    anyway.
@@ -52,9 +52,9 @@ let () =
   List.iter
     (fun rel ->
       let raw = read (Filename.concat root rel) in
-      let digest =
-        String.sub Digestif.BLAKE2S.(to_hex (digest_string raw)) 0 32
-      in
+      (* The full hex. How short an ETag may be is the server's business, and
+         it is stated once, in Http_cache. *)
+      let digest = Digestif.BLAKE2S.(to_hex (digest_string raw)) in
       Printf.printf "  (%S, %S, %S);\n" rel digest (Gzip.compress raw))
     files;
   print_string "]\n\n";
@@ -66,5 +66,4 @@ let () =
   print_string
     "(* [Some (digest, gzipped bytes)] for a path the binary carries. *)\n";
   print_string "let find path = Hashtbl.find_opt table path\n";
-  print_string "let count = List.length files\n";
   Printf.eprintf "embedded %d assets\n" (List.length files)

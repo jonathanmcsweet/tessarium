@@ -1340,16 +1340,19 @@ let () =
        (String.equal
           (tag ~encoding:"br" "hello")
           (tag ~encoding:"gzip" "hello")));
+  let stamp ?(key = "a/b.pbf") ?(size = 10) ?(mtime = 1.0) () =
+    C.of_stamp ~key ~size ~mtime
+  in
   check "a stamp changes when the file grows"
-    (not
-       (String.equal
-          (C.of_stamp ~encoding:None ~size:10 ~mtime:1.0)
-          (C.of_stamp ~encoding:None ~size:11 ~mtime:1.0)));
+    (not (String.equal (stamp ()) (stamp ~size:11 ())));
   check "a stamp changes when the file is rewritten within the same second"
-    (not
-       (String.equal
-          (C.of_stamp ~encoding:None ~size:10 ~mtime:1.25)
-          (C.of_stamp ~encoding:None ~size:10 ~mtime:1.5)));
+    (not (String.equal (stamp ~mtime:1.25 ()) (stamp ~mtime:1.5 ())));
+  (* Two files written in one instant at one length are still two files. The
+     glyph directory is where this happens: a tarball extracted in one go,
+     several of them empty. *)
+  check "two files with the same size and time still differ"
+    (not (String.equal (stamp ~key:"fonts/a/0-255.pbf" ())
+            (stamp ~key:"fonts/b/0-255.pbf" ())));
   check "no header, nothing to be fresh against" (not (fresh (tag "x")));
   check "the tag it holds" (fresh ~hdr:(tag "x") (tag "x"));
   check "a tag for something else" (not (fresh ~hdr:(tag "y") (tag "x")));
@@ -1375,6 +1378,25 @@ let () =
     (not (fresh ~hdr:"\"a,b\"" "\"a\""));
   check "an unparseable header matches nothing"
     (not (fresh ~hdr:"not a tag" (tag "x")));
+
+  (* [If-Range] guards a Range against the bytes having moved, and compares
+     STRONGLY -- map.pmtiles is rewritten in place, so a window handed to a
+     client holding a partial copy of the old archive would splice two
+     archives together. *)
+  let current ?hdr etag =
+    C.range_is_current ~if_range:hdr ~etag
+  in
+  check "no If-Range, the range stands" (current (tag "x"));
+  check "an If-Range naming what we have" (current ~hdr:(tag "x") (tag "x"));
+  check "an If-Range naming something else"
+    (not (current ~hdr:(tag "y") (tag "x")));
+  (* A weak tag says the bytes may have moved without the tag changing, which
+     is exactly the admission a partial response cannot survive. *)
+  check "a weak If-Range never stands"
+    (not (current ~hdr:("W/" ^ tag "x") (tag "x")));
+  (* An HTTP-date is a validator this server never issues. *)
+  check "an If-Range date never stands"
+    (not (current ~hdr:"Wed, 21 Oct 2026 07:28:00 GMT" (tag "x")));
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "server decisions hold"

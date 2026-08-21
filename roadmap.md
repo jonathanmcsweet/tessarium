@@ -369,10 +369,23 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
-- [ ] **Three fixed assets still cost a round trip each.** ETags mean a
-      returning visit re-downloads nothing, but it still asks about
-      everything: `/tessarium.js`, `/core.wasm` and `/argon2.wasm` change
-      only when the binary is rebuilt, and could be content-hashed and served
+- [ ] **No response carries a `Date`.** RFC 9110 6.6.1 requires an origin
+      server with a clock to send one, and it is what a shared cache computes
+      `age` from. Harmless today — everything is either `no-cache`, where the
+      freshness lifetime is zero, or `immutable`, where a browser falls back
+      to its own receipt time — but caching is now what this code is for, and
+      a proxy in front of it would be reasoning without it.
+
+      Left out because the response constructors have no clock: `Eio` supplies
+      one, and threading it through `respond_string`, `not_modified`,
+      `serve_tile`, `serve_embedded` and `serve_file` is a wider change than
+      the header is worth on its own. Worth doing the next time that layer is
+      opened.
+
+- [ ] **Three fixed assets cost a round trip each.** A returning visit asks
+      about everything it holds, and for most of it that is the only correct
+      thing to do. But `/tessarium.js`, `/core.wasm` and `/argon2.wasm`
+      change only when the binary is rebuilt, and could be content-hashed and served
       `immutable` like `/assets/index-*.js`, at which point the browser stops
       asking at all.
 
@@ -390,7 +403,7 @@ not cover.
       so this is not a regression, but with one box doing both it reads as
       one. `requestFlyTo` would need to select on arrival, which means the
       fly-to effect calling the same encode-and-select path the click handler
-      uses rather than only `map.flyTo`.
+      uses rather than only moving the camera through `ui/src/core/camera.ts`.
 
 - [ ] **The worker's error messages are English, in six locales.** Everything
       the UI says lives in `ui/messages/` except what `core.worker.js` throws:
@@ -527,10 +540,9 @@ not cover.
       and user-facing rather than a test artefact: the symptom is a long
       fetch with no indication that anything is happening.
 
-      Found while fixing the opposite direction (a bar raised and never
-      lowered, since fixed by asking the map rather than waiting to be told).
-      Not fixed with it because nothing has yet shown it happening to a real
-      user, and the tracker's flicker guard is what would have to change.
+      Not taken on yet because nothing has shown it happening to a real user,
+      and the tracker's flicker guard — the thing that keeps the bar off
+      during ordinary panning — is what would have to change to reach it.
 
 - [ ] **The non-English translations still want a native speaker.** They have
       been through one adversarial review pass, which found and fixed real

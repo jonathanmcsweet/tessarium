@@ -70,21 +70,24 @@ let security_headers cfg =
 
 (* Paired with its length so the access log reports what was actually sent. A
    byte count that is always zero is worse than no byte count. *)
-let respond_string cfg ~status ~content_type body =
+let respond_string ?etag cfg ~status ~content_type body =
+  let validator =
+    match etag with None -> [] | Some t -> [ ("etag", t) ]
+  in
   let headers =
     Http.Header.of_list
       (("content-type", content_type)
       :: ("content-length", string_of_int (String.length body))
-      :: security_headers cfg)
+      :: (validator @ security_headers cfg))
   in
   ( `Response
       (Cohttp_eio.Server.respond ~headers ~status
          ~body:(Cohttp_eio.Body.of_string body) ()),
     String.length body )
 
-let respond_json cfg ~status json =
-  respond_string cfg ~status ~content_type:"application/json; charset=utf-8"
-    (Yojson.Safe.to_string json)
+let respond_json ?etag cfg ~status json =
+  respond_string ?etag cfg ~status
+    ~content_type:"application/json; charset=utf-8" (Yojson.Safe.to_string json)
 
 let error cfg ~status message =
   respond_json cfg ~status (`Assoc [ ("error", `String message) ])
@@ -102,6 +105,15 @@ let not_modified cfg ~etag ~cache_control ~vary =
   in
   let response = Http.Response.make ~status:`Not_modified ~headers () in
   (`Expert (response, fun _ic _oc -> ()), `Not_modified, 0, Http_range.Whole)
+
+(* Repeated field lines are the comma-joined list (RFC 9110 5.3), and an
+   intermediary is free to split one into several. [Http.Header.get] hands
+   back only the last, so a client whose tag arrived first would be told to
+   download what it already has. *)
+let joined headers name =
+  match Http.Header.get_multi headers name with
+  | [] -> None
+  | vs -> Some (String.concat ", " vs)
 
 (* Used by tiles and embedded assets alike: gzip is served as-is to a client
    that accepts it and inflated for one that does not -- browsers all accept
@@ -153,7 +165,7 @@ let open_tile_archives ~basemap_root ~sw =
    data the archive had. The bounds keep it from asking about the rest of
    the planet at all. [query] is the style's ?v= cache-buster, threaded
    into the tile URLs so a swap changes them. *)
-let serve_tilejson cfg ~basemap_root ~host ~query =
+let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match =
   Eio.Switch.run @@ fun sw ->
   let headers =
     List.map
@@ -175,22 +187,31 @@ let serve_tilejson cfg ~basemap_root ~host ~query =
             e7f (fold max (fun h -> h.Pmtiles.Header.max_lat_e7));
           ] )
   in
-  respond_json cfg ~status:`OK
-    (`Assoc
-       [
-         ("tilejson", `String "3.0.0");
-         (* Absolute, as the TileJSON spec requires -- MapLibre substitutes
-            tile URLs inside a blob-URL worker, where a relative one has no
-            base to resolve against. The host is the client's own Host
-            header; this server is loopback-only plain HTTP. *)
-         ( "tiles",
-           `List
-             [ `String ("http://" ^ host ^ "/tiles/{z}/{x}/{y}.mvt" ^ query) ]
-         );
-         ("minzoom", `Int min_zoom);
-         ("maxzoom", `Int max_zoom);
-         ("bounds", `List (List.map (fun v -> `Float v) bounds));
-       ])
+  let body =
+    `Assoc
+      [
+        ("tilejson", `String "3.0.0");
+        (* Absolute, as the TileJSON spec requires -- MapLibre substitutes
+           tile URLs inside a blob-URL worker, where a relative one has no
+           base to resolve against. The host is the client's own Host
+           header; this server is loopback-only plain HTTP. *)
+        ( "tiles",
+          `List [ `String ("http://" ^ host ^ "/tiles/{z}/{x}/{y}.mvt" ^ query) ]
+        );
+        ("minzoom", `Int min_zoom);
+        ("maxzoom", `Int max_zoom);
+        ("bounds", `List (List.map (fun v -> `Float v) bounds));
+      ]
+  in
+  (* Small, but it is the one GET a session makes that would otherwise carry
+     no validator, and "everything is revalidated" is a claim worth being
+     true. Tagged over the rendered body: it restates the archive headers, so
+     it changes exactly when a download changes them. *)
+  let rendered = Yojson.Safe.to_string body in
+  let etag = Http_cache.of_bytes ~encoding:None rendered in
+  if Http_cache.is_fresh ~if_none_match ~etag then
+    `Not_modified etag
+  else `Body (respond_json ~etag cfg ~status:`OK body)
 
 (* One vector tile. Bytes go out exactly as stored when the client accepts
    the archive's compression, inflated for one that does not -- same policy
@@ -225,14 +246,17 @@ let serve_tile cfg ~basemap_root ~meth ~client_headers ~z ~x ~y =
       let response = Http.Response.make ~status:`No_content ~headers () in
       (`Expert (response, fun _ic _oc -> ()), `No_content, 0, Http_range.Whole)
   | Some (bytes, header) ->
-      let bytes, enc =
+      (* Which encoding this client gets, and whether the stored bytes go out
+         as they are. [inflate] is deferred: a request that ends in a 304 must
+         not decompress a tile to say nothing changed. *)
+      let enc, inflate =
         match header.Pmtiles.Header.tile_compression with
         | Pmtiles.Header.Gzip when accepts_gzip client_headers ->
-            (bytes, Some "gzip")
-        | Pmtiles.Header.Gzip -> (Gzip.decompress bytes, None)
-        | Pmtiles.Header.Brotli -> (bytes, Some "br")
-        | Pmtiles.Header.Zstd -> (bytes, Some "zstd")
-        | Pmtiles.Header.None_ | Pmtiles.Header.Unknown -> (bytes, None)
+            (Some "gzip", false)
+        | Pmtiles.Header.Gzip -> (None, true)
+        | Pmtiles.Header.Brotli -> (Some "br", false)
+        | Pmtiles.Header.Zstd -> (Some "zstd", false)
+        | Pmtiles.Header.None_ | Pmtiles.Header.Unknown -> (None, false)
       in
       let encoding =
         match enc with None -> [] | Some e -> [ ("content-encoding", e) ]
@@ -241,16 +265,19 @@ let serve_tile cfg ~basemap_root ~meth ~client_headers ~z ~x ~y =
          archive is exactly what changes underneath: a browse-cache download
          lands new tiles at URLs the browser already holds, and cache.pmtiles
          is then renamed into place. A tag over the bytes cannot miss that.
-         The cost is a hash of a tile already read into memory, which is what
-         we are spending to avoid sending it. *)
+
+         Over the bytes AS STORED, with the encoding named alongside, so the
+         two encodings of one tile are two tags without inflating anything to
+         find that out. *)
       let etag = Http_cache.of_bytes ~encoding:enc bytes in
       let vary = [ ("vary", "accept-encoding") ] in
       if
         Http_cache.is_fresh
-          ~if_none_match:(Http.Header.get client_headers "if-none-match")
+          ~if_none_match:(joined client_headers "if-none-match")
           ~etag
       then not_modified cfg ~etag ~cache_control:"no-cache" ~vary
       else
+        let bytes = if inflate then Gzip.decompress bytes else bytes in
         let headers =
           Http.Header.of_list
             (("content-type", "application/x-protobuf")
@@ -283,29 +310,31 @@ let serve_embedded cfg ~segments ~meth ~headers =
   match Embedded_assets.find (String.concat "/" segments) with
   | None -> None
   | Some (digest, packed) ->
-      let gzipped = accepts_gzip headers in
       let name = match List.rev segments with [] -> "" | n :: _ -> n in
-      let extra = if gzipped then [ ("content-encoding", "gzip") ] else [] in
+      (* One answer to "which encoding is this", used for both the header and
+         the tag. Deriving it twice is how a tag comes to describe the other
+         representation. *)
+      let enc = if accepts_gzip headers then Some "gzip" else None in
+      let extra =
+        match enc with None -> [] | Some e -> [ ("content-encoding", e) ]
+      in
       (* Cached responses vary by whether the client took the gzip, so a
          shared cache must not hand one client the other's bytes -- and the
          two encodings are two representations, so they get two tags. *)
       let vary = [ ("vary", "accept-encoding") ] in
-      let etag =
-        Http_cache.of_digest
-          ~encoding:(if gzipped then Some "gzip" else None)
-          digest
-      in
+      let etag = Http_cache.of_digest ~encoding:enc digest in
       let cache_control = Url_path.cache_control segments in
       if
-        Http_cache.is_fresh
-          ~if_none_match:(Http.Header.get headers "if-none-match")
+        Http_cache.is_fresh ~if_none_match:(joined headers "if-none-match")
           ~etag
       then Some (not_modified cfg ~etag ~cache_control ~vary)
       else
         (* Decompressed only once we know we are sending it. This is where
            the 5 MB core lives, and a reload that ends in a 304 should not
            inflate it to say so. *)
-        let body = if gzipped then packed else Gzip.decompress packed in
+        let body =
+          if enc = Some "gzip" then packed else Gzip.decompress packed
+        in
         let headers_out =
           Http.Header.of_list
             (("content-type", Url_path.content_type name)
@@ -342,14 +371,13 @@ let stream_region file ~offset ~length oc =
    written while the file is still open. cohttp-eio applies the response
    closure after the callback returns, so a `with_open_in` around a `Response`
    closes the file before a single byte is written. *)
-let serve_file cfg ~root ~segments ~meth ~range_header ~if_none_match ~immutable
-    =
+let serve_file cfg ~root ~segments ~meth ~range_header ~if_none_match ~if_range
+    ~immutable =
   let path = List.fold_left Eio.Path.( / ) root segments in
   match Eio.Path.kind ~follow:true path with
   | `Regular_file ->
       let stat = Eio.Path.stat ~follow:true path in
       let size = Optint.Int63.to_int stat.Eio.File.Stat.size in
-      let range = Http_range.parse ~header:range_header ~length:size in
       let name = match List.rev segments with [] -> "" | n :: _ -> n in
       let cache_control =
         if immutable then Url_path.cache_control segments else "no-cache"
@@ -359,8 +387,19 @@ let serve_file cfg ~root ~segments ~meth ~range_header ~if_none_match ~immutable
          in ranges. Reading a file end to end to decide whether to send it
          would cost more than sending it. *)
       let etag =
-        Http_cache.of_stamp ~encoding:None ~size
-          ~mtime:stat.Eio.File.Stat.mtime
+        Http_cache.of_stamp
+          ~key:(String.concat "/" segments)
+          ~size ~mtime:stat.Eio.File.Stat.mtime
+      in
+      (* A Range against a validator that has moved on is answered with the
+         whole thing, not with a window into different bytes. This endpoint
+         serves map.pmtiles, which the downloader rewrites in place, so a
+         client splicing a stale 206 into a partial copy would be joining two
+         archives -- and it now has a tag to form that partial with. *)
+      let range =
+        if Http_cache.range_is_current ~if_range ~etag then
+          Http_range.parse ~header:range_header ~length:size
+        else Http_range.Whole
       in
       let base =
         ("content-type", Url_path.content_type name)
@@ -369,9 +408,9 @@ let serve_file cfg ~root ~segments ~meth ~range_header ~if_none_match ~immutable
         :: ("etag", etag)
         :: security_headers cfg
       in
-      (* Ahead of the range: If-None-Match beats Range (RFC 9110 13.1.1), so
-         a client holding the current bytes gets a 304 whether it asked for
-         all of them or a window. *)
+      (* Ahead of the range: If-None-Match is evaluated before Range (RFC 9110
+         13.2.2), so a client holding the current bytes gets a 304 whether it
+         asked for all of them or a window. *)
       if Http_cache.is_fresh ~if_none_match ~etag then
         not_modified cfg ~etag ~cache_control ~vary:[]
       else
@@ -943,9 +982,8 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
     let target = Http.Request.resource request in
     let route = Route.of_request ~meth ~target in
     let range_header = Http.Header.get (Http.Request.headers request) "range" in
-    let if_none_match =
-      Http.Header.get (Http.Request.headers request) "if-none-match"
-    in
+    let if_none_match = joined (Http.Request.headers request) "if-none-match" in
+    let if_range = Http.Header.get (Http.Request.headers request) "if-range" in
     let result, status, bytes, range =
       match route with
       | Route.Health ->
@@ -1015,10 +1053,13 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
                 h
             | _ -> "127.0.0.1"
           in
-          simple (serve_tilejson cfg ~basemap_root ~host ~query) `OK
+          (match serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match with
+          | `Not_modified etag ->
+              not_modified cfg ~etag ~cache_control:"no-cache" ~vary:[]
+          | `Body body -> simple body `OK)
       | Route.Basemap segments ->
           serve_file cfg ~root:basemap_root ~segments ~meth ~range_header
-            ~if_none_match ~immutable:false
+            ~if_none_match ~if_range ~immutable:false
       | Route.Asset segments -> (
           let headers = Http.Request.headers request in
           (* Embedded first, then the directory -- so when the binary carries
@@ -1029,7 +1070,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
           let from_disk () =
             let served =
               serve_file cfg ~root:ui_root ~segments ~meth ~range_header
-                ~if_none_match ~immutable:true
+                ~if_none_match ~if_range ~immutable:true
             in
             let _, status, _, _ = served in
             (* A single-page app owns its own routes: /somewhere must return
@@ -1042,7 +1083,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
               | Some shell -> shell
               | None ->
                   serve_file cfg ~root:ui_root ~segments:[ "index.html" ] ~meth
-                    ~range_header:None ~if_none_match ~immutable:false
+                    ~range_header:None ~if_none_match ~if_range ~immutable:false
             else served
           in
           match serve_embedded cfg ~segments ~meth ~headers with

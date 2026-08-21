@@ -61,9 +61,10 @@ throughout. This is what makes a browser and a server agree exactly. Floats
 appear only in `design/grid_design.py`, which runs offline and emits a data
 table; in `Pmtiles.Tile_id`, which picks which map tiles to download and never
 touches an address; and at the UI boundary, where degrees are converted for
-display. `ocaml/server/rate_limit.ml` also uses them, for time, which is not
-the encode path. If you find yourself reaching for a float in `fstar/`,
-`ocaml/lib/` or the grid parts of `js/`, stop.
+display. `ocaml/server/rate_limit.ml` and `ocaml/server/http_cache.ml` also use
+them, both for time, which is not the encode path. If you find yourself
+reaching for a float in `fstar/`, `ocaml/lib/` or the grid parts of `js/`,
+stop.
 
 **Say exactly what is proved, and no more.** Every module in `fstar/` verifies
 with zero admits, enforced by `--report_assumes error`. The theorems are listed

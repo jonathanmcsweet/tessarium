@@ -77,7 +77,7 @@ export class Core {
 
   constructor() {
     /* Classic worker, matching the importScripts in core.worker.js. Vite
-       leaves public/ untouched, so the 4.4 MB core is served as its own
+       leaves public/ untouched, so the 5 MB core is served as its own
        cacheable file rather than being folded into a UI chunk that changes
        every time a component does. */
     this.#worker = new Worker("/core.worker.js");

@@ -25,14 +25,22 @@ than a git log.
 
 **Phase:** 6 · **Branch:** perf/http-caching-and-fly
 
-**What:** Every cacheable response now carries an ETag and answers a matching
+**What:** Every GET a session makes now carries an ETag and answers a matching
 `If-None-Match` with an empty 304 — tiles (hashed per request, because a
 browse-cache download replaces them under the same URL), embedded UI assets
 (hashed at build time by `gen_assets`, so the 5 MB core is not re-hashed to
-say "unchanged"), and files off disk (size and mtime). Measured against the
-running server over the 56 requests a session makes: **5177 KB → 0.1 KB** on a
-second visit, 52 of them 304. Locking and unlocking pays the same nothing,
+say "unchanged"), files off disk (path, size and mtime) and `/tiles.json`.
+Not the 204 for a tile nobody holds, which has no body to revalidate, and not
+the `/api` replies, which are POSTs. Measured against the running server over
+the 56 requests a session makes: **5177 KB → 0.1 KB** on a second visit, 52 of
+them 304 counted server-side. Locking and unlocking pays the same nothing,
 which was the third report.
+
+`If-Range` came with it: the file endpoint advertises byte ranges, and giving
+it a validator is what first lets a client form a partial cache entry to
+resume against. `map.pmtiles` is rewritten in place by the downloader, so a
+range guarded by a tag that has moved on is answered with the whole file
+rather than a window into a different archive.
 
 `flyTo` no longer takes a fixed `duration: 1200`. Both call sites go through
 `ui/src/core/camera.ts`, which hands MapLibre a `speed` and a `maxDuration` and

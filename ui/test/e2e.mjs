@@ -10,7 +10,7 @@
    renders beautifully and computes the wrong answer still fails. */
 
 import { readFileSync } from "node:fs";
-import { createServer } from "node:http";
+import http, { createServer } from "node:http";
 import { chromium } from "playwright";
 
 const base = process.argv[2] ?? "http://127.0.0.1:7373";
@@ -142,7 +142,7 @@ check(
   (await page.locator("h1").textContent()) === "Tessarium",
 );
 
-/* The 4.4 MB core has to load inside the worker before validation replies.
+/* The 5 MB core has to load inside the worker before validation replies.
    If js_of_ocaml exported to the wrong global, this is where it hangs.
 
    The `null` in every waitForFunction below is the argument passed to the
@@ -647,9 +647,10 @@ await page.waitForFunction(
    whose whole life is the delay: measured at 318 ms up, 568 ms down, and the
    wait can lose a window that short. A missed window and a bar that never
    appeared are then the same failure, which is how this check spent a while
-   being called flaky. An observer set before the refetch cannot miss it --
-   the flag it sets is sticky, so the assertion is about what happened rather
-   than about what is on screen at the moment it is asked.
+   being called flaky. An observer watching for the bar to be ADDED records
+   what happened rather than what is on screen at the moment it is asked, and
+   its flag is cleared in the same evaluate that triggers the refetch, so an
+   earlier bar cannot answer for this one.
 
    And the premise is asserted too: if the interception did not take, no tile
    was ever slow, and "the bar did not appear" is the correct answer to a
@@ -662,10 +663,24 @@ await page.waitForFunction(
   },
 );
 await page.evaluate(() => {
-  window.__barSeen = document.querySelector(".map-loading") !== null;
-  window.__barWatch = new MutationObserver(() => {
-    if (document.querySelector(".map-loading") !== null) {
-      window.__barSeen = true;
+  /* Added nodes, not a re-query: a callback runs at a microtask checkpoint,
+     so a bar that went up and came down inside one would be invisible to a
+     "is it there now" test. The label is read at the moment it appears,
+     which is the only moment it is certain to exist. */
+  window.__barWatch = new MutationObserver((records) => {
+    if (window.__barSeen) return;
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+        const bar = node.matches?.(".map-loading")
+          ? node
+          : node.querySelector?.(".map-loading");
+        if (bar) {
+          window.__barSeen = true;
+          window.__barLabel = bar.getAttribute("aria-label");
+          return;
+        }
+      }
     }
   });
   window.__barWatch.observe(document.body, { childList: true, subtree: true });
@@ -683,6 +698,8 @@ await page.route("**/tiles/**", async (route) => {
   }
 });
 await page.evaluate(() => {
+  window.__barSeen = false;
+  window.__barLabel = null;
   const src = window.__tessarium_map.getSource("protomaps");
   src.setTiles(src.tiles.map((u) => `${u}&e2e_bar=1`));
 });
@@ -694,14 +711,14 @@ check(
   delayedTiles > 0,
 );
 check("slow tiles raise the loading bar", barSeen);
+/* Read off the bar as it appeared, not off the DOM afterwards. Asked
+   afterwards, the bar is almost always already gone -- it lives about 250 ms
+   -- and the old form said "labelled OR absent", which absent satisfies. A
+   check that passes because the thing it is about is missing reads as
+   coverage and is none. */
 check(
   "the bar names itself for the screen reader",
-  await page.evaluate(() =>
-    (document.querySelector(".map-loading")?.getAttribute("aria-label") ?? "")
-        .length > 0
-    /* Already gone means the drip finished; barSeen vouched it was up. */
-    || document.querySelector(".map-loading") === null
-  ),
+  ((await page.evaluate(() => window.__barLabel)) ?? "").length > 0,
 );
 await page.unroute("**/tiles/**");
 /* Caught rather than thrown, so a bar that never comes down is reported as
@@ -2079,6 +2096,18 @@ const revisitContext = await revisitBrowser.newContext({
 
 const visit = async () => {
   const p = await revisitContext.newPage();
+  /* Two whole app sessions run here -- gate, worker, core, map. Unwatched
+     they would run with CSP violations and page errors invisible, which is
+     the opposite of what the rest of this file does. */
+  p.on("console", (msg) => {
+    if (msg.type() === "error" && !msg.text().includes("Failed to load")) {
+      problems.push(`revisit console: ${msg.text()}`);
+    }
+  });
+  p.on(
+    "pageerror",
+    (err) => problems.push(`revisit pageerror: ${err.message}`),
+  );
   const rows = [];
   const pending = [];
   p.on("requestfinished", (req) => {
@@ -2090,13 +2119,14 @@ const visit = async () => {
             path: new URL(req.url()).pathname,
             method: req.method(),
             status: res ? res.status() : 0,
-            /* -1 means the browser did not report a transfer size, which is
-               what it says for a response it did not take off the wire.
-               Counted as nothing sent, and counted separately as well, so a
-               run where the number went unknown rather than to zero says
-               so. */
+            /* Playwright reports the body as `encodedDataLength` minus the
+               response headers, so a response the browser served from its own
+               cache -- the best possible outcome -- comes back NEGATIVE, by
+               the size of headers that were never received. Clamped for the
+               totals, and kept raw as well, because "how many were free" is
+               a number worth asserting rather than inferring. */
             bytes: Math.max(0, size.responseBodySize),
-            unknown: size.responseBodySize < 0,
+            fromCache: size.responseBodySize < 0,
           });
         })
         .catch(() => {}),
@@ -2120,13 +2150,23 @@ const visit = async () => {
   await p.waitForLoadState("networkidle");
   await Promise.all(pending);
   await p.close();
+  /* Awaited again after the close: `pending` is a growing array and the first
+     await only covers what had landed by then. Closing the page is what
+     guarantees no more will arrive. */
+  await Promise.all(pending);
   return rows;
 };
 
 const firstVisit = await visit();
 const secondVisit = await visit();
+/* GETs only, because those are the ones a cache can answer: the app's two
+   POSTs to /api are uncacheable by construction. They are held to a size of
+   their own below rather than quietly dropped, so the headline number cannot
+   be made to look better by traffic moving out of it. */
 const bodyBytes = (rows) =>
   rows.filter((r) => r.method === "GET").reduce((n, r) => n + r.bytes, 0);
+const otherBytes = (rows) =>
+  rows.filter((r) => r.method !== "GET").reduce((n, r) => n + r.bytes, 0);
 const first = bodyBytes(firstVisit);
 const second = bodyBytes(secondVisit);
 
@@ -2137,8 +2177,8 @@ console.log(
   `  revisit ${Math.round(second / 1024)} KB against ${
     Math.round(first / 1024)
   } KB, ${firstVisit.length} requests, ${
-    secondVisit.filter((r) => r.unknown).length
-  } of unknown size`,
+    secondVisit.filter((r) => r.fromCache).length
+  } straight from cache`,
 );
 
 /* Without a first visit that actually downloaded something, the second one
@@ -2187,12 +2227,27 @@ check(
   `the map fetched tiles on the way in (${firstTiles.length})`,
   firstTiles.length > 0,
 );
+/* Sent, not asked for. The browser asks about every one of them -- that is
+   what `no-cache` plus a validator means -- and a name saying otherwise would
+   describe a different design. */
 check(
-  `and asks for none of them again (${
+  `and none of them is sent again (${
     secondVisit.filter((r) => r.path.startsWith("/tiles/") && r.bytes > 0)
       .length
   })`,
   secondVisit.every((r) => !r.path.startsWith("/tiles/") || r.bytes === 0),
+);
+check(
+  `what a visit does not GET stays small (${otherBytes(secondVisit)} B)`,
+  otherBytes(secondVisit) < 4096,
+);
+/* The saving must be the cache doing its job, not the second visit quietly
+   doing less. */
+check(
+  `most of the second visit came from cache (${
+    secondVisit.filter((r) => r.fromCache).length
+  } of ${secondVisit.length})`,
+  secondVisit.filter((r) => r.fromCache).length > 0,
 );
 
 await revisitBrowser.close();
@@ -2201,21 +2256,40 @@ await revisitBrowser.close();
    depends on but does not reveal when it is working. */
 const conditional = async (path) => {
   const plain = await fetch(`${base}${path}`);
-  const sent = (await plain.arrayBuffer()).byteLength;
+  /* Decoded, not wire bytes: node's fetch asks for gzip and inflates before
+     handing the body over, so this is several times what crossed the socket.
+     It is here to show the resource is not empty, which is all it can show. */
+  const decoded = (await plain.arrayBuffer()).byteLength;
   const tag = plain.headers.get("etag");
-  if (!tag) return { tag: null, status: plain.status, sent, length: -1 };
+  const csp = plain.headers.get("content-security-policy");
+  if (!tag) return { tag: null, status: plain.status, decoded, length: -1 };
   const again = await fetch(`${base}${path}`, {
     headers: { "if-none-match": tag },
   });
   const length = (await again.arrayBuffer()).byteLength;
-  return { tag, status: again.status, length, sent };
+  return {
+    tag,
+    status: again.status,
+    length,
+    decoded,
+    csp,
+    /* A 304 is still a response this server sent, and it must carry the same
+       policy as the body it stands in for. Nothing else would notice if it
+       stopped: the browser reuses the stored response, so a missing policy
+       here would show up as a security hole rather than a broken page. */
+    cspAgain: again.headers.get("content-security-policy"),
+  };
 };
 
 const coreCond = await conditional("/tessarium.js");
 check(
-  `an embedded asset carries an ETag and answers 304 with no body (sent ${coreCond.sent} then ${coreCond.length})`,
-  coreCond.tag !== null && coreCond.status === 304 && coreCond.sent > 0
+  `an embedded asset carries an ETag and answers 304 with no body (${coreCond.decoded} decoded, then ${coreCond.length})`,
+  coreCond.tag !== null && coreCond.status === 304 && coreCond.decoded > 0
     && coreCond.length === 0,
+);
+check(
+  "and the 304 carries the same security policy as the body it replaces",
+  coreCond.csp !== null && coreCond.cspAgain === coreCond.csp,
 );
 /* Two encodings are two representations. A client holding the gzipped bytes
    must not be told its copy is current when the tag it sent describes the
@@ -2241,9 +2315,43 @@ check(
    304 for it would be indistinguishable from a 200. */
 const sprite = await conditional("/basemap/sprites/v4/light.png");
 check(
-  `a file off disk revalidates too (sent ${sprite.sent} then ${sprite.length})`,
-  sprite.tag !== null && sprite.status === 304 && sprite.sent > 0
+  `a file off disk revalidates too (${sprite.decoded} decoded, then ${sprite.length})`,
+  sprite.tag !== null && sprite.status === 304 && sprite.decoded > 0
     && sprite.length === 0,
+);
+
+/* Two If-None-Match field lines rather than one comma-joined value. An
+   intermediary is free to split what a browser sent as one, and RFC 9110 5.3
+   says the two forms mean the same thing -- but the header API hands back
+   only the LAST line, so a server that asks for one value tells a client
+   holding the bytes to download them again. Sent through node:http because
+   fetch's Headers joins duplicates before they reach the socket, which is
+   the very thing being tested around. */
+const twoLines = async (path, tags) =>
+  await new Promise((resolve) => {
+    const url = new URL(`${base}${path}`);
+    http.request({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      /* Same encoding the tag was taken under. Ask for identity here and the
+         gzip tag correctly does not match -- which is the encoding suffix
+         working, and would look like this check failing. */
+      headers: { "accept-encoding": "gzip", "if-none-match": tags },
+    }, (res) => {
+      res.resume();
+      res.on("end", () => resolve(res.statusCode));
+    }).end();
+  });
+const coreTag = (await fetch(`${base}/tessarium.js`, { method: "HEAD" }))
+  .headers.get("etag");
+check(
+  "a tag split across two field lines is still found",
+  await twoLines("/tessarium.js", [coreTag, '"something-else"']) === 304,
+);
+check(
+  "and a pair that names neither is not",
+  await twoLines("/tessarium.js", ['"one"', '"two"']) === 200,
 );
 
 /* A tile the app itself fetched on the first visit, rather than a guessed
@@ -2254,7 +2362,36 @@ const tileCond = someTile ? await conditional(someTile.path) : null;
 check(
   `a tile revalidates too (${someTile?.path ?? "no tile was fetched"})`,
   tileCond !== null && tileCond.status === 304 && tileCond.length === 0
-    && tileCond.sent > 0,
+    && tileCond.decoded > 0,
+);
+
+/* The one GET a session makes that used to carry no validator at all. */
+const tileJson = await conditional("/tiles.json");
+check(
+  `the tile metadata revalidates too (${tileJson.decoded} decoded, then ${tileJson.length})`,
+  tileJson.tag !== null && tileJson.status === 304 && tileJson.decoded > 0
+    && tileJson.length === 0,
+);
+
+/* A Range whose validator has moved on is answered with the whole thing, not
+   with a window into different bytes -- map.pmtiles is rewritten in place by
+   the downloader, so splicing a stale 206 into a partial copy would join two
+   archives. */
+const ranged = async (extra) => {
+  const r = await fetch(`${base}/basemap/sprites/v4/light.png`, {
+    headers: { range: "bytes=0-9", ...extra },
+  });
+  await r.arrayBuffer();
+  return r.status;
+};
+check("a plain range is still a range", await ranged({}) === 206);
+check(
+  "a range guarded by the current tag is still a range",
+  await ranged({ "if-range": sprite.tag }) === 206,
+);
+check(
+  "a range guarded by a tag that has moved on gets the whole file",
+  await ranged({ "if-range": '"stale"' }) === 200,
 );
 
 /* ------------------ browse cache prune coherence (main) -------------------
