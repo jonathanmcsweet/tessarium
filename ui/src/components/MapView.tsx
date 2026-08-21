@@ -332,6 +332,7 @@ export function MapView() {
   const selection = useAppStore((s) => s.selection);
   const select = useAppStore((s) => s.select);
   const flyTo = useAppStore((s) => s.flyTo);
+  const requestFlyTo = useAppStore((s) => s.requestFlyTo);
   /* Read during render, not inside the effect: the component re-renders
      when the locale changes, so this is the honest dependency. */
   useAppStore((s) => s.locale);
@@ -987,6 +988,14 @@ export function MapView() {
               zoom: Math.max(map.getZoom(), 15),
             });
           }}
+          /* An address names one square, so this goes all the way in --
+             requestFlyTo lands at zoom 20 where onPick stops at 15. It moves
+             the CAMERA only: the panel still shows whatever was selected
+             before, and the square becomes the selection when the user
+             clicks it or presses Enter on the canvas. Selecting on arrival
+             would be better and is in the roadmap; saying it happens here
+             would just be untrue. */
+          onPickAddress={(lon, lat) => requestFlyTo(lat, lon)}
         />
       </div>
       <div className="map-actions">

@@ -224,6 +224,16 @@ async function deriveKey(mnemonic, passphrase) {
 }
 
 const ops = {
+  /* Is this text an address, text on its way to being one, or a place name?
+     Asked by the search box before it asks the server anything, because the
+     one thing that must never happen is an address reaching the place index.
+     Pure string work in the bundle -- no key, no wasm, safe on a keystroke.
+     The answer's meaning lives in Tessarium.address_shape, beside the
+     format, so this file does not get a second opinion about it. */
+  addressShape({ text }) {
+    return { shape: core.addressShape(text) };
+  },
+
   validate({ mnemonic }) {
     const error = core.validateMnemonic(mnemonic);
     return { ok: error === null, error };

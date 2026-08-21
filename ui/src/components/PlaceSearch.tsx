@@ -1,12 +1,29 @@
-/* Finding a place by name, out of the region already on disk.
+/* One box for both ways of naming somewhere: a place, or an address.
 
-   Deliberately not a geocoder call. The index this reads was built from the
-   downloaded tiles, so a query never leaves the machine — which is the whole
-   reason the feature is shaped this way rather than as one fetch to a
-   hosted service. */
+   Deliberately not a geocoder call. The place index this reads was built from
+   the downloaded tiles, so a place query never leaves the machine — which is
+   the whole reason the feature is shaped this way rather than as one fetch to
+   a hosted service.
+
+   An address is stricter still: it never leaves the BROWSER. Before anything
+   is sent, the text is classified by `Tessarium.address_shape`, which lives
+   beside the address format rather than being re-implemented here — and the
+   place query is gated on that answer. Three outcomes:
+
+     complete  decode it in the worker and offer to fly there
+     partial   someone is mid-address: show nothing, send nothing
+     no        a place name: search the index as before
+
+   The gate fails closed. While the classification is still in flight the
+   answer is not yet "no", so nothing is searched; a keystroke costs one
+   postMessage round trip before the request it might not make. Getting this
+   backwards would put a user's address in a request, in a log, and on a
+   network in any hosted deployment — which is the one thing an address must
+   never be in. */
 
 import { Search } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { type PlaceResult, usePlaceSearch } from "../core/basemap";
 import {
   bearing8,
@@ -15,6 +32,7 @@ import {
   type Direction,
   distanceKm,
 } from "../core/placeContext";
+import { useAddressLookup, useAddressShape } from "../core/queries";
 import { getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import { citiesOf, countries, countryName, subdivisionsOf } from "../regions";
@@ -36,8 +54,12 @@ const DIRECTION_LABEL: Record<Direction, () => string> = {
 const DEBOUNCE_MS = 250;
 
 export function PlaceSearch(
-  { onPick, center }: {
+  { onPick, onPickAddress, center }: {
     onPick: (lon: number, lat: number) => void;
+    /* Separate from onPick because an address names a square rather than a
+       neighbourhood, so it is worth arriving closer. Both only move the
+       camera. */
+    onPickAddress: (lon: number, lat: number) => void;
     /* Where the map is now, for "how far would this take me" -- null
        before the map exists. A function, not a value: the centre moves
        without this component re-rendering. */
@@ -56,13 +78,36 @@ export function PlaceSearch(
     return () => clearTimeout(timer);
   }, [text]);
 
-  const search = usePlaceSearch(debounced);
+  /* The classification, and everything that hangs off it. `shape` is
+     undefined until the worker answers, and every branch below treats that
+     as "not a place name yet" rather than as "no". */
+  const shapeQuery = useAddressShape(debounced);
+  const shape = shapeQuery.data?.shape;
+  const isAddress = shape === "complete";
+  const isPartial = shape === "partial";
+
+  const lookup = useAddressLookup(debounced, isAddress);
+  const addressError = lookup.error instanceof Error
+    ? lookup.error.message
+    : null;
+
+  const search = usePlaceSearch(debounced, shape === "no");
   const results = search.data?.results ?? [];
   /* Clamped on read: a refetch can return fewer rows than the highlight was
      sitting on, and a dangling aria-activedescendant points a screen reader
      at an element that no longer exists. */
   const active = Math.min(rawActive, Math.max(0, results.length - 1));
-  const listOpen = open && debounced.trim().length >= 2;
+  /* An address answer is worth showing from the first character -- there is
+     no "too short to be meaningful" for text already known to be one. */
+  const listOpen = open
+    && (isAddress || isPartial || debounced.trim().length >= 2);
+  /* An address resolves to exactly one option; a place query to a list. The
+     partial and error states render a paragraph and NO listbox, so they must
+     not be advertised as one -- aria-controls pointing at an id that is not
+     in the document is a dangling reference, and "expanded" with nothing to
+     enter is a dead end for a screen reader. */
+  const addressOption = isAddress && !addressError && Boolean(lookup.data);
+  const hasListbox = listOpen && (addressOption || results.length > 0);
 
   /* Clicking away closes the list; the input keeps what was typed, because
      losing it would mean retyping to see the same answers. */
@@ -81,6 +126,22 @@ export function PlaceSearch(
 
   const pick = (r: PlaceResult) => {
     onPick(r.lon, r.lat);
+    setOpen(false);
+  };
+
+  /* Cleared on arrival, unlike a place name, which is deliberately kept so
+     the same answers can be seen again without retyping. An address is not a
+     query to refine -- it names one square and the map is now on it -- and it
+     is a secret sitting in a box OVER the map, where the panel keeps the same
+     value behind a conceal toggle. Leaving it there would put an address in
+     every screenshot of the map, which is the exposure the panel's toggle
+     exists to prevent. */
+  const pickAddress = () => {
+    const point = lookup.data;
+    if (!point) return;
+    onPickAddress(point.lon, point.lat);
+    toast.success(m.search_found());
+    setText("");
     setOpen(false);
   };
 
@@ -132,11 +193,15 @@ export function PlaceSearch(
           id="place-search-input"
           type="text"
           role="combobox"
-          aria-expanded={listOpen}
-          aria-controls={listOpen ? listId : undefined}
+          aria-expanded={hasListbox}
+          aria-controls={hasListbox ? listId : undefined}
           aria-autocomplete="list"
-          aria-activedescendant={listOpen && results.length > 0
-            ? `${listId}-${active}`
+          /* Must point at the option being rendered, whichever branch drew
+             it. Guarding on the place results alone left the address option
+             -- the one thing a user needs announced when an address
+             resolves -- referenced by nothing. */
+          aria-activedescendant={hasListbox
+            ? `${listId}-${addressOption ? 0 : active}`
             : undefined}
           autoComplete="off"
           spellCheck={false}
@@ -170,6 +235,13 @@ export function PlaceSearch(
               }
               return;
             }
+            if (isAddress) {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                pickAddress();
+              }
+              return;
+            }
             if (results.length === 0) return;
             if (e.key === "ArrowDown") {
               e.preventDefault();
@@ -192,7 +264,47 @@ export function PlaceSearch(
            points at the active one, which is what makes a combobox behave
            for both a keyboard and a screen reader. */
         <div className="place-results">
-          {results.length === 0
+          {isPartial
+            ? (
+              <p className="place-empty" role="status">
+                {m.search_address_partial()}{" "}
+                {m.search_prefix_hint({ example: m.search_prefix_example() })}
+              </p>
+            )
+            : isAddress
+            ? (
+              /* One option, not a list: an address names exactly one square,
+                 so there is nothing to choose between. Still an option in a
+                 listbox, because Enter and the pointer must do the same
+                 thing here as they do for a place. */
+              <div id={listId} role="listbox" aria-label={m.search_label()}>
+                {addressError
+                  ? <p className="place-empty" role="status">{addressError}</p>
+                  : lookup.data
+                  ? (
+                    <button
+                      type="button"
+                      id={`${listId}-0`}
+                      role="option"
+                      tabIndex={-1}
+                      aria-selected
+                      className="place-option active"
+                      onClick={pickAddress}
+                    >
+                      <span className="place-name">{debounced.trim()}</span>
+                      <span className="place-kind">
+                        {m.search_address_local()}
+                      </span>
+                    </button>
+                  )
+                  : (
+                    <p className="place-empty" role="status">
+                      {m.search_searching()}
+                    </p>
+                  )}
+              </div>
+            )
+            : results.length === 0
             ? (
               /* Outside the listbox: a paragraph is not an option, and a
                  listbox may only contain options. Announced instead. */

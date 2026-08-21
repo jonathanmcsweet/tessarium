@@ -369,6 +369,48 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
+- [ ] **Every response is `no-cache` with no validator, so the app
+      re-downloads itself on every load.** Measured 2026-08-21 against the
+      running server: a second visit in the same browser profile re-fetched
+      **10.2 MB**, with 54 tiles answered `200` and not one `304`.
+      `cache-control: no-cache` without an ETag or Last-Modified does not mean
+      "revalidate cheaply" — it means "refetch in full", every time. The
+      biggest single item is `/tessarium.js` at **5.1 MB**, which is not
+      content-hashed and so cannot be `immutable` the way Vite's own bundle
+      already is; then ~3 MB of tiles and ~0.5 MB of glyphs per session.
+
+      Locally that costs about two seconds and hides. Reported from use over a
+      VS Code port forward, where the same 10 MB across ~65 round trips took
+      roughly twenty seconds, and where locking and unlocking paid it again
+      because `MapView` unmounts on lock and `map.remove()` takes MapLibre's
+      in-memory cache with it — the only cache that currently exists.
+
+      The fix is validators, not longer lifetimes: an ETag on tiles, glyphs
+      and the wasm modules keeps the stated reason for `no-cache` intact (an
+      update or a removal changes tiles under the same URL) while turning
+      those bodies into empty 304s. `tessarium.js` and the two `.wasm`
+      modules should be content-hashed and served `immutable`, like
+      `/assets/index-*.js`.
+
+- [ ] **A long fly-to shows grey rather than a coarse map.** `flyTo` uses a
+      fixed `duration: 1200` and lands at `zoom: max(current, 20)` whatever
+      the distance, so London to Atlanta has to arc out to world zoom and back
+      in 1.2 s. The low-zoom tiles ARE requested — z2, z3, z5 and z6 all go
+      out — but they are 50–85 KB each and arrive after the animation has
+      finished, so the screen is grey and then the destination appears.
+      Scaling the duration with distance, or jumping outright beyond some
+      threshold, would at least make the wait legible. Depends on the caching
+      item above to be worth much: the coarse tiles are re-fetched every time.
+
+- [ ] **Arriving at an address does not select its square.** The search box
+      flies the camera to the square an address names, at zoom 20, but the
+      panel still shows whatever was selected before — the user has to click
+      the square they just asked for. The old panel form behaved the same way,
+      so this is not a regression, but with one box doing both it reads as
+      one. `requestFlyTo` would need to select on arrival, which means the
+      fly-to effect calling the same encode-and-select path the click handler
+      uses rather than only `map.flyTo`.
+
 - [ ] **The worker's error messages are English, in six locales.** Everything
       the UI says lives in `ui/messages/` except what `core.worker.js` throws:
       "locked", the malformed-address message the core supplies, "that point

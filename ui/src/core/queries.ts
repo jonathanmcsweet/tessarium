@@ -10,7 +10,7 @@
    - queries for questions with stable answers (is this phrase valid, which
      cells cover this box, what is this square called). Pure functions of
      their inputs, so `staleTime: Infinity` is exactly right.
-   - mutations for actions (unlock, lock, generate, look up an address). */
+   - mutations for actions (unlock, lock, generate). */
 
 import {
   type QueryClient,
@@ -28,6 +28,8 @@ export const core = (): Core => (instance ??= new Core());
 
 export const keys = {
   validate: (phrase: string) => ["validate", phrase] as const,
+  addressShape: (text: string) => ["address-shape", text] as const,
+  addressLookup: (address: string) => ["address-lookup", address] as const,
   grid: (bounds: Bounds, limit: number) => ["grid", bounds, limit] as const,
   encode: (lat: number, lon: number) => ["encode", lat, lon] as const,
 };
@@ -67,13 +69,53 @@ export function useLock() {
     onSettled: () => {
       client.removeQueries({ queryKey: ["encode"] });
       client.removeQueries({ queryKey: ["validate"] });
+      /* A decoded point IS a place the user went to under this phrase, so it
+         goes the way an encoded address does.
+
+         The shape cache goes too, and for a reason worth stating: its VALUE
+         is three harmless words, but its KEY is the address that was typed.
+         A cache is as sensitive as the more sensitive of the two, and lock's
+         promise is that walking away leaves nothing behind. Re-deriving a
+         shape costs one postMessage, so there is no argument for keeping
+         it. */
+      client.removeQueries({ queryKey: ["address-lookup"] });
+      client.removeQueries({ queryKey: ["address-shape"] });
     },
   });
 }
 
-export function useDecodeAddress() {
-  return useMutation({
-    mutationFn: (address: string) => core().decode(address),
+/* Cached forever, like phrase validation and for the same reason: the shape
+   of a given string cannot change. Runs on every keystroke, ahead of the
+   search, and its answer decides whether a request happens at all. */
+export function useAddressShape(text: string) {
+  const trimmed = text.trim();
+  return useQuery({
+    queryKey: keys.addressShape(trimmed),
+    queryFn: () => core().addressShape(trimmed),
+    enabled: trimmed.length > 0,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+}
+
+/* Resolving an address typed into the search box. A query rather than a
+   mutation because the search box asks as you type and the same text must
+   not be re-derived on every keystroke -- and because "that address names no
+   location" is an answer to display beside the box, not an event.
+
+   Dropped on lock: see useLock. */
+export function useAddressLookup(address: string, enabled: boolean) {
+  /* Trimmed before it becomes a key, as the shape query is: otherwise a
+     pasted address with a stray space is a second cache entry holding the
+     same decoded point, and every such entry is something lock has to
+     purge. */
+  const trimmed = address.trim();
+  return useQuery({
+    queryKey: keys.addressLookup(trimmed),
+    queryFn: () => core().decode(trimmed),
+    enabled,
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 }
 

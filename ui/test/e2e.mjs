@@ -921,6 +921,137 @@ check(
   (await page.locator(".place-option").count()) === 0,
 );
 
+/* ------------------------- addresses in the search box ----------------------
+
+   One box takes both a place name and an address, and the difference is not
+   cosmetic: a place name is looked up on the server, and an address must
+   never be. This is the check for that. It watches the wire, because the
+   claim is about what leaves the browser, not about what is displayed --
+   nothing on screen would look wrong if the request went out anyway.
+
+   The failure it exists to catch is real and was live until this landed:
+   typing an address searched the place index for it, which prefix-matched
+   the first word and flew the map to a village in France. */
+const searchRequests = [];
+const watchSearch = (request) => {
+  if (request.url().includes("/api/basemap-search")) {
+    searchRequests.push(request.postData() ?? "");
+  }
+};
+page.on("request", watchSearch);
+
+const addressForSearch = sample.address;
+/* The same address in a spelling that uses a different separator. Every one
+   of `, / - _ .` and space is accepted by address_of_string, and an earlier
+   version of the classifier looked only at dots -- so the dashed spelling
+   sent three words and three of four digits to the index on its way to being
+   typed. Testing one spelling would not have caught that. */
+const addressDashed = sample.address.replace(/[.]/g, "-");
+
+/* DEBOUNCE_MS in PlaceSearch is 250, so the delay here must be LONGER than
+   that or no intermediate value ever reaches the classifier and this checks
+   only that the finished address is withheld. At 30 ms every keystroke reset
+   the timer and exactly one value -- the complete address -- was ever
+   classified, which made the check pass against a version with no partial
+   handling at all. */
+const typeAndWatch = async (text) => {
+  await page.locator("#place-search-input").fill("");
+  await page.waitForTimeout(400);
+  searchRequests.length = 0;
+  await page.locator("#place-search-input").pressSequentially(text, {
+    delay: 300,
+  });
+  await page.waitForTimeout(700);
+  return searchRequests.slice();
+};
+
+/* The guarantee is NOT "nothing is sent" -- a lone "vacuum" is a BIP-39 word
+   and also an English one, and withholding every single word would take
+   "orange", "river" and "city hall" off the place index for no privacy gain.
+   The guarantee is that nothing recognisable as an ADDRESS is sent: never two
+   of the three words, never the number, never the whole thing. That is the
+   difference between a leak and a search.
+
+   Stated this precisely because the first version of this check said "sends
+   nothing" and passed only because it typed faster than the debounce. */
+const addressWords = sample.address.split(".");
+const addressNumber = addressWords[3];
+const countWords = (body) =>
+  addressWords.slice(0, 3).filter((w) => body.includes(w)).length;
+
+for (
+  const [label, text] of [
+    ["dotted", addressForSearch],
+    ["dash-separated", addressDashed],
+  ]
+) {
+  const sent = await typeAndWatch(text);
+  const worst = Math.max(0, ...sent.map(countWords));
+  check(
+    `typing a ${label} address never sends two of its words (worst ${worst}: ${
+      JSON.stringify(sent.filter((b) => countWords(b) >= 2))
+    })`,
+    worst <= 1,
+  );
+  check(
+    `typing a ${label} address never sends its number`,
+    !sent.some((body) => body.includes(addressNumber)),
+  );
+  check(
+    `typing a ${label} address never sends the whole thing`,
+    !sent.some((body) => body.includes(text)),
+  );
+}
+
+/* And it resolves: the address offered is the one typed, and taking it lands
+   on the square that address names -- the vector's own point. */
+const addressOffered = await page
+  .waitForSelector(".place-option", { timeout: 10_000 })
+  .then(() => true, () => false);
+check(
+  "an address in the search box is offered as a destination",
+  addressOffered,
+);
+await page.locator(".place-option").first().click();
+const landedOnAddress = await page
+  .waitForFunction(
+    (want) => {
+      const map = window.__tessarium_map;
+      if (!map) return false;
+      const c = map.getCenter();
+      return Math.abs(c.lng - want[0]) < 0.0005
+        && Math.abs(c.lat - want[1]) < 0.0005;
+    },
+    [sampleLon, sampleLat],
+    { timeout: 20_000 },
+  )
+  .then(() => true, () => false);
+check("choosing it flies to the square that address names", landedOnAddress);
+/* And the box is empty afterwards. The search sits OVER the map, so an
+   address left in it would be in every screenshot of the map -- the exact
+   exposure the panel's conceal toggle exists to prevent, reintroduced by the
+   back door. A place name is kept, deliberately; an address is not. */
+check(
+  "and the address does not stay sitting in the box over the map",
+  (await page.locator("#place-search-input").inputValue()) === "",
+);
+
+/* A place name must still go out, or the gate is stuck shut and the feature
+   is gone rather than fixed. A query string used nowhere else above: the
+   place cache holds answers for five minutes, so reusing "fixtu" here would
+   be served from memory and prove nothing about the wire. */
+await page.locator("#place-search-input").fill("");
+await page.waitForTimeout(400);
+searchRequests.length = 0;
+await page.locator("#place-search-input").fill("fixturevi");
+await page.waitForSelector(".place-option", { timeout: 10_000 });
+check(
+  "a place name still reaches the index",
+  searchRequests.length > 0,
+);
+page.off("request", watchSearch);
+await page.locator("#place-search-input").fill("");
+
 /* ------------------------------ coverage edge ------------------------------
 
    Where the basemap stops, said out loud instead of left as a blank screen.
@@ -1520,15 +1651,26 @@ await worldPage.close();
    here on fails the final console check. */
 await page.waitForTimeout(2500);
 
+/* Going to an address, through the one box that now takes both an address and
+   a place name. It replaces a dedicated lookup form in the panel; the address
+   is classified in the browser, so nothing about it is sent anywhere, and the
+   offered row is taken the way a place result is taken. */
+const goToAddress = async (address) => {
+  await page.locator("#place-search-input").fill("");
+  await page.waitForTimeout(350);
+  await page.locator("#place-search-input").fill(address);
+  await page.waitForSelector(".place-option", { timeout: 15_000 });
+  await page.locator(".place-option").first().click();
+  await page.waitForTimeout(2000); // the 1.2 s flight, plus settling
+};
+
 /* The round trip the whole project is for, driven entirely through the UI:
    paste an address, fly to the square it names, click that square, and get
    the same address back.
 
    No test hook on the map. Going through the real controls is what makes this
    evidence that a person can do it. */
-await page.locator(".lookup input").fill(sample.address);
-await page.locator(".lookup button").click();
-await page.waitForTimeout(3000); // decode, then a 1.2 s flight
+await goToAddress(sample.address);
 
 const lookupFailed = await page.locator("[data-sonner-toast][data-type=error]")
   .count();
@@ -1699,11 +1841,9 @@ check(
 );
 
 /* Keyboard access. The map is the one control that cannot be reached with the
-   lookup box, so Enter on the focused canvas must select the centre square --
+   search box, so Enter on the focused canvas must select the centre square --
    the same square flyTo just centred, and the same address as the click. */
-await page.locator(".lookup input").fill(sample.address);
-await page.locator(".lookup button").click();
-await page.waitForTimeout(3000);
+await goToAddress(sample.address);
 await page.evaluate(() => document.querySelector(".map canvas")?.focus());
 check(
   "the map canvas is focusable",
@@ -1741,9 +1881,9 @@ check(
   (await page.locator(".address").textContent()) === sample.address,
 );
 check(
-  "the lookup example is not translated",
-  (await page.getAttribute(".lookup input", "placeholder"))
-    === "dream.tourist.creek.2703",
+  "the address example in the search box is not translated",
+  ((await page.getAttribute("#place-search-input", "placeholder")) ?? "")
+    .includes("dream.tourist.creek.2703"),
 );
 check(
   "the document language follows the choice",
@@ -1798,9 +1938,7 @@ await page.locator("#passphrase").fill(nfkdEntry.passphrase);
 await page.locator("button[type=submit]").click();
 await page.waitForSelector(".map-wrap", { timeout: 60_000 });
 
-await page.locator(".lookup input").fill(nfkdSample.address);
-await page.locator(".lookup button").click();
-await page.waitForTimeout(3000);
+await goToAddress(nfkdSample.address);
 const nfkdBox = await page.locator(".map").boundingBox();
 await page.mouse.click(
   nfkdBox.x + nfkdBox.width / 2,

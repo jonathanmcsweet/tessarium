@@ -21,6 +21,79 @@ than a git log.
 
 ---
 
+### 2026-08-21 — One search box, and addresses stop leaving the browser
+
+**Phase:** 6 · **Branch:** fix/search-address-privacy
+
+**What:** The panel's "Find an address" form is gone. The map's search box now
+takes both a place name and an address, and decides which was typed *before*
+it sends anything. `Tessarium.address_shape` classifies the text as
+`Complete` (decode it in the worker, offer the square), `Partial` (someone is
+mid-address — show nothing, send nothing) or `Not_address` (search the place
+index as before). `usePlaceSearch` takes the verdict as a required argument,
+so the query is disabled rather than issued-and-discarded.
+
+**Rationale:**
+
+- *This was a live privacy defect, not a simplification.* Typing an address
+  into the search box POSTed it to `/api/basemap-search`, which prefix-matched
+  the first word and flew the map somewhere else entirely —
+  `paper.later.curve.0851` landed on Papéré, France. Reported from use. The
+  visible half was the wrong destination; the half that matters is that the
+  address crossed into a request, where a verbose server or any proxy logs it.
+- *The rule lives beside the format.* In `ocaml/lib`, reached from the browser
+  through a js_of_ocaml export, because a TypeScript copy of "what an address
+  looks like" would drift from the parser the first time the format moved.
+- *Punctuation, not part-counting.* The first rule was "three or more dotted
+  parts", which let `dream.tourist.` through to the index — a third of a
+  secret. The rule is now a dot used as address punctuation: one with nothing
+  after it, or with a non-space after it. `st. louis` and `mt. fuji` keep
+  working because the space after the dot is what tells them apart.
+- *The bias runs one way on purpose.* `route 66 exit 1234` is read as an
+  address and answered with "'route' is not a BIP-39 word" rather than
+  searched. Failing towards silence costs a search; failing the other way
+  spends a secret, and only one of those can be taken back.
+- *The box is cleared on arrival.* A place name is kept so the same results
+  can be seen again; an address is not. The search sits OVER the map, and the
+  panel keeps that same value behind a conceal toggle — leaving it in the box
+  would put an address in every screenshot of the map. The existing "no
+  address is rendered onto the map" check caught this, which is the second
+  time that check has earned its keep.
+
+**Falsified, twice.** Opening the gate (`usePlaceSearch(debounced, true)`)
+fails both wire checks — the e2e types the address one character at a time and
+watches `/api/basemap-search`, because the leak it prevents happens while
+someone is still typing. Not clearing the box fails the two exposure checks.
+
+**The review found the rule covered one spelling in six.** `split_address`
+accepts `,` `/` space `-` `_` and `.`, and the first classifier looked only at
+the dot — so `vacuum-penalty-health-347`, three words and three of four
+digits, went to the place index on its way to being typed. Measured across the
+prefixes of one vector address: 22 of 24 sendable for each non-dot spelling.
+The rule now has two halves, because the separators do:
+
+- punctuation a place name does not use that way (`.` `,` `/` `_` with
+  nothing after it or a non-space after it), which also catches a mistyped
+  address because it looks at punctuation rather than words;
+- the wordlist, for space and dash, which places do use. Two or more BIP-39
+  words is what separates `vacuum penalty health` from `new york city` and
+  `Stratford-upon-Avon` — each of those has exactly one (`city`, `upon`).
+  Matched exactly, not by four-letter prefix, or `county` resolving to
+  `country` would take `orange county` off the index; digits excluded, or
+  `highway 4 exit 12` would go.
+
+After: 34 sendable prefixes across all six spellings out of 150, worst case
+one complete word plus two letters of the next.
+
+**Follow-on:** Three residuals, recorded rather than papered over. A first
+word plus a two-letter start of the second still reaches the index (`vacuum
+pe`) — closing it means withholding `city hall`, which is a worse trade.
+`route 66 exit 1234` is read as an address. And the four-letter prefix
+spelling (`drea tour cree`) reads as a place name until its number arrives,
+because exact matching is what keeps `orange county` searchable.
+
+---
+
 ### 2026-08-21 — The browser answers from the proved core, and the switch completes
 
 **Phase:** 1–3 · **Branch:** feat/ui-wasm-core-switch

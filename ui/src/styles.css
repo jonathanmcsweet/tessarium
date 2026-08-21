@@ -415,16 +415,6 @@ button:disabled {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-.lookup form {
-  display: flex;
-  gap: 8px;
-}
-
-.lookup input {
-  flex: 1;
-  min-width: 0;
-}
-
 .panel-foot {
   padding: 16px 18px;
   font-size: 12px;
