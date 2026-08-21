@@ -21,6 +21,76 @@ than a git log.
 
 ---
 
+### 2026-08-21 — The map under the map
+
+**Phase:** 6 · **Branch:** fix/coarse-map-stays
+
+**What:** Zooming into a region held only coarsely replaced the map with grey.
+A vector source is one pyramid with one depth and ours has holes — the
+downloader takes any region to any depth into one archive — and MapLibre draws
+a hole as an empty tile. `Tile.hasData()` counts empty as data, so the
+stretched coarse parent stops being retained and the map the user was looking
+at is swapped for nothing.
+
+Two sources over the same archives now, which is how the offline map apps do
+it: a floor underneath, cut to a depth the archives cover the WHOLE planet at,
+with the downloaded detail composited over it. A hole in the top layer of two
+is transparent rather than blank, and the floor has no holes to have.
+
+Its depth is measured rather than declared. `Basemap_download.floor_depth`
+walks zoom levels until one has a gap and stops there, counting every archive
+together — 3 ms against a 6.4 GB archive holding a full world at zoom 6, and
+four lookups against one holding a single city. `world.pmtiles` is a new
+optional archive beside `map.pmtiles`: `tools/fetch-basemap.sh` fetches one
+(zoom 4, ~6 MB; zoom 5 is ~14 MB and 6 is ~43 MB), the tile lookup treats it
+as one more file in the list, and the downloader never writes it — so removing
+a region cannot take the floor away with it.
+
+The two TileJSON documents partition the pyramid rather than overlapping:
+`/world.json` is 0..depth over the whole planet, `/tiles.json` is depth+1..15
+over what was downloaded. Without the split, every tile in the viewport was
+fetched twice below the floor's depth — 48 requests at zoom 6 where 24 will
+do.
+
+The note and the grey wash both said "No map downloaded at this zoom" over
+ground the floor now draws. The note has a second message for when there IS a
+map underneath, in six locales, and the wash is withheld entirely there:
+42% opaque was sized for blank ground, and darkening a map the user can
+plainly see is the original complaint in another costume. Telling the two
+apart needed a new `floor` field on the coverage answer, because the depth
+cannot — every download starts at zoom 0, so a one-city archive reports depth
+0 over Tokyo while having no floor there at all.
+
+A tile nobody holds now carries an ETag. It was the only reply in a session a
+client could not revalidate, and past the edge of a download it is most of
+them; 204 is cacheable by default (RFC 9110 15.3.5), so the repeat is an empty
+304.
+
+**Rationale:** Measured, not declared, is the whole design. Two earlier
+attempts failed on exactly that point: serving 404 for a missing tile (MapLibre
+swallows 404 for vector sources by design — `err.status !== 404` — so it is
+indistinguishable from the 204 already sent), and capping the source's maxzoom
+from the coverage query (the cap fed the query zoom and the server's depth
+descends from the zoom asked about, a downward-only ratchet, measured
+collapsing 12 → 0 → 0 → 0). A floor that guesses its own depth reintroduces
+the bug it exists to fix, so the depth is a fact read off the archives.
+
+Labels are kept on the floor rather than stripped, which was the obvious
+economy. They are the most useful thing on screen exactly where the floor is
+the only map there is. They do not double where detail exists, and the reason
+is order rather than collision: the detail set opens with `earth`, an opaque
+fill, so wherever the detail tile has data it paints over the whole floor
+stack. That makes the layer order load-bearing and it is commented as such —
+an adversarial review caught the first version claiming the collision pass was
+doing it, which would have made the ordering look free to change.
+
+**Follow-on:** four items in roadmap.md — the in-app world overview still
+merges into `map.pmtiles` rather than `world.pmtiles`; the release tarball
+ships no overview, so a fresh install has a two-command setup; the floor
+re-asks its deepest tile once per integer camera zoom; and a locale switch
+does not rebuild the style, so the map's language only follows the interface
+across a download.
+
 ### 2026-08-21 — Coming back costs nothing, and a long fly-to stops flying
 
 **Phase:** 6 · **Branch:** perf/http-caching-and-fly

@@ -131,62 +131,34 @@ let accepts_gzip headers =
 
 (* ------------------------------------------------------------------ tiles *)
 
-(* Tile archives in lookup order: the browse cache first when it exists
-   (newer wins), then the main archive. Opened per request and closed with
-   it: the root directory is capped at 16 KB by the format, so this is a
-   header and a handful of small reads against the page cache, and a rename
-   cannot tear an open handle -- the fd pins whichever inode it opened. *)
-let tile_files = [ "cache.pmtiles"; "map.pmtiles" ]
+(* One tile archive by name. Opened per request and closed with it: the root
+   directory is capped at 16 KB by the format, so this is a header and a
+   handful of small reads against the page cache, and a rename cannot tear an
+   open handle -- the fd pins whichever inode it opened. *)
+let open_tile_archive ~basemap_root ~sw name =
+  let path = Eio.Path.(basemap_root / name) in
+  match Eio.Path.kind ~follow:true path with
+  | `Regular_file -> (
+      match
+        Pmtiles.Archive.open_
+          (Pmtiles_source.file_source (Eio.Path.open_in ~sw path))
+      with
+      | archive -> Some archive
+      | exception e ->
+          Logs.warn (fun m ->
+              m "tile archive %s: unreadable: %s" name (Printexc.to_string e));
+          None)
+  | _ -> None
 
-let open_tile_archives ~basemap_root ~sw =
+let open_tile_archives ~basemap_root ~sw names =
   List.filter_map
     (fun name ->
-      let path = Eio.Path.(basemap_root / name) in
-      match Eio.Path.kind ~follow:true path with
-      | `Regular_file -> (
-          match
-            Pmtiles.Archive.open_
-              (Pmtiles_source.file_source (Eio.Path.open_in ~sw path))
-          with
-          | archive -> Some (name, archive)
-          | exception e ->
-              Logs.warn (fun m ->
-                  m "tile archive %s: unreadable: %s" name
-                    (Printexc.to_string e));
-              None)
-      | _ -> None)
-    tile_files
+      Option.map (fun a -> (name, a)) (open_tile_archive ~basemap_root ~sw name))
+    names
 
-(* The source metadata the pmtiles protocol used to hand MapLibre from the
-   archive header, restated as TileJSON. The zoom range is load-bearing:
-   MapLibre pins canonical tile requests at the source's maxzoom and
-   overzooms past it, so a hardcoded 15 over a world-at-z6 archive asked
-   for z15 tiles nobody holds and rendered blank at street zoom -- over
-   data the archive had. The bounds keep it from asking about the rest of
-   the planet at all. [query] is the style's ?v= cache-buster, threaded
+(* One TileJSON document. [query] is the style's ?v= cache-buster, threaded
    into the tile URLs so a swap changes them. *)
-let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match =
-  Eio.Switch.run @@ fun sw ->
-  let headers =
-    List.map
-      (fun (_, a) -> a.Pmtiles.Archive.header)
-      (open_tile_archives ~basemap_root ~sw)
-  in
-  let e7f v = float_of_int v /. 1e7 in
-  let min_zoom, max_zoom, bounds =
-    match headers with
-    | [] -> (0, 15, [ -180.; -85.; 180.; 85. ])
-    | h :: t ->
-        let fold f field = List.fold_left (fun acc h -> f acc (field h)) (field h) t in
-        ( fold min (fun (h : Pmtiles.Header.t) -> h.Pmtiles.Header.min_zoom),
-          fold max (fun h -> h.Pmtiles.Header.max_zoom),
-          [
-            e7f (fold min (fun h -> h.Pmtiles.Header.min_lon_e7));
-            e7f (fold min (fun h -> h.Pmtiles.Header.min_lat_e7));
-            e7f (fold max (fun h -> h.Pmtiles.Header.max_lon_e7));
-            e7f (fold max (fun h -> h.Pmtiles.Header.max_lat_e7));
-          ] )
-  in
+let tilejson_body cfg ~host ~query ~if_none_match ~min_zoom ~max_zoom ~bounds =
   let body =
     `Assoc
       [
@@ -203,15 +175,92 @@ let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match =
         ("bounds", `List (List.map (fun v -> `Float v) bounds));
       ]
   in
-  (* Small, but it is the one GET a session makes that would otherwise carry
-     no validator, and "everything is revalidated" is a claim worth being
-     true. Tagged over the rendered body: it restates the archive headers, so
-     it changes exactly when a download changes them. *)
+  (* Small, but these are the two GETs a session makes that would otherwise
+     carry no validator, and "everything is revalidated" is a claim worth
+     being true. Tagged over the rendered body: it restates the archive
+     headers, so it changes exactly when a download changes them. *)
   let rendered = Yojson.Safe.to_string body in
   let etag = Http_cache.of_bytes ~encoding:None rendered in
-  if Http_cache.is_fresh ~if_none_match ~etag then
-    `Not_modified etag
+  if Http_cache.is_fresh ~if_none_match ~etag then `Not_modified etag
   else `Body (respond_json ~etag cfg ~status:`OK body)
+
+let whole_planet = [ -180.; -85.; 180.; 85. ]
+
+(* The source metadata the pmtiles protocol used to hand MapLibre from the
+   archive header, restated as TileJSON. The zoom range is load-bearing:
+   MapLibre pins canonical tile requests at the source's maxzoom and
+   overzooms past it, so a hardcoded 15 over a world-at-z6 archive asked for
+   z15 tiles nobody holds and rendered blank at street zoom -- over data the
+   archive had. The bounds keep it from asking about the rest of the planet
+   at all.
+
+   Two sources are described from here, over the same tile endpoint and the
+   same archives, and between them they partition the pyramid.
+
+   [`Floor] is the map underneath, and its one job is to have no holes -- a
+   hole draws as an empty tile, an empty tile counts as data, and data
+   replaces the coarse tile already on screen. So its depth is measured, not
+   declared: the deepest zoom the archives cover the whole planet at. Bounds
+   are the whole planet, because that is what "complete to this depth"
+   means. Past that depth MapLibre overzooms rather than asking, and an
+   overzoomed tile cannot be missing.
+
+   [`Detail] is what was downloaded: deep, and full of holes, because the
+   downloader takes any region to any depth into one archive. Its bounds are
+   the union of what is held, so the map does not ask about a planet nobody
+   fetched, and it starts one zoom below where the floor stops rather than
+   at zero -- the shallow end is the floor's to draw, out of the very same
+   tiles. *)
+let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which =
+  Eio.Switch.run @@ fun sw ->
+  let json = tilejson_body cfg ~host ~query ~if_none_match in
+  let floor_depth () =
+    Basemap_download.floor_depth
+      (List.map snd
+         (open_tile_archives ~basemap_root ~sw Basemap_download.tile_files))
+  in
+  match which with
+  | `Floor ->
+      (* [max 0]: a depth of -1 means not even the zoom-0 tile is there, and
+         a source cannot declare a negative range. It asks for one tile,
+         gets the same 204 every other zoom would, and draws nothing -- which
+         is the truth about an empty basemap directory. *)
+      json ~min_zoom:0 ~max_zoom:(max 0 (floor_depth ())) ~bounds:whole_planet
+  | `Detail ->
+      let headers =
+        List.map
+          (fun (_, a) -> a.Pmtiles.Archive.header)
+          (open_tile_archives ~basemap_root ~sw Basemap_download.detail_files)
+      in
+      let e7f v = float_of_int v /. 1e7 in
+      let min_zoom, max_zoom, bounds =
+        match headers with
+        | [] -> (0, 15, whole_planet)
+        | h :: t ->
+            let fold f field =
+              List.fold_left (fun acc h -> f acc (field h)) (field h) t
+            in
+            ( fold min (fun (h : Pmtiles.Header.t) -> h.Pmtiles.Header.min_zoom),
+              fold max (fun h -> h.Pmtiles.Header.max_zoom),
+              [
+                e7f (fold min (fun h -> h.Pmtiles.Header.min_lon_e7));
+                e7f (fold min (fun h -> h.Pmtiles.Header.min_lat_e7));
+                e7f (fold max (fun h -> h.Pmtiles.Header.max_lon_e7));
+                e7f (fold max (fun h -> h.Pmtiles.Header.max_lat_e7));
+              ] )
+      in
+      (* The two documents describe one archive cut in two, and this is where
+         the cut falls. Below it the floor is complete, and the tiles it
+         draws are the same bytes this source would draw -- so asking for
+         them twice buys a duplicate of every tile in the viewport and
+         nothing else. Measured at zoom 6: 24 tile requests, or 48 without
+         this line.
+
+         Never above [max_zoom], which would be an empty range: an archive
+         that is nothing but a world overview has a floor as deep as it has
+         anything, and the two meet rather than crossing. *)
+      let min_zoom = max min_zoom (min max_zoom (floor_depth () + 1)) in
+      json ~min_zoom ~max_zoom ~bounds
 
 (* One vector tile. Bytes go out exactly as stored when the client accepts
    the archive's compression, inflated for one that does not -- same policy
@@ -223,28 +272,54 @@ let serve_tile cfg ~basemap_root ~meth ~client_headers ~z ~x ~y =
   let id = Pmtiles.Tile_id.of_zxy ~z ~x ~y in
   let found =
     Eio.Switch.run @@ fun sw ->
+    (* Opened one at a time and only as far as the answer: the list grew a
+       third entry for the world floor, and a tile the browse cache already
+       holds must not pay to open the two archives behind it. *)
     List.find_map
-      (fun (name, archive) ->
-        match Pmtiles.Archive.tile archive id with
-        | v -> Option.map (fun b -> (b, archive.Pmtiles.Archive.header)) v
-        | exception e ->
-            Logs.warn (fun m ->
-                m "tile %d/%d/%d: unreadable %s: %s" z x y name
-                  (Printexc.to_string e));
-            None)
-      (open_tile_archives ~basemap_root ~sw)
+      (fun name ->
+        match open_tile_archive ~basemap_root ~sw name with
+        | None -> None
+        | Some archive -> (
+            match Pmtiles.Archive.tile archive id with
+            | v -> Option.map (fun b -> (b, archive.Pmtiles.Archive.header)) v
+            | exception e ->
+                Logs.warn (fun m ->
+                    m "tile %d/%d/%d: unreadable %s: %s" z x y name
+                      (Printexc.to_string e));
+                None))
+      Basemap_download.tile_files
   in
   match found with
   | None ->
-      (* No content-length on a 204 (RFC 9110), and nothing written --
-         cohttp's string-body path would add the length back, so this is an
-         Expert response like the found case. *)
-      let headers =
-        Http.Header.of_list
-          (("cache-control", "no-cache") :: security_headers cfg)
-      in
-      let response = Http.Response.make ~status:`No_content ~headers () in
-      (`Expert (response, fun _ic _oc -> ()), `No_content, 0, Http_range.Whole)
+      (* "Nothing here" is the same answer every time, so it gets a validator
+         too. Without one it was the only reply in the session a client could
+         not revalidate, and past the edge of a download that is most of
+         them -- a viewport of misses, re-asked in full on every visit, and
+         asked twice over now that the floor is a second source reading the
+         same archive. 204 is cacheable by default (RFC 9110 15.3.5), so a
+         tag turns the repeat into an empty 304.
+
+         Constant, and distinct from any tile's tag: the moment a tile does
+         land here -- a download, or the browse cache -- the tag becomes a
+         hash of its bytes, the client's stale tag misses, and it is sent
+         the tile. *)
+      let etag = Http_cache.of_digest ~encoding:None "empty" in
+      if
+        Http_cache.is_fresh
+          ~if_none_match:(joined client_headers "if-none-match")
+          ~etag
+      then not_modified cfg ~etag ~cache_control:"no-cache" ~vary:[]
+      else
+        (* No content-length on a 204 (RFC 9110), and nothing written --
+           cohttp's string-body path would add the length back, so this is an
+           Expert response like the found case. *)
+        let headers =
+          Http.Header.of_list
+            (("cache-control", "no-cache") :: ("etag", etag)
+           :: security_headers cfg)
+        in
+        let response = Http.Response.make ~status:`No_content ~headers () in
+        (`Expert (response, fun _ic _oc -> ()), `No_content, 0, Http_range.Whole)
   | Some (bytes, header) ->
       (* Which encoding this client gets, and whether the stored bytes go out
          as they are. [inflate] is deferred: a request that ends in a 304 must
@@ -1021,7 +1096,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
       | Route.Tile { z; x; y } ->
           serve_tile cfg ~basemap_root ~meth
             ~client_headers:(Http.Request.headers request) ~z ~x ~y
-      | Route.Tile_json ->
+      | Route.Tile_json { floor } ->
           (* Only the style's own ?v= cache-buster is reflected into the
              tile URLs; anything else is dropped rather than echoed. *)
           let query =
@@ -1053,7 +1128,10 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
                 h
             | _ -> "127.0.0.1"
           in
-          (match serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match with
+          let which = if floor then `Floor else `Detail in
+          (match
+             serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which
+           with
           | `Not_modified etag ->
               not_modified cfg ~etag ~cache_control:"no-cache" ~vary:[]
           | `Body body -> simple body `OK)

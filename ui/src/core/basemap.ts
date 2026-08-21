@@ -377,6 +377,14 @@ const Coverage = z.object({
      view is blank, so it is measured server-side at that same cell rather
      than re-derived here from the mask. */
   depth: z.number().int().min(-1),
+  /* Whether the map UNDER the map draws here -- a different question from
+     the depth, and the one that decides what the app may claim. An archive
+     holding one city still holds the single zoom-0 tile of the planet, so
+     its depth over anywhere is 0; whether that amounts to a map on screen
+     depends on the floor covering the world at that zoom, which is a fact
+     about the whole archive rather than about this view. Answered by the
+     server, which is what measures the floor's depth in the first place. */
+  floor: z.boolean(),
 }).refine((c) => c.present.length === c.w * c.h, {
   /* The one invariant that spans fields, and so the one zod would not
      check on its own. A short string reads as "covered" for every tile it

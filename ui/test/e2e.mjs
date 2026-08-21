@@ -17,6 +17,14 @@ const base = process.argv[2] ?? "http://127.0.0.1:7373";
 const vectors = JSON.parse(
   readFileSync(new URL("../../vectors/vectors.json", import.meta.url), "utf8"),
 );
+/* The source catalogue rather than a string copied into this file: a check
+   that quotes its own copy of the wording passes after someone changes the
+   wording and the meaning with it, which for a message whose whole job is
+   to not overclaim is the failure worth catching. */
+const messages = JSON.parse(
+  readFileSync(new URL("../messages/en-US.json", import.meta.url), "utf8"),
+);
+const m = (key) => messages[key];
 
 let checks = 0;
 let failures = 0;
@@ -599,10 +607,28 @@ check(
     && (await worldTile.arrayBuffer()).byteLength > 0,
 );
 const tilejson = await (await fetch(`${base}/tiles.json`)).json();
+const worldjson = await (await fetch(`${base}/world.json`)).json();
 check(
   "tiles.json states the archive's real depth and bounds",
-  tilejson.maxzoom === 6 && tilejson.minzoom === 0
-    && Array.isArray(tilejson.bounds) && tilejson.bounds.length === 4,
+  tilejson.maxzoom === 6 && Array.isArray(tilejson.bounds)
+    && tilejson.bounds.length === 4,
+);
+/* The floor is the whole planet or it is not a floor -- and only as deep as
+   the archive really covers the whole planet, which for one downloaded
+   region is the single zoom-0 tile every download starts with. Claiming
+   more is claiming a tile that is not there, which draws as empty and takes
+   the map off the screen. */
+check(
+  "world.json floors the planet at the depth the archive really covers it",
+  worldjson.minzoom === 0 && worldjson.maxzoom === 0
+    && worldjson.bounds.join() === "-180,-85,180,85",
+);
+/* Meeting rather than overlapping is what keeps a viewport one fetch
+   instead of two: below the floor's depth the detail source would be
+   asking for the very same tiles. */
+check(
+  "and the two sources meet without overlapping",
+  tilejson.minzoom === worldjson.maxzoom + 1,
 );
 check(
   "the sprite sheet arrived via the assets tarball",
@@ -1225,18 +1251,67 @@ check(
   await page.waitForSelector(".map-note.action", { timeout: 15_000 })
     .then(() => true, () => false),
 );
+/* And says the right one of the two things. This archive holds the single
+   zoom-0 tile of the planet -- every download starts there -- so the floor
+   reaches here and there IS a map under the camera, coarse as it is.
+   Claiming "no map downloaded here" over it would read as broken software,
+   which is the failure the second message exists to prevent. */
 check(
-  "the blank ground is actually painted, not just described",
+  "and says the wider map is showing, not that there is none",
+  (await page.locator(".map-note.action span").innerText())
+    === m("map_coverage_coarse"),
+);
+/* The wash is the other half of that claim. It is 42% opaque -- sized for
+   ground with nothing drawn on it -- so painting it over the floor would
+   darken the map the floor exists to keep. Withheld, not faded: the
+   rectangles are never handed to the source, which is what makes this
+   question answerable by asking what is on screen. */
+check(
+  "and does not wash out the map underneath it",
+  await page.evaluate(() =>
+    window.__tessarium_map.queryRenderedFeatures({
+      layers: ["coverage-blank"],
+    }).length
+  ) === 0,
+);
+
+/* The other half of the same claim, and the state the wash still exists
+   for: no floor at all. Stubbed rather than staged. Which archives make a
+   floor is settled in the server's own suite, against archives built to
+   have and to lack one; what is left to check here is that the app reacts
+   to the answer, and the archive that produces it -- one holding not even
+   the single zoom-0 tile of the planet -- is not one a download can leave
+   behind. Both halves matter: without this the wash could be deleted
+   outright and every check above would still pass. */
+await page.route("**/api/basemap-coverage", async (route) => {
+  const answer = await route.fetch();
+  await route.fulfill({ json: { ...(await answer.json()), floor: false } });
+});
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 11 })
+);
+check(
+  "with nothing drawn underneath, the blank ground is painted",
   await page.waitForFunction(
     () => {
       const map = window.__tessarium_map;
       return !!map
         && map.queryRenderedFeatures({ layers: ["coverage-blank"] }).length > 0;
     },
-    undefined,
+    null,
     { timeout: 15_000 },
   ).then(() => true, () => false),
 );
+check(
+  "and the note drops the promise of a wider map",
+  (await page.locator(".map-note.action span").innerText())
+    === m("map_coverage_gap"),
+);
+await page.unroute("**/api/basemap-coverage");
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
+);
+await page.waitForSelector(".map-note.action", { timeout: 15_000 });
 /* The note is the one place on the map that offers the way out of a blank
    screen, so its button has to reach the downloader. */
 await page.locator(".map-note.action .note-action").click();
@@ -2109,8 +2184,10 @@ const deepThin = tileAt(thinLon, thinLat, 15);
 const coarseThin = tileAt(thinLon, thinLat, 8);
 
 /* The premise, stated rather than assumed: this really is a place with a
-   coarse map and no detail. Without both halves the check below passes for
-   the wrong reason. */
+   coarse map and no detail. Without all three the checks below pass for the
+   wrong reason -- and they are three different tiles, because the camera
+   sits at 8 for one of them while the floor never asks past its own depth,
+   whatever the camera is doing. */
 check(
   "just west of the download there is no deep tile",
   (await fetch(`${base}/tiles/15/${deepThin.x}/${deepThin.y}.mvt`)).status
@@ -2121,6 +2198,15 @@ check(
   (await fetch(`${base}/tiles/8/${coarseThin.x}/${coarseThin.y}.mvt`)).status
     === 200,
 );
+{
+  const floor = await (await fetch(`${base}/world.json`)).json();
+  const tile = tileAt(thinLon, thinLat, floor.maxzoom);
+  check(
+    `and the floor's own depth (${floor.maxzoom}) has one too`,
+    (await fetch(`${base}/tiles/${floor.maxzoom}/${tile.x}/${tile.y}.mvt`))
+      .status === 200,
+  );
+}
 
 const drawnFrom = async (zoom) => {
   await page.evaluate(

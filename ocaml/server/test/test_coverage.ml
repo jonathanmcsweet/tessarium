@@ -105,6 +105,9 @@ let int_field name json =
 let string_field name json =
   match field name json with Some (`String s) -> s | _ -> "<missing>"
 
+let bool_field name json =
+  match field name json with Some (`Bool b) -> Some b | _ -> None
+
 let () =
   Eio_main.run @@ fun env ->
   (* A scratch directory outside the tree: [dune exec] runs from the project
@@ -160,7 +163,12 @@ let () =
       check "a view outside every downloaded box is blank at street zoom"
         (String.for_all (fun c -> c = '0') (string_field "present" json));
       check "the overview underneath is still reported as depth"
-        (int_field "depth" json = 2));
+        (int_field "depth" json = 2);
+      (* And the floor really does draw there, which is a different
+         sentence: this archive covers the WHOLE planet at zoom 2, so the
+         map under the map has something to show over Tokyo. *)
+      check "the floor reaches somewhere never downloaded"
+        (bool_field "floor" json = Some true));
 
   (match
      query ~fs ~dir:dir_name ~min_lon:139.6 ~min_lat:35.6 ~max_lon:139.8
@@ -352,7 +360,70 @@ let () =
   | Ok json ->
       check "with no archive at all, nothing is covered"
         (String.for_all (fun c -> c = '0') (string_field "present" json));
-      check "and there is no depth to report" (int_field "depth" json = -1));
+      check "and there is no depth to report" (int_field "depth" json = -1);
+      check "and no floor under it either" (bool_field "floor" json = Some false));
+
+  (* ------------------------------------------------------------- the floor *)
+  (* The floor's depth is the deepest zoom the archives cover the WHOLE
+     planet at, and it has to be measured rather than read off a header.
+     Everything below turns on that difference: this archive's header says
+     zoom 12, and a floor cut to 12 would be asking for tiles that exist
+     over London and nowhere else -- which draws an empty tile over Tokyo,
+     which is the bug the floor exists to prevent. *)
+  let depth_of dir_name =
+    Eio.Switch.run @@ fun sw ->
+    Tessarium_server.Basemap_download.floor_depth
+      (List.filter_map
+         (Tessarium_server.Basemap_download.open_readable ~sw ~fs
+            ~basemap_dir:dir_name)
+         Tessarium_server.Basemap_download.tile_files)
+  in
+  (* Two, not the twelve the header claims: a floor cut to twelve would ask
+     for tiles that exist over London and nowhere else. *)
+  check "the floor stops at the deepest zoom that covers the whole planet"
+    (depth_of dir_name = 2);
+  check "with no archive at all there is no floor" (depth_of empty = -1);
+
+  (* One tile short of a whole zoom level is not a whole zoom level. Removed
+     from the far side of the world from London, so nothing else about the
+     archive changes: without this the check above passes for an archive
+     that merely reaches zoom 2 somewhere. *)
+  let world_but_one =
+    List.filter
+      (fun id ->
+        id
+        <> Pmtiles.Tile_id.of_zxy ~z:2
+             ~x:(Pmtiles.Tile_id.tile_x ~z:2 ~lon:139.7)
+             ~y:(Pmtiles.Tile_id.tile_y ~z:2 ~lat:35.7))
+      (List.sort_uniq compare (world @ london))
+  in
+  write dir "map.pmtiles" (archive_of ~max_zoom:12 world_but_one);
+  check "one missing tile takes the floor up a level"
+    (depth_of dir_name = 1);
+  (match
+     query ~fs ~dir:dir_name ~min_lon:139.6 ~min_lat:35.6 ~max_lon:139.8
+       ~max_lat:35.8 ~zoom:12
+   with
+  | Error e -> check ("a view over the hole answers: " ^ why e) false
+  | Ok json ->
+      check "and the floor is still reported, one level shallower"
+        (bool_field "floor" json = Some true));
+  write dir "map.pmtiles"
+    (archive_of ~max_zoom:12 (List.sort_uniq compare (world @ london)));
+
+  (* A city and nothing else -- which still holds the single zoom-0 tile of
+     the planet, because every download starts at zoom 0. That one tile IS
+     the floor, and the app draws the world from it rather than nothing. *)
+  let city_only = Filename.concat root "city" in
+  Eio.Path.mkdir ~perm:0o755 Eio.Path.(fs / city_only);
+  write Eio.Path.(fs / city_only) "map.pmtiles"
+    (archive_of ~max_zoom:12
+       (Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom:12 ~min_lon:(-0.5)
+          ~min_lat:51.3 ~max_lon:0.3 ~max_lat:51.7));
+  check "one city still floors the world, from its zoom-0 tile"
+    (depth_of city_only = 0);
+  Eio.Path.unlink Eio.Path.(fs / city_only / "map.pmtiles");
+  Eio.Path.rmdir Eio.Path.(fs / city_only);
 
   Eio.Path.unlink Eio.Path.(dir / "map.pmtiles");
   Eio.Path.rmdir dir;

@@ -58,13 +58,9 @@ const GRID_MIN_ZOOM = 18;
    what is on disk has to be asked at. */
 const MAX_TILE_ZOOM = 15;
 
-/* The floor source's name and the depth it admits to. Zoom 6 is the world
-   overview the downloader offers first -- country level, coastlines, major
-   roads and cities -- and it is what the composite stands on. Past it
-   MapLibre overzooms rather than asking, so this source can never be
-   missing a tile it was asked for. */
+/* The map under the map. Its depth comes from the server -- see
+   /world.json -- because it is a fact about which archives are on disk. */
 const FLOOR_SOURCE = "protomaps-floor";
-const FLOOR_ZOOM = 6;
 
 /* How long a pan is left to settle before the browse cache fetches what is
    missing. Named once because the coverage note has to outwait it: saying
@@ -124,7 +120,7 @@ const buildStyle = (version: number): maplibregl.StyleSpecification => ({
       attribution:
         '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
     },
-    /* The floor: the same archive, declared shallow.
+    /* The floor: the same tiles, cut to the depth that is everywhere.
 
        A tile source is one pyramid with one depth, and ours has holes --
        the downloader lets you take any region to any depth and they land
@@ -136,14 +132,22 @@ const buildStyle = (version: number): maplibregl.StyleSpecification => ({
 
        Two sources instead of one, which is how the offline map apps do it
        -- a world dataset that is never absent, with regional detail
-       composited over it. Declared at FLOOR_ZOOM, this one is asked for
-       nothing deeper and MapLibre overzooms it forever, so it always has
-       an answer. The detail source keeps its holes, and a hole in the TOP
-       layer of two is transparent rather than blank. */
+       composited over it. This one stops at the deepest zoom the archives
+       cover the WHOLE planet at, so it is never asked for a tile that is
+       not there; past that depth MapLibre overzooms rather than requesting,
+       and an overzoomed tile cannot be missing. The detail source keeps its
+       holes, and a hole in the TOP layer of two is transparent rather than
+       blank.
+
+       That depth is the server's to state and never a number written here:
+       it is a fact about which archives are on disk and how complete they
+       are, and a guess at it puts the holes straight back. /world.json
+       carries it, the way /tiles.json carries the downloaded source's. The
+       two do not overlap -- the detail source starts one zoom below where
+       this one stops -- so a viewport is fetched once, not twice. */
     [FLOOR_SOURCE]: {
       type: "vector",
-      url: `/tiles.json?v=${version}`,
-      maxzoom: FLOOR_ZOOM,
+      url: `/world.json?v=${version}`,
     },
   },
   /* Place names follow the interface language, so switching to French does
@@ -164,10 +168,15 @@ const buildStyle = (version: number): maplibregl.StyleSpecification => ({
    economy -- labels are the thing most likely to double -- and it would
    take the labels away from exactly the places where the floor is the only
    map there is. Somewhere you have not downloaded, the city name is the
-   most useful thing on the screen. Where detail does exist, the two
-   candidates sit on top of each other and MapLibre's collision pass keeps
-   one; what needs a human eye is whether the floor's copy of a place sits
-   far enough from the detail's to survive that. */
+   most useful thing on the screen.
+
+   They do not double where detail exists, and the reason is order rather
+   than collision: the detail set opens with `earth`, an opaque fill, so
+   wherever the detail tile has data it paints over the whole floor stack
+   underneath -- labels included. Checked on screen at London z11 and z16.
+   That makes the ordering load-bearing: move a floor layer above the
+   detail's ground and the duplication becomes real, with nothing left to
+   prevent it. */
 const basemapLayers = (): maplibregl.LayerSpecification[] => {
   const lang = getLocale().split("-")[0] ?? "en";
   const flavor = namedFlavor("light");
@@ -205,12 +214,12 @@ const addOverlay = (map: maplibregl.Map) => {
     id: "coverage-blank",
     type: "fill",
     source: "coverage",
-    /* Heavier than a hint on purpose. It only ever covers tiles the map
-       draws nothing for, so there is no cartography underneath to obscure,
-       and a wash faint enough to be tasteful over a drawn map was
-       invisible over a blank one -- 1.2:1 against the background, which
-       is no signal at all. The note carries the meaning in words; this
-       carries the shape. */
+    /* Heavier than a hint on purpose, and only ever over ground the map
+       draws nothing at all for: there is no cartography underneath to
+       obscure there, and a wash faint enough to be tasteful over a drawn
+       map was invisible over a blank one -- 1.2:1 against the background,
+       which is no signal at all. What keeps it off a drawn map is the data
+       it is given, not this. */
     paint: { "fill-color": "#41505f", "fill-opacity": 0.42 },
   });
   map.addLayer({
@@ -384,11 +393,12 @@ export function MapView() {
      would be theatre. */
   const [tilesLoading, setTilesLoading] = useState(false);
   const [truncated, setTruncated] = useState(false);
-  /* Null when the middle of the view has a tile: the note is about where
-     the user is looking, not about a corner of the screen. [depth] is the
-     deepest zoom the archives hold there, -1 for nothing at all, which is
-     a different sentence. */
-  const [blank, setBlank] = useState<{ depth: number; } | null>(null);
+  /* Null when the middle of the view has a tile at the zoom being drawn:
+     the note is about where the user is looking, not about a corner of the
+     screen. [floor] is whether there is a map underneath it anyway, which
+     decides which of two notes it gets -- a different sentence, and the
+     wrong one reads as broken software. */
+  const [blank, setBlank] = useState<{ floor: boolean; } | null>(null);
   const [zoom, setZoom] = useState(0);
   /* Bumped after every style swap so the effects that draw onto the style
      (grid, selection) know their sources were just recreated empty. */
@@ -628,15 +638,28 @@ export function MapView() {
     }).catch(() => null);
     if (!answer || mine !== coverageSeq.current) return;
 
+    /* The wash says "nothing is drawn here", and since the floor went in
+       that is usually false: these tiles are missing at the zoom being
+       DISPLAYED, and the floor draws underneath them anyway. Darkening a
+       map the user can plainly see would be the rug-pull again in another
+       form, so the fill gets no rectangles at all where there is a floor to
+       obscure -- withheld rather than made transparent, so that "is the
+       blank ground painted" stays a question about what is on screen.
+
+       The edge line is not withheld. It marks where the downloaded detail
+       stops, which is true either way and is the one thing on screen that
+       shows the shape of what you hold. */
     fill.setData({
       type: "FeatureCollection",
-      features: rectsToFeatures(absentRects(answer), answer.zoom),
+      features: answer.floor
+        ? []
+        : rectsToFeatures(absentRects(answer), answer.zoom),
     });
     edge.setData({
       type: "FeatureCollection",
       features: blankEdges(answer, answer.zoom),
     });
-    setBlank(centreIsBlank(answer) ? { depth: answer.depth } : null);
+    setBlank(centreIsBlank(answer) ? { floor: answer.floor } : null);
   }, [client]);
 
   /* Nothing to say when there is no archive at all -- the missing-basemap
@@ -759,7 +782,13 @@ export function MapView() {
             if (typeof maxzoom === "number" && written > maxzoom) {
               rebuildBasemap();
             } else {
+              /* Both sources. They read the same archive through the same
+                 endpoint but keep their own copies, so refreshing one
+                 leaves the other holding the empty tile it cached from a
+                 204 -- and the floor is the one drawn where tiles were
+                 missing, which is exactly where a browse fetch lands. */
               map.refreshTiles("protomaps");
+              map.refreshTiles(FLOOR_SOURCE);
             }
             /* Tiles just landed where there were none, so the grey wash
                over them is now a lie. Invalidated rather than refetched
@@ -1105,7 +1134,16 @@ export function MapView() {
         }
         {blank && !downloadOpen && (
           <div className="map-note action" role="status">
-            <span>{m.map_coverage_gap()}</span>
+            {
+              /* Two different facts, and saying the wrong one is the kind of
+                overclaim this project treats as a bug: "no map here" over a
+                map the user can see reads as broken software, and "this is
+                the wider map" over blank ground is a promise of something
+                that is not there. */
+            }
+            <span>
+              {blank.floor ? m.map_coverage_coarse() : m.map_coverage_gap()}
+            </span>
             <button
               type="button"
               className="note-action"

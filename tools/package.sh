@@ -5,7 +5,10 @@
 # and nothing else — no asset directory to keep alongside them, no runtime to
 # install. The basemap is deliberately not bundled: it is tens of megabytes and
 # region-specific, and `tessarium-basemap` fetches whichever part of the
-# world the user actually wants.
+# world the user actually wants. That includes the world overview, which is
+# small and global but still a download — README.txt below makes it the first
+# step rather than an option, because without one the map is blank everywhere
+# outside the region you fetched.
 
 set -euo pipefail
 
@@ -56,13 +59,26 @@ mapping private to your seed phrase.
 Quick start
 -----------
 
-  1. Fetch a basemap for wherever you care about:
+  1. Fetch the world overview. This is the map you see everywhere you have
+     not downloaded in detail, and without it the map is blank outside the
+     region you fetch in step 2. About 6 MB:
+
+       ./tessarium-basemap latest \
+         --bbox=-180,-85,180,85 --max-zoom 4 --out basemap/world.pmtiles
+
+     Deeper is better and costs roughly four times per level — zoom 5 is
+     about 14 MB, zoom 6 about 43 MB. The map stands on the deepest level
+     the file covers the whole planet at, so a partial fetch is not wasted;
+     it simply floors one level higher.
+
+  2. Fetch a basemap for wherever you care about in detail:
 
        ./tessarium-basemap latest \
          --bbox=-0.25,51.45,0.0,51.55 --max-zoom 15 --out basemap/map.pmtiles
 
      ("latest" is the newest Protomaps daily planet build; an https:// URL
-     or a local .pmtiles path works there too.)
+     or a local .pmtiles path works there too.) More regions can be added
+     later from inside the app, and they merge rather than replace.
 
      You also need glyphs and sprites, once:
 
@@ -70,7 +86,7 @@ Quick start
          | tar -xz --strip-components=1 -C basemap \
            --wildcards '*/fonts' '*/sprites'
 
-  2. Run it:
+  3. Run it:
 
        ./tessarium-server
 
@@ -98,6 +114,10 @@ Working offline
 
 Everything is served locally — map tiles, fonts and icons included. Once the
 basemap is fetched, no network is needed.
+
+Zooming past what you downloaded does not go blank: the world overview keeps
+drawing underneath, stretched, and a note offers to download the area you are
+looking at.
 
 Requirements
 ------------

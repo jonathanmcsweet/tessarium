@@ -11,9 +11,11 @@ type t =
   | Basemap of string list  (** under the basemap root *)
   | Tile of { z : int; x : int; y : int }
       (** one vector tile, looked up across the tile archives *)
-  | Tile_json
+  | Tile_json of { floor : bool }
       (** the source metadata MapLibre needs -- zoom range and bounds,
-          derived from the archive headers *)
+          derived from the archive headers. Two of them: the detail the user
+          downloaded, and the floor underneath it, which is cut shallow so
+          that it is never asked for a tile it has not got *)
   | Api of string  (** the API sub-path, e.g. "session" *)
   | Not_found
   | Method_not_allowed
@@ -55,7 +57,11 @@ let of_request ~meth ~target =
       | None -> (
           match segments with
           | [ "tiles.json" ] ->
-              if readable then Tile_json else Method_not_allowed
+              if readable then Tile_json { floor = false }
+              else Method_not_allowed
+          | [ "world.json" ] ->
+              if readable then Tile_json { floor = true }
+              else Method_not_allowed
           | _ -> (
           match strip_prefix "api" segments with
           | Some [ endpoint ] ->
