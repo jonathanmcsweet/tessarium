@@ -51,6 +51,10 @@ let setup_log level =
 let serve port ui basemap api connect_src basemap_source basemap_assets
     budget no_open log_level =
   setup_log log_level;
+  (* Hand the band table to the C core before anything can serve a request.
+     Its globals are unsynchronised, so initialising here rather than on
+     first use keeps a future second domain from racing the first. *)
+  Tessarium_c_core.C_core.init ();
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
   let cfg =

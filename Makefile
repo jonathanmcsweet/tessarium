@@ -82,8 +82,8 @@ test-lowstar:
 	./_build/low_check
 
 # Refresh the committed copy of the KaRaMeL emission that the
-# side-by-side wall links (ocaml/c_core/vendor; the server itself still
-# links only the extracted core until the switch phase) -- committed
+# side-by-side wall links, and that the server's HTTP API now answers from
+# (ocaml/c_core/vendor) -- committed
 # generated code, CI-diffed like ocaml/extracted. Copies every emitted
 # module except the test-only Check, so a new module cannot be silently
 # skipped, and diffs the hand-pinned krml runtime headers against the

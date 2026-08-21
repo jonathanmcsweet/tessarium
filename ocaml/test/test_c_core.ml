@@ -1,9 +1,11 @@
 (* The side-by-side wall: the KaRaMeL-emitted C core against the
    extracted-OCaml core with digestif injected -- same keys, same points,
-   every entry point. This is the "old and new run side by side until
-   byte-identical" gate the roadmap set for retiring the extracted core,
-   and it is what watches the FFI stubs' unproved plumbing (table copy,
-   key packing, value conversions).
+   every entry point. This was the "old and new run side by side until
+   byte-identical" gate the roadmap set before the server switched; the
+   server now answers from the C core, and this wall keeps running so the
+   two are still compared every build. It is also what watches the FFI
+   stubs' unproved plumbing (table copy, key packing, value conversions)
+   -- which is now on the serving path, not beside it.
 
    Deterministic: corners plus Lehmer draws from a fixed seed. *)
 

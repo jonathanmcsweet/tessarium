@@ -45,6 +45,11 @@ let () =
   in
   parse (List.tl (Array.to_list Sys.argv));
 
+  (* The extracted core on purpose: this corpus is what the independent
+     JS implementation and the wasm build are checked AGAINST, so it must
+     come from the leg those two do not share. *)
+  let core = Tessarium.extracted_core in
+
   let key =
     Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic:!mnemonic
       ~passphrase:!passphrase
@@ -117,11 +122,11 @@ let () =
     let n = List.length sample in
     let t0 = Unix.gettimeofday () in
     let addrs =
-      List.map (fun (lat, lon) -> Tessarium.encode_z ~key ~lat ~lon) sample
+      List.map (fun (lat, lon) -> Tessarium.encode_z ~core ~key ~lat ~lon) sample
     in
     let t1 = Unix.gettimeofday () in
     List.iter
-      (fun a -> ignore (Tessarium.decode ~key a))
+      (fun a -> ignore (Tessarium.decode ~core ~key a))
       addrs;
     let t2 = Unix.gettimeofday () in
     Printf.eprintf "encode %.2f us/op   decode %.2f us/op   (%d ops each)\n%!"
@@ -165,7 +170,7 @@ let () =
     (fun (lat, lon) ->
       let cell = Tessarium_Grid.point_to_cell lat lon in
       let clat, clon = Tessarium_Grid.cell_to_point cell in
-      let address = Tessarium.encode_z ~key ~lat ~lon in
+      let address = Tessarium.encode_z ~core ~key ~lat ~lon in
       (* Each restated EXACTLY as its theorem is stated -- preconditions,
          longitude fold and all. Asserting one comparison more than the
          proof claims turns a correct binary into a false alarm: the
@@ -199,7 +204,7 @@ let () =
          on address tuples, and this round-trips through the address
          string -- so a formatter bug fails here too, mislabeled as a law
          violation, which is the safe direction. *)
-      (match Tessarium.decode ~key address with
+      (match Tessarium.decode ~core ~key address with
       | Ok (dlat, dlon) ->
           law "decode-encode"
             (Z.equal (Z.of_int dlat) clat && Z.equal (Z.of_int dlon) clon)

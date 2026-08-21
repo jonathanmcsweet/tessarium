@@ -26,6 +26,11 @@ let hex_of_string s =
 let ns_of_deg (d : float) = Z.of_float (Float.round (d *. 1e9))
 let deg_of_ns (z : Z.t) = Z.to_float z /. 1e9
 
+(* The extracted core, compiled to JavaScript alongside this file. The
+   browser's wasm build of the same F* is a separate phase; until it lands
+   the bundle answers from here. *)
+let core = Tessarium.extracted_core
+
 let jstr = Js.string
 let ostr = Js.to_string
 
@@ -81,7 +86,7 @@ let () =
        method encodeNs keyHex latNs lonNs =
          let key = string_of_hex (ostr keyHex) in
          let lat = Z.of_string (ostr latNs) and lon = Z.of_string (ostr lonNs) in
-         jstr (Tessarium.encode_z ~key ~lat ~lon)
+         jstr (Tessarium.encode_z ~core ~key ~lat ~lon)
 
        method decodeNs keyHex addr =
          let key = string_of_hex (ostr keyHex) in
@@ -100,14 +105,11 @@ let () =
        (* Degree convenience wrappers for the map, which works in degrees. *)
        method encodeDeg keyHex lat lon =
          let key = string_of_hex (ostr keyHex) in
-         jstr (Tessarium.encode_z ~key ~lat:(ns_of_deg lat) ~lon:(ns_of_deg lon))
+         jstr (Tessarium.encode_z ~core ~key ~lat:(ns_of_deg lat) ~lon:(ns_of_deg lon))
 
        method decodeDeg keyHex addr =
          let key = string_of_hex (ostr keyHex) in
-         match
-           Tessarium_Api.decode Tessarium.round_fn key Tessarium.tweak
-             (Tessarium.address_of_string (ostr addr))
-         with
+         match core.Tessarium.decode ~key (Tessarium.address_of_string (ostr addr)) with
          | None -> Js.null
          | Some (lat, lon) ->
              Js.some
@@ -120,7 +122,7 @@ let () =
           draws the grid overlay. *)
        method cellBoundsDeg lat lon =
          let a, b, c, d =
-           Tessarium.cell_bounds_z ~lat:(ns_of_deg lat) ~lon:(ns_of_deg lon)
+           Tessarium.cell_bounds_z ~core ~lat:(ns_of_deg lat) ~lon:(ns_of_deg lon)
          in
          object%js
            val latLo = deg_of_ns a
@@ -142,7 +144,7 @@ let () =
           prevent. *)
        method gridForBounds latLo lonLo latHi lonHi limit =
          let cells, truncated =
-           Tessarium.cells_in_bounds ~lat_lo:(ns_of_deg latLo)
+           Tessarium.cells_in_bounds ~core ~lat_lo:(ns_of_deg latLo)
              ~lon_lo:(ns_of_deg lonLo) ~lat_hi:(ns_of_deg latHi)
              ~lon_hi:(ns_of_deg lonHi) ~limit
          in

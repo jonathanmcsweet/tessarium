@@ -194,7 +194,8 @@ code violates the rule above. Revisit only if a profiler points at the core.
   refactor, not a prerequisite.
 - **Round function is injected, not proved** (and since 2026-08-20 ALSO
   proved: the same function lives inside the proof as machine integers, and
-  the injected copy is what the extracted-OCaml production path still runs).
+  the injected digestif copy is what the browser's js_of_ocaml path still
+  runs; the server's HTTP API answers from the proved one).
   `Tessarium.Feistel` takes `round_fn` as a parameter, and bijectivity does
   not depend on it. It is supplied by `digestif`'s *pure-OCaml* backend
   (keyed BLAKE2s; SHA-256 remains only for the BIP-39 checksum), which
@@ -302,10 +303,7 @@ The theorem set is complete and in the ledger. What is left is narrower.
       before the proved code runs, and a side-by-side wall
       (test_c_core.ml, in every `make test`) drives encode/decode/
       bounds against the extracted core over 15,549 checks — corners,
-      seams, rejections, three keys. The server still ANSWERS from the
-      extracted core: the switch waits for the wall to have run beside
-      real traffic long enough to call the two byte-identical, per the
-      phase order. WASM LANDED (2026-08-20, wasm/): the same vendored C
+      seams, rejections, three keys. WASM LANDED (2026-08-20, wasm/): the same vendored C
       compiled to wasm32 by a pinned zig (0.13.0, sha-pinned in CI;
       byte-identical rebuilds), a shim mirroring the FFI stubs' checks,
       and js/wasm-differential.mjs replaying the differential corpus
@@ -317,13 +315,18 @@ The theorem set is complete and in the ledger. What is left is narrower.
       (Low.Blake2s replacing Low.Hmac; two compressions, native keying,
       little-endian throughout), vendored C, wasm (14.1 KB now), vectors,
       walls -- moved together, pinned by RFC 7693 + keyed KATs and
-      digestif/noble recomputations; see the ledger. Final
-      phase: the SWITCH — the server answers from the C core, the UI
-      from the wasm core (the CSP already allows wasm and the worker
-      already loads a wasm module and holds the raw 32-byte key, both
-      since the Argon2id KDF landed), and the extracted-OCaml
-      core retires from the serving path (extraction itself stays: the
-      spec modules still feed the evaluator leg and gen_check). One narrower gap
+      digestif/noble recomputations; see the ledger. The SERVER HALF of the
+      switch LANDED (2026-08-21, ledger): `Tessarium.core` is injected
+      like `~kdf`, serve.ml passes the C core, and the extracted core keeps
+      generating the vectors and answering beside it in the wall. What is
+      still open is the BROWSER half: the UI answers from the js_of_ocaml
+      core, and moving it to wasm/core.wasm needs the band table handed to
+      the module (a new jsoo export), the address codec kept where the
+      wordlist is, and the grid walk decided — it drives bounds_of_point in
+      a loop, so it either moves into the wasm glue or stays a JS driver
+      over the wasm's bounds. The CSP already allows wasm and the worker
+      already loads a wasm module and holds the raw 32-byte key, both since
+      the Argon2id KDF landed. One narrower gap
       remains in the evaluator leg: seven grid points is a floor, not a
       ceiling — the leg costs ~3 minutes and scales linearly if it ever
       earns more. Rerun
@@ -475,6 +478,15 @@ not cover.
       through the same downloader, from a source whose licence permits it;
       shown with proper attribution. Imagery is far heavier than vector data —
       expect roughly ten times the bytes for the same region and zoom.
+- [ ] **The loading-bar end-to-end check failed once and has not been
+      explained.** On 2026-08-21 "slow tiles raise the loading bar" failed a
+      single `make test` run and passed the three runs around it, with a
+      change that touched no tile-loading code. The test's own header says
+      that path is deterministic, so either the header is wrong or something
+      is genuinely racy — a one-in-four failure is worth more than a shrug,
+      because the next person to see it will assume it is their change.
+      Reproduce under load before trusting the determinism claim.
+
 - [ ] **The non-English translations still want a native speaker.** They have
       been through one adversarial review pass, which found and fixed real
       defects — a French pronoun that attached "your 24 words and this second

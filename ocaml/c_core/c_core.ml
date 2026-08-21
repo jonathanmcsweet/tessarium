@@ -1,11 +1,11 @@
 (* The OCaml face of the KaRaMeL-emitted verified core.
 
-   NOT the production path yet: the server still answers from the
-   extracted-OCaml core with digestif injected, and keeps doing so until
-   the side-by-side wall (ocaml/test/test_c_core.ml) has said
-   byte-identical for long enough to retire it -- the roadmap's phase
-   order. This module exists so the wall can drive both cores today and
-   the server can switch by changing one call later.
+   THIS is the server's arithmetic: `serve.ml` injects [core] below, so
+   every address the API answers with is computed by the C emitted from
+   the F* proofs. The extracted-OCaml core has not gone anywhere -- it
+   still generates the committed vectors, still feeds the evaluator leg,
+   and still answers beside this one in test_c_core.ml's 15,549-check
+   wall on every `make test` -- it simply no longer serves.
 
    Signatures mirror the extracted core's conventions: absolute
    nanodegree Z coordinates in, the offset arithmetic confined here. *)
@@ -29,9 +29,10 @@ external bounds_ : int -> int -> int * int * int * int = "caml_ccore_bounds"
    FFI once. Z.to_int is exact: every entry is below 2^36. *)
 let initialised = ref false
 
-(* Single-domain init: the C globals and this ref are unsynchronised.
-   Fine for the wall and today's callers; the server-switch phase must
-   initialise before forking domains. *)
+(* Single-domain init: the C globals and this ref are unsynchronised. The
+   server calls [init] once at startup, before it serves anything, so a
+   later move to multiple domains cannot race here; [ensure_init] stays
+   for the tests and tools, which are single-threaded. *)
 let ensure_init () =
   if not !initialised then begin
     init_
@@ -39,6 +40,14 @@ let ensure_init () =
     initialised := true
   end
 
+let init = ensure_init
+
+(* A second range check, after the one in Tessarium.check_range that every
+   injected call already passed. Kept because test_c_core.ml and any future
+   direct caller reach these functions without that one, and because the
+   emitted C's refinements are erased -- the boundary is the place to refuse.
+   Deliberate duplication, not drift: if the two ever disagree the wall's
+   corner cases fail. *)
 let check_range lat lon =
   if Z.lt lat lat_min || Z.gt lat lat_max then
     invalid_arg (Printf.sprintf "latitude %s out of range" (Z.to_string lat));
@@ -77,3 +86,8 @@ let bounds_of_point ~lat ~lon =
     Z.add lat_min (Z.of_int la_hi),
     Z.add lon_min (Z.of_int lo_lo),
     Z.add lon_min (Z.of_int lo_hi) )
+
+(* The injected core, as Tessarium.core. The record is what serve.ml
+   passes; the functions above are what the side-by-side wall drives. *)
+let core : Tessarium.core =
+  { Tessarium.encode; decode; bounds_of_point }

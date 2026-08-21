@@ -1,8 +1,7 @@
 /* The browser face of the KaRaMeL-emitted verified core.
 
-   Compiled from the SAME vendored C the server-side wall links
-   (ocaml/c_core/vendor; the server itself still answers from the
-   extracted core until the switch phase) to wasm32-wasi by a pinned
+   Compiled from the SAME vendored C the server's HTTP API now answers
+   from over the FFI (ocaml/c_core/vendor) to wasm32-wasi by a pinned
    zig -- one verified artifact chain, two hosts. `make sync-wasm`
    rebuilds; CI rebuilds and byte-diffs the committed module. Local
    `make test` runs the COMMITTED module: an edit to this file or to

@@ -4,7 +4,7 @@
 ; compiles under js_of_ocaml for the browser bundle, and C stubs do not.
 (library
  (name tessarium_c_core)
- (libraries tessarium_extracted zarith)
+ (libraries tessarium tessarium_extracted zarith)
  (foreign_stubs
   (language c)
   (names c_core_stubs Tessarium_Low_Feistel Tessarium_Low_Grid

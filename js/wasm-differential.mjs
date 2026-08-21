@@ -1,8 +1,9 @@
 // The wasm core against the extracted core's corpus.
 //
-// wasm/core.wasm is the same vendored C the server-side wall links
-// (the server itself still answers from the extracted core), compiled
-// to wasm32 -- the browser's half of the side-by-side story. This driver
+// wasm/core.wasm is the same vendored C the server's HTTP API now answers
+// from over the FFI, compiled to wasm32 -- the browser's half of the
+// side-by-side story, and still a wall rather than the answer path: the
+// UI answers from js_of_ocaml until the browser half of the switch lands. This driver
 // replays the differential corpus (computed by the extracted core with
 // digestif) through it: encode must reproduce every address, decode must
 // land exactly on every centre, bounds must contain both. The key comes

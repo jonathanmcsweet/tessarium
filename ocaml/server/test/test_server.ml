@@ -1201,5 +1201,25 @@ let () =
               false
       end);
 
+  (* WHICH core the server answers from, asserted rather than assumed.
+
+     The side-by-side wall proves the two cores AGREE, which is exactly why
+     it cannot notice if serve.ml is rewired back to the extracted one. So
+     probe a point where they deliberately disagree: a word index of 2048 is
+     outside the proved core's domain, and the FFI stubs refuse it, while the
+     extracted core computes over unbounded nats and answers. `address_of_string`
+     cannot produce such a tuple, so this is unreachable through the API --
+     it is a fingerprint, not a behaviour anyone depends on. *)
+  let key = String.make 32 '\007' in
+  let out_of_domain = (Z.of_int 2048, Z.zero, Z.zero, Z.zero) in
+  check "the server's injected core is the C one, not the extracted one"
+    (match Tessarium_server.Serve.core.Tessarium.decode ~key out_of_domain with
+     | exception Invalid_argument _ -> true
+     | _ -> false);
+  check "and the extracted core is what it is being distinguished from"
+    (match Tessarium.extracted_core.Tessarium.decode ~key out_of_domain with
+     | exception Invalid_argument _ -> false
+     | _ -> true);
+
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "server decisions hold"

@@ -18,6 +18,11 @@ let check name ok =
     Printf.printf "  FAIL  %s\n" name
   end
 
+(* The extracted core: this suite's job is to check that the EXTRACTION
+   still reproduces its committed vectors. The C core is checked against
+   this one separately, in test_c_core.ml. *)
+let core = Tessarium.extracted_core
+
 (* The production KDF, injected once for the whole suite. *)
 let derive_key = Tessarium.derive_key ~kdf:Tessarium_argon2.kdf
 
@@ -114,9 +119,9 @@ let () =
       let key = Hashtbl.find keys (to_str (member "mnemonic" v)) in
       let lat_ns = to_int (member "lat_ns" v) and lon_ns = to_int (member "lon_ns" v) in
       let want = to_str (member "address" v) in
-      let got = Tessarium.encode ~key ~lat_ns ~lon_ns in
+      let got = Tessarium.encode ~core ~key ~lat_ns ~lon_ns in
       check_eq (Printf.sprintf "encode(%d,%d)" lat_ns lon_ns) got want;
-      match Tessarium.decode ~key want with
+      match Tessarium.decode ~core ~key want with
       | Error e -> check (Printf.sprintf "decode(%s): %s" want e) false
       | Ok (dlat, dlon) ->
           let cell p q = Tessarium_Grid.point_to_cell (Z.of_int p) (Z.of_int q) in
@@ -156,7 +161,7 @@ let () =
       let addr = to_str a in
       check
         (Printf.sprintf "%s names no location" addr)
-        (match Tessarium.decode ~key:addr_key addr with Error _ -> true | Ok _ -> false))
+        (match Tessarium.decode ~core ~key:addr_key addr with Error _ -> true | Ok _ -> false))
     (to_list (member "invalid_addresses" json));
 
   (* ------------------------------------------------ unicode passphrases *)
