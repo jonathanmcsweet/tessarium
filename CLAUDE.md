@@ -61,9 +61,10 @@ throughout. This is what makes a browser and a server agree exactly. Floats
 appear only in `design/grid_design.py`, which runs offline and emits a data
 table; in `Pmtiles.Tile_id`, which picks which map tiles to download and never
 touches an address; and at the UI boundary, where degrees are converted for
-display. `ocaml/server/rate_limit.ml` also uses them, for time, which is not
-the encode path. If you find yourself reaching for a float in `fstar/`,
-`ocaml/lib/` or the grid parts of `js/`, stop.
+display. `ocaml/server/rate_limit.ml` and `ocaml/server/http_cache.ml` also use
+them, both for time, which is not the encode path. If you find yourself
+reaching for a float in `fstar/`, `ocaml/lib/` or the grid parts of `js/`,
+stop.
 
 **Say exactly what is proved, and no more.** Every module in `fstar/` verifies
 with zero admits, enforced by `--report_assumes error`. The theorems are listed
@@ -104,7 +105,10 @@ square and get its address; paste an address and fly back to that square.
 - `fstar/` — the verified core. All modules verify, no admits.
 - `ocaml/extracted/` — F\* output. **Build artifact, never edited.**
 - `ocaml/lib/` — key derivation, crypto, public API over the extracted core.
-- `ocaml/js/` — js_of_ocaml bindings; the browser runs this same extraction.
+- `ocaml/js/` — js_of_ocaml bindings. The browser no longer computes with
+  them: encode, decode and cell bounds come from `wasm/core.wasm`, the same
+  F\* by way of KaRaMeL. This bundle supplies what that cannot — the wordlist
+  codec, BIP-39, the KDF's inputs, the band table.
 - `ocaml/server/` — Eio HTTP server. Also the desktop binary.
 - `ocaml/pmtiles/` — PMTiles v3 reader and region extractor.
 - `ui/` — Vite + React + MapLibre GL. The key lives in a Web Worker.

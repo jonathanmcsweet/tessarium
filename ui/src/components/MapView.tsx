@@ -22,6 +22,7 @@ import {
   useBasemapSettings,
   useBasemapStatus,
 } from "../core/basemap";
+import { goTo } from "../core/camera";
 import {
   absentRects,
   blankEdges,
@@ -67,6 +68,12 @@ const BROWSE_SETTLE_MS = 1200;
    large for the zoom; truncation is drawn as a warning rather than silently
    producing a grid that stops halfway across the screen. */
 const CELL_LIMIT = 12000;
+
+/* How often to ask the map whether it has settled, while the loading bar is
+   up. Only ever runs while the bar is visible, so it costs nothing in the
+   ordinary case; short enough that a bar the `idle` event forgot about comes
+   down before it reads as stuck. */
+const SETTLE_POLL_MS = 250;
 
 /* The grid is drawn as empty squares at every zoom. Addresses are never
    written onto the map, however far in you go.
@@ -392,16 +399,39 @@ export function MapView() {
      tiles genuinely lagging, or a flyTo longer than the tracker's delay
      still settling -- which is the user-facing meaning of "rendering but
      not done yet". The tracker only guards against flicker on sub-delay
-     bursts, which every small pan fires. */
+     bursts, which every small pan fires.
+
+     `idle` alone is not enough to take the bar back down. MapLibre fires it
+     from inside a render, and it renders only while something is dirty -- so
+     a load that resolves with nothing new to draw can raise the bar and then
+     never fire the event that lowers it. Rare while every tile was a fresh
+     download; ordinary now that they come back from the cache in
+     milliseconds, and it showed up as a stuck bar in the end-to-end suite
+     with the map itself reporting fully loaded. While the bar is up, ask the
+     map instead of waiting to be told. */
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    const tracker = createLoadingTracker(setTilesLoading);
+    let poll: ReturnType<typeof setInterval> | undefined;
+    const stopPolling = () => {
+      if (poll !== undefined) {
+        clearInterval(poll);
+        poll = undefined;
+      }
+    };
+    const tracker = createLoadingTracker((on) => {
+      setTilesLoading(on);
+      if (!on) return stopPolling();
+      poll ??= setInterval(() => {
+        if (map.loaded() && !map.isMoving()) tracker.idle();
+      }, SETTLE_POLL_MS);
+    });
     const onLoading = () => tracker.loading();
     const onIdle = () => tracker.idle();
     map.on("dataloading", onLoading);
     map.on("idle", onIdle);
     return () => {
+      stopPolling();
       tracker.dispose();
       map.off("dataloading", onLoading);
       map.off("idle", onIdle);
@@ -900,11 +930,7 @@ export function MapView() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready || !flyTo) return;
-    map.flyTo({
-      center: [flyTo.lon, flyTo.lat],
-      zoom: Math.max(map.getZoom(), 20),
-      duration: 1200,
-    });
+    goTo(map, [flyTo.lon, flyTo.lat], Math.max(map.getZoom(), 20));
   }, [flyTo, ready]);
 
   /* The note can go away without the user doing anything -- browsed tiles
@@ -983,10 +1009,7 @@ export function MapView() {
             if (!map) return;
             /* Close enough to read streets, not so close that a town
               centre fills the screen with one building. */
-            map.flyTo({
-              center: [lon, lat],
-              zoom: Math.max(map.getZoom(), 15),
-            });
+            goTo(map, [lon, lat], Math.max(map.getZoom(), 15));
           }}
           /* An address names one square, so this goes all the way in --
              requestFlyTo lands at zoom 20 where onPick stops at 15. It moves

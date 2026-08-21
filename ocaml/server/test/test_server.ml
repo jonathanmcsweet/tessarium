@@ -5,6 +5,7 @@
    path that escapes the asset root serves whatever is above it. Neither
    produces an error the way a crash would. *)
 
+module C = Tessarium_server.Http_cache
 module R = Tessarium_server.Http_range
 module U = Tessarium_server.Url_path
 module Route = Tessarium_server.Route
@@ -1310,6 +1311,92 @@ let () =
      as a check so the tradeoff is recorded rather than discovered. *)
   check "a place name shaped like an address is treated as one"
     (String.equal (shape "route 66 exit 1234") "complete");
+
+  (* ------------------------------------------- conditional requests
+
+     Every response is `no-cache`, which means "ask before reusing", and until
+     these tags existed there was nothing to ask about, so asking cost the
+     whole body. The two mistakes available here both fail silently: a tag
+     that never matches costs what it was meant to save, and a tag that
+     matches when it should not serves a stale body forever. *)
+  let tag ?encoding b = C.of_bytes ~encoding b in
+  let fresh ?(hdr = "") etag =
+    C.is_fresh ~if_none_match:(if hdr = "" then None else Some hdr) ~etag
+  in
+  check "a tag is quoted, or a browser will not echo it back"
+    (let t = tag "hello" in
+     String.length t > 2 && t.[0] = '"' && t.[String.length t - 1] = '"');
+  check "the same bytes get the same tag"
+    (String.equal (tag "hello") (tag "hello"));
+  check "different bytes get different tags"
+    (not (String.equal (tag "hello") (tag "hellp")));
+  (* The one that would corrupt a page rather than slow it down: gzip and
+     identity are two representations, and telling a client holding one that
+     its copy of the other is current hands it gzip to parse as UTF-8. *)
+  check "an encoding is part of the tag"
+    (not (String.equal (tag "hello") (tag ~encoding:"gzip" "hello")));
+  check "and two encodings of the same bytes still differ"
+    (not
+       (String.equal
+          (tag ~encoding:"br" "hello")
+          (tag ~encoding:"gzip" "hello")));
+  let stamp ?(key = "a/b.pbf") ?(size = 10) ?(mtime = 1.0) () =
+    C.of_stamp ~key ~size ~mtime
+  in
+  check "a stamp changes when the file grows"
+    (not (String.equal (stamp ()) (stamp ~size:11 ())));
+  check "a stamp changes when the file is rewritten within the same second"
+    (not (String.equal (stamp ~mtime:1.25 ()) (stamp ~mtime:1.5 ())));
+  (* Two files written in one instant at one length are still two files. The
+     glyph directory is where this happens: a tarball extracted in one go,
+     several of them empty. *)
+  check "two files with the same size and time still differ"
+    (not (String.equal (stamp ~key:"fonts/a/0-255.pbf" ())
+            (stamp ~key:"fonts/b/0-255.pbf" ())));
+  check "no header, nothing to be fresh against" (not (fresh (tag "x")));
+  check "the tag it holds" (fresh ~hdr:(tag "x") (tag "x"));
+  check "a tag for something else" (not (fresh ~hdr:(tag "y") (tag "x")));
+  check "* matches whatever we have" (fresh ~hdr:"*" (tag "x"));
+  check "one of a list"
+    (fresh ~hdr:(Printf.sprintf "%s, %s, %s" (tag "a") (tag "x") (tag "b"))
+       (tag "x"));
+  check "none of a list"
+    (not (fresh ~hdr:(Printf.sprintf "%s, %s" (tag "a") (tag "b")) (tag "x")));
+  (* Weak comparison is what If-None-Match specifies: a cache that downgraded
+     the tag on the way in still holds the same entry. *)
+  check "a weak echo of our tag is still our tag"
+    (fresh ~hdr:("W/" ^ tag "x") (tag "x"));
+  check "whitespace around the entries"
+    (fresh ~hdr:(Printf.sprintf "  %s ,  %s  " (tag "a") (tag "x")) (tag "x"));
+  (* A comma is legal inside a quoted entity-tag. Ours never contain one, but
+     a client echoing a tag from elsewhere can, and splitting on the character
+     would tear it into two tags that match nothing -- or, worse, into a
+     prefix that matches something. *)
+  check "a comma inside a tag is not a separator"
+    (fresh ~hdr:"\"a,b\"" "\"a,b\"");
+  check "and does not make its halves match"
+    (not (fresh ~hdr:"\"a,b\"" "\"a\""));
+  check "an unparseable header matches nothing"
+    (not (fresh ~hdr:"not a tag" (tag "x")));
+
+  (* [If-Range] guards a Range against the bytes having moved, and compares
+     STRONGLY -- map.pmtiles is rewritten in place, so a window handed to a
+     client holding a partial copy of the old archive would splice two
+     archives together. *)
+  let current ?hdr etag =
+    C.range_is_current ~if_range:hdr ~etag
+  in
+  check "no If-Range, the range stands" (current (tag "x"));
+  check "an If-Range naming what we have" (current ~hdr:(tag "x") (tag "x"));
+  check "an If-Range naming something else"
+    (not (current ~hdr:(tag "y") (tag "x")));
+  (* A weak tag says the bytes may have moved without the tag changing, which
+     is exactly the admission a partial response cannot survive. *)
+  check "a weak If-Range never stands"
+    (not (current ~hdr:("W/" ^ tag "x") (tag "x")));
+  (* An HTTP-date is a validator this server never issues. *)
+  check "an If-Range date never stands"
+    (not (current ~hdr:"Wed, 21 Oct 2026 07:28:00 GMT" (tag "x")));
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "server decisions hold"

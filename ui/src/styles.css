@@ -837,8 +837,11 @@ button:disabled {
   }
 }
 
-/* Respect a stated preference for less motion: flyTo is a 1.2 s camera move,
-   which is exactly the kind of thing that setting is about. */
+/* Respect a stated preference for less motion. This block covers CSS
+   animation; the map's own camera is not CSS and is not reached from here --
+   MapLibre reads the same media query itself and turns any non-essential
+   movement into a jump, which is why ui/src/core/camera.ts does not mark its
+   fly-to essential. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
