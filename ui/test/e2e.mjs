@@ -2134,10 +2134,18 @@ const drawnFrom = async (zoom) => {
     { timeout: 30_000 },
   ).catch(() => {});
   await page.waitForTimeout(1500);
+  /* Either source counts: the question is whether the basemap is still
+     drawing ground here, not which of the two layers supplied it. Past the
+     downloaded depth the answer must come from the floor. */
   return await page.evaluate(() =>
-    window.__tessarium_map.querySourceFeatures("protomaps", {
-      sourceLayer: "fixture",
-    }).length
+    ["protomaps", "protomaps-floor"].reduce(
+      (n, id) =>
+        n
+        + window.__tessarium_map.querySourceFeatures(id, {
+          sourceLayer: "fixture",
+        }).length,
+      0,
+    )
   );
 };
 

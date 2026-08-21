@@ -58,6 +58,14 @@ const GRID_MIN_ZOOM = 18;
    what is on disk has to be asked at. */
 const MAX_TILE_ZOOM = 15;
 
+/* The floor source's name and the depth it admits to. Zoom 6 is the world
+   overview the downloader offers first -- country level, coastlines, major
+   roads and cities -- and it is what the composite stands on. Past it
+   MapLibre overzooms rather than asking, so this source can never be
+   missing a tile it was asked for. */
+const FLOOR_SOURCE = "protomaps-floor";
+const FLOOR_ZOOM = 6;
+
 /* How long a pan is left to settle before the browse cache fetches what is
    missing. Named once because the coverage note has to outwait it: saying
    "not downloaded" about tiles that are already on their way is worse than
@@ -116,14 +124,66 @@ const buildStyle = (version: number): maplibregl.StyleSpecification => ({
       attribution:
         '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
     },
+    /* The floor: the same archive, declared shallow.
+
+       A tile source is one pyramid with one depth, and ours has holes --
+       the downloader lets you take any region to any depth and they land
+       in one archive. Renderers are built on the opposite assumption, that
+       every tile inside the declared range exists, so a hole is drawn as
+       an empty tile. Empty counts as data, so it WINS over the coarse tile
+       already on screen: zoom into a region you only hold coarsely and the
+       map you were looking at is replaced by nothing.
+
+       Two sources instead of one, which is how the offline map apps do it
+       -- a world dataset that is never absent, with regional detail
+       composited over it. Declared at FLOOR_ZOOM, this one is asked for
+       nothing deeper and MapLibre overzooms it forever, so it always has
+       an answer. The detail source keeps its holes, and a hole in the TOP
+       layer of two is transparent rather than blank. */
+    [FLOOR_SOURCE]: {
+      type: "vector",
+      url: `/tiles.json?v=${version}`,
+      maxzoom: FLOOR_ZOOM,
+    },
   },
   /* Place names follow the interface language, so switching to French does
      not leave an English map under translated controls. Protomaps wants a
      bare language subtag, not the full locale. */
-  layers: layers("protomaps", namedFlavor("light"), {
-    lang: getLocale().split("-")[0] ?? "en",
-  }),
+  layers: basemapLayers(),
 });
+
+/* The floor's layers, then the detail's, then the app's own on top.
+
+   Re-ided, because the generator names layers after what they draw and not
+   after the source they draw it from -- all 71 collide otherwise, and a
+   style with two layers of one name is rejected. The background is dropped
+   from the floor set for the same reason it exists only once: it paints the
+   ground, and the detail set already carries it.
+
+   The symbol layers are KEPT. Stripping them would be the obvious
+   economy -- labels are the thing most likely to double -- and it would
+   take the labels away from exactly the places where the floor is the only
+   map there is. Somewhere you have not downloaded, the city name is the
+   most useful thing on the screen. Where detail does exist, the two
+   candidates sit on top of each other and MapLibre's collision pass keeps
+   one; what needs a human eye is whether the floor's copy of a place sits
+   far enough from the detail's to survive that. */
+const basemapLayers = (): maplibregl.LayerSpecification[] => {
+  const lang = getLocale().split("-")[0] ?? "en";
+  const flavor = namedFlavor("light");
+  const floor = layers(FLOOR_SOURCE, flavor, { lang })
+    .filter((layer) => layer.type !== "background")
+    .map((layer) => ({ ...layer, id: `${FLOOR_SOURCE}-${layer.id}` }));
+  const detail = layers("protomaps", flavor, { lang });
+  /* The ground goes under BOTH, which means pulling it out of the detail set
+     rather than leaving it where the generator put it. Left in place it sits
+     above the floor's layers and paints over every one of them -- which is
+     what it did, and the screen stayed exactly as blank as before while the
+     floor's tiles loaded happily underneath. */
+  const ground = detail.filter((layer) => layer.type === "background");
+  const over = detail.filter((layer) => layer.type !== "background");
+  return [...ground, ...floor, ...over];
+};
 
 /* The grid and selection overlay, added on load and re-added after every
    style swap -- setStyle discards custom sources and layers. */
