@@ -92,7 +92,19 @@ export function AddressPanel() {
                   sight. An address hidden with CSS is still in the page for
                   anything reading the DOM. */
                 }
-                <output className={concealed ? "address concealed" : "address"}>
+                {
+                  /* The mask is meaningless read aloud, so while concealed
+                    the accessible name says what it is instead of spelling
+                    out twenty-five bullets. This used to be a visible note
+                    below the row; that note existed for the address and not
+                    for the coordinates, and it appeared and disappeared with
+                    the toggle, which moved everything under it by 23 px on
+                    every press. Same information, no layout in it. */
+                }
+                <output
+                  className={concealed ? "address concealed" : "address"}
+                  aria-label={concealed ? m.panel_concealed() : undefined}
+                >
                   {concealed ? MASK : selection.address}
                 </output>
                 <IconButton
@@ -113,24 +125,36 @@ export function AddressPanel() {
                   icon={<Copy size={18} aria-hidden />}
                 />
               </div>
-              {concealed && (
-                <p className="concealed-note">{m.panel_concealed()}</p>
-              )}
               {
                 /* Coordinates name where someone is as plainly as the
                   address does, so they get the same treatment: hidden by
                   default, not rendered while hidden, copyable either way. */
               }
               <div className="coords-row">
+                {
+                  /* Named the same way as the address above, for the same
+                    reason: "Latitude, bullet bullet bullet" is not an
+                    answer. */
+                }
                 <dl className="coords">
                   <dt>{m.panel_latitude()}</dt>
-                  <dd>
+                  <dd
+                    className={coordsConcealed ? "concealed" : undefined}
+                    aria-label={coordsConcealed
+                      ? m.panel_coords_concealed()
+                      : undefined}
+                  >
                     {coordsConcealed
                       ? COORD_MASK
                       : formatCoord(selection.cell.latLo)}
                   </dd>
                   <dt>{m.panel_longitude()}</dt>
-                  <dd>
+                  <dd
+                    className={coordsConcealed ? "concealed" : undefined}
+                    aria-label={coordsConcealed
+                      ? m.panel_coords_concealed()
+                      : undefined}
+                  >
                     {coordsConcealed
                       ? COORD_MASK
                       : formatCoord(selection.cell.lonLo)}

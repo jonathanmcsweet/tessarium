@@ -100,6 +100,7 @@
   "panel_conceal": "Ocultar esta dirección",
   "panel_concealed": "Dirección oculta",
   "panel_coords_conceal": "Ocultar estas coordenadas",
+  "panel_coords_concealed": "Coordenadas ocultas",
   "panel_coords_copied": "Coordenadas copiadas al portapapeles.",
   "panel_coords_copy": "Copiar estas coordenadas",
   "panel_coords_copy_failed": "No se pudo acceder al portapapeles. Muestra las coordenadas para seleccionarlas a mano.",

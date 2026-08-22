@@ -100,6 +100,7 @@
   "panel_conceal": "Masquer cette adresse",
   "panel_concealed": "Adresse masquée",
   "panel_coords_conceal": "Masquer ces coordonnées",
+  "panel_coords_concealed": "Coordonnées masquées",
   "panel_coords_copied": "Coordonnées copiées dans le presse-papiers.",
   "panel_coords_copy": "Copier ces coordonnées",
   "panel_coords_copy_failed": "Impossible d'accéder au presse-papiers. Affichez les coordonnées pour les sélectionner à la main.",
