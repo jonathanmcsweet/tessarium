@@ -73,6 +73,23 @@ let detail_files = [ cache_file; base_file ]
    measured in hundreds of megabytes. *)
 let max_floor_zoom = 6
 
+(* Whether an archive's data section is actually on disk.
+
+   A truncated file -- a fetch interrupted after the header and directories
+   were written -- answers every directory lookup and fails half the reads,
+   which is the one shape that can fool the scan below into certifying a
+   floor full of holes. Cheap to rule out: the header says where the data
+   ends, and the file either reaches that far or it does not.
+
+   Only the floor asks. A truncated archive still serves every tile it
+   really has, and taking it away entirely would turn a partial download
+   into no map at all; what it may not do is be counted towards a
+   completeness claim. *)
+let data_is_whole ~size (a : Pmtiles.Archive.t) =
+  a.Pmtiles.Archive.header.Pmtiles.Header.data_offset
+  + a.Pmtiles.Archive.header.Pmtiles.Header.data_length
+  <= size
+
 (* The deepest zoom the archives cover the ENTIRE planet at.
 
    This is the floor's depth, and it is measured rather than declared
@@ -83,10 +100,13 @@ let max_floor_zoom = 6
 
    Counted across every archive together: one may hold the world at zoom 4
    and another a country at zoom 12, and the floor stands on the union.
-   Stops at the first zoom with a gap, so the usual answers are cheap -- an
-   archive holding one city fails at zoom 1 after four lookups. The full
-   5461 are only paid by an archive that really does hold the whole world,
-   which is the case worth being sure about.
+   Stops at the first missing tile of the first incomplete zoom, so the
+   usual answers are cheap -- an archive holding one city runs out inside
+   zoom 1, two or three lookups in. The full 5461 are only paid by an
+   archive that really does hold the whole world, which is the case worth
+   being sure about; measured at 3 ms against a 6.4 GB archive, because the
+   zoom 0-6 ids sit at the front of the file in one root directory and four
+   leaves.
 
    -1 means not even the single zoom-0 tile is there: no floor at all. *)
 let floor_depth archives =
@@ -361,6 +381,26 @@ let open_readable ~sw ~fs ~basemap_dir name =
       Logs.warn (fun m ->
           m "coverage: %s is unreadable: %s" name (Printexc.to_string e));
       None
+
+let whole_archives ~sw ~fs ~basemap_dir names =
+  List.filter_map
+    (fun name ->
+      let path = Eio.Path.(fs / basemap_dir / name) in
+      match open_readable ~sw ~fs ~basemap_dir name with
+      | None -> None
+      | Some a ->
+          let size =
+            Optint.Int63.to_int
+              (Eio.Path.stat ~follow:true path).Eio.File.Stat.size
+          in
+          if data_is_whole ~size a then Some a
+          else begin
+            Logs.warn (fun m ->
+                m "%s is shorter than its own header says: not counted \
+                   towards the floor" name);
+            None
+          end)
+    names
 
 (* The browse cache: anonymous tiles picked up while panning online. Its own
    file so a browse never rewrites the big archive; folded into it when it
@@ -1379,6 +1419,22 @@ let ledger_json ~fs ~basemap_dir =
     let _meta, led = base_ledger base in
     `Assoc
       [
+        (* Whether there is a map on disk at all, which is NOT whether the
+           ledger has entries. A world overview fetched with the extraction
+           tool writes no entry and is still a drawn, labelled planet, and
+           the setup docs make fetching one step 1 -- so a banner reading
+           "no basemap found" over it would be contradicting the map behind
+           it. Answered here rather than by the page probing for files,
+           because a probe for one that is absent is a 404 in the console on
+           a supported configuration. *)
+        ( "held",
+          `Bool
+            (List.exists
+               (fun name ->
+                 match Eio.Path.kind ~follow:true Eio.Path.(fs / basemap_dir / name) with
+                 | `Regular_file -> true
+                 | _ -> false)
+               [ base_file; world_file ]) );
         ( "entries",
           `List
             (List.map
@@ -1512,7 +1568,9 @@ let coverage ~fs ~basemap_dir (req : Basemap_job.request) =
          which is a fact about the whole archive rather than about this
          view. Told only the depth, the client would promise "this is the
          wider map" over ground with no wider map on it. *)
-      let floor_here = floor_depth archives >= 0 in
+      let floor_here =
+        floor_depth (whole_archives ~sw ~fs ~basemap_dir tile_files) >= 0
+      in
       `Assoc
         [
           ("zoom", `Int z);

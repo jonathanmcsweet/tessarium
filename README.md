@@ -166,8 +166,10 @@ Two archives land. `map.pmtiles` is the region in detail; `world.pmtiles` is a
 shallow overview of the whole planet, about 6 MB, and it is what the map draws
 everywhere you have not downloaded — stretched and coarse, but never blank.
 The server stands the map on the deepest zoom the archives cover the *entire*
-planet at, measured rather than declared, so a source with a hole in it simply
-floors one level higher instead of showing an empty tile.
+planet at — measured rather than declared, so an overview fetched only to zoom
+3 gives a coarser floor instead of a hole. A file cut short mid-fetch is not
+counted at all: its directories would answer for tiles whose bytes are missing,
+which is the one way a floor could be certified with holes in it.
 
 Everything is served from one origin — tiles, glyphs and sprites included. A
 style that fetches its labels from a CDN looks perfect online and renders as

@@ -395,10 +395,8 @@ export function MapView() {
   const [truncated, setTruncated] = useState(false);
   /* Null when the middle of the view has a tile at the zoom being drawn:
      the note is about where the user is looking, not about a corner of the
-     screen. [floor] is whether there is a map underneath it anyway, which
-     decides which of two notes it gets -- a different sentence, and the
-     wrong one reads as broken software. */
-  const [blank, setBlank] = useState<{ floor: boolean; } | null>(null);
+     screen. */
+  const [blank, setBlank] = useState(false);
   const [zoom, setZoom] = useState(0);
   /* Bumped after every style swap so the effects that draw onto the style
      (grid, selection) know their sources were just recreated empty. */
@@ -659,7 +657,7 @@ export function MapView() {
       type: "FeatureCollection",
       features: blankEdges(answer, answer.zoom),
     });
-    setBlank(centreIsBlank(answer) ? { floor: answer.floor } : null);
+    setBlank(centreIsBlank(answer));
   }, [client]);
 
   /* Nothing to say when there is no archive at all -- the missing-basemap
@@ -675,7 +673,7 @@ export function MapView() {
     const map = mapRef.current;
     if (!map || !ready) return;
     if (coverageOff) {
-      setBlank(null);
+      setBlank(false);
       return;
     }
     /* Browsing fetches the viewport's missing tiles 1.2 s after a pan
@@ -735,6 +733,19 @@ export function MapView() {
   const browseMutate = useBasemapBrowse().mutate;
   const browseInFlight = useRef(false);
   const browseEnabled = settings.data?.browse_cache === true;
+  /* Turning browsing OFF deletes cache.pmtiles, and the floor's depth is
+     measured across every archive including that one -- so a cache that had
+     completed a shallow zoom level takes the floor down with it, leaving the
+     style advertising a depth the archives no longer reach. That is a hole
+     at the floor's own maxzoom, which is the rug-pull again. Rebuilding asks
+     the server for both depths afresh. Only on the way off: a floor that
+     turns out to be deeper than advertised draws fine, it is the other
+     direction that breaks. */
+  const wasBrowsing = useRef(browseEnabled);
+  useEffect(() => {
+    if (wasBrowsing.current && !browseEnabled && ready) rebuildBasemap();
+    wasBrowsing.current = browseEnabled;
+  }, [browseEnabled, ready, rebuildBasemap]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready || !browseEnabled) return;
@@ -1036,7 +1047,7 @@ export function MapView() {
      not clear the flag. */
   const notesRef = useRef<HTMLDivElement>(null);
   const noteHeldFocus = useRef(false);
-  const noteShown = blank !== null && !downloadOpen;
+  const noteShown = blank && !downloadOpen;
   useLayoutEffect(() => {
     const node = notesRef.current;
     if (!noteShown || !node) return;
@@ -1135,15 +1146,17 @@ export function MapView() {
         {blank && !downloadOpen && (
           <div className="map-note action" role="status">
             {
-              /* Two different facts, and saying the wrong one is the kind of
-                overclaim this project treats as a bug: "no map here" over a
-                map the user can see reads as broken software, and "this is
-                the wider map" over blank ground is a promise of something
-                that is not there. */
+              /* One message, because there is only one fact the app can
+                state honestly here: the detail is not downloaded. What the
+                floor actually draws underneath ranges from a full country
+                map to a single stretched polygon, and which of those you
+                are looking at depends on how far past the floor's own depth
+                the camera has gone -- so a note promising "this is the
+                wider map" is a promise the app cannot keep, and one saying
+                "no map here" contradicts a map the user can see. Saying
+                neither is the only thing true in both. */
             }
-            <span>
-              {blank.floor ? m.map_coverage_coarse() : m.map_coverage_gap()}
-            </span>
+            <span>{m.map_coverage_gap()}</span>
             <button
               type="button"
               className="note-action"

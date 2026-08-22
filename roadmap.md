@@ -426,6 +426,36 @@ not cover.
       requests across that sweep. Fixable only inside MapLibre's tile keying
       or by a service worker, so it is recorded rather than attempted.
 
+- [ ] **`/tiles.json`'s `maxzoom` does two jobs, and they disagree when
+      nothing is downloaded.** It tells MapLibre how deep to request, and it
+      is what `refreshCoverage` clamps its question to — so that a view the
+      source is overzooming from tiles it really holds is not called blank.
+      With a world overview and no region yet, those two want opposite
+      answers: reporting the archive's real depth (nothing) silences the
+      download note at every zoom, which is the one state where offering the
+      download is the whole point, and reporting 15 means the detail source
+      asks for a viewport of tiles nobody holds on every pan. The honest 15
+      is what ships, so the cost is those misses — header-only 204s, in a
+      state that ends the moment anything is downloaded. The fix is to stop
+      overloading the field: let the coverage query carry the camera zoom and
+      have the server clamp it against the detail archives' own depth, which
+      is where that fact lives. (Adversarial review, 2026-08-22.)
+
+- [ ] **Far past the floor's depth the map is one stretched polygon.** The
+      floor is complete, so it always draws — but an archive holding a single
+      city floors at zoom 0 or 1, and at street zoom that is one `earth`
+      polygon filling the screen. The app says "Detail here is not
+      downloaded", which is true and says nothing about what is on screen.
+      An honest UI would distinguish "a coarser map" from "effectively
+      nothing", and the only fact available to distinguish them is the gap
+      between the floor's depth and the camera zoom — a threshold, and the
+      right value is a matter of what a Protomaps tile still shows after N
+      levels of stretching rather than anything derivable. Deferred rather
+      than guessed: the message as written is never wrong, and a threshold
+      picked by taste would make it wrong somewhere. Fetching a world
+      overview moves the floor to zoom 4-6 and makes the case rare, which is
+      why the setup docs put it first. (Adversarial review, 2026-08-22.)
+
 - [ ] **A locale switch does not rebuild the map style.** `buildStyle` reads
       `getLocale()` and asks Protomaps for labels in that language, but it is
       only called on map creation and on a download or removal. Nothing calls

@@ -27,10 +27,12 @@ BBOX="-0.25,51.45,0.0,51.55"
 MAX_ZOOM=15
 OUT_DIR="basemap"
 SOURCE="latest"
-# Zoom 4 is about 6 MB and shows countries, coastlines and capitals. Each
-# further level is roughly four times that -- 5 is ~14 MB, 6 is ~43 MB -- and
-# the server will only stand the map on a level the file covers the WHOLE
-# planet at, so a half-fetched overview simply floors one level higher.
+# Zoom 4 is about 6 MB and shows countries, coastlines and capitals; 5 is
+# about 14 MB and 6 about 43 MB, measured against a Protomaps planet build.
+# Past 6 is pointless: the server never stands the map deeper than that.
+# A shallower overview is not wasted -- the map floors on whatever level the
+# file covers the WHOLE planet at -- and an interrupted fetch leaves a .part
+# rather than a short file, so re-running this picks it up again.
 WORLD_ZOOM=4
 ASSETS="https://codeload.github.com/protomaps/basemaps-assets/tar.gz/refs/heads/main"
 

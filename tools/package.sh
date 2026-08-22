@@ -66,10 +66,10 @@ Quick start
        ./tessarium-basemap latest \
          --bbox=-180,-85,180,85 --max-zoom 4 --out basemap/world.pmtiles
 
-     Deeper is better and costs roughly four times per level — zoom 5 is
-     about 14 MB, zoom 6 about 43 MB. The map stands on the deepest level
-     the file covers the whole planet at, so a partial fetch is not wasted;
-     it simply floors one level higher.
+     Deeper is better: zoom 5 is about 14 MB and zoom 6 about 43 MB, which
+     is as deep as the map will ever stand. A shallower overview is not
+     wasted — the map stands on whichever level the file covers the whole
+     planet at, so zoom 3 simply gives a coarser floor than zoom 6.
 
   2. Fetch a basemap for wherever you care about in detail:
 

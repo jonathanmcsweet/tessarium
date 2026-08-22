@@ -1251,15 +1251,16 @@ check(
   await page.waitForSelector(".map-note.action", { timeout: 15_000 })
     .then(() => true, () => false),
 );
-/* And says the right one of the two things. This archive holds the single
-   zoom-0 tile of the planet -- every download starts there -- so the floor
-   reaches here and there IS a map under the camera, coarse as it is.
-   Claiming "no map downloaded here" over it would read as broken software,
-   which is the failure the second message exists to prevent. */
+/* And says the one thing that is true wherever it appears. What the floor
+   draws underneath ranges from a country map to a single stretched polygon
+   depending on how far past its depth the camera has gone, so a note
+   promising a wider map cannot keep the promise, and one denying any map
+   contradicts what is on screen elsewhere. Read from the catalogue rather
+   than copied here, so rewording it back into a claim fails this. */
 check(
-  "and says the wider map is showing, not that there is none",
+  "and claims only that the detail is missing",
   (await page.locator(".map-note.action span").innerText())
-    === m("map_coverage_coarse"),
+    === m("map_coverage_gap"),
 );
 /* The wash is the other half of that claim. It is 42% opaque -- sized for
    ground with nothing drawn on it -- so painting it over the floor would
@@ -1301,11 +1302,6 @@ check(
     null,
     { timeout: 15_000 },
   ).then(() => true, () => false),
-);
-check(
-  "and the note drops the promise of a wider map",
-  (await page.locator(".map-note.action span").innerText())
-    === m("map_coverage_gap"),
 );
 await page.unroute("**/api/basemap-coverage");
 await page.evaluate(() =>
@@ -2184,10 +2180,8 @@ const deepThin = tileAt(thinLon, thinLat, 15);
 const coarseThin = tileAt(thinLon, thinLat, 8);
 
 /* The premise, stated rather than assumed: this really is a place with a
-   coarse map and no detail. Without all three the checks below pass for the
-   wrong reason -- and they are three different tiles, because the camera
-   sits at 8 for one of them while the floor never asks past its own depth,
-   whatever the camera is doing. */
+   coarse map and no detail. Without both halves the checks below pass for
+   the wrong reason. */
 check(
   "just west of the download there is no deep tile",
   (await fetch(`${base}/tiles/15/${deepThin.x}/${deepThin.y}.mvt`)).status
@@ -2198,15 +2192,6 @@ check(
   (await fetch(`${base}/tiles/8/${coarseThin.x}/${coarseThin.y}.mvt`)).status
     === 200,
 );
-{
-  const floor = await (await fetch(`${base}/world.json`)).json();
-  const tile = tileAt(thinLon, thinLat, floor.maxzoom);
-  check(
-    `and the floor's own depth (${floor.maxzoom}) has one too`,
-    (await fetch(`${base}/tiles/${floor.maxzoom}/${tile.x}/${tile.y}.mvt`))
-      .status === 200,
-  );
-}
 
 const drawnFrom = async (zoom) => {
   await page.evaluate(

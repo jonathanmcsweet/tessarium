@@ -214,9 +214,20 @@ let whole_planet = [ -180.; -85.; 180.; 85. ]
 let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which =
   Eio.Switch.run @@ fun sw ->
   let json = tilejson_body cfg ~host ~query ~if_none_match in
+  (* Only archives whose data is actually on disk may be counted towards a
+     floor -- see [Basemap_download.data_is_whole]. A file cut short after
+     its directories were written answers every lookup and fails half the
+     reads, which is exactly a floor full of holes. *)
   let floor_depth () =
     Basemap_download.floor_depth
-      (List.map snd
+      (List.filter_map
+         (fun (name, a) ->
+           let size =
+             Optint.Int63.to_int
+               (Eio.Path.stat ~follow:true Eio.Path.(basemap_root / name))
+                 .Eio.File.Stat.size
+           in
+           if Basemap_download.data_is_whole ~size a then Some a else None)
          (open_tile_archives ~basemap_root ~sw Basemap_download.tile_files))
   in
   match which with
@@ -235,6 +246,14 @@ let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which =
       let e7f v = float_of_int v /. 1e7 in
       let min_zoom, max_zoom, bounds =
         match headers with
+        (* Nothing downloaded. The depth stated here is not only what
+           MapLibre asks for: the coverage note clamps its question to it,
+           to avoid calling a view blank when the source is overzooming
+           tiles it really holds. Reporting 0 for an empty archive silences
+           the note at every zoom -- in the one state where offering the
+           download is the whole point. So the honest 15 stays, and the
+           cost is a viewport of misses on every pan until something is
+           downloaded. Roadmap: one field, two jobs. *)
         | [] -> (0, 15, whole_planet)
         | h :: t ->
             let fold f field =
@@ -251,15 +270,18 @@ let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which =
       in
       (* The two documents describe one archive cut in two, and this is where
          the cut falls. Below it the floor is complete, and the tiles it
-         draws are the same bytes this source would draw -- so asking for
-         them twice buys a duplicate of every tile in the viewport and
-         nothing else. Measured at zoom 6: 24 tile requests, or 48 without
-         this line.
+         would draw are the same bytes this source would draw -- so asking
+         for them twice buys a duplicate of every tile in the viewport and
+         nothing else.
 
-         Never above [max_zoom], which would be an empty range: an archive
-         that is nothing but a world overview has a floor as deep as it has
-         anything, and the two meet rather than crossing. *)
-      let min_zoom = max min_zoom (min max_zoom (floor_depth () + 1)) in
+         When the cut lands past this source's own depth there is nothing
+         above the floor to draw, and the range comes out empty on purpose:
+         MapLibre skips every tile shallower than [minzoom] and never looks
+         deeper than [maxzoom], so an empty range is a source that requests
+         nothing. Left overlapping instead, a world-overview-only archive
+         would paint its coarsest tiles OVER the floor's finer ones -- the
+         map getting worse inside the region you downloaded. *)
+      let min_zoom = max min_zoom (floor_depth () + 1) in
       json ~min_zoom ~max_zoom ~bounds
 
 (* One vector tile. Bytes go out exactly as stored when the client accepts
@@ -291,35 +313,25 @@ let serve_tile cfg ~basemap_root ~meth ~client_headers ~z ~x ~y =
   in
   match found with
   | None ->
-      (* "Nothing here" is the same answer every time, so it gets a validator
-         too. Without one it was the only reply in the session a client could
-         not revalidate, and past the edge of a download that is most of
-         them -- a viewport of misses, re-asked in full on every visit, and
-         asked twice over now that the floor is a second source reading the
-         same archive. 204 is cacheable by default (RFC 9110 15.3.5), so a
-         tag turns the repeat into an empty 304.
+      (* No validator here, deliberately. A tag looks like the obvious
+         saving -- past the edge of a download most of a viewport is this
+         reply -- but it was measured to buy nothing: Chromium does not
+         store a 204, so it never sends the tag back and the 304 never
+         happens, while a control on the same origin revalidated a real tile
+         correctly. A 204 has no body to re-send either way. It also has no
+         representation, which makes an ETag on it a fiction (RFC 9110 8.8.3)
+         and would turn `If-None-Match: *` into a 304 where the spec asks
+         for the 204.
 
-         Constant, and distinct from any tile's tag: the moment a tile does
-         land here -- a download, or the browse cache -- the tag becomes a
-         hash of its bytes, the client's stale tag misses, and it is sent
-         the tile. *)
-      let etag = Http_cache.of_digest ~encoding:None "empty" in
-      if
-        Http_cache.is_fresh
-          ~if_none_match:(joined client_headers "if-none-match")
-          ~etag
-      then not_modified cfg ~etag ~cache_control:"no-cache" ~vary:[]
-      else
-        (* No content-length on a 204 (RFC 9110), and nothing written --
-           cohttp's string-body path would add the length back, so this is an
-           Expert response like the found case. *)
-        let headers =
-          Http.Header.of_list
-            (("cache-control", "no-cache") :: ("etag", etag)
-           :: security_headers cfg)
-        in
-        let response = Http.Response.make ~status:`No_content ~headers () in
-        (`Expert (response, fun _ic _oc -> ()), `No_content, 0, Http_range.Whole)
+         No content-length on a 204 (RFC 9110), and nothing written --
+         cohttp's string-body path would add the length back, so this is an
+         Expert response like the found case. *)
+      let headers =
+        Http.Header.of_list
+          (("cache-control", "no-cache") :: security_headers cfg)
+      in
+      let response = Http.Response.make ~status:`No_content ~headers () in
+      (`Expert (response, fun _ic _oc -> ()), `No_content, 0, Http_range.Whole)
   | Some (bytes, header) ->
       (* Which encoding this client gets, and whether the stored bytes go out
          as they are. [inflate] is deferred: a request that ends in a 304 must
