@@ -962,6 +962,67 @@ caveat.
       - It rules nothing back in for Organic Maps or CoMaps, which have no
         custom online tile source to point at anything.
 
+      **OsmAnd — three doors, and the useful one is not the API.** Checked
+      against its own developer documentation:
+
+      - *AIDL API* (verified): a separately installed OsmAnd driven over
+        Android IPC. No licensing restrictions, ~2 MB, and explicitly
+        **cannot be passed custom code or UI elements**. It can add widgets,
+        drawer items, points and callbacks; it cannot host a grid renderer.
+      - *Full SDK* (verified): embed OsmAnd as a library. 70–150 MB, "minimal
+        documentation", "unstable API", and the licence follows OsmAnd's own
+        — the same one-way direction as Vela.
+      - *Custom overlay tile source* — an ordinary user-facing feature
+        needing no API at all, with an opacity slider over the basemap. This
+        is the door. (From knowledge of the app, not re-verified here.)
+
+      **Sort candidates by "can it take a custom XYZ or WMTS source", not by
+      "does it have plugins".** That question keeps being the one that decides
+      things, and it is usually answerable from an app's settings screen in a
+      minute. The table below is from knowledge unless marked otherwise —
+      a shortlist to check, not a set of findings.
+
+      | Host | Custom tile source | Third-party code | Licence |
+      | --- | --- | --- | --- |
+      | OsmAnd | yes, overlay + opacity | AIDL (no renderer) / SDK | open, one-way |
+      | ATAK / WinTAK | yes, WMS/WMTS/MBTiles | yes, plugin SDK | ATAK-CIV open |
+      | QGIS / QField | yes | yes, full Python plugin API | GPL-2.0 |
+      | Locus Map | yes | yes, add-on API | closed app, open API |
+      | Guru, OruxMaps, CalTopo | yes | no | closed |
+      | Google Earth Pro | KML NetworkLink, live | no | closed |
+      | Vela | not documented; MapLibre style | fork | GPL-3.0 |
+      | Organic Maps, CoMaps | no | no | open |
+      | Google Maps app | no | no | closed |
+      | Apple Maps app | no | no | closed |
+
+      **QGIS deserves a second look for the desktop and professional side.**
+      It is the only entry with a real, documented, general-purpose plugin
+      API and a plugin repository, it is already in the same hands as ATAK,
+      and a grid overlay is an ordinary thing to write there. QField carries
+      the same projects onto Android.
+
+      **Apple Maps and Google Maps cannot take an overlay, and their near
+      misses are worse than nothing here.** Neither consumer app has custom
+      layers, custom tile sources or third-party code. What exists instead:
+
+      - *Google My Maps* accepts imported KML and shows the result inside the
+        Google Maps app — but it is static, feature-capped, and stored on
+        Google's servers. Uploading seed-derived addresses to Google inverts
+        the point of this project. Disqualifying on its terms, not on its
+        capability.
+      - *Google Maps Platform* and *Apple MapKit* let a developer put a tile
+        overlay on their basemap — inside an application you write yourself.
+        That is not an integration; it is building this app again, gaining
+        only their basemap, and paying with an API key, billing, a network
+        dependency and terms that sit against an offline private posture.
+
+      The one closed-source exception worth remembering: **Google Earth Pro
+      reads a KML NetworkLink**, which can send the current viewport to a URL
+      on every camera stop and draw whatever KML comes back. Pointed at this
+      project's own local server that is a live, seed-derived overlay inside
+      a closed Google product, with nothing installed and nothing uploaded.
+      Desktop only, and not verified against a current build.
+
       **Vela — the best fit found so far, and it changes Phase 9.**
       <https://github.com/PimpinPumpkin/Vela>. "Degoogled maps & turn-by-turn
       navigation for Android — MapLibre + Jetpack Compose, no Google Play
