@@ -148,7 +148,7 @@ tools/setup.sh               # F*, Z3, opam switch, node — all into $HOME
 eval "$(make env)"           # put them on PATH for this shell
 make ui                      # build the web UI
 make build                   # compile it into the server binary
-tools/fetch-basemap.sh       # ~30 MB of central London, tiles and glyphs
+tools/fetch-basemap.sh       # central London in detail, plus a world overview
 make run                     # serves http://127.0.0.1:7373 and opens a browser
 ```
 
@@ -161,6 +161,15 @@ no runtime to install — the UI is compiled into the binary. It does link
 anywhere else. Tiles come out of the newest Protomaps daily planet build over
 HTTP range requests, so only the region asked for is transferred rather than
 the ~137 GB archive.
+
+Two archives land. `map.pmtiles` is the region in detail; `world.pmtiles` is a
+shallow overview of the whole planet, about 6 MB, and it is what the map draws
+everywhere you have not downloaded — stretched and coarse, but never blank.
+The server stands the map on the deepest zoom the archives cover the *entire*
+planet at — measured rather than declared, so an overview fetched only to zoom
+3 gives a coarser floor instead of a hole. A file cut short mid-fetch is not
+counted at all: its directories would answer for tiles whose bytes are missing,
+which is the one way a floor could be certified with holes in it.
 
 Everything is served from one origin — tiles, glyphs and sprites included. A
 style that fetches its labels from a CDN looks perfect online and renders as

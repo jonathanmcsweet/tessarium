@@ -33,7 +33,7 @@
   "map_compact_failed": "Le rangement des cartes enregistrées a échoué : {reason}",
   "map_compacting_progress": "Rangement des cartes enregistrées — {done} sur {total}",
   "map_coverage_download": "Télécharger cette zone",
-  "map_coverage_gap": "Aucune carte téléchargée à ce niveau de zoom. La grille et les adresses fonctionnent quand même.",
+  "map_coverage_gap": "Le détail n’est pas téléchargé ici. La grille et les adresses fonctionnent quand même.",
   "map_download_adopt": "Suivre cette carte",
   "map_download_assets": "Récupération des polices et des symboles…",
   "map_download_cancel": "Annuler le téléchargement",

@@ -63,23 +63,36 @@ let run source_desc url output bbox max_zoom min_zoom =
   if Array.length plan.Pmtiles.Extract.tiles = 0 then
     Error "no tiles in that box -- check the order: min_lon,min_lat,max_lon,max_lat"
   else begin
-    Eio.Path.with_open_out ~create:(`Or_truncate 0o644)
-      Eio.Path.(fs / output)
-    @@ fun out ->
-    let written = ref 0 in
-    let append s = Eio.Flow.copy_string s out in
-    let copy ~offset ~length =
-      Eio.Flow.copy_string (src.Pmtiles.Archive.read ~offset ~length) out;
-      written := !written + length;
-      (* Progress on one line. A region fetch is minutes, and silence for
-         minutes reads as a hang. *)
-      Printf.printf "\r  %s / %s (%.0f%%)%!" (human !written) (human total)
-        (100. *. float_of_int !written /. float_of_int (max 1 total))
-    in
+    (* Written beside the target and renamed at the end, never in place. An
+       interrupted fetch -- Ctrl-C, a dropped connection, a full disk --
+       otherwise leaves a file whose header and directories are complete and
+       whose tile data stops early. Every lookup in it succeeds and half the
+       reads fail, which is indistinguishable from an archive that simply
+       does not hold those tiles. The server stands the map on the deepest
+       zoom an archive covers the whole planet at, so such a file claims a
+       floor it cannot draw -- the exact failure the floor exists to
+       prevent. A rename is atomic; a partial write is left as .part. *)
+    let part = output ^ ".part" in
     let header =
+      Eio.Path.with_open_out ~create:(`Or_truncate 0o644)
+        Eio.Path.(fs / part)
+      @@ fun out ->
+      let written = ref 0 in
+      let append s = Eio.Flow.copy_string s out in
+      let copy ~offset ~length =
+        Eio.Flow.copy_string (src.Pmtiles.Archive.read ~offset ~length) out;
+        written := !written + length;
+        (* Progress on one line. A region fetch is minutes, and silence for
+           minutes reads as a hang. *)
+        Printf.printf "\r  %s / %s (%.0f%%)%!" (human !written) (human total)
+          (100. *. float_of_int !written /. float_of_int (max 1 total))
+      in
       Pmtiles.Extract.write plan h ~min_zoom ~max_zoom ~min_lon ~min_lat
         ~max_lon ~max_lat ~append ~copy
     in
+    (* After the close, not inside it: renaming an open file succeeds and
+       would publish whatever had reached the kernel so far. *)
+    Eio.Path.rename Eio.Path.(fs / part) Eio.Path.(fs / output);
     Printf.printf "\nwrote %s (%s)\n" output
       (human (header.Pmtiles.Header.data_offset + header.Pmtiles.Header.data_length));
     Ok ()

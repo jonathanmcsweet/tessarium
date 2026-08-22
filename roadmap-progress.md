@@ -21,6 +21,89 @@ than a git log.
 
 ---
 
+### 2026-08-21 — The map under the map
+
+**Phase:** 6 · **Branch:** fix/coarse-map-stays
+
+**What:** Zooming into a region held only coarsely replaced the map with grey.
+A vector source is one pyramid with one depth and ours has holes — the
+downloader takes any region to any depth into one archive — and MapLibre draws
+a hole as an empty tile. `Tile.hasData()` counts empty as data, so the
+stretched coarse parent stops being retained and the map the user was looking
+at is swapped for nothing.
+
+Two sources over the same archives now, which is how the offline map apps do
+it: a floor underneath, cut to a depth the archives cover the WHOLE planet at,
+with the downloaded detail composited over it. A hole in the top layer of two
+is transparent rather than blank, and the floor has no holes to have.
+
+Its depth is measured rather than declared. `Basemap_download.floor_depth`
+walks zoom levels until one has a gap and stops there, counting every archive
+together — 3 ms against a 6.4 GB archive holding a full world at zoom 6, and
+two or three lookups against one holding a single city. An archive whose file
+is shorter than its own header says is not counted at all: its directories
+answer for tiles whose bytes are missing, which is the one shape that can
+certify a floor full of holes, and `tessarium-basemap` now writes to `.part`
+and renames so an interrupted fetch cannot leave one. `world.pmtiles` is a new
+optional archive beside `map.pmtiles`: `tools/fetch-basemap.sh` fetches one
+(zoom 4, ~6 MB; zoom 5 is ~14 MB and 6 is ~43 MB), the tile lookup treats it
+as one more file in the list, and the downloader never writes it — so removing
+a region cannot take the floor away with it.
+
+The two TileJSON documents partition the pyramid rather than overlapping:
+`/world.json` is 0..depth over the whole planet, `/tiles.json` is depth+1..
+max over what was downloaded. Below the floor's depth the detail source was
+asking for the very same tiles, so every tile in the viewport was fetched
+twice. Where the cut lands past the detail's own depth the range comes out
+empty on purpose — MapLibre requests nothing outside a source's zoom range —
+which is also what stops a world-overview-only archive painting its coarsest
+tiles over the floor's finer ones.
+
+The note said "No map downloaded at this zoom" over ground the floor now
+draws, and the grey wash — 42% opaque, sized for blank ground — darkened it.
+The note is now one sentence that is true wherever it appears: the detail is
+not downloaded, and nothing about what is underneath. The wash is withheld
+wherever there is a floor at all, and the coverage answer gained a `floor`
+field to say so, because the depth cannot: every download starts at zoom 0,
+so an archive holding one city reports a depth over Tokyo while covering the
+planet at nothing but that one tile.
+
+An adversarial review then refuted a claim made here in an earlier draft: a
+validator on the 204 for a tile nobody holds. The reasoning was sound — 204 is
+cacheable by default, so a tag should turn the repeat into an empty 304 — and
+measurement showed Chromium simply does not store the 204, never echoes the
+tag, and never gets the 304, while a control on the same origin revalidated a
+real tile correctly. The tag bought nothing, so it is not there. An ETag on a
+response with no representation was a fiction anyway (RFC 9110 8.8.3), and it
+had turned `If-None-Match: *` into a 304 where the spec asks for the 204.
+
+**Rationale:** Measured, not declared, is the whole design. Two earlier
+attempts failed on exactly that point: serving 404 for a missing tile (MapLibre
+swallows 404 for vector sources by design — `err.status !== 404` — so it is
+indistinguishable from the 204 already sent), and capping the source's maxzoom
+from the coverage query (the cap fed the query zoom and the server's depth
+descends from the zoom asked about, a downward-only ratchet, measured
+collapsing 12 → 0 → 0 → 0). A floor that guesses its own depth reintroduces
+the bug it exists to fix, so the depth is a fact read off the archives.
+
+Labels are kept on the floor rather than stripped, which was the obvious
+economy. They are the most useful thing on screen exactly where the floor is
+the only map there is. They do not double where detail exists, and the reason
+is order rather than collision: the detail set opens with `earth`, an opaque
+fill, so wherever the detail tile has data it paints over the whole floor
+stack. That makes the layer order load-bearing and it is commented as such —
+an adversarial review caught the first version claiming the collision pass was
+doing it, which would have made the ordering look free to change.
+
+**Follow-on:** five items in roadmap.md — the in-app world overview still
+merges into `map.pmtiles` rather than `world.pmtiles`; the release tarball
+ships no overview, so a fresh install has a two-command setup; the floor
+re-asks its deepest tile once per integer camera zoom; a locale switch does
+not rebuild the style, so the map's language only follows the interface
+across a download; and far past the floor's own depth the map is a single
+stretched polygon that the app describes only as "detail not downloaded",
+which is true but thin.
+
 ### 2026-08-21 — Coming back costs nothing, and a long fly-to stops flying
 
 **Phase:** 6 · **Branch:** perf/http-caching-and-fly

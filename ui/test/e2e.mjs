@@ -17,6 +17,14 @@ const base = process.argv[2] ?? "http://127.0.0.1:7373";
 const vectors = JSON.parse(
   readFileSync(new URL("../../vectors/vectors.json", import.meta.url), "utf8"),
 );
+/* The source catalogue rather than a string copied into this file: a check
+   that quotes its own copy of the wording passes after someone changes the
+   wording and the meaning with it, which for a message whose whole job is
+   to not overclaim is the failure worth catching. */
+const messages = JSON.parse(
+  readFileSync(new URL("../messages/en-US.json", import.meta.url), "utf8"),
+);
+const m = (key) => messages[key];
 
 let checks = 0;
 let failures = 0;
@@ -425,7 +433,13 @@ const postJson = async (endpoint, body) =>
 
 /* Tiles are served through /tiles across the archives, and a tile nobody
    holds is a quiet 204 -- past the coverage edge the map must render
-   nothing, not log an error per pan. */
+   nothing, not log an error per pan.
+
+   NOT 404, and this was tried: MapLibre's vector source swallows a 404 on
+   purpose (`if (err && err.status !== 404) throw err`) and files it as an
+   empty tile, so the two statuses are indistinguishable to the map and 404
+   buys only a red line in devtools. What keeps the coarse map on screen is
+   the source's maxzoom telling the truth, not the status code. */
 check(
   "a tile with no archive behind it is 204, not an error",
   (await fetch(`${base}/tiles/0/0/0.mvt`)).status === 204,
@@ -593,10 +607,28 @@ check(
     && (await worldTile.arrayBuffer()).byteLength > 0,
 );
 const tilejson = await (await fetch(`${base}/tiles.json`)).json();
+const worldjson = await (await fetch(`${base}/world.json`)).json();
 check(
   "tiles.json states the archive's real depth and bounds",
-  tilejson.maxzoom === 6 && tilejson.minzoom === 0
-    && Array.isArray(tilejson.bounds) && tilejson.bounds.length === 4,
+  tilejson.maxzoom === 6 && Array.isArray(tilejson.bounds)
+    && tilejson.bounds.length === 4,
+);
+/* The floor is the whole planet or it is not a floor -- and only as deep as
+   the archive really covers the whole planet, which for one downloaded
+   region is the single zoom-0 tile every download starts with. Claiming
+   more is claiming a tile that is not there, which draws as empty and takes
+   the map off the screen. */
+check(
+  "world.json floors the planet at the depth the archive really covers it",
+  worldjson.minzoom === 0 && worldjson.maxzoom === 0
+    && worldjson.bounds.join() === "-180,-85,180,85",
+);
+/* Meeting rather than overlapping is what keeps a viewport one fetch
+   instead of two: below the floor's depth the detail source would be
+   asking for the very same tiles. */
+check(
+  "and the two sources meet without overlapping",
+  tilejson.minzoom === worldjson.maxzoom + 1,
 );
 check(
   "the sprite sheet arrived via the assets tarball",
@@ -1219,18 +1251,63 @@ check(
   await page.waitForSelector(".map-note.action", { timeout: 15_000 })
     .then(() => true, () => false),
 );
+/* And says the one thing that is true wherever it appears. What the floor
+   draws underneath ranges from a country map to a single stretched polygon
+   depending on how far past its depth the camera has gone, so a note
+   promising a wider map cannot keep the promise, and one denying any map
+   contradicts what is on screen elsewhere. Read from the catalogue rather
+   than copied here, so rewording it back into a claim fails this. */
 check(
-  "the blank ground is actually painted, not just described",
+  "and claims only that the detail is missing",
+  (await page.locator(".map-note.action span").innerText())
+    === m("map_coverage_gap"),
+);
+/* The wash is the other half of that claim. It is 42% opaque -- sized for
+   ground with nothing drawn on it -- so painting it over the floor would
+   darken the map the floor exists to keep. Withheld, not faded: the
+   rectangles are never handed to the source, which is what makes this
+   question answerable by asking what is on screen. */
+check(
+  "and does not wash out the map underneath it",
+  await page.evaluate(() =>
+    window.__tessarium_map.queryRenderedFeatures({
+      layers: ["coverage-blank"],
+    }).length
+  ) === 0,
+);
+
+/* The other half of the same claim, and the state the wash still exists
+   for: no floor at all. Stubbed rather than staged. Which archives make a
+   floor is settled in the server's own suite, against archives built to
+   have and to lack one; what is left to check here is that the app reacts
+   to the answer, and the archive that produces it -- one holding not even
+   the single zoom-0 tile of the planet -- is not one a download can leave
+   behind. Both halves matter: without this the wash could be deleted
+   outright and every check above would still pass. */
+await page.route("**/api/basemap-coverage", async (route) => {
+  const answer = await route.fetch();
+  await route.fulfill({ json: { ...(await answer.json()), floor: false } });
+});
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 11 })
+);
+check(
+  "with nothing drawn underneath, the blank ground is painted",
   await page.waitForFunction(
     () => {
       const map = window.__tessarium_map;
       return !!map
         && map.queryRenderedFeatures({ layers: ["coverage-blank"] }).length > 0;
     },
-    undefined,
+    null,
     { timeout: 15_000 },
   ).then(() => true, () => false),
 );
+await page.unroute("**/api/basemap-coverage");
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
+);
+await page.waitForSelector(".map-note.action", { timeout: 15_000 });
 /* The note is the one place on the map that offers the way out of a blank
    screen, so its button has to reach the downloader. */
 await page.locator(".map-note.action .note-action").click();
@@ -2067,6 +2144,94 @@ check(
   }, ${nfkdSample.lon_ns / 1e9})`,
   nearly(nfkdLat, nfkdSample.lat_ns / 1e9)
     && nearly(nfkdLon, nfkdSample.lon_ns / 1e9),
+);
+
+/* ------------------ the coarse map stays under you -------------------------
+
+   Reported from use: zoom into an area you only have the low-resolution map
+   for, watch it zoom in cleanly, and then watch the map you were looking at
+   be replaced by grey.
+
+   MapLibre keeps a stretched coarse tile on screen only while the finer tile
+   has NO data -- and an empty answer IS data, meaning "this square is
+   genuinely blank", so it wins and the coarse map goes. Changing the status
+   to 404 does not help: the vector source swallows a 404 by design and files
+   it as the same empty tile. What decides this is the source's maxzoom. While
+   it claims more depth than the archive holds here, MapLibre keeps asking for
+   tiles that will never come; when it tells the truth, MapLibre overzooms the
+   coarse tile instead, which is measurably what a user wants to see.
+
+   The situation needs an archive that CLAIMS depth it does not have
+   everywhere, which is what this server now holds: London to zoom 15, and a
+   thinner cone of low zooms around it. So the source advertises maxzoom 15,
+   MapLibre asks for zoom 15 wherever you go, and just west of the downloaded
+   box there is nothing to answer with. That is the reported situation
+   exactly, and it is why the shallow-archive server cannot stand in for it --
+   there the source advertises zoom 6, MapLibre never asks for more, and
+   nothing is ever missing.
+
+   Asserted through querySourceFeatures, which reads the tiles the source is
+   RENDERING FROM, rather than off the screen: the fixture's tiles are
+   deliberately unstyled, so nothing is drawn either way and a screenshot
+   could not tell the two outcomes apart. */
+const thinLon = -0.30;
+const thinLat = 51.50;
+const deepThin = tileAt(thinLon, thinLat, 15);
+const coarseThin = tileAt(thinLon, thinLat, 8);
+
+/* The premise, stated rather than assumed: this really is a place with a
+   coarse map and no detail. Without both halves the checks below pass for
+   the wrong reason. */
+check(
+  "just west of the download there is no deep tile",
+  (await fetch(`${base}/tiles/15/${deepThin.x}/${deepThin.y}.mvt`)).status
+    === 204,
+);
+check(
+  "but there is a coarse one",
+  (await fetch(`${base}/tiles/8/${coarseThin.x}/${coarseThin.y}.mvt`)).status
+    === 200,
+);
+
+const drawnFrom = async (zoom) => {
+  await page.evaluate(
+    ([lon, lat, z]) =>
+      window.__tessarium_map.jumpTo({ center: [lon, lat], zoom: z }),
+    [thinLon, thinLat, zoom],
+  );
+  await page.waitForFunction(
+    () => window.__tessarium_map?.areTilesLoaded() === true,
+    null,
+    { timeout: 30_000 },
+  ).catch(() => {});
+  await page.waitForTimeout(1500);
+  /* Either source counts: the question is whether the basemap is still
+     drawing ground here, not which of the two layers supplied it. Past the
+     downloaded depth the answer must come from the floor. */
+  return await page.evaluate(() =>
+    ["protomaps", "protomaps-floor"].reduce(
+      (n, id) =>
+        n
+        + window.__tessarium_map.querySourceFeatures(id, {
+          sourceLayer: "fixture",
+        }).length,
+      0,
+    )
+  );
+};
+
+/* At a zoom the archive covers, there is a map to lose. */
+const coarseDrawn = await drawnFrom(8);
+check(
+  `the coarse map is there to begin with (${coarseDrawn} features)`,
+  coarseDrawn > 0,
+);
+/* And it is still there after zooming past everything that was downloaded --
+   which is the whole point: the screen must not go blank under you. */
+const deepDrawn = await drawnFrom(16);
+check(
+  `zooming past what was downloaded keeps it (${deepDrawn} features rendered)`,
+  deepDrawn > 0,
 );
 
 await browser.close();

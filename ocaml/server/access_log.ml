@@ -28,7 +28,7 @@ let describe (r : Route.t) =
   | Route.Asset segments -> "asset /" ^ String.concat "/" segments
   | Route.Basemap segments -> "basemap /" ^ String.concat "/" segments
   | Route.Tile { z; x; y } -> Printf.sprintf "tile %d/%d/%d" z x y
-  | Route.Tile_json -> "tiles.json"
+  | Route.Tile_json { floor } -> if floor then "world.json" else "tiles.json"
   | Route.Api endpoint -> "api " ^ endpoint
   | Route.Not_found -> "not-found"
   | Route.Method_not_allowed -> "method-not-allowed"

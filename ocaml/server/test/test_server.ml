@@ -151,9 +151,17 @@ let () =
   routes `GET "/tiles/-1/0/0.mvt" Route.Not_found;
   routes `GET "/tiles/27/0/0.mvt" Route.Not_found;
   routes `POST "/tiles/0/0/0.mvt" Route.Method_not_allowed;
-  routes `GET "/tiles.json" Route.Tile_json;
-  routes `GET "/tiles.json?v=4" Route.Tile_json;
+  routes `GET "/tiles.json" (Route.Tile_json { floor = false });
+  routes `GET "/tiles.json?v=4" (Route.Tile_json { floor = false });
   routes `POST "/tiles.json" Route.Method_not_allowed;
+  (* The floor's metadata is a separate document because it describes a
+     different depth over different bounds -- the same tiles, cut to what is
+     everywhere rather than to what is deepest. *)
+  routes `GET "/world.json" (Route.Tile_json { floor = true });
+  routes `GET "/world.json?v=4" (Route.Tile_json { floor = true });
+  routes `POST "/world.json" Route.Method_not_allowed;
+  (* Normalised the same way /tiles.json is -- one document, not two. *)
+  routes `GET "/world.json/" (Route.Tile_json { floor = true });
 
   (* A single-page app owns its own routes: a deep link must survive a reload,
      but a missing script must stay a 404 or every typo looks like the app. *)

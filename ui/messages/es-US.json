@@ -33,7 +33,7 @@
   "map_compact_failed": "No se pudieron ordenar los mapas guardados: {reason}",
   "map_compacting_progress": "Ordenando los mapas guardados — {done} de {total}",
   "map_coverage_download": "Descargar esta zona",
-  "map_coverage_gap": "No hay mapa descargado en este nivel de zoom. La cuadrícula y las direcciones siguen funcionando.",
+  "map_coverage_gap": "Aquí no está descargado el detalle. La cuadrícula y las direcciones siguen funcionando.",
   "map_download_adopt": "Registrar este mapa",
   "map_download_assets": "Descargando tipografías y símbolos…",
   "map_download_cancel": "Cancelar la descarga",

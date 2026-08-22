@@ -396,6 +396,74 @@ not cover.
       glyphs must keep revalidating either way. Worth doing when the worker's
       own loading is next touched, not on its own.
 
+- [ ] **The in-app world overview merges into `map.pmtiles`.** The download
+      card offers "the whole world at zoom 6" as the recommended first
+      download, and it lands in the same archive as every region. That still
+      produces a floor — the depth is measured across all archives, so an
+      archive that really does hold the world floors at 6 — but it is a floor
+      a later removal can take away, and the ledger has no way to say "this
+      part is not a region". Writing it to `world.pmtiles` instead would make
+      it un-removable by construction and make `floor_depth` cheap to cache.
+      Left alone because it means a second merge target through
+      `basemap_download`'s .part/rename/compaction paths, which is a wider
+      change than the fix that motivated it.
+
+- [ ] **The release tarball ships no world overview.** `tools/package.sh`
+      keeps its "no basemap in the tarball" policy and README.txt now makes
+      fetching one step 1 of 3. That is a defensible first run for a
+      command-line tool and a poor one for the desktop packages, where the
+      app opens on a blank world until someone reads the README. Bundling
+      ~6 MB into the .deb and the AppImage is the obvious answer; it was not
+      done here because it changes what those packages are for, and the
+      Android plan (Phase 9) will want the same decision made once.
+
+- [ ] **The floor re-asks its deepest tile once per integer camera zoom.**
+      MapLibre keys an overzoomed vector tile by `overscaledZ`, so stepping
+      zoom 7 to 16 asks for the same `/tiles/6/x/y.mvt` ten times. Each is a
+      304 now that tiles carry validators, so it costs a round trip and no
+      body, and the same is true of any overzoomed source — this is not
+      something the two-source composite introduced. Measured at 87 → 103
+      requests across that sweep. Fixable only inside MapLibre's tile keying
+      or by a service worker, so it is recorded rather than attempted.
+
+- [ ] **`/tiles.json`'s `maxzoom` does two jobs, and they disagree when
+      nothing is downloaded.** It tells MapLibre how deep to request, and it
+      is what `refreshCoverage` clamps its question to — so that a view the
+      source is overzooming from tiles it really holds is not called blank.
+      With a world overview and no region yet, those two want opposite
+      answers: reporting the archive's real depth (nothing) silences the
+      download note at every zoom, which is the one state where offering the
+      download is the whole point, and reporting 15 means the detail source
+      asks for a viewport of tiles nobody holds on every pan. The honest 15
+      is what ships, so the cost is those misses — header-only 204s, in a
+      state that ends the moment anything is downloaded. The fix is to stop
+      overloading the field: let the coverage query carry the camera zoom and
+      have the server clamp it against the detail archives' own depth, which
+      is where that fact lives. (Adversarial review, 2026-08-22.)
+
+- [ ] **Far past the floor's depth the map is one stretched polygon.** The
+      floor is complete, so it always draws — but an archive holding a single
+      city floors at zoom 0 or 1, and at street zoom that is one `earth`
+      polygon filling the screen. The app says "Detail here is not
+      downloaded", which is true and says nothing about what is on screen.
+      An honest UI would distinguish "a coarser map" from "effectively
+      nothing", and the only fact available to distinguish them is the gap
+      between the floor's depth and the camera zoom — a threshold, and the
+      right value is a matter of what a Protomaps tile still shows after N
+      levels of stretching rather than anything derivable. Deferred rather
+      than guessed: the message as written is never wrong, and a threshold
+      picked by taste would make it wrong somewhere. Fetching a world
+      overview moves the floor to zoom 4-6 and makes the case rare, which is
+      why the setup docs put it first. (Adversarial review, 2026-08-22.)
+
+- [ ] **A locale switch does not rebuild the map style.** `buildStyle` reads
+      `getLocale()` and asks Protomaps for labels in that language, but it is
+      only called on map creation and on a download or removal. Nothing calls
+      `setStyle` when the interface language changes, so the map keeps its
+      old labels until the next archive change. The comment above
+      `basemapLayers` describes the intent rather than the behaviour. Found
+      by adversarial review of the floor work, which did not cause it.
+
 - [ ] **Arriving at an address does not select its square.** The search box
       flies the camera to the square an address names, at zoom 20, but the
       panel still shows whatever was selected before — the user has to click

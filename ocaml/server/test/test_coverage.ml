@@ -105,6 +105,9 @@ let int_field name json =
 let string_field name json =
   match field name json with Some (`String s) -> s | _ -> "<missing>"
 
+let bool_field name json =
+  match field name json with Some (`Bool b) -> Some b | _ -> None
+
 let () =
   Eio_main.run @@ fun env ->
   (* A scratch directory outside the tree: [dune exec] runs from the project
@@ -160,7 +163,12 @@ let () =
       check "a view outside every downloaded box is blank at street zoom"
         (String.for_all (fun c -> c = '0') (string_field "present" json));
       check "the overview underneath is still reported as depth"
-        (int_field "depth" json = 2));
+        (int_field "depth" json = 2);
+      (* And the floor really does draw there, which is a different
+         sentence: this archive covers the WHOLE planet at zoom 2, so the
+         map under the map has something to show over Tokyo. *)
+      check "the floor reaches somewhere never downloaded"
+        (bool_field "floor" json = Some true));
 
   (match
      query ~fs ~dir:dir_name ~min_lon:139.6 ~min_lat:35.6 ~max_lon:139.8
@@ -352,7 +360,116 @@ let () =
   | Ok json ->
       check "with no archive at all, nothing is covered"
         (String.for_all (fun c -> c = '0') (string_field "present" json));
-      check "and there is no depth to report" (int_field "depth" json = -1));
+      check "and there is no depth to report" (int_field "depth" json = -1);
+      check "and no floor under it either" (bool_field "floor" json = Some false));
+
+  (* --------------------------------------------------- what is on disk *)
+  (* The banner over the map reads this. A world overview alone is a drawn,
+     labelled planet and writes no ledger entry -- the extraction tool does
+     not keep one -- so "are there entries" is the wrong question and
+     "no basemap found" over it would contradict the map behind it. *)
+  let held_in dir_name =
+    match Tessarium_server.Basemap_download.ledger_json ~fs ~basemap_dir:dir_name with
+    | Ok json -> bool_field "held" json
+    | Error _ -> None
+  in
+  let world_only = Filename.concat root "world-only" in
+  Eio.Path.mkdir ~perm:0o755 Eio.Path.(fs / world_only);
+  write Eio.Path.(fs / world_only) "world.pmtiles" (archive_of ~max_zoom:2 world);
+  check "a world overview on its own counts as a basemap"
+    (held_in world_only = Some true);
+  check "an empty directory does not" (held_in empty = Some false);
+  check "nor do its entries say otherwise"
+    (match
+       Tessarium_server.Basemap_download.ledger_json ~fs ~basemap_dir:world_only
+     with
+    | Ok (`Assoc fields) -> List.assoc_opt "entries" fields = Some (`List [])
+    | _ -> false);
+  (* ------------------------------------------------------------- the floor *)
+  (* The floor's depth is the deepest zoom the archives cover the WHOLE
+     planet at, and it has to be measured rather than read off a header.
+     Everything below turns on that difference: this archive's header says
+     zoom 12, and a floor cut to 12 would be asking for tiles that exist
+     over London and nowhere else -- which draws an empty tile over Tokyo,
+     which is the bug the floor exists to prevent. *)
+  let depth_of dir_name =
+    Eio.Switch.run @@ fun sw ->
+    Tessarium_server.Basemap_download.floor_depth
+      (Tessarium_server.Basemap_download.whole_archives ~sw ~fs
+         ~basemap_dir:dir_name
+         Tessarium_server.Basemap_download.tile_files)
+  in
+  (* Two, not the twelve the header claims: a floor cut to twelve would ask
+     for tiles that exist over London and nowhere else. *)
+  check "the floor stops at the deepest zoom that covers the whole planet"
+    (depth_of dir_name = 2);
+  check "with no archive at all there is no floor" (depth_of empty = -1);
+  (* A world overview on its own floors the planet -- it is the only archive
+     there is, and it covers every tile of its own range. *)
+  check "a world overview on its own is the floor" (depth_of world_only = 2);
+  Eio.Path.unlink Eio.Path.(fs / world_only / "world.pmtiles");
+  Eio.Path.rmdir Eio.Path.(fs / world_only);
+
+  (* One tile short of a whole zoom level is not a whole zoom level. Removed
+     from the far side of the world from London, so nothing else about the
+     archive changes: without this the check above passes for an archive
+     that merely reaches zoom 2 somewhere. *)
+  let world_but_one =
+    List.filter
+      (fun id ->
+        id
+        <> Pmtiles.Tile_id.of_zxy ~z:2
+             ~x:(Pmtiles.Tile_id.tile_x ~z:2 ~lon:139.7)
+             ~y:(Pmtiles.Tile_id.tile_y ~z:2 ~lat:35.7))
+      (List.sort_uniq compare (world @ london))
+  in
+  write dir "map.pmtiles" (archive_of ~max_zoom:12 world_but_one);
+  check "one missing tile takes the floor up a level"
+    (depth_of dir_name = 1);
+  write dir "map.pmtiles"
+    (archive_of ~max_zoom:12 (List.sort_uniq compare (world @ london)));
+
+  (* A file cut short after its directories were written. This is what an
+     interrupted fetch used to leave behind, and it is the one shape that
+     can fool the scan: every lookup succeeds, and the reads behind half of
+     them run off the end of the file and are served as "no tile here". A
+     floor certified from the directory alone would be full of holes at its
+     own declared depth -- the exact failure the floor exists to prevent. *)
+  let whole = Eio.Path.load Eio.Path.(dir / "map.pmtiles") in
+  write dir "map.pmtiles"
+    (String.sub whole 0 (String.length whole - 1));
+  check "an archive shorter than its own header says cannot floor anything"
+    (depth_of dir_name = -1);
+  (match
+     query ~fs ~dir:dir_name ~min_lon:139.6 ~min_lat:35.6 ~max_lon:139.8
+       ~max_lat:35.8 ~zoom:12
+   with
+  | Error e -> check ("a truncated archive still answers: " ^ why e) false
+  | Ok json ->
+      check "and the coverage answer says there is no floor"
+        (bool_field "floor" json = Some false);
+      (* Still serves what it really holds. Refusing the whole file would
+         turn a partial download into no map at all; what it may not do is
+         be counted towards a completeness claim. *)
+      check "while still reporting the tiles it does hold"
+        (int_field "depth" json = 2));
+  write dir "map.pmtiles" whole;
+  check "and the floor comes back when the file does"
+    (depth_of dir_name = 2);
+
+  (* A city and nothing else -- which still holds the single zoom-0 tile of
+     the planet, because every download starts at zoom 0. That one tile IS
+     the floor, and the app draws the world from it rather than nothing. *)
+  let city_only = Filename.concat root "city" in
+  Eio.Path.mkdir ~perm:0o755 Eio.Path.(fs / city_only);
+  write Eio.Path.(fs / city_only) "map.pmtiles"
+    (archive_of ~max_zoom:12
+       (Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom:12 ~min_lon:(-0.5)
+          ~min_lat:51.3 ~max_lon:0.3 ~max_lat:51.7));
+  check "one city still floors the world, from its zoom-0 tile"
+    (depth_of city_only = 0);
+  Eio.Path.unlink Eio.Path.(fs / city_only / "map.pmtiles");
+  Eio.Path.rmdir Eio.Path.(fs / city_only);
 
   Eio.Path.unlink Eio.Path.(dir / "map.pmtiles");
   Eio.Path.rmdir dir;

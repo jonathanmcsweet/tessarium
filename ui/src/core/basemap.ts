@@ -125,7 +125,13 @@ const LedgerEntry = z.object({
   max_zoom: z.number().int().nonnegative(),
 });
 export type LedgerEntry = z.infer<typeof LedgerEntry>;
-const Ledger = z.object({ entries: z.array(LedgerEntry) });
+const Ledger = z.object({
+  entries: z.array(LedgerEntry),
+  /* Whether any archive is on disk, which the entries cannot say: a world
+     overview fetched with the extraction tool writes no entry and is still
+     a map. */
+  held: z.boolean(),
+});
 
 const Settings = z.object({
   update_reminder_days: z.number().int().nonnegative(),
@@ -170,11 +176,16 @@ async function post<T>(
    missing-basemap banner used to hang off MapLibre's error events, which
    describe a failed fetch without naming what failed -- the banner never
    fired. A HEAD request is a yes or a no. */
+/* Any archive, not just the downloaded one. The world overview alone is a
+   drawn, labelled planet -- it is step 1 of the documented setup, with the
+   region as step 2 -- and reporting "no basemap found" over it was a banner
+   contradicting the map behind it. Asked of the server rather than probed
+   for with a HEAD per file, because probing for one that is absent puts a
+   404 in the console on a configuration that is entirely correct. */
 export function useBasemapPresent() {
   return useQuery({
     queryKey: ["basemap-present"],
-    queryFn: async () =>
-      (await fetch("/basemap/map.pmtiles", { method: "HEAD" })).ok,
+    queryFn: async () => (await post(Ledger, "basemap-ledger")).held,
     staleTime: Infinity,
   });
 }
@@ -377,6 +388,14 @@ const Coverage = z.object({
      view is blank, so it is measured server-side at that same cell rather
      than re-derived here from the mask. */
   depth: z.number().int().min(-1),
+  /* Whether the map UNDER the map draws here -- a different question from
+     the depth, and the one that decides what the app may claim. An archive
+     holding one city still holds the single zoom-0 tile of the planet, so
+     its depth over anywhere is 0; whether that amounts to a map on screen
+     depends on the floor covering the world at that zoom, which is a fact
+     about the whole archive rather than about this view. Answered by the
+     server, which is what measures the floor's depth in the first place. */
+  floor: z.boolean(),
 }).refine((c) => c.present.length === c.w * c.h, {
   /* The one invariant that spans fields, and so the one zod would not
      check on its own. A short string reads as "covered" for every tile it
