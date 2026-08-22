@@ -55,6 +55,9 @@ admits, enforced by `--report_assumes error` rather than by a convention.
 | `Codec.theorem_roundtrip` | mixed radix is a bijection onto the address space |
 | `Api.theorem_end_to_end` | `decode (encode p)` names p's own square |
 | `Table.theorem_no_overflow` | the widest intermediate fits in int64 |
+| `UrlPath.theorem_no_escape` | no segment the server agrees to open can leave the asset root |
+| `UrlPath.theorem_no_dotfile` | no accepted segment begins with a dot, so no dotfile is served |
+| `UrlPath.theorem_traversal_refused` | a target that percent-decodes to `..` is refused |
 
 `theorem_containment` is the floor/ceiling bug the reference implementation
 shipped, stated as a theorem. `theorem_injective` is the one that matters:
@@ -64,6 +67,24 @@ tests miss it because the failure set is measure-zero.
 The band table is a proved artifact too — its adjacent-difference bounds, its
 length and its 55,692,067,744,000 grand total are discharged against the
 committed `bands.json`.
+
+The `UrlPath` theorems are the first about a *server* decision rather than
+about the grid, and they are there because path traversal is the one bug in
+this server that a test suite is structurally bad at: it fails only on inputs
+nobody thought to write down. `theorem_no_escape` is stated over the *decoded*
+target, which is what makes percent-decoding before validation a proof
+obligation rather than a comment — reorder the two and the module stops
+verifying. Three further lemmas pin that `resolve` accepts anything at all:
+every theorem here has the form "if it accepts, then…", and a resolver that
+refused every request would satisfy all of them.
+
+Two things it does **not** prove, both outside F\*'s sight. That the caller
+joins the segments the way the theorem assumes — that join is
+`List.fold_left Eio.Path.( / )` in `serve.ml`, ordinary OCaml. And that the
+directory underneath holds no symlink pointing out of itself, which is a
+property of the filesystem rather than of any code here. Decoding is also one
+round, not a fixpoint: `%252e%252e` is accepted as the literal name `%2e%2e`,
+which is correct because nothing downstream decodes again.
 
 **What is not proved, and cannot be.** That the mapping is *unguessable*. The
 strongest honest claim is "provably reversible for any round function, and
@@ -79,8 +100,11 @@ on either answer path. What the browser still takes from the OCaml extraction
 through js_of_ocaml is everything that is not the arithmetic: the wordlist
 codec both ways, BIP-39 validation and generation, the KDF's inputs, and the
 band table it hands the wasm module at load.
-Unproved on both paths: every line of the server, the UI and the PMTiles
-code, none of which is F\* at all.
+Unproved on both paths: the UI, the PMTiles code, and all of the server
+except which files it will open — `resolve` in `ocaml/server/url_path.ml` is
+now a wrapper over extracted F\*, over two lines that turn a string into bytes
+and back. The rest of that file is not: `content_type` and `cache_control` are
+hand-written and trusted, and the first of them is a security decision.
 
 The extraction pipeline, while still unproved, is no longer merely trusted —
 three checks now watch it, and a divergence on any checked value fails the

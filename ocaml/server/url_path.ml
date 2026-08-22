@@ -1,65 +1,56 @@
 (* Turning a request target into a path we are willing to open.
 
-   This is the module that stops `GET /../../etc/passwd`. It is pure and
-   separately tested for that reason: the safety argument is "these segments
-   contain no traversal", which is checkable without a filesystem.
+   This is the module that stops `GET /../../etc/passwd`, and the decision is
+   not made here. `Tessarium_UrlPath.resolve` is extracted from F*, where
+   two theorems are proved of it: every segment it accepts is non-empty, is
+   neither `.` nor `..`, and carries no `/`, `\\` or NUL; and a target that
+   DECODES to a traversal is refused however it was spelled, which is what
+   fixes percent-decoding before validation rather than after. See
+   `fstar/Tessarium.UrlPath.fst`.
 
-   Percent-decoding happens first. Validating before decoding would accept
-   `%2e%2e` and hand back `..`. *)
+   What is left of the DECISION here is the conversion at the edge. The proved
+   resolver works on byte lists because a request target is octets until
+   something decodes it, and because the three bytes that matter -- `/`, `.`
+   and NUL -- cannot occur inside a multi-byte UTF-8 sequence. Everything
+   below `resolve`, though -- [extension], [content_type], [cache_control] --
+   is still hand-written and still trusted, and [content_type] is not a
+   cosmetic decision. The proof covers which files may be opened, not what is
+   said about them afterwards.
 
-let hex_val c =
-  match c with
-  | '0' .. '9' -> Some (Char.code c - Char.code '0')
-  | 'a' .. 'f' -> Some (Char.code c - Char.code 'a' + 10)
-  | 'A' .. 'F' -> Some (Char.code c - Char.code 'A' + 10)
-  | _ -> None
+   [string_of_bytes] walks the list once. Written the obvious way, with
+   [List.nth] inside [String.init], it is quadratic -- 4 KB of path took 6.6
+   ms against 20 us for the string code this replaced, and `resolve` runs
+   from [Route.of_request] on every request, before the rate limiter and on
+   the only domain the server has. *)
 
-let percent_decode s =
-  let n = String.length s in
-  let buf = Buffer.create n in
-  let rec go i =
-    if i >= n then Some (Buffer.contents buf)
-    else if s.[i] <> '%' then (
-      Buffer.add_char buf s.[i];
-      go (i + 1))
-    else if i + 2 >= n then None
-    else
-      match (hex_val s.[i + 1], hex_val s.[i + 2]) with
-      | Some hi, Some lo ->
-          Buffer.add_char buf (Char.chr ((hi * 16) + lo));
-          go (i + 3)
-      | _ -> None
-  in
-  go 0
+let bytes_of_string s =
+  List.init (String.length s) (fun i -> Z.of_int (Char.code s.[i]))
 
-let query_stripped s =
-  match String.index_opt s '?' with
-  | None -> ( match String.index_opt s '#' with
-              | None -> s
-              | Some i -> String.sub s 0 i)
-  | Some i -> String.sub s 0 i
+let string_of_bytes bs =
+  String.of_seq (Seq.map (fun b -> Char.chr (Z.to_int b)) (List.to_seq bs))
+
+(* Longer than any asset this app serves, and the point past which a target
+   costs more to refuse than it is worth reading. The proved resolver works on
+   a list of boxed integers, one per byte, so it is linear with a fat constant
+   -- 6.5 ms for 64 KB against 0.27 ms for the string code, measured -- and
+   cohttp-eio reads the request line with no size limit of its own.
+
+   This is a resource limit, not a safety one, which is why it is here and not
+   in the F*: refusing a target early can only shrink the set that is
+   accepted, and both theorems constrain what happens when one IS accepted.
+   Neither can be weakened by refusing more. *)
+let max_target_bytes = 8192
 
 (* [resolve target] is the list of path segments to open under the asset root,
    or [None] if the target is one we refuse.
 
    A directory target resolves to index.html so the app is reachable at `/`. *)
 let resolve target =
-  match percent_decode (query_stripped target) with
-  | None -> None
-  | Some path ->
-      let segments =
-        String.split_on_char '/' path |> List.filter (fun s -> s <> "")
-      in
-      let unsafe s =
-        s = "." || s = ".."
-        || String.contains s '\000'
-        || String.contains s '\\'
-        (* A leading dot is not a traversal, but nothing the UI build emits
-           starts with one, and dotfiles are exactly what should not leak. *)
-        || (String.length s > 0 && s.[0] = '.')
-      in
-      if List.exists unsafe segments then None
-      else match segments with [] -> Some [ "index.html" ] | s -> Some s
+  if String.length target > max_target_bytes then None
+  else
+    match Tessarium_UrlPath.resolve (bytes_of_string target) with
+    | None -> None
+    | Some segments -> Some (List.map string_of_bytes segments)
 
 let extension name =
   match String.rindex_opt name '.' with

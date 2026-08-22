@@ -8,6 +8,9 @@
 module C = Tessarium_server.Http_cache
 module R = Tessarium_server.Http_range
 module U = Tessarium_server.Url_path
+(* The proved resolver itself, so the runtime checks below can hold its
+   answers to its own statement of what a safe segment is. *)
+module Proved = Tessarium_UrlPath
 module Route = Tessarium_server.Route
 
 let failures = ref 0
@@ -105,6 +108,120 @@ let () =
 
   (* Percent-decoding still has to work for legitimate names. *)
   resolves "/assets/a%20b.png" (Some [ "assets"; "a b.png" ]);
+
+  (* The trusted half of Url_path: everything else in it is extracted from
+     proved F*, and these two conversions are what the proof is carried
+     across. Every byte, not a sample -- the interesting ones are 0 and the
+     high half, which is where Char.chr and Z.to_int would part company. *)
+  let all_bytes = String.init 256 Char.chr in
+  check "bytes_of_string round-trips every byte"
+    (U.string_of_bytes (U.bytes_of_string all_bytes) = all_bytes);
+  check "and the byte list is the code points, in order"
+    (List.map Z.to_int (U.bytes_of_string "A/\000\255")
+     = [ 65; 47; 0; 255 ]);
+
+  (* The theorems, re-asserted at runtime.
+     `Tessarium.UrlPath.theorem_no_escape` and `theorem_no_dotfile` say that
+     every segment `resolve` accepts satisfies `opens_under_root` and
+     `names_no_dotfile`. That is proved of the F*; this runs the EXTRACTED
+     resolver over a product of hostile fragments and holds its answers to the
+     EXTRACTED statements of the claims. It cannot re-prove either theorem --
+     both sides come out of the same extraction -- but it does catch the two
+     ways the proof could stop applying: the claim drifting from the code it
+     is about, and this file's conversion mangling a byte on the way through.
+
+     The fragments are in two groups on purpose. The first group is refused,
+     and a corpus of only those would run the claims over an empty set: what
+     it proves is that they were refused, not that the claims hold. The second
+     group is the interesting one -- names that come CLOSE to the rules
+     without breaking them, and encodings that decode into something
+     legitimate -- so that accepted segments carry dots, decoded bytes and
+     separators-turned-boundaries rather than being three literals. The check
+     below reports how many distinct segments actually reached it, because
+     that, not the number of targets, is what it covered. *)
+  let refused =
+    [ "."; ".."; "%2e"; "%2E%2E"; "%2f"; "%2F"; ".git"; ".env"; "a%00b";
+      "a\\b"; "%"; "%2"; "%zz"; "..%2f.."; "....//"; "%2e%2e%2f" ]
+  in
+  let accepted_ish =
+    [ ""; "a"; "assets"; "index.html"; "a.b"; "a."; "..a"; "a..b"; "a...";
+      "%61%2e%2e"; "a%2eb"; "%252e%252e"; "a%2fb"; "%41"; "a-b_c.d";
+      "index-D4ipvZ4X.js"; "%7e"; "sprite@2x.png" ]
+  in
+  let fragments = refused @ accepted_ish in
+  let hostile =
+    let one = List.map (fun a -> "/" ^ a) fragments in
+    let two =
+      List.concat_map
+        (fun a -> List.map (fun b -> "/" ^ a ^ "/" ^ b) fragments)
+        fragments
+    in
+    let three =
+      List.concat_map
+        (fun a ->
+          List.concat_map
+            (fun b -> List.map (fun c -> "/" ^ a ^ "/" ^ b ^ "/" ^ c) fragments)
+            fragments)
+        fragments
+    in
+    let queried = List.map (fun t -> t ^ "?v=..%2f..") one in
+    let fragged = List.map (fun t -> t ^ "#..%2f..") one in
+    one @ two @ three @ queried @ fragged
+  in
+  let escaped = ref None in
+  let dotfile = ref None in
+  let seen = Hashtbl.create 64 in
+  List.iter
+    (fun target ->
+      match U.resolve target with
+      | None -> ()
+      | Some segs ->
+          List.iter
+            (fun seg ->
+              Hashtbl.replace seen seg ();
+              let b = U.bytes_of_string seg in
+              if (not (Proved.opens_under_root b)) && !escaped = None then
+                escaped := Some (target, seg);
+              if (not (Proved.names_no_dotfile b)) && !dotfile = None then
+                dotfile := Some (target, seg))
+            segs)
+    hostile;
+  let distinct = Hashtbl.length seen in
+  let accepted =
+    List.length (List.filter (fun t -> U.resolve t <> None) hostile)
+  in
+  (* Printed, not only asserted. The number of targets says how hard the
+     resolver was pushed; the other two say how much the CLAIMS were actually
+     run over, and a corpus can grow without either of them moving. *)
+  Printf.printf "  path safety: %d targets, %d accepted, %d distinct segments\n"
+    (List.length hostile) accepted distinct;
+  check
+    (Printf.sprintf
+       "every segment accepted from %d hostile targets opens under the root%s"
+       (List.length hostile)
+       (match !escaped with
+       | None -> ""
+       | Some (t, s) -> Printf.sprintf " (%S gave %S)" t s))
+    (!escaped = None);
+  check
+    (Printf.sprintf "and none of them names a dotfile%s"
+       (match !dotfile with
+       | None -> ""
+       | Some (t, s) -> Printf.sprintf " (%S gave %S)" t s))
+    (!dotfile = None);
+
+  (* Without accepted targets the two checks above pass over an empty set, and
+     without VARIED ones they pass over three literals. Both numbers are
+     asserted rather than printed, because both were once much smaller than
+     the corpus size suggested. *)
+  check
+    (Printf.sprintf "%d targets were accepted, so the claims had something to \
+                     hold" accepted)
+    (accepted > 1000);
+  check
+    (Printf.sprintf "and they carried %d distinct segments, not a handful"
+       distinct)
+    (distinct >= 12);
 
   (* ------------------------------------------------------ content types *)
   check "js type" (U.content_type "app.js" = "text/javascript; charset=utf-8");
