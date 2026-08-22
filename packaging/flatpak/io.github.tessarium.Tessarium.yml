@@ -1,0 +1,85 @@
+# Flatpak manifest. Fedora Silverblue/Kinoite and the other atomic desktops
+# are the primary target, where Flatpak is the only way to install anything.
+#
+# WHAT THIS BUILDS FROM, and why it is not a source build. Flatpak's build
+# sandbox has no network, by design. Building this project inside it would
+# mean vendoring every opam package, every npm package and the F* release --
+# and F* itself is only needed to REGENERATE ocaml/extracted, which is
+# committed and CI-diffed against a fresh extraction, so the sandbox would be
+# reproving what CI already proved. The manifest therefore consumes the
+# release tarball `make package` produces, whose two binaries need nothing
+# beyond libc and libm (`ldd` says so, and the .deb's control file has said
+# so since it existed). Flathub prefers a from-source build and this will
+# need justifying there; see roadmap.md, Phase 7.
+#
+# NEVER BUILT. No machine this project has run on carries flatpak-builder,
+# so this is validated YAML and nothing more. Read it as a starting point,
+# not as a package that is known to work.
+#
+# NETWORK, and the one thing that is not obvious. `--share=network` is not
+# only for downloading maps. Without it Flatpak gives the app its own network
+# namespace, and 127.0.0.1 inside that namespace is NOT the 127.0.0.1 your
+# browser talks to -- the app would start, print a URL, and open a page that
+# cannot connect to it. Sharing the host's network namespace is what makes a
+# loopback server reachable from a browser outside the sandbox.
+#
+# WHAT IS DELIBERATELY NOT GRANTED: no home, no host filesystem, no X11 or
+# Wayland socket. The program draws nothing itself -- it opens your browser --
+# and it keeps its maps in ~/.var/app/io.github.tessarium.Tessarium/data,
+# which needs no permission at all. To keep a multi-gigabyte basemap
+# elsewhere, grant that one directory explicitly:
+#
+#   flatpak override --user \
+#     --filesystem=/path/to/maps io.github.tessarium.Tessarium
+#
+# and pass --basemap /path/to/maps.
+
+id: io.github.tessarium.Tessarium
+
+# Not the GNOME or KDE runtime: this application has no toolkit and no window
+# of its own, so the base platform is all it needs and is the smallest thing
+# a user has to download.
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+
+command: tessarium
+
+finish-args:
+  # See the note above: this is what makes loopback shared with the host.
+  - --share=network
+  # Opening the user's browser goes through the OpenURI portal, which the
+  # runtime's xdg-open shim talks to. No permission beyond the default
+  # session bus access is required for it.
+
+modules:
+  - name: tessarium
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 tessarium-server /app/bin/tessarium-server
+      - install -Dm755 tessarium-basemap /app/bin/tessarium-basemap
+      - install -Dm644 LICENSE /app/share/licenses/io.github.tessarium.Tessarium/LICENSE
+      - install -Dm755 tessarium.sh /app/bin/tessarium
+      - install -Dm644 io.github.tessarium.Tessarium.desktop
+        /app/share/applications/io.github.tessarium.Tessarium.desktop
+      - install -Dm644 io.github.tessarium.Tessarium.metainfo.xml
+        /app/share/metainfo/io.github.tessarium.Tessarium.metainfo.xml
+      - install -Dm644 io.github.tessarium.Tessarium.svg
+        /app/share/icons/hicolor/scalable/apps/io.github.tessarium.Tessarium.svg
+    sources:
+      # Built by `make package`. At release time this becomes a `type: archive`
+      # with a URL and a sha256 -- flatpak-builder fetches sources BEFORE it
+      # enters the offline sandbox, so a pinned URL is as offline-safe as a
+      # local file and is what Flathub expects.
+      - type: archive
+        path: ../../dist/tessarium-0.1.0-linux-x86_64.tar.gz
+        strip-components: 1
+      - type: file
+        path: tessarium.sh
+      - type: file
+        path: io.github.tessarium.Tessarium.desktop
+      - type: file
+        path: io.github.tessarium.Tessarium.metainfo.xml
+      - type: file
+        path: ../tessarium.svg
+        dest-filename: io.github.tessarium.Tessarium.svg
