@@ -936,6 +936,32 @@ caveat.
       sits upstream of any code. Still unread: the SDK licence, and the plugin
       signing and distribution rules.
 
+      **A local tile endpoint may be the way in, and needs no plugin
+      anywhere.** Drawing an overlay was never the uncertain part of ATAK:
+      it imports KML, GeoPackage, MBTiles and WMS/WMTS through Overlay
+      Manager, and plugins can add layers with their own renderers on top of
+      that. Plenty of other map apps accept a custom XYZ or WMTS source too.
+      The server already serves `{z}/{x}/{y}` tiles and TileJSON, so the
+      missing piece is an endpoint that draws the grid *itself* as tiles,
+      rather than leaving it to MapLibre in the browser. Any app that can
+      add a tile source would then get the overlay with no code of its own,
+      and the plugin question stops being load-bearing.
+
+      Three things to weigh before that becomes a plan:
+
+      - **It moves the key.** The grid depends on the seed, so a server
+        drawing grid tiles has to hold the derived key — where today the
+        browser derives it and the server never sees a phrase by default.
+        The opt-in scripting API is the precedent; this would have to be
+        presented as that same opt-in, not slipped in as a rendering
+        feature.
+      - **Raster tiles are pictures.** Addresses would be baked into pixels
+        at fixed zooms, and tapping a square to read its address needs a
+        query the host app has no way to make. Good for seeing the grid,
+        not for using it. A plugin is still what closes that gap.
+      - It rules nothing back in for Organic Maps or CoMaps, which have no
+        custom online tile source to point at anything.
+
       **CoMaps and Organic Maps — not viable as an overlay.** One answer
       covers both: CoMaps forked in 2025 over governance rather than
       architecture, so the code is the same shape. Three independent reasons,
