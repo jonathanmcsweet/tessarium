@@ -753,7 +753,39 @@ not cover.
       Criteria that decide it: WCAG depth, touch behavior, maintenance
       cadence, no Tailwind requirement, bundle cost under the strict CSP.
       Adoption means porting the tooltip, the picker tree, the language menu
-      and the selects — mechanical, not a redesign. Interacts with the Phase 9
+      and the selects — mechanical, not a redesign.
+
+      **Base UI is not a candidate today** (checked 2026-08-22). It is still
+      `1.0.0-rc.0`, published 2025-12-04, with nothing released since — eight
+      months at a release candidate. The premise it was ranked on has also
+      not held: Radix is still publishing (`react-tooltip` 1.2.16, 2026-07),
+      so the successor is stalled and the thing it succeeds is not dead.
+      react-aria-components is on 1.20.0 (2026-07-31).
+
+      **React Aria was tried on the search box** (branch
+      `spike/react-aria-search`, 2026-08-22 — not merged, no decision taken).
+      The result: 242 end-to-end checks pass, PlaceSearch loses 43 lines net
+      and with them the open flag, the highlight index, the click-away
+      listener, the blur rule, Escape, the arrow-key wrap and the
+      `aria-activedescendant` that had to agree with three separate render
+      branches. Cost is **+59 KB gzipped, all of it in the map chunk** — the
+      gate moved by 33 bytes, because PlaceSearch is only reachable from
+      MapView, which is a separate download since the payload split.
+
+      Two things it got wrong first, both the same root cause and both worth
+      knowing before this is repeated on another widget: **ComboBox assumes
+      the collection is a synchronous function of the input value.** It
+      decides whether to open in an effect on the render where the input
+      changed, and refuses when the collection is empty. Every answer in this
+      box is late — 250 ms of debounce, then a worker round trip, then a
+      decode or an index scan — so the list never opened at all. The fix is
+      `allowsEmptyCollection` always on, with the popover rendered
+      conditionally to keep an empty card off the map. That then broke
+      Escape: the close path resets the library's record of the last input
+      value to the empty string while the box still holds text, so the reopen
+      effect fires in the same tick. `allowsCustomValue` takes the other path
+      and is correct here anyway, since what is typed is usually not one of
+      the options. Interacts with the Phase 9
       webview-versus-native decision: a webview wraps this build unchanged,
       while going native (Expo) would instead favor a universal library like
       Tamagui — so settle that direction before investing heavily.
