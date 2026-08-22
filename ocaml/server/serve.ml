@@ -129,6 +129,31 @@ let accepts_gzip headers =
       in
       contains 0
 
+(* [Eio.Path.kind] answers [`Not_found] for a path that is simply absent, and
+   RAISES for one the filesystem refuses to look at: a segment over NAME_MAX
+   gives ENAMETOOLONG, a directory with no execute bit gives EACCES, a symlink
+   loop gives ELOOP. Unhandled, that travels up as a connection error -- one
+   unauthenticated request ended the connection instead of being answered.
+
+   To the client they all mean the same thing and get the same answer: there is
+   nothing here to send, and which kind of nothing is not a stranger's business.
+   Not to the operator. A plain absence returns [`Not_found] without raising and
+   stays silent; everything reaching the handler below is abnormal and says so,
+   because "every asset went 404 at once" is what running out of file
+   descriptors looks like from outside, and the fix that made this function
+   necessary would otherwise have made that indistinguishable from a missing
+   file.
+
+   Through [Access_log.printable] because the exception text carries the path,
+   and the path came from the request. *)
+let path_kind ~what path =
+  try Eio.Path.kind ~follow:true path
+  with Eio.Io _ as e ->
+    Logs.warn (fun m ->
+        m "%s: not readable: %s" what
+          (Access_log.printable (Printexc.to_string e)));
+    `Not_found
+
 (* ------------------------------------------------------------------ tiles *)
 
 (* One tile archive by name. Opened per request and closed with it: the root
@@ -137,7 +162,7 @@ let accepts_gzip headers =
    open handle -- the fd pins whichever inode it opened. *)
 let open_tile_archive ~basemap_root ~sw name =
   let path = Eio.Path.(basemap_root / name) in
-  match Eio.Path.kind ~follow:true path with
+  match path_kind ~what:("tile archive " ^ name) path with
   | `Regular_file -> (
       match
         Pmtiles.Archive.open_
@@ -222,12 +247,16 @@ let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which =
     Basemap_download.floor_depth
       (List.filter_map
          (fun (name, a) ->
-           let size =
-             Optint.Int63.to_int
-               (Eio.Path.stat ~follow:true Eio.Path.(basemap_root / name))
-                 .Eio.File.Stat.size
-           in
-           if Basemap_download.data_is_whole ~size a then Some a else None)
+           (* The archive was open a moment ago -- the fd pins its inode -- but
+              the NAME can be gone by now: the downloader renames over it under
+              this same root. An archive we cannot size is not one we will
+              certify a floor from, and it is not a reason to lose the
+              connection. *)
+           match Eio.Path.stat ~follow:true Eio.Path.(basemap_root / name) with
+           | stat ->
+               let size = Optint.Int63.to_int stat.Eio.File.Stat.size in
+               if Basemap_download.data_is_whole ~size a then Some a else None
+           | exception Eio.Io _ -> None)
          (open_tile_archives ~basemap_root ~sw Basemap_download.tile_files))
   in
   match which with
@@ -458,12 +487,28 @@ let stream_region file ~offset ~length oc =
    written while the file is still open. cohttp-eio applies the response
    closure after the callback returns, so a `with_open_in` around a `Response`
    closes the file before a single byte is written. *)
-let serve_file cfg ~root ~segments ~meth ~range_header ~if_none_match ~if_range
-    ~immutable =
+let serve_file cfg ~what ~root ~segments ~meth ~range_header ~if_none_match
+    ~if_range ~immutable =
   let path = List.fold_left Eio.Path.( / ) root segments in
-  match Eio.Path.kind ~follow:true path with
-  | `Regular_file ->
-      let stat = Eio.Path.stat ~follow:true path in
+  (* Probe and stat together, not one then the other. `Url_path.resolve`
+     cannot prevent a 300-byte segment reaching here and is not wrong not to:
+     it holds no separator and cannot leave the root, which is all
+     `theorem_no_escape` claims and all that is needed here. Whether a
+     filesystem will hold a name that long is a fact about the directory, and
+     F* is never told about directories.
+
+     Sharing one [path_kind] with the stat closes the window where the file
+     was there for the probe and gone for the stat -- the downloader renames
+     `map.pmtiles` into place under this very root, and this endpoint serves
+     it. *)
+  let probed =
+    match path_kind ~what path with
+    | `Regular_file -> (
+        try Some (Eio.Path.stat ~follow:true path) with Eio.Io _ -> None)
+    | _ -> None
+  in
+  match probed with
+  | Some stat ->
       let size = Optint.Int63.to_int stat.Eio.File.Stat.size in
       let name = match List.rev segments with [] -> "" | n :: _ -> n in
       let cache_control =
@@ -529,7 +574,7 @@ let serve_file cfg ~root ~segments ~meth ~range_header ~if_none_match ~if_range
               stream_region file ~offset ~length oc)
       in
       (`Expert (response, body), (status :> Http.Status.t), length, range)
-  | _ ->
+  | None ->
       let response, bytes = error cfg ~status:`Not_found "not found" in
       (response, `Not_found, bytes, Http_range.Whole)
 
@@ -1148,7 +1193,8 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
               not_modified cfg ~etag ~cache_control:"no-cache" ~vary:[]
           | `Body body -> simple body `OK)
       | Route.Basemap segments ->
-          serve_file cfg ~root:basemap_root ~segments ~meth ~range_header
+          serve_file cfg ~what:"basemap" ~root:basemap_root ~segments ~meth
+            ~range_header
             ~if_none_match ~if_range ~immutable:false
       | Route.Asset segments -> (
           let headers = Http.Request.headers request in
@@ -1159,7 +1205,8 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
              matter what --ui says. Refresh it (make ui) and rebuild. *)
           let from_disk () =
             let served =
-              serve_file cfg ~root:ui_root ~segments ~meth ~range_header
+              serve_file cfg ~what:"asset" ~root:ui_root ~segments ~meth
+                ~range_header
                 ~if_none_match ~if_range ~immutable:true
             in
             let _, status, _, _ = served in
@@ -1172,8 +1219,9 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
               with
               | Some shell -> shell
               | None ->
-                  serve_file cfg ~root:ui_root ~segments:[ "index.html" ] ~meth
-                    ~range_header:None ~if_none_match ~if_range ~immutable:false
+                  serve_file cfg ~what:"asset" ~root:ui_root
+                    ~segments:[ "index.html" ] ~meth ~range_header:None
+                    ~if_none_match ~if_range ~immutable:false
             else served
           in
           match serve_embedded cfg ~segments ~meth ~headers with

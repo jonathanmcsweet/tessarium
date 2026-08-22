@@ -21,6 +21,72 @@ than a git log.
 
 ---
 
+### 2026-08-22 — A long path segment took the connection down
+
+**Phase:** 6 · **Branch:** fix/long-path-segment
+
+**What:** `GET /<300 bytes>` closed the connection instead of answering.
+`Eio.Path.kind` returns `` `Not_found `` for a path that is simply absent but
+RAISES for one the filesystem refuses to look at — a segment over NAME_MAX
+(255) gives ENAMETOOLONG out of statx, EACCES and ELOOP do the same — and the
+three places that probed a request-derived path matched only on the kinds a
+successful call returns. The exception travelled up as a connection error. One
+unauthenticated request, no session needed.
+
+All three now go through one `path_kind`, which answers `` `Not_found `` and
+logs. `serve_file` was the one the report came from; `open_tile_archive` and
+the `floor_depth` size check were the other two, so `/tiles.json`,
+`/world.json` and `/tiles/z/x/y.mvt` were dropping connections too and a fix to
+`serve_file` alone would have left them. The client is told the same thing
+either way — there is nothing here to send, and which kind of nothing is not a
+stranger's business. The operator is not: a plain absence stays silent, and
+anything reaching the handler is logged, because "every asset went 404 at once"
+is what running out of file descriptors looks like from outside, and answering
+404 for it would otherwise have made that invisible.
+
+`serve_file` now probes and stats in one step rather than one after the other,
+which closes the window where a file was there for the probe and gone for the
+stat. The downloader renames `map.pmtiles` into place under that same root.
+
+Found while checking the newly proved resolver against the running server:
+`/<8190 bytes>` dropped the connection while `/<8193 bytes>` returned a clean
+404, because the second was over the new 8,192-byte target cap and never
+reached the filesystem. A refused target behaving better than an accepted one
+is what gave it away.
+
+`Access_log.printable` is new and everything request-derived goes through it.
+`url_path.ml`'s resolver refuses NUL, a separator and a leading dot, none of
+which is about logging: a segment may still hold CR or LF, and a log line is
+newline-delimited, so `GET /%0d%0a...` wrote a second line that read like one
+this server emitted. The comment above `describe` claimed asset paths "come
+from the UI build and are safe to name", which was never true of a route built
+from a request.
+
+**Rationale:** `theorem_no_escape` says a 300-byte segment cannot leave the
+root and is right — it holds no separator and no NUL. Whether the filesystem
+will accept a name that long is a fact about the directory, and the module is
+never told about directories; its two stated carve-outs are how the caller
+joins the segments and whether the directory holds a symlink out of itself.
+Name length is a third, of the same kind. That is why this is a test and not a
+lemma.
+
+Two checks, because the two routes answer differently and only one is a 404: a
+segment with no extension is an SPA route, so the UI path serves index.html
+and the basemap path has no fallback. Falsified — without the fix the first
+reads `threw: fetch failed`.
+
+The companion check, that the server still answers afterwards, is recorded as
+the weaker thing it is: node opens a fresh connection, so it passes against
+this bug too. It is kept for the worse version, where an unhandled error on a
+request path ends the process.
+
+**Follow-on:** the window between the probe and `Eio.Path.with_open_in` in the
+body is still open, and it is worse than what was fixed here because the
+headers have already gone out. In roadmap.md, with the measurement. Also
+roadmapped: CI drives the browser suite with one server where the suite
+expects five, which if it is dying early would make several of this week's
+checks local-only.
+
 ### 2026-08-22 — The path resolver is proved
 
 **Phase:** 1–3 · **Branch:** proof/url-path

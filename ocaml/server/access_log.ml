@@ -19,14 +19,32 @@ type outcome = {
   partial : bool;  (** served as a 206 *)
 }
 
-(* Asset paths come from the UI build and are safe to name; they are also the
-   only ones worth naming, since debugging a blank page means knowing which
-   file 404ed. *)
+(* Anything request-derived that reaches a log line goes through this first.
+   `Url_path.resolve` refuses NUL, a separator and a leading dot, none of which
+   is about logging -- a segment may still hold CR or LF, and a log line is
+   newline-delimited, so `GET /%0d%0afake-looking-line` would otherwise write a
+   second line that reads like one this server emitted. Bytes outside printable
+   ASCII become `\xNN`; the backslash is escaped too, so the encoding is
+   reversible and nothing in the output can end a line.
+
+   Paths named by a request, NOT by the UI build, which is what this comment
+   used to say. A 404 is the interesting case for debugging a blank page, and
+   the ones worth debugging are exactly the ones the build did not ask for. *)
+let printable s =
+  let buf = Buffer.create (String.length s) in
+  String.iter
+    (fun c ->
+      if c >= ' ' && c <= '~' && c <> '\\' then Buffer.add_char buf c
+      else Buffer.add_string buf (Printf.sprintf "\\x%02x" (Char.code c)))
+    s;
+  Buffer.contents buf
+
 let describe (r : Route.t) =
   match r with
   | Route.Health -> "health"
-  | Route.Asset segments -> "asset /" ^ String.concat "/" segments
-  | Route.Basemap segments -> "basemap /" ^ String.concat "/" segments
+  | Route.Asset segments -> printable ("asset /" ^ String.concat "/" segments)
+  | Route.Basemap segments ->
+      printable ("basemap /" ^ String.concat "/" segments)
   | Route.Tile { z; x; y } -> Printf.sprintf "tile %d/%d/%d" z x y
   | Route.Tile_json { floor } -> if floor then "world.json" else "tiles.json"
   | Route.Api endpoint -> "api " ^ endpoint
