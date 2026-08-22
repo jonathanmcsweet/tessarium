@@ -781,6 +781,39 @@ the one honest caveat.
 
 ## Phase 8 — Later, unscheduled
 
+- [ ] **`serve_file` can promise bytes it then fails to send.** The probe and
+      the stat are guarded together (ledger, 2026-08-22), but
+      `Eio.Path.with_open_in` runs in the body callback, after the status line
+      and `content-length` have gone out. If the file is renamed or becomes
+      unreadable in between, the client gets `200 OK, content-length: N` and
+      then a closed socket with zero bytes — worse than the 404 it would get a
+      microsecond earlier, because a truncated body against a promised length
+      is what a client cannot distinguish from a network fault. Measured under
+      a rename loop against the basemap root, the pattern
+      `Basemap_download` actually uses: 9 of 400 requests dropped, two of them
+      after the headers.
+
+      The fix is to open the file before responding and stat the descriptor,
+      so there is one syscall that can fail and it fails before anything is
+      promised. That needs the fd to outlive the handler and be closed by the
+      body, which means threading a switch into `serve_file` — a resource
+      ownership change, not a guard, which is why it was not folded into the
+      connection-drop fix.
+
+- [ ] **CI runs the browser suite against one server; the suite expects
+      five.** `make test-ui` starts servers on 7373–7377 and a proxy on 7378,
+      and passes four base URLs. `.github/workflows/ci.yml`'s "Browser
+      end-to-end" step starts only 7373 and passes only its URL;
+      `ui/test/e2e.mjs` then defaults `fixtureBase` to 7374 and `base3`/`base4`/
+      `base5` to 7375–7377, none of which CI starts, and there is no skip path
+      for an unreachable one. Verified by reading both, not by watching a CI
+      run — so what happens there is unconfirmed, and it is worth looking at a
+      recent run before deciding what to do. If the suite is dying early, every
+      check past the region-downloader section is local-only, which includes
+      the payload and path-safety ones added this week. The cheap fix either
+      way is for the script to fail loudly and by name when a base URL does not
+      answer, rather than at whatever request happens to reach it first.
+
 - [ ] **A wrapped viewport is not a box, and two features assume it is.**
       `regionOf` in the map clamps the viewport's west and east ends at
       ±180 independently, which is wrong in two ways once the camera pans

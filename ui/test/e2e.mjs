@@ -2430,6 +2430,51 @@ check(
 
 await revisitBrowser.close();
 
+/* A path the resolver accepts but the filesystem will not look at.
+   `Tessarium.UrlPath.theorem_no_escape` says a 300-byte segment cannot leave
+   the root, and it is right -- it holds no separator and no NUL. (The leading
+   dot is a different claim, `theorem_no_dotfile`, and not what matters here.)
+   It is simply longer than NAME_MAX, which is 255 on Linux, so statx answers
+   ENAMETOOLONG and the exception used to travel up as a connection error: one
+   unauthenticated request took the connection down instead of being answered.
+   Name length is a fact about the directory, and F* is never told about
+   directories, so this gets a test rather than a lemma.
+
+   Both routes, because they answer differently and only one is a 404: a
+   segment with no extension is an SPA route, so the UI path serves
+   index.html, and the basemap path has no such fallback. Node's fetch does
+   not normalise a long segment the way it collapses `..`, so what the server
+   sees is what is written here. */
+const longName = "a".repeat(300);
+const longRes = await fetch(`${base}/${longName}`).then(
+  (r) => r.status,
+  (e) => `threw: ${e.message}`,
+);
+check(
+  `a 300-byte path segment falls through to the app (${longRes})`,
+  longRes === 200,
+);
+const longBasemap = await fetch(`${base}/basemap/${longName}`).then(
+  (r) => r.status,
+  (e) => `threw: ${e.message}`,
+);
+check(
+  `and on the basemap route it is a plain 404 (${longBasemap})`,
+  longBasemap === 404,
+);
+/* Weaker than it looks, and kept anyway: node opens a fresh connection, so
+   this passes even against the bug above -- the exception took one socket
+   down, not the server. What it does catch is the worse version, where an
+   unhandled error on a request path ends the process. */
+const afterLong = await fetch(`${base}/healthz`).then(
+  (r) => r.status,
+  (e) => `threw: ${e.message}`,
+);
+check(
+  `and the server is still answering afterwards (${afterLong})`,
+  afterLong === 200,
+);
+
 /* The conditional itself, at the protocol level: the properties a browser
    depends on but does not reveal when it is working. */
 const conditional = async (path) => {
