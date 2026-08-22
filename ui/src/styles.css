@@ -363,10 +363,33 @@ button:disabled {
   color: var(--accent-text);
 }
 
-/* Muted rather than accented: concealed is a resting state, not an alert. */
+/* Muted rather than accented: concealed is a resting state, not an alert.
+
+   Blurred, and it is worth being exact about WHAT is blurred: the mask. The
+   address is not in the document while it is concealed -- the component
+   renders MASK in its place, not over it -- so there is nothing behind this
+   to recover by selecting the text, opening devtools, or sharpening a
+   screenshot. A blur laid over the real characters would be a picture of a
+   secret, and short strings in a known font are not reliably protected by
+   one. This is a picture of twenty-five bullets.
+
+   ui/test/e2e.mjs is what keeps that true: it reads the element's text and
+   requires bullets and no digits. A change that put the value back in the
+   DOM and blurred it would fail there rather than merely look the same. */
 .address.concealed {
   color: var(--ink-soft);
   letter-spacing: 0.02em;
+  filter: blur(3.5px);
+  /* The bullets are not worth selecting, and a selection highlight through a
+     blur reads as a rendering fault. */
+  user-select: none;
+}
+
+/* Same treatment, scaled to the smaller type. */
+.coords dd.concealed {
+  filter: blur(2.5px);
+  color: var(--ink-soft);
+  user-select: none;
 }
 
 /* Icon buttons, against the panel rather than on a filled pill -- these sit
@@ -565,12 +588,6 @@ button:disabled {
   border-radius: 3px;
   pointer-events: none;
   z-index: 2;
-}
-
-.concealed-note {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--ink-soft);
 }
 
 /* ------------------------------------------------------------- layout */

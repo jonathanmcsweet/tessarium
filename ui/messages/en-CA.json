@@ -100,6 +100,7 @@
   "panel_conceal": "Hide this address",
   "panel_concealed": "Address hidden",
   "panel_coords_conceal": "Hide these coordinates",
+  "panel_coords_concealed": "Coordinates hidden",
   "panel_coords_copied": "Coordinates copied to the clipboard.",
   "panel_coords_copy": "Copy these coordinates",
   "panel_coords_copy_failed": "Could not reach the clipboard. Reveal the coordinates to select them by hand.",
