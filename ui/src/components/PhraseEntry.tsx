@@ -28,6 +28,7 @@ import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
 import { toastError } from "../toast";
 import { LanguagePicker } from "./LanguagePicker";
+import { loadMapView } from "./mapChunk";
 
 const wordsIn = (phrase: string) => phrase.trim().split(/\s+/).filter(Boolean);
 
@@ -57,6 +58,22 @@ export function PhraseEntry() {
   const wordCount = wordsIn(phrase).length;
   const ready = wordCount === 24 && validationError === null
     && validation.isSuccess;
+
+  /* Start the map download here rather than on submit. A checksum-valid
+     phrase is the last thing that happens before someone unlocks, and the
+     unlock itself is Argon2id over 64 MB -- far longer than this fetch -- so
+     the chunk is normally in the browser before the map is asked for. Doing
+     it on submit would work too and start later; doing it on mount would
+     charge every visitor who reads this screen and leaves.
+
+     No cleanup and no cancellation: a download in flight is the outcome this
+     wants, and an unmount here means the gate opened. The rejection is
+     swallowed because a failure has no consequence at this point -- nothing
+     is waiting on it -- and `lazy` will ask again, and surface it properly,
+     when the map actually mounts. */
+  useEffect(() => {
+    if (ready) void loadMapView().catch(() => {});
+  }, [ready]);
 
   /* The bytes are drawn in the worker, by the platform CSPRNG, and only the
      words come back. Offered prominently because the alternative -- a phrase

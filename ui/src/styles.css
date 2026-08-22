@@ -223,7 +223,18 @@ button:disabled {
   height: 100%;
 }
 
-.map {
+/* Specificity on purpose, and it must stay. MapLibre puts its own
+   `maplibregl-map` class on this same element and its stylesheet sets
+   `position: relative` with no height. Both selectors are one class, so the
+   winner is whichever stylesheet came last -- and since the map became a
+   separate chunk (components/mapChunk.ts) its CSS arrives in a second file
+   loaded AFTER this one. As a bare `.map` this rule lost, the map computed to
+   height 0, and every click passed through a map that was not there. Two
+   classes outrank one whatever the load order, so the answer no longer
+   depends on which file wins the race.
+
+   ui/test/e2e.mjs checks the rendered height for this reason. */
+.map-wrap > .map {
   position: absolute;
   inset: 0;
 }
@@ -930,6 +941,27 @@ button:disabled {
 .place-name { font-weight: 600; }
 .place-kind { font-size: 0.8rem; color: var(--ink-soft); }
 .place-empty { padding: 0.5rem 0.6rem; color: var(--ink-soft); font-size: 0.9rem; }
+
+/* ---------------------------------------------------- map, arriving */
+
+/* The map is a separate download (components/mapChunk.ts), so there is a
+   moment where the panel is on screen and the map is not. This fills the
+   grid cell it will occupy, so the layout does not settle twice.
+
+   Static, with no shimmer or spinner. The gate normally starts this
+   download while the key is deriving, so on a warm link this is shown for
+   a frame or not at all, and something animated appearing for one frame
+   is a flicker. Where it IS shown for real -- a cold cache on a slow
+   link -- plain text that holds still is the calmer thing. */
+.map-pending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
 
 /* ------------------------------------------------------- loading bar */
 

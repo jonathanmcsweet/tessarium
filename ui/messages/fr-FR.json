@@ -75,6 +75,7 @@
   "map_ledger_stale": "Mise à jour disponible",
   "map_ledger_title": "Cartes téléchargées",
   "map_ledger_update": "Mettre à jour",
+  "map_loading": "Chargement de la carte…",
   "map_loading_detail": "Chargement des détails de la carte…",
   "map_name_many": "{first} + {count} autres",
   "map_name_view": "Vue de la carte",

@@ -322,6 +322,31 @@ await page.locator("button[type=submit]").click();
    loaded machine is slower than the number anyone quotes. */
 await page.waitForSelector(".map-wrap", { timeout: 60_000 });
 check("map opens after derivation", true);
+
+/* The map has to actually occupy its half of the window, and that is not
+   implied by the element existing.
+
+   This caught a real one. MapLibre puts `maplibregl-map` on the same element
+   the stylesheet calls `.map`, and its own rule sets `position: relative` with
+   no height. One class each, so the later stylesheet wins -- and when the map
+   moved into its own chunk, its CSS started arriving in a second file loaded
+   after the app's. The map computed to height 0. Everything still mounted,
+   tiles still loaded, `.map-wrap` still appeared; clicks simply landed on a
+   map with no area, and the first thing to complain was an unrelated check
+   about the coordinate row several hundred lines below. Asserted here, at the
+   point it becomes true, so the next time it is a diagnosis rather than a
+   hunt. */
+const mapBox = await page.locator(".map").boundingBox();
+const wrapBox = await page.locator(".map-wrap").boundingBox();
+check(
+  `the map fills its half of the window (${Math.round(mapBox?.width ?? 0)}x${
+    Math.round(mapBox?.height ?? 0)
+  })`,
+  mapBox !== null && wrapBox !== null
+    && mapBox.height >= wrapBox.height - 1
+    && mapBox.width >= wrapBox.width - 1
+    && mapBox.height > 100,
+);
 check(
   "phrase is not left in the DOM",
   !(await page.content()).includes(`${words[0]} ${words[1]}`),
@@ -2429,6 +2454,171 @@ check(
 );
 
 await revisitBrowser.close();
+
+/* ------------------------ what the gate alone costs -----------------------
+
+   The complaint this answers: the phrase screen downloaded the map engine
+   before it could be typed into. MapLibre and the basemap style are most of
+   what this application ships, none of it is reachable until a phrase has
+   been accepted, and a static import put all of it in the entry chunk -- 551
+   KB on the wire, measured, on the one screen a visitor sees before deciding
+   whether to use this at all. The map is a separate chunk now; see
+   ui/src/components/mapChunk.ts.
+
+   A cold context, because the claim is about a first visit. And nothing is
+   typed at first: the gate starts the map download as soon as a phrase passes
+   its checksum, so a run that typed one would be measuring the warm-up rather
+   than the gate.
+
+   So this is the cost of REACHING a phrase field that can be typed into, and
+   not the cost of using it. The verified core (/tessarium.js, about 181 KB)
+   and the map chunk both follow, as the phrase is typed and as it validates.
+   The number below is smaller than a whole session on purpose: the screen it
+   measures is the one shown to someone who has not yet decided to have a
+   session at all.
+
+   Two checks, because either one alone can be satisfied the wrong way. The
+   budget is what fails if the map returns to the entry chunk. The second is
+   what fails if someone meets the budget by breaking the map instead -- the
+   chunk has to still arrive on the way in, or there is no saving, only a
+   smaller app that does less. */
+const gateBrowser = await chromium.launch();
+const gateContext = await gateBrowser.newContext({
+  viewport: { width: 1280, height: 900 },
+});
+const gatePage = await gateContext.newPage();
+gatePage.on(
+  "pageerror",
+  (err) => problems.push(`gate pageerror: ${err.message}`),
+);
+const gateRows = [];
+const gatePending = [];
+gatePage.on("requestfinished", (req) => {
+  gatePending.push(
+    req.sizes()
+      .then(async (size) => {
+        const res = await req.response();
+        gateRows.push({
+          path: new URL(req.url()).pathname,
+          method: req.method(),
+          status: res ? res.status() : 0,
+          bytes: Math.max(0, size.responseBodySize),
+        });
+      })
+      .catch(() => {}),
+  );
+});
+
+await gatePage.goto(base, { waitUntil: "networkidle" });
+await gatePage.waitForSelector("#phrase", { state: "visible" });
+await gatePage.waitForLoadState("networkidle");
+await Promise.all(gatePending);
+/* Snapshotted before anything is typed. `gateRows` keeps growing after this
+   line, and the whole point of the number is where it stops. */
+const atGate = gateRows.slice();
+const gateBytes = atGate
+  .filter((r) => r.method === "GET")
+  .reduce((n, r) => n + r.bytes, 0);
+
+console.log(
+  `  gate ${Math.round(gateBytes / 1024)} KB over ${
+    atGate.filter((r) => r.method === "GET").length
+  } requests`,
+);
+
+/* 176 KB against a measured 137. The gap is room for the gate itself to grow
+   -- React, the query client, the message catalogue and the icons are all in
+   here -- and it is nowhere near the 551 KB that a static map import costs,
+   which is the regression this exists to catch. Raise it only with a
+   measurement saying why, the same rule ui/test/payload.mjs sets. */
+check(
+  `the phrase screen costs ${Math.round(gateBytes / 1024)} KB`,
+  gateBytes < 176 * 1024,
+);
+/* Named, so a regression is legible rather than a total that drifted. */
+if (gateBytes >= 176 * 1024) {
+  for (
+    const r of atGate.filter((r) => r.bytes > 4096).sort((a, b) =>
+      b.bytes - a.bytes
+    )
+  ) console.log(`    ${Math.round(r.bytes / 1024)} KB  ${r.path}`);
+}
+
+const jsAssets = (rows) =>
+  rows.filter((r) =>
+    r.path.startsWith("/assets/") && r.path.endsWith(".js") && r.bytes > 0
+  );
+check(
+  `and pulls one script to do it (${jsAssets(atGate).length})`,
+  jsAssets(atGate).length === 1,
+);
+
+/* Now all the way in, on the same page, so the second half is measured
+   against the same cold cache. Matched on size rather than on the chunk's
+   name: what matters is that the map arrives separately and is the big half,
+   not what Vite decided to call the file. */
+await gatePage.locator("#phrase").fill(sampleMnemonic);
+await gatePage.waitForSelector(".valid", { timeout: 60_000 });
+await gatePage.locator("button[type=submit]").click();
+await gatePage.waitForSelector(".map-wrap", { timeout: 60_000 });
+await gatePage.waitForLoadState("networkidle");
+await Promise.all(gatePending);
+
+const mapChunks = jsAssets(gateRows).filter((r) =>
+  !atGate.some((g) => g.path === r.path)
+);
+check(
+  `the map arrives as its own download (${mapChunks.length} chunk, ${
+    Math.round(mapChunks.reduce((n, r) => n + r.bytes, 0) / 1024)
+  } KB)`,
+  mapChunks.length >= 1
+    && mapChunks.reduce((n, r) => n + r.bytes, 0) > 200 * 1024,
+);
+/* The saving is real only if the split did not simply move the whole app
+   later. The gate has to be the smaller half. */
+check(
+  `and it is the larger half`,
+  mapChunks.reduce((n, r) => n + r.bytes, 0) > gateBytes,
+);
+
+/* The fallback, which needs the download to be slow enough to see. Nothing
+   else in this suite ever renders it -- on a local server the chunk arrives
+   between frames -- and an unrendered loading state is exactly the kind that
+   rots into a blank panel or an untranslated string without anyone noticing.
+   Delayed here on purpose, and read for its text as well as its presence, so
+   a missing catalogue entry fails rather than showing an empty box. */
+const slowPage = await gateContext.newPage();
+const entryPath = jsAssets(atGate)[0]?.path;
+await slowPage.route("**/assets/*.js", async (route) => {
+  if (new URL(route.request().url()).pathname === entryPath) {
+    return route.continue();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+  return route.continue();
+});
+await slowPage.goto(base, { waitUntil: "networkidle" });
+await slowPage.locator("#phrase").fill(sampleMnemonic);
+await slowPage.waitForSelector(".valid", { timeout: 60_000 });
+await slowPage.locator("button[type=submit]").click();
+const pendingText = await slowPage.locator(".map-pending").first()
+  .textContent({ timeout: 30_000 })
+  .catch(() => null);
+check(
+  `a slow map download says so rather than showing a hole (${
+    JSON.stringify(pendingText)
+  })`,
+  typeof pendingText === "string" && pendingText.trim().length > 0,
+);
+/* And it goes away by itself: a placeholder that outlives its download is
+   worse than none, because the map underneath it works. */
+await slowPage.waitForSelector(".map-wrap", { timeout: 60_000 });
+check(
+  "and it is gone once the map is there",
+  await slowPage.locator(".map-pending").count() === 0,
+);
+await slowPage.close();
+
+await gateBrowser.close();
 
 /* A path the resolver accepts but the filesystem will not look at.
    `Tessarium.UrlPath.theorem_no_escape` says a 300-byte segment cannot leave
