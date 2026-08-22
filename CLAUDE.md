@@ -71,8 +71,10 @@ with zero admits, enforced by `--report_assumes error`. The theorems are listed
 in `README.md`. What is NOT proved: that the mapping is unguessable (that rests
 on keyed BLAKE2s behaving as a PRF, which is an assumption); the F\* extraction
 pipeline and `ocamlopt`; `digestif`'s BLAKE2s and SHA-2, which are
-vector-tested; and every line of `ocaml/server/`, `ocaml/pmtiles/` and `ui/`,
-none of which is F\* at all. Do not let a summary blur the line between "the core is proved" and "the
+vector-tested; `ocaml/pmtiles/`, `ui/`, and all of `ocaml/server/` except
+which files it will open -- `resolve` in `url_path.ml` is a wrapper over
+extracted F\* since 2026-08-22, and the rest of that file, `content_type`
+included, is not. Do not let a summary blur the line between "the core is proved" and "the
 program is correct".
 
 **A theorem that asserts nothing is worse than a missing one**, because it
@@ -80,8 +82,9 @@ reads as coverage. Before adding one, check it can fail: state a false variant
 and confirm the solver rejects it.
 
 **Every bug outside the proof's reach gets a test.** The theorems cover the
-grid, the permutation and the codec. They cover nothing in the server, the UI,
-the PMTiles code, key derivation, or the build. When a bug is found in any of
+grid, the permutation, the codec and which files the server will open. They
+cover nothing else in the server, nor the UI, the PMTiles code, key derivation,
+or the build. When a bug is found in any of
 those, land a unit or end-to-end test that fails without the fix — in the same
 commit, not later. Two from this project, both of which passed every existing
 test at the time they shipped:
@@ -109,7 +112,8 @@ square and get its address; paste an address and fly back to that square.
   them: encode, decode and cell bounds come from `wasm/core.wasm`, the same
   F\* by way of KaRaMeL. This bundle supplies what that cannot — the wordlist
   codec, BIP-39, the KDF's inputs, the band table.
-- `ocaml/server/` — Eio HTTP server. Also the desktop binary.
+- `ocaml/server/` — Eio HTTP server. Also the desktop binary. Its path
+  resolver is extracted F\*; nothing else in it is.
 - `ocaml/pmtiles/` — PMTiles v3 reader and region extractor.
 - `ui/` — Vite + React + MapLibre GL. The key lives in a Web Worker.
 - `ocaml/gzip/` — gzip, in one place; three callers need it.

@@ -361,12 +361,6 @@ The theorem set is complete and in the ledger. What is left is narrower.
       live on inputs nobody writes down. Do them when one of them next grows a
       case, not as a batch.
 
-- [ ] **CLAUDE.md says no line of `ocaml/server/` is F\*, and that is no
-      longer true.** `url_path.ml` is a wrapper over extracted F\*. README.md
-      was corrected in the same commit; CLAUDE.md was not, because it carries
-      a standing instruction not to edit it without asking first. Needs one
-      sentence changed, with the user's agreement.
-
 - [ ] **`theorem_containment` excludes exactly +90°.** Latitude is clamped
       there rather than bucketed, so the theorem carries
       `requires lat < lat_min + lat_span` and a separate `lemma_pole_clamp`

@@ -207,8 +207,8 @@ filesystem and not of this code.
 roadmap.md, Phase 1–3, with the reason neither is urgent. `UrlPath` is a new
 extracted module with no counterpart in `fstar/check/`, so it joins the
 trusted-extraction surface without joining the evaluator leg that watches it —
-also roadmapped. CLAUDE.md still says no line of `ocaml/server/` is F\*, which
-now needs one sentence changed, and that file is not edited without asking.
+also roadmapped. CLAUDE.md said no line of `ocaml/server/` was F\*; corrected
+with the user's agreement, in both the proof section and the tree listing.
 
 ### 2026-08-22 — The browser was downloading a megabyte of debug data
 
