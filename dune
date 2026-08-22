@@ -9,3 +9,10 @@
 ; is the failure tools/check-suites.sh exists because of. ui/dune marks the
 ; whole tree data-only, so dune reads files there and builds nothing.
 (dirs ocaml vectors js wordlist wasm ui)
+
+; dune 3.17 dropped warning 30 -- two mutually recursive record types sharing
+; a field name -- from the dev profile's error set. Lang 3.6, which this
+; project used until the js bundle needed newer dune fields, promoted it.
+; Nothing here relied on the relaxation and a shadowed field resolves
+; silently, so it is put back rather than inherited.
+(env (_ (flags (:standard -w @30))))

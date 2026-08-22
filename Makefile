@@ -184,9 +184,12 @@ test: test-core test-static test-extraction test-lowstar test-ui
 test-core:
 	tools/check-suites.sh
 
-# Lint, types and message catalogues. Fast, needs nothing running, and catches
-# the class of mistake the browser test cannot see: a message a locale is
-# missing, a placeholder a translator dropped, an accessibility rule broken.
+# Lint, types, message catalogues and the browser payload budgets. Fast, needs
+# no server, and catches the class of mistake the browser test cannot see: a
+# message a locale is missing, a placeholder a translator dropped, an
+# accessibility rule broken, a bundle that quietly grew by a megabyte. Needs
+# `dune build` first -- payload.mjs measures the bundle where dune writes it --
+# and `npm ci` in ui/, which `make ui` does.
 test-static:
 	@cd ui && npm run check
 

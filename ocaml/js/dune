@@ -7,4 +7,16 @@
  (name tessarium_js)
  (modes js)
  (libraries tessarium tessarium_extracted zarith zarith_stubs_js js_of_ocaml)
- (preprocess (pps js_of_ocaml-ppx)))
+ (preprocess (pps js_of_ocaml-ppx))
+ ; No source map. Under dune's dev profile js_of_ocaml inlines one. It was
+ ; 2,924 KB of a 5,106 KB bundle, and 68% of that bundle's gzipped weight,
+ ; because a source map is text and compresses no better. Disabled here rather
+ ; than by building this one executable under --profile release, so that the
+ ; bundle the tests run against is byte-identical to the bundle that ships.
+ ;
+ ; whole_program: dune's dev default links each library separately, which
+ ; keeps every module whether the browser reaches it or not. yojson, stdint
+ ; and ppx_deriving arrive through ocaml/fstarlib, which tessarium_extracted
+ ; depends on; the browser calls none of them. Compiling the whole program at
+ ; once lets js_of_ocaml drop what nothing calls.
+ (js_of_ocaml (sourcemap no) (compilation_mode whole_program)))

@@ -5,15 +5,15 @@
    "binary plus a directory that has to travel with it".
 
    Assets are stored gzipped and served with `Content-Encoding: gzip` rather
-   than decompressed at startup. The js_of_ocaml core is 5 MB and compresses
-   to about a tenth of that, and an OCaml source file containing a 5 MB
+   than decompressed at startup. They are megabytes before compression and a
+   fraction of that after, and an OCaml source file holding a multi-megabyte
    string literal is slow to compile and large in the binary. Serving the
    compressed bytes straight through avoids both, and is what a browser wants
    anyway.
 
    Each asset also carries a digest, computed here rather than at request
    time. It becomes the ETag, which is what lets a reload answer 304 instead
-   of resending the 5 MB core; hashing that core on every request to conclude
+   of resending the whole UI; hashing those bytes on every request to conclude
    "unchanged" would trade one waste for another. Compile time is the right
    time: these bytes are fixed when the binary is linked.
 

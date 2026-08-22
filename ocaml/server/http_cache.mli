@@ -21,8 +21,8 @@ val of_bytes : encoding:string option -> string -> string
 
 val of_digest : encoding:string option -> string -> string
 (** The same, from a hash computed elsewhere -- the embedded UI assets, whose
-    digests are fixed when the binary is linked. Hashing the 5 MB core on
-    every request to say "unchanged" would be its own kind of waste. Takes the
+    digests are fixed when the binary is linked. Hashing those bytes on every
+    request to say "unchanged" would be its own kind of waste. Takes the
     full hex; the truncation lives here, so both paths shorten it the same
     way. *)
 

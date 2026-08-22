@@ -363,6 +363,28 @@ The theorem set is complete and in the ledger. What is left is narrower.
       so, and this entry exists so the tradeoff is stated rather than
       rediscovered.
 
+- [ ] **The UI chunk is now the largest thing a visitor downloads.** With
+      the js_of_ocaml bundle down to 181 KB on the wire, `assets/index-*.js`
+      is 551 KB on the wire (1,847 KB raw) and is most of a first load. It is
+      MapLibre GL and React, both pulled in whole. MapLibre is the bulk and
+      is not optional; what is untried is whether the map, which does not
+      exist until a phrase is accepted, can be a dynamic import so the gate
+      loads without it. The gate is the only screen a visitor sees before
+      they have decided to use the app, and it needs none of that code.
+      Measure before changing anything: `ui/test/payload.mjs` holds the
+      budgets and `ui/test/e2e.mjs` reports real first-visit bytes.
+
+- [ ] **`vite.config.ts` sets `sourcemap: true`, and the map ships.**
+      `assets/index-*.js.map` is 5,019 KB and is embedded in the binary by
+      `gen_assets`, so it travels in the tarball, the .deb and the AppImage.
+      No visitor downloads it — a browser fetches a `.map` only with devtools
+      open — so this costs package size, not load time, which is why it was
+      left alone rather than folded into the payload work. The decision to
+      make is whether a shipped build should be debuggable at all; turning it
+      off is one line and reclaims three fifths of the binary's asset weight
+      (61% of 8,224 KB raw, 59% of it once gzipped as `gen_assets` stores it).
+      Settle it with the packaging work above, not before.
+
 ## Phase 6 — Web UI
 
 The prototype is complete: phrase in, grid drawn, click a square, get its

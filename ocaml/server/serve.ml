@@ -417,7 +417,7 @@ let serve_embedded cfg ~segments ~meth ~headers =
       then Some (not_modified cfg ~etag ~cache_control ~vary)
       else
         (* Decompressed only once we know we are sending it. This is where
-           the 5 MB core lives, and a reload that ends in a 304 should not
+           the built UI lives, and a reload that ends in a 304 should not
            inflate it to say so. *)
         let body =
           if enc = Some "gzip" then packed else Gzip.decompress packed
