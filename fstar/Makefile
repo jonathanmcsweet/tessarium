@@ -8,7 +8,12 @@
 
 FSTAR ?= fstar.exe
 OUT   := ../ocaml/extracted
-ROOT  := Tessarium.Api.fst
+
+# Every module in the namespace is a dependency root, derived rather than
+# listed. Tessarium.Api used to be the only one, which was true while every
+# module was reachable from it; Tessarium.UrlPath is not, and under a single
+# root it would have been extracted by the loop below and verified by nothing.
+ROOTS := $(wildcard Tessarium.*.fst)
 
 # Warning 321 fires because the binary release keeps ulib's checked files in
 # ulib.checked/ rather than beside the sources. It is cosmetic.
@@ -25,8 +30,14 @@ FSTAR_FLAGS := --warn_error -321 --report_assumes error
 
 all: verify
 
+# --warn_error only, not FSTAR_FLAGS: --report_assumes error fires on ulib's
+# OWN admitted interfaces during a dependency scan -- FStar.Range and four
+# others -- whatever the roots are, so this failed on master too and the only
+# reason nothing noticed is that .depend is committed and rarely regenerated.
+# A dependency scan proves nothing for that flag to be about. It stays on the
+# rule below, which is where verification actually happens.
 .depend: $(wildcard *.fst *.fsti)
-	$(FSTAR) $(FSTAR_FLAGS) --dep full $(ROOT) --output_deps_to $@
+	$(FSTAR) --warn_error -321 --dep full $(ROOTS) --output_deps_to $@
 
 include .depend
 
@@ -133,10 +144,23 @@ LOW_ORDER := Tessarium.Low.Feistel Tessarium.Low.Grid \
              Tessarium.Low.Blake2s Tessarium.Low.Core Tessarium.Low.Check
 LOW_MODULES := $(wildcard low/*.fst)
 
+# Tessarium.Low.Check reads the harness round function from
+# check/Tessarium.Check.Round, and F* will not write a module's .checked
+# while a dependency has none -- so krml then refuses the whole emission with
+# "Cross-module inlining expects all modules to be checked first". Nothing
+# else in this file caches check/, and check-extraction deliberately does not
+# (it runs the evaluator, it does not build). On a tree with no
+# check/*.checked -- a fresh clone, or anything after `make clean` -- that
+# made `make test-lowstar` fail outright.
+LOW_CHECK_DEPS := Tessarium.Check.Round
+
 low-verify: verify
 	@for m in $(basename $(notdir $(LOW_MODULES))); do \
 	  echo " $(LOW_ORDER) " | grep -qF " $$m " \
 	    || { echo "low/$$m.fst is missing from LOW_ORDER"; exit 1; }; \
+	done
+	@for m in $(LOW_CHECK_DEPS); do \
+	  $(FSTAR) $(LOW_FLAGS) --cache_checked_modules check/$$m.fst || exit 1; \
 	done
 	@for m in $(LOW_ORDER); do \
 	  $(FSTAR) $(LOW_FLAGS) --cache_checked_modules low/$$m.fst || exit 1; \
@@ -166,6 +190,10 @@ low-extract: low-verify
 	cd low/out && { krml *.krml -skip-compilation -tmpdir . > krml.log 2>&1 \
 	  || { cat krml.log; exit 1; }; } && tail -1 krml.log
 
+# $(OUT)/*.ml, not $(OUT): ocaml/extracted/dune is committed and lives in that
+# directory, so removing the directory deletes a tracked file and the next
+# `make extract` does not put it back.
 clean:
 	rm -f *.checked low/*.checked check/*.checked .depend
-	rm -rf $(OUT) low/out
+	rm -f $(OUT)/*.ml
+	rm -rf low/out

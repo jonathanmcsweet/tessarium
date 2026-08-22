@@ -21,6 +21,129 @@ than a git log.
 
 ---
 
+### 2026-08-22 — The path resolver is proved
+
+**Phase:** 1–3 · **Branch:** proof/url-path
+
+**What:** `ocaml/server/url_path.ml`'s `resolve` — the function that stops
+`GET /../../etc/passwd` — is now extracted from `fstar/Tessarium.UrlPath.fst`
+rather than hand-written. Three theorems and three liveness lemmas:
+
+`theorem_no_escape` — every segment `resolve` accepts is non-empty, is neither
+`.` nor `..`, and holds no `/`, `\` or NUL. Stated over a predicate
+(`opens_under_root`) that names each hazard rather than over the runtime test
+itself, so weakening the test cannot quietly weaken the theorem to match. It
+is also what makes the module's ORDER a proof obligation: reorder it to
+validate before decoding and this is the theorem that stops verifying.
+
+`theorem_no_dotfile` — no accepted segment begins with a dot. Separate from
+the first because it is a different claim: `.env` is under the root, it is
+just not ours to hand out. Without it, half of the one rule in `safe` rested
+on two unit tests.
+
+`theorem_traversal_refused` — a target that percent-decodes to `..` is
+refused. Given `opens_under_root` as written this follows from the first
+theorem rather than adding an obligation; it earns its place by naming `..`
+directly, so dropping that clause from the predicate leaves the traversal case
+still proved. One round of decoding, not a fixpoint: `%252e%252e` is accepted
+as the literal name `%2e%2e`.
+
+The three lemmas are liveness. Every theorem above says "if it accepts,
+then…", and `resolve = fun _ -> None` satisfies all of them; the lemmas pin
+the root to `index.html`, an ordinary name to itself, and `%20` to a space.
+
+Modelled on byte lists, not strings: a request target is octets until
+something decodes it, and `/`, `.` and NUL cannot occur inside a multi-byte
+UTF-8 sequence, so nothing is lost and no new F\* support module is needed.
+The trusted part of the DECISION is two lines converting a string to bytes and
+back. The rest of the file — `extension`, `content_type`, `cache_control` — is
+untouched hand-written code, and `content_type` is a security decision by its
+own comment. The proof covers which files may be opened, not what is said
+about them afterwards.
+
+Byte lists cost something. Boxed integers, one per byte, make `resolve` 8.6×
+master's on a realistic 25-byte target (0.3 µs → 2.8 µs, which is nothing per
+request) and 12× on a long one. Written first with `List.nth` inside
+`String.init` it was quadratic — 6.6 ms for a 4 KB path against master's 20 µs
+— and `resolve` runs from `Route.of_request` on every request, before the rate
+limiter, on the server's only domain. Now linear, and capped: a target over
+8,192 bytes is refused before any of this runs, which master did not do at
+all. Worst accepted case is 389 µs at the cap.
+
+Falsified seven ways, each rejected by the solver: drop the leading-dot rule,
+the backslash test or the NUL test from `safe`; check the raw target before
+decoding it; keep the traversal refusal but allow dotfiles; make `resolve`
+refuse everything; make `safe` reject everything. The last two verified before
+the liveness lemmas existed.
+
+Re-asserted at runtime too. `test_server.ml` runs the extracted resolver over
+40,562 targets built as a product of fragments, and holds every accepted
+segment to the extracted `opens_under_root` and `names_no_dotfile`. The
+corpus is in two groups on purpose: an all-hostile corpus runs the claims over
+almost nothing, because hostile fragments are refused and refusal is what a
+different check already covers. The second group is names that come close to
+the rules without breaking them and encodings that decode into legitimate
+ones, so 7,277 targets are accepted carrying 15 distinct segments rather than
+three literals. All three numbers are printed rather than only asserted, since
+a corpus can grow without either of the last two moving — an earlier version
+of this check ran 8,440 targets and reached 4 distinct segments.
+
+`fstar/Makefile` needed one fix to take a module that `Tessarium.Api` does
+not reach: the dependency root is now every `Tessarium.*.fst`, derived by
+wildcard. Under the single root a new module would have been extracted by the
+loop and verified by nothing.
+
+Adding one then exposed three things that were already broken on master, none
+of which anyone would meet without running `make clean`, and all three of
+which a fresh clone meets:
+
+1. The `.depend` rule passed `--report_assumes error`, which fires on ulib's
+   own admitted interfaces — `FStar.Range` and four others — during a
+   dependency scan. `make clean && make verify` could not regenerate `.depend`
+   at all. It only ever worked because the file was committed. It is no longer
+   committed: it holds absolute paths into `$HOME` (27 of `ALL_CHECKED_FILES`'
+   37 entries), it is the only generated artifact here with no CI
+   regenerate-and-diff gate, and it cannot have one for that reason.
+
+2. `make clean` did `rm -rf ../ocaml/extracted`, which deletes the committed
+   `ocaml/extracted/dune`, and `make extract` does not put it back. Now it
+   removes `$(OUT)/*.ml`.
+
+3. `low-verify` never cached `check/Tessarium.Check.Round`, which
+   `Tessarium.Low.Check` reads. F* will not write a module's `.checked` while
+   a dependency has none, and krml then refuses the whole emission with
+   "Cross-module inlining expects all modules to be checked first". So
+   `make test-lowstar` failed outright on any tree without `check/*.checked` —
+   verified against master, not inferred. CI caches only `~/toolchain`, so its
+   "Emitted C computes what the proved source computes" step was reaching that
+   state on every fresh runner.
+
+`make clean` followed by `make extract`, `make test-extraction` and
+`make test-lowstar` now runs through.
+
+The bundle is unaffected: `whole_program` drops a server-only module from the
+browser, and `tessarium_js.bc.js` is byte-identical at 1,224,261.
+
+**Rationale:** The plan called this "the first proof of a server module rather
+than a maths one, and the pattern for any that follow." The reason to start
+here rather than with `Http_range` or `Route` is that path traversal is the
+one bug in this server a test suite is structurally bad at: it fails only on
+inputs nobody thought to write down, and every spelling that got through a
+real server got through a suite that tested the obvious ones.
+
+Not proved, and now stated in README.md rather than only in the F\* source:
+that the caller joins the segments the way the theorem assumes — that join is
+`List.fold_left Eio.Path.( / )` in serve.ml — and that the directory
+underneath holds no symlink pointing out of itself, which is a property of the
+filesystem and not of this code.
+
+**Follow-on:** `Http_range.parse` and `Route.of_request` are the same shape;
+roadmap.md, Phase 1–3, with the reason neither is urgent. `UrlPath` is a new
+extracted module with no counterpart in `fstar/check/`, so it joins the
+trusted-extraction surface without joining the evaluator leg that watches it —
+also roadmapped. CLAUDE.md still says no line of `ocaml/server/` is F\*, which
+now needs one sentence changed, and that file is not edited without asking.
+
 ### 2026-08-22 — The browser was downloading a megabyte of debug data
 
 **Phase:** 4 · **Branch:** perf/browser-payload

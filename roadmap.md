@@ -337,6 +337,36 @@ The theorem set is complete and in the ledger. What is left is narrower.
       earns more. Rerun
       the deep sweep after any change to the extraction pipeline or the
       toolchain: `tools/differential-deep.sh` (about 50 minutes).
+- [ ] **`Tessarium.UrlPath` is extracted but not cross-examined.**
+      `fstar/check/` holds answers computed by the extracted binary and has
+      F\*'s own evaluator recompute them from the proved source; `CHECK_MODULES`
+      is derived from that directory, so a module with no Check counterpart is
+      silently not covered. UrlPath is now such a module. CI's
+      `ocaml/extracted` diff shows its extraction is deterministic, not that it
+      is faithful. A `Tessarium.Check.UrlPath` replaying a few dozen targets
+      through the evaluator would close it; the reason it is not urgent is that
+      the runtime check in `test_server.ml` holds the extracted resolver to the
+      extracted claim over 40,562 targets, which catches drift between the two
+      even though both come out of the same extraction.
+
+- [ ] **Two more server modules are shaped like the path resolver.**
+      `ocaml/server/url_path.ml`'s `resolve` is now extracted from proved F\*
+      (ledger, 2026-08-22), and the two obvious candidates to follow it are
+      `Http_range.parse` — a Range header parser, where the theorem is that an
+      accepted range lies inside the resource and `first <= last` — and
+      `Route.of_request`, where it is that a target reaching a tile handler
+      has `z, x, y` in range. Neither is urgent: both are covered by tests
+      today and neither has the property that made the resolver worth proving,
+      which is that its failures are invisible to a test suite because they
+      live on inputs nobody writes down. Do them when one of them next grows a
+      case, not as a batch.
+
+- [ ] **CLAUDE.md says no line of `ocaml/server/` is F\*, and that is no
+      longer true.** `url_path.ml` is a wrapper over extracted F\*. README.md
+      was corrected in the same commit; CLAUDE.md was not, because it carries
+      a standing instruction not to edit it without asking first. Needs one
+      sentence changed, with the user's agreement.
+
 - [ ] **`theorem_containment` excludes exactly +90°.** Latitude is clamped
       there rather than bucketed, so the theorem carries
       `requires lat < lat_min + lat_span` and a separate `lemma_pole_clamp`

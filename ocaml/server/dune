@@ -20,6 +20,10 @@
  (name tessarium_server)
  (libraries
   tessarium
+  ; Url_path calls the proved path resolver directly, not through
+  ; ocaml/lib's public API: it is a server decision, and ocaml/lib is the
+  ; core's API rather than a re-export of everything F* extracts.
+  tessarium_extracted
   tessarium_argon2
   tessarium_c_core
   cohttp-eio
