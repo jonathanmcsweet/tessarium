@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.tessarium.Tessarium</id>
+  <name>Tessarium</name>
+  <summary>A private address for every 3 m square on Earth</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+
+  <developer id="io.github.tessarium">
+    <name>Tessarium</name>
+  </developer>
+
+  <description>
+    <p>
+      Tessarium gives every ~3 m square on Earth an address made of three
+      ordinary words and a four-digit number. The mapping from squares to
+      addresses is derived from a seed phrase you hold, so two people with
+      different phrases see different addresses for the same place, and an
+      address means nothing to anyone without the phrase it was made under.
+    </p>
+    <p>
+      It works entirely offline. Maps are downloaded once and read from disk;
+      nothing about a location, an address or a phrase is sent anywhere. The
+      phrase is turned into a key inside the browser and is never stored.
+    </p>
+    <p>
+      The core that turns a point into an address is written in F* and
+      machine-checked: theorems establish that every point lies inside the
+      square it maps to, that distinct squares get distinct addresses, and
+      that decoding an address returns the square it was made from. The same
+      proved source builds both the desktop program and the browser client.
+    </p>
+    <p>
+      The application runs a small server on your own machine and opens your
+      browser to it. Nothing listens outside the loopback interface.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.tessarium.Tessarium.desktop</launchable>
+
+  <!-- No url elements, deliberately. This repository has no remote and no
+       published homepage, so any URL here would be invented, and an
+       AppStream file that links somewhere nonexistent is worse than one
+       that links nowhere. Flathub requires a homepage, so this has to be
+       filled in before submission. The same applies to the component id
+       above: io.github.tessarium presumes a GitHub namespace nobody has
+       claimed, and Flathub checks the id against a domain the submitter
+       controls. See roadmap.md, Phase 7. -->
+
+  <categories>
+    <category>Utility</category>
+    <category>Science</category>
+  </categories>
+
+  <keywords>
+    <keyword>map</keyword>
+    <keyword>address</keyword>
+    <keyword>geocoding</keyword>
+    <keyword>offline</keyword>
+    <keyword>privacy</keyword>
+  </keywords>
+
+  <!-- No account, no telemetry, no ads, and nothing user-generated leaves the
+       machine. Every OARS category is therefore "none" by construction rather
+       than by policy. -->
+  <content_rating type="oars-1.1" />
+
+  <!-- Screenshots are required by Flathub and are not committed yet: they
+       have to be taken against a real basemap, and this repository ships
+       none. See roadmap.md, Phase 7. -->
+
+  <releases>
+    <release version="0.1.0" date="2026-08-22">
+      <description>
+        <p>First packaged release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

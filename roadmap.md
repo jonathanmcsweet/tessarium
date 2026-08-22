@@ -721,8 +721,9 @@ not cover.
 
 ## Phase 7 — Desktop packaging
 
-Single binary and tarball are done. What remains is distribution format and
-the one honest caveat.
+The tarball and the `.deb` are done. What remains is four more distribution
+formats, the build-host constraint underneath two of them, and the one honest
+caveat.
 
 - [ ] **Verifiable builds — so a user can tell a legitimate build from an
       imposter.** The naive version does not work and must not be shipped as
@@ -768,10 +769,91 @@ the one honest caveat.
       from the binaries (60 such strings today; -ffile-prefix-map and
       OCAMLPARAM equivalents are the tools). Steps 2-4 wait on the key.
 
-- [ ] **The AppImage's final squash step needs `appimagetool`.**
-      `tools/package-appimage.sh` builds a complete AppDir and hands off;
-      CI images do not carry the tool. Fetch a pinned appimagetool in a
-      release workflow (not per-push CI) and produce the .AppImage there.
+- [ ] **Four more distribution formats, none of them built yet.** The tarball
+      and the `.deb` ship today. In priority order:
+
+      **Flatpak** — the top desktop target, because Fedora Silverblue and
+      Kinoite have no comfortable way to install an rpm: it has to be layered
+      with `rpm-ostree` and a reboot, and it complicates every later system
+      update. `packaging/flatpak/` holds a manifest, an AppStream metainfo
+      file, a launcher and a desktop entry. They are written and
+      syntax-checked and **have never been built** — no `flatpak-builder`
+      exists on any machine this project has run on. Three known gaps before
+      Flathub would take it: it wants at least one screenshot; it prefers
+      building from source over unpacking a release tarball, the same
+      constraint F-Droid applies in Phase 9; and the application id
+      `io.github.tessarium.Tessarium` presumes a namespace nobody has
+      claimed, which Flathub checks against a domain the submitter controls.
+      That last one is why the AppStream file carries no homepage or
+      bugtracker URL: this repository has no remote, so any link there would
+      be invented, and a link to somewhere that does not exist is worse than
+      no link. One detail worth not
+      rediscovering: the manifest needs `--share=network` even with every
+      map already downloaded, because without it the app gets its own network
+      namespace and the `127.0.0.1` it binds is not the one the browser
+      opens.
+
+      **AppImage** — the format that has to work everywhere, since it is the
+      answer for every distro that is not Fedora.
+      `tools/package-appimage.sh` builds an AppDir and stops. Two pieces are
+      missing, both downloads with known hashes: a pinned `appimagetool` for
+      the final squash, and the static `type2-runtime`, without which the
+      result needs libfuse2 — which neither Fedora nor Ubuntu 22.04+ installs
+      any more. Neither is hard. The item below is the part that actually
+      decides whether "works everywhere" is a true sentence.
+
+      **`.rpm`** — for conventional Fedora Workstation, RHEL and its
+      rebuilds, and openSUSE. It does **not** serve the top target: on an
+      immutable Fedora the Flatpak is the supported path and an rpm is the
+      awkward one. Shape is `tools/package-deb.sh` with a different wrapper —
+      same two binaries, same desktop entry and icon, a `.spec` in place of a
+      control file, `rpmbuild -bb` with `%_topdir` inside the tree so it needs
+      no root. Determinism needs the same care the `.deb` got, plus one more:
+      rpm records the build hostname unless `%_buildhost` is pinned.
+
+      **Snap** — lowest priority. It duplicates Flatpak's job for an audience
+      that largely has Flatpak already. `packaging/snap/snapcraft.yaml` is
+      written and validated and, like the Flatpak, has never been built. Kept
+      because it exists, not because it is wanted; do not spend on it until
+      someone asks.
+
+- [ ] **Whether an AppImage runs on all major distros is decided by the build
+      machine, not by anything in this repository.** A binary asks for the
+      newest symbol version its build host offers, and that version becomes
+      the floor for every machine that then runs it. The build host is Debian
+      12, so the binaries demand glibc 2.35 or newer — `hypot@GLIBC_2.35`,
+      `pthread_*@2.34`, `__libc_start_main@2.34` — none of which comes from
+      anything this project wrote. That floor excludes RHEL 9 and its
+      rebuilds (2.34), Debian 11 (2.31) and Ubuntu 20.04 (2.31).
+
+      No flag fixes this after the fact. The only fix is to build on
+      something old and let the result run forward; Debian 11 as the build
+      base gives a 2.31 floor and covers everything still supported. The
+      check belongs in the packaging script rather than in a comment: read
+      the symbol versions back out of the built binaries with `objdump -T`
+      and fail if any exceeds the declared floor, so the claim is tested
+      instead of asserted.
+
+      Which formats this decides, and which it does not:
+
+      | Format | Whose glibc it runs against | If the host's is too old |
+      | --- | --- | --- |
+      | Flatpak | the runtime's | unaffected |
+      | Snap | the base snap's | unaffected |
+      | `.deb`, `.rpm` | the host's | refuses to install — visible |
+      | AppImage, tarball | the host's | crashes on launch — silent |
+
+      The last row is why this matters most where it is claimed loudest:
+      AppImage is the format with no dependency metadata to catch the
+      mistake, and the one whose whole point is that it runs anywhere.
+
+- [ ] **Nothing in `packaging/` has ever been executed, and CI does not build
+      any of it.** No `flatpak-builder`, no `snapcraft`, no `rpmbuild`, no
+      `appimagetool`, and no container runtime to supply them. Every file
+      there is unexecuted text and should be read that way until a release
+      workflow builds each format and a job installs the result on a clean
+      system and launches it. Per-release rather than per-push: these builds
+      are slow and none of them gates correctness.
 
 ## Phase 8 — Later, unscheduled
 
@@ -807,6 +889,87 @@ the one honest caveat.
       the payload and path-safety ones added this week. The cheap fix either
       way is for the script to fail loudly and by name when a base URL does not
       answer, rather than at whatever request happens to reach it first.
+
+- [ ] **RESEARCH: can this ride inside an existing map app rather than being
+      one?** Worth asking because the hard part of this project is the proved
+      core and the private mapping, not the map. All three candidates already
+      solve offline maps better than this repository will, and two of them are
+      already on the phones of the people most likely to want a private grid.
+
+      **What follows is a desk assessment from knowledge of these projects,
+      not from reading their current source or SDK.** It narrows the work; it
+      does not finish it. The one fact that decides the whole ATAK question is
+      flagged below as needing confirmation first.
+
+      **ATAK — plausible, but as a plugin, not as a coordinate format.**
+      ATAK-CIV is public and has a real, documented plugin SDK: a plugin is a
+      separate APK, built against a version-matched SDK, signed, and loaded by
+      the host app. That is why it ranked first and it still does.
+
+      The hoped-for shape was registering a *coordinate format*, so that the
+      goto bar, the marker readout and outgoing CoT all speak Tessarium.
+      **This is believed not to be available** — coordinate formats look like
+      a fixed enumeration in the core (MGRS, decimal degrees, DM, DMS, UTM),
+      not a registry a plugin can extend. Confirm that against the SDK before
+      anything else, because it is the difference between a first-class
+      integration and a panel. If it is an enum, what remains is still
+      coherent, just smaller:
+
+      - a map layer drawing the grid near the viewport, which plugins can add
+        with their own renderer;
+      - a drop-down for entering an address and reading the one under the
+        cursor;
+      - the address carried on a marker as a custom CoT `<detail>` element,
+        which other ATAK instances running the same plugin and holding the
+        same seed can read and everyone else ignores.
+
+      The core crosses without a third implementation, which is the reason
+      this is cheaper than it looks: KaRaMeL already emits C, the NDK builds
+      C, and JNI is a shim over it. No new hand-written implementation, so no
+      breach of that rule.
+
+      The key is the hard problem here, not the rendering. A private grid is
+      only useful to a team if the whole team holds the seed, and the normal
+      way a TAK network hands a team a file is a data package — which is also
+      exactly the thing that must not leak. Whether a seed may live on an ATAK
+      device at all is a policy question for whoever is deploying it, and it
+      sits upstream of any code. Still unread: the SDK licence, and the plugin
+      signing and distribution rules.
+
+      **CoMaps and Organic Maps — not viable as an overlay.** One answer
+      covers both: CoMaps forked in 2025 over governance rather than
+      architecture, so the code is the same shape. Three independent reasons,
+      any one of which is enough:
+
+      1. No plugin API, and no scripting surface. Nothing in either app loads
+         third-party code.
+      2. No style layer to add a grid to. They draw their own vector format
+         with their own C++ renderer, and the drawing rules are compiled into
+         the app at build time rather than read from a style file at runtime.
+         MapLibre's style JSON — which is how the grid is drawn in this
+         project's web UI — has no counterpart there.
+      3. The grid is a function of the viewport *and* the seed, so it has to
+         be computed live by code holding the key. A file cannot be a grid.
+
+      So the only way in is a fork, and a fork of a large C++ app with two
+      mobile front-ends is a bigger thing to keep alive than everything in
+      this repository put together. Upstreaming is not a realistic escape
+      either: a feature that shows nothing without a 24-word seed phrase is
+      outside the stated scope of both projects.
+
+      What is available today and costs them nothing: both read **KML**
+      bookmark files and GPX tracks. Exporting chosen squares as KML
+      placemarks would carry Tessarium addresses into either app, and into
+      Google Earth and most GPS tooling besides — a feature in *this*
+      repository, not a change in theirs. Its limit has to be stated plainly
+      if it is ever built: it is a snapshot of squares somebody picked, not
+      the grid. At ~3 m there are roughly 111,000 squares in a square
+      kilometre, so exporting a viewport's worth is not a thing that can work.
+
+      Recommendation: **drop CoMaps and Organic Maps as integration targets**
+      and revisit only if either grows a plugin API. If a host is ever wanted,
+      the cheap one is any app that already renders MapLibre styles, because
+      the grid here is already exactly that.
 
 - [ ] **A wrapped viewport is not a box, and two features assume it is.**
       `regionOf` in the map clamps the viewport's west and east ends at
@@ -879,13 +1042,33 @@ the one honest caveat.
 
 ## Phase 9 — Android
 
-Deferred deliberately: web and Linux desktop first, both fully working.
+Deferred deliberately: web and Linux desktop first, both fully working. The
+named targets are **GrapheneOS and AOSP** — no Google Play Services, no
+Firebase, no Play Integrity. That is a constraint on what may be depended on,
+not just on where it is published, and it is the reason to settle it before
+writing any Android code: a webview wrapper that quietly pulls a Play-dependent
+map SDK is the failure mode.
 
 - [ ] Decide webview (Capacitor, wraps the Phase 6 build unchanged) versus
       native (Expo/React Native, needs a second map integration and a rewritten
       UI layer). Capacitor is additive and can be added late; Expo cannot.
-- [ ] Offline basemap packs sized for a phone
-- [ ] Reproducible builds and F-Droid packaging
+      Against GrapheneOS/AOSP the webview route looks stronger than it does
+      generally: MapLibre GL JS already runs in a WebView with no Google
+      dependency, where MapLibre Native's Android bindings would be a second
+      map integration to keep in step with the first.
+- [ ] Offline basemap packs sized for a phone. The desktop answer is a 45 MB
+      world overview plus regions; a phone wants the overview to be the
+      default and the regions to be small and removable, which the ledger and
+      the two-source composite (ledger, 2026-08-21) already support.
+- [ ] Reproducible builds and F-Droid packaging. F-Droid's build server wants
+      a from-source build with no prebuilt binaries, which is the same
+      constraint Flathub applies and which the desktop packaging work has to
+      answer first — see Phase 7. Whatever solves it there should solve it
+      here.
+- [ ] Where the key lives on a phone. The browser answer is a Web Worker and
+      nothing persisted; Android has a hardware keystore and a lock screen,
+      and "the phone remembers the phrase" is a materially different threat
+      model from "the tab forgets it". Decide before shipping, not after.
 
 ---
 

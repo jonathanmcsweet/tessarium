@@ -1,0 +1,72 @@
+# Snap package. Lower priority than the Flatpak -- the atomic Fedora desktops
+# are the primary target and they do not ship snapd -- but Ubuntu users expect
+# one, and strict confinement is a genuinely different sandbox worth being
+# able to answer for.
+#
+# Like the Flatpak, this consumes the release tarball rather than building
+# from source: the two binaries need nothing beyond libc and libm, so there is
+# nothing for a build environment to get wrong. `make package` first.
+#
+# NEVER BUILT -- no snapcraft on any machine this has run on. Validated
+# YAML, not a working package.
+name: tessarium
+base: core24
+# Duplicated from ocaml/server/bin/main.ml, and in the tarball path
+# below, with nothing checking either. package-flatpak.sh has that
+# check; there is no package-snap.sh yet to carry it here.
+version: '0.1.0'
+summary: A private address for every 3 m square on Earth
+description: |
+  Tessarium gives every ~3 m square on Earth an address made of three
+  ordinary words and a four-digit number. The mapping is derived from a seed
+  phrase you hold, so an address means nothing to anyone without that phrase.
+
+  It works entirely offline. Maps are downloaded once and read from disk, and
+  nothing about a location, an address or a phrase is sent anywhere. The core
+  that turns a point into an address is written in F* and machine-checked.
+
+  The application runs a small server on your own machine and opens your
+  browser to it. Nothing listens outside the loopback interface.
+
+grade: stable
+confinement: strict
+license: Apache-2.0
+
+apps:
+  tessarium:
+    command: bin/tessarium
+    # network-bind to listen on loopback, network to fetch maps, desktop so
+    # that xdg-open reaches the host's browser through the portal, and
+    # home so a user can point --basemap at their own directory. Without
+    # `home` the maps still work -- they default to $SNAP_USER_COMMON, which
+    # needs no interface -- so a user who never passes --basemap can
+    # disconnect it.
+    plugs:
+      - network
+      - network-bind
+      - desktop
+      - home
+  basemap:
+    command: bin/tessarium-basemap
+    plugs:
+      - network
+      - home
+
+parts:
+  tessarium:
+    plugin: dump
+    source: ../../dist/tessarium-0.1.0-linux-x86_64.tar.gz
+    organize:
+      tessarium-server: bin/tessarium-server
+      tessarium-basemap: bin/tessarium-basemap
+    stage:
+      - bin/tessarium-server
+      - bin/tessarium-basemap
+      - LICENSE
+  launcher:
+    plugin: dump
+    source: .
+    organize:
+      tessarium.sh: bin/tessarium
+    stage:
+      - bin/tessarium
