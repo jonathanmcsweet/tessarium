@@ -417,26 +417,30 @@ The theorem set is complete and in the ledger. What is left is narrower.
       so, and this entry exists so the tradeoff is stated rather than
       rediscovered.
 
-- [ ] **The UI chunk is now the largest thing a visitor downloads.** With
-      the js_of_ocaml bundle down to 181 KB on the wire, `assets/index-*.js`
-      is 551 KB on the wire (1,847 KB raw) and is most of a first load. It is
-      MapLibre GL and React, both pulled in whole. MapLibre is the bulk and
-      is not optional; what is untried is whether the map, which does not
-      exist until a phrase is accepted, can be a dynamic import so the gate
-      loads without it. The gate is the only screen a visitor sees before
-      they have decided to use the app, and it needs none of that code.
-      Measure before changing anything: `ui/test/payload.mjs` holds the
-      budgets and `ui/test/e2e.mjs` reports real first-visit bytes.
+- [ ] **The map chunk is 398 KB on the wire, and nothing has tried to
+      shrink it.** The gate no longer waits on it (ledger, 2026-08-22), which
+      was the part that mattered, so what is left is a real download that a
+      user who unlocks still pays once. It is MapLibre GL, pulled in whole,
+      plus the Protomaps style. MapLibre is not optional and there is no
+      obvious slice of it to drop, which is why this is recorded rather than
+      planned: it needs someone to measure what inside it is actually
+      reachable, not a guess at a plugin build.
+
+      The 398 KB is not on any critical path today. The gate warms it while
+      Argon2 runs, so the ordinary cost of it is zero and the case for
+      spending on it is weak until something else makes it visible.
 
 - [ ] **`vite.config.ts` sets `sourcemap: true`, and the map ships.**
-      `assets/index-*.js.map` is 5,019 KB and is embedded in the binary by
-      `gen_assets`, so it travels in the tarball, the .deb and the AppImage.
-      No visitor downloads it — a browser fetches a `.map` only with devtools
-      open — so this costs package size, not load time, which is why it was
+      There are two of them now that the map is its own chunk — 2,730 KB for
+      `MapView-*.js.map` and 2,110 KB for `index-*.js.map` — and `gen_assets`
+      embeds both in the binary, so they travel in the tarball, the .deb and
+      the AppImage. No visitor downloads either — a browser fetches a `.map`
+      only with devtools open — so this costs package size, not load time, which is why it was
       left alone rather than folded into the payload work. The decision to
       make is whether a shipped build should be debuggable at all; turning it
       off is one line and reclaims three fifths of the binary's asset weight
-      (61% of 8,224 KB raw, 59% of it once gzipped as `gen_assets` stores it).
+      (4,841 KB of 7,965 KB raw, re-measured 2026-08-22; the split moved these
+      figures a little and did not change the share).
       Settle it with the packaging work above, not before.
 
 ## Phase 6 — Web UI

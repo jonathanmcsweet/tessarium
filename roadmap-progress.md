@@ -21,6 +21,52 @@ than a git log.
 
 ---
 
+### 2026-08-22 — The phrase screen stops downloading the map
+
+**Phase:** 4 · **Branch:** perf/gate-payload
+
+**What:** MapView is a dynamic import behind `Suspense`, so MapLibre and the
+Protomaps style leave the entry chunk. Reaching a phrase field that can be
+typed into went from **564,414 B to 140,111 B** on the wire — both measured in
+a browser against the embedded UI, not estimated — a 75% cut on the one screen
+shown to someone who has not yet decided to use this. Total weight is
+unchanged (543,535 B gzipped against 544,462 B): nothing was removed, it moved
+behind the decision to unlock. `PhraseEntry` starts the map download the
+moment a phrase passes its checksum, which overlaps it with Argon2id over
+64 MB, so the split costs nothing a user can feel. A visitor who never types a
+valid phrase never fetches it at all.
+
+**Rationale:** The gate needs none of that code, and the user drives this over
+a forwarded port where bytes cost roughly ten times what they do locally, so
+first-load weight is felt rather than theoretical.
+
+The number is what it costs to REACH a usable phrase field, and not what a
+session costs: `/tessarium.js` (about 181 KB) and the map chunk both follow
+as the phrase is typed and validates. Recorded here because a 137 KB figure
+quoted without that sentence would be flattering.
+
+**Found on the way, and the reason this took two runs:** MapLibre puts its own
+`maplibregl-map` class on the element the stylesheet calls `.map`, and sets
+`position: relative` with no height. One class each, so the later stylesheet
+won — and splitting the chunk moved MapLibre's CSS into a second file loaded
+after the app's. The map computed to **height 0**. Everything still mounted,
+tiles still loaded, `.map-wrap` still appeared; clicks landed on a map with no
+area, and the first check to complain was an unrelated one about the
+coordinate row several hundred lines later. Fixed with `.map-wrap > .map`,
+which outranks a single class whatever the load order.
+
+**Checks, both falsified before being kept:** the e2e asserts the rendered map
+fills its half of the window (940x0 FAIL against the bare `.map` selector,
+940x900 PASS with the child selector), and holds the gate to 176 KB with a
+companion check that the map still arrives as its own larger download — so the
+budget cannot be met by breaking the map instead. The `Suspense` fallback is
+rendered under a deliberately delayed chunk and read for its text, because
+nothing else in the suite is slow enough to show it. 240 checks, 0 failures.
+
+**Follow-on:** the map chunk is 398 KB on the wire and nothing has tried to
+shrink it; the sourcemap item's figures were re-measured. Both in roadmap.md,
+Phase 4.
+
 ### 2026-08-22 — A long path segment took the connection down
 
 **Phase:** 6 · **Branch:** fix/long-path-segment

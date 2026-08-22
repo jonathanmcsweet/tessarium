@@ -75,6 +75,7 @@
   "map_ledger_stale": "Update available",
   "map_ledger_title": "Downloaded maps",
   "map_ledger_update": "Update",
+  "map_loading": "Loading the map…",
   "map_loading_detail": "Loading map detail…",
   "map_name_many": "{first} + {count} more",
   "map_name_view": "Map view",
