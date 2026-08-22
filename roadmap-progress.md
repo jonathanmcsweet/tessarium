@@ -21,6 +21,57 @@ than a git log.
 
 ---
 
+### 2026-08-22 — Refusals say themselves in the user's language
+
+**Phase:** 6 · **Branch:** i18n/worker-errors
+
+**What:** Every refusal a user can reach now carries a stable code, and the
+display edge turns the code into a catalogue entry. Twelve codes, twelve
+messages, six locales. The producers are two: `ocaml/lib/tessarium.ml`,
+where `Invalid_address`, `Bad_mnemonic`, `Bad_passphrase` and
+`validate_mnemonic`'s error now carry `{ code; arg; message }`; and
+`ui/public/core.worker.js`, where `Refused` gained a code. `ui/src/core/
+refusal.ts` is the single place a code becomes a sentence, and `MapView`,
+`PhraseEntry` and `PlaceSearch` call it instead of reading `.message`.
+
+**Rationale:** The worker cannot translate — no catalogue, no locale, plain
+JavaScript in `public/` that no bundler reads — and neither can OCaml
+compiled to a separate artifact. So the producer names the failure and the
+edge says it. `arg` carries the one value that varies, passed positionally
+and named at the edge, so a catalogue entry can put a word where its own
+grammar wants it rather than where English does.
+
+**The English is unchanged, deliberately.** Every sentence that was already
+written for a user is byte-identical in the catalogue, so this change is
+about locale and not about copy — the e2e's existing assertions on that
+wording still hold untouched, which is the evidence. Two exceptions, both
+strings that were never sentences: `"locked"`, which surfaced in a toast as
+that one word, and the internal diagnostics (a refused band table, a bad wasm
+import, an argon2 return code), which now share one `core_failed` code whose
+message says plainly that it is our defect and carries the English detail. A
+user cannot act on "the band table failed the core's shape check" and should
+not be left thinking they might.
+
+**Also fixed, because the refactor exposed it:** `indicesOfAddress` used to
+raise across the js_of_ocaml boundary, and the worker dug the message out of
+the exception array's last element. That worked only while the payload was a
+string. Giving refusals a record would have silently turned every malformed
+address into "[object Object]". It answers with a refusal now and the
+array-digging helper is gone.
+
+**Checks, falsified before being kept:** `ui/test/messages.mjs` reads the
+codes back out of the worker AND out of `tessarium.ml`, and asserts each
+has an entry and that no entry is dead — shown failing against a renamed
+worker code (`bolted`) and against a renamed OCaml code (`mnemonic_cksum`),
+in both directions each time. The e2e enters an address that names nothing,
+in French, and asserts the refusal comes back French and not English, then
+switches back and asserts the English — shown failing (English text under a
+French interface) against a build whose edge returned `.message` directly.
+242 checks, 0 failures; the 14 dune suites all ran.
+
+**Follow-on:** the HTTP API's error strings are still English and one of them
+reaches a toast in `DownloadCard`. roadmap.md, Phase 6.
+
 ### 2026-08-22 — The phrase screen stops downloading the map
 
 **Phase:** 4 · **Branch:** perf/gate-payload

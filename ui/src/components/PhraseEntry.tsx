@@ -24,6 +24,7 @@ import {
   useUnlock,
   useValidatePhrase,
 } from "../core/queries";
+import { sayRefusal } from "../core/refusal";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
 import { toastError } from "../toast";
@@ -100,7 +101,11 @@ export function PhraseEntry() {
       {
         onSuccess: (result) => {
           if (!result.ok) {
-            toastError(result.error ?? m.gate_unlock_failed());
+            toastError(
+              result.error
+                ? sayRefusal(result.error)
+                : m.gate_unlock_failed(),
+            );
             return;
           }
           /* Drop the phrase from component state the moment it is no longer
@@ -155,7 +160,7 @@ export function PhraseEntry() {
             {m.gate_word_count({ count: wordCount })}
           </span>
           {validationError && wordCount > 0 && (
-            <span className="invalid">{validationError}</span>
+            <span className="invalid">{sayRefusal(validationError)}</span>
           )}
           {ready && <span className="valid">{m.gate_checksum_valid()}</span>}
         </div>

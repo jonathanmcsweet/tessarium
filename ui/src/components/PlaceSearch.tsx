@@ -33,6 +33,7 @@ import {
   distanceKm,
 } from "../core/placeContext";
 import { useAddressLookup, useAddressShape } from "../core/queries";
+import { sayError } from "../core/refusal";
 import { getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import { citiesOf, countries, countryName, subdivisionsOf } from "../regions";
@@ -87,9 +88,10 @@ export function PlaceSearch(
   const isPartial = shape === "partial";
 
   const lookup = useAddressLookup(debounced, isAddress);
-  const addressError = lookup.error instanceof Error
-    ? lookup.error.message
-    : null;
+  /* The core's refusal, said in the user's language: this is where a
+     mistyped word or a three-digit number is explained, and it is the most
+     likely error anyone here will ever see. */
+  const addressError = lookup.error ? sayError(lookup.error) : null;
 
   const search = usePlaceSearch(debounced, shape === "no");
   const results = search.data?.results ?? [];

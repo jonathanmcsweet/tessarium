@@ -553,19 +553,24 @@ not cover.
       fly-to effect calling the same encode-and-select path the click handler
       uses rather than only moving the camera through `ui/src/core/camera.ts`.
 
-- [ ] **The worker's error messages are English, in six locales.** Everything
-      the UI says lives in `ui/messages/` except what `core.worker.js` throws:
-      "locked", the malformed-address message the core supplies, "that point
-      is outside the mapped range", the 35%-of-combinations explanation, and
-      the band-table refusals added by the browser half of the switch. The
-      display edge (`MapView`, `AddressPanel`) puts `error.message` straight
-      into a toast, so a French user gets English at exactly the moment
-      something went wrong. The fix is a stable code alongside the message and
-      a `code -> m.*()` map at the edge; the messages themselves then move to
-      the catalogue like every other string. Noted here rather than fixed with
-      the switch because it predates it — the switch enlarged the surface
-      without creating it — and because it is six locales of new keys, not a
-      worker change.
+- [ ] **The server's messages are still English, and one of them reaches a
+      user.** Refusals from the core and the worker now carry codes and are
+      said in the interface language (ledger, 2026-08-22), but nothing was
+      done about the other producer of English strings: the HTTP API. That is
+      correct for the API itself — a machine interface answering in French
+      would be worse — and it is wrong at exactly one place, `DownloadCard`,
+      which puts a failed download's `reason` straight into a toast.
+
+      The same shape would close it: a code in the JSON error body beside the
+      sentence, and `ui/src/core/refusal.ts` growing entries for it. Not
+      urgent, because these are network and disk failures rather than things
+      a user did, and the wording of them changes nothing about what to do
+      next. Do it the next time that error path is opened.
+
+      `ui/src/core/client.ts` has two English strings of its own — a worker
+      that failed to start, and a reply of the wrong shape. Those are faults
+      rather than refusals and are deliberately left untranslated: they mean
+      this build is broken, and the English is for whoever reads the report.
 
 - [ ] **Search context follow-ups.** Result rows now carry country,
       subdivision and distance (ledger, 2026-08-20); three sharp edges

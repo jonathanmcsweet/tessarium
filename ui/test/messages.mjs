@@ -205,5 +205,62 @@ if (!existsSync(compiled)) {
   );
 }
 
+/* ------------------------- refusal codes have entries ---------------------
+
+   A refusal names itself with a stable code and src/core/refusal.ts turns the
+   code into a sentence. Nothing in the type system connects the two: the
+   codes are string literals in a worker that no bundler reads and in OCaml
+   that compiles to a separate artifact, so a new one with no entry falls
+   through to the core's English and nobody notices, in English.
+
+   Textual, deliberately. The alternative is importing refusal.ts, which is
+   TypeScript this script cannot load, and the codes are literals in both
+   producers -- if one ever becomes a computed string this check goes quiet,
+   which is why it also asserts it found a plausible number of them. */
+{
+  const said = readFileSync(join(root, "src", "core", "refusal.ts"), "utf8");
+  /* The keys of the `said` map: two-space indented identifiers before a
+     colon, inside the object literal. */
+  const body = said.slice(said.indexOf("const said"), said.indexOf("};"));
+  const known = new Set(
+    [...body.matchAll(/^ {2}([a-z_]+):/gm)].map((mm) => mm[1]),
+  );
+
+  const worker = readFileSync(
+    join(root, "public", "core.worker.js"),
+    "utf8",
+  );
+  const produced = new Set([
+    ...[...worker.matchAll(/new Refused\(\s*"([a-z_]+)"/g)].map((mm) => mm[1]),
+    ...[...worker.matchAll(/code:\s*"([a-z_]+)"/g)].map((mm) => mm[1]),
+  ]);
+  /* The core's own refusals -- a mistyped word, a bad address -- are raised
+     in OCaml and carry their codes from there. */
+  const lib = readFileSync(
+    join(root, "..", "ocaml", "lib", "tessarium.ml"),
+    "utf8",
+  );
+  for (const mm of lib.matchAll(/code = "([a-z_]+)"/g)) produced.add(mm[1]);
+
+  check(
+    `found refusal codes to check (${produced.size})`,
+    produced.size >= 10,
+  );
+  const orphans = [...produced].filter((c) => !known.has(c));
+  check(
+    `every refusal code has a message (missing: ${
+      orphans.join(", ") || "none"
+    })`,
+    orphans.length === 0,
+  );
+  /* The other direction is a smaller problem -- an entry nobody throws is
+     dead text, not a user seeing English -- but it is just as cheap to see. */
+  const unused = [...known].filter((c) => !produced.has(c));
+  check(
+    `and every message has a refusal (unused: ${unused.join(", ") || "none"})`,
+    unused.length === 0,
+  );
+}
+
 console.log(`\nmessage catalogues: ${checks} checks, ${failures} failures`);
 process.exit(failures ? 1 : 0);

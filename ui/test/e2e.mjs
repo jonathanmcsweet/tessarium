@@ -2106,8 +2106,49 @@ check(
   "choosing a language writes no sessionStorage",
   afterSwitch.session === "{}",
 );
+/* A refusal, said in French. This is the whole point of the code-and-
+   catalogue split: the message is produced by the worker and by the OCaml
+   core, neither of which can see a locale, so before this change a French
+   user met English at the exact moment something went wrong.
+
+   The address below is well formed and names nothing -- about 35% of word
+   combinations do not, which is what makes a typo obvious -- so it is a
+   refusal from the wasm core, carried out through a code. Matched on French
+   words rather than on "not the English", because a blank box would also not
+   be the English. */
+await page.locator("#place-search-input").fill("");
+await page.waitForTimeout(350);
+await page.locator("#place-search-input").fill(vectors.invalid_addresses[0]);
+const refusalText = await page.locator(".place-empty").first()
+  .textContent({ timeout: 15_000 })
+  .catch(() => null);
+check(
+  `an address that names nothing is refused in French (${
+    JSON.stringify((refusalText ?? "").slice(0, 40))
+  })`,
+  typeof refusalText === "string"
+    && refusalText.includes("combinaisons")
+    && !refusalText.includes("word combinations"),
+);
+await page.locator("#place-search-input").fill("");
+await page.waitForTimeout(350);
+
 await page.locator(".language select").selectOption("en-US");
 await page.waitForTimeout(400);
+
+/* And the same refusal in English, so the check above is testing the
+   catalogue rather than a box that says "combinaisons" whatever happens. */
+await page.locator("#place-search-input").fill(vectors.invalid_addresses[0]);
+const refusalEnglish = await page.locator(".place-empty").first()
+  .textContent({ timeout: 15_000 })
+  .catch(() => null);
+check(
+  `and in English once the language is changed back`,
+  typeof refusalEnglish === "string"
+    && refusalEnglish.includes("word combinations"),
+);
+await page.locator("#place-search-input").fill("");
+await page.waitForTimeout(350);
 
 /* NFKD across the whole stack.
 
