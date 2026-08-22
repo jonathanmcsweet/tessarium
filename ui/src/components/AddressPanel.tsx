@@ -134,29 +134,40 @@ export function AddressPanel() {
                 {
                   /* Named the same way as the address above, for the same
                     reason: "Latitude, bullet bullet bullet" is not an
-                    answer. */
+                    answer.
+
+                    NOT `aria-label` on the `dd`, which is what this was
+                    first and is invalid -- a description-list value has no
+                    role that takes a name, and the lint rule
+                    useAriaPropsSupportedByRole is right to refuse it. A
+                    hidden span carries the words and the mask is hidden
+                    from the tree instead, which works on every element. */
                 }
                 <dl className="coords">
                   <dt>{m.panel_latitude()}</dt>
-                  <dd
-                    className={coordsConcealed ? "concealed" : undefined}
-                    aria-label={coordsConcealed
-                      ? m.panel_coords_concealed()
-                      : undefined}
-                  >
+                  <dd className={coordsConcealed ? "concealed" : undefined}>
                     {coordsConcealed
-                      ? COORD_MASK
+                      ? (
+                        <>
+                          <span className="sr-only">
+                            {m.panel_coords_concealed()}
+                          </span>
+                          <span aria-hidden>{COORD_MASK}</span>
+                        </>
+                      )
                       : formatCoord(selection.cell.latLo)}
                   </dd>
                   <dt>{m.panel_longitude()}</dt>
-                  <dd
-                    className={coordsConcealed ? "concealed" : undefined}
-                    aria-label={coordsConcealed
-                      ? m.panel_coords_concealed()
-                      : undefined}
-                  >
+                  <dd className={coordsConcealed ? "concealed" : undefined}>
                     {coordsConcealed
-                      ? COORD_MASK
+                      ? (
+                        <>
+                          <span className="sr-only">
+                            {m.panel_coords_concealed()}
+                          </span>
+                          <span aria-hidden>{COORD_MASK}</span>
+                        </>
+                      )
                       : formatCoord(selection.cell.lonLo)}
                   </dd>
                 </dl>
