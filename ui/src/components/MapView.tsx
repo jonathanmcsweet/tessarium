@@ -31,6 +31,7 @@ import {
 } from "../core/coverage";
 import { createLoadingTracker } from "../core/loading";
 import { fetchAddress, fetchGrid } from "../core/queries";
+import { sayError } from "../core/refusal";
 import { formatBytes, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
@@ -957,7 +958,7 @@ export function MapView() {
       /* One square, one address, asked for only when the user asks. */
       const result = await fetchAddress(client, lat, lon).catch(
         (e: unknown) => {
-          toastError(e instanceof Error ? e.message : String(e));
+          toastError(sayError(e));
           return null;
         },
       );

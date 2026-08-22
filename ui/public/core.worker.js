@@ -32,16 +32,37 @@ let key = null;
    A handler RETURNS `{ok: false, error}` when not-valid is itself the answer,
    which is only `validate` and `unlock`. A phrase failing its checksum is a
    result to display, not an exception to handle. */
-class Refused extends Error {}
+/* Every refusal carries a stable CODE, and the English sentence is a
+   fallback rather than the thing a user reads.
 
-/* The strings thrown from here are English, and the display edge
-   (MapView, AddressPanel) puts them in a toast verbatim -- so a French user
-   sees English. That is a known gap, not an oversight: the app ships in six
-   locales and every other user-facing string lives in ui/messages/. Closing
-   it means the worker returning a stable code alongside the message and the
-   edge mapping the code to m.*(), which is its own piece of work and is in
-   roadmap.md. Until then, do not add strings here that a user can reach
-   without also adding them there. */
+   This file cannot translate: it has no access to the message catalogue, it
+   runs before any locale is chosen, and it is plain JavaScript in public/
+   that no bundler touches. So it names the failure and the display edge says
+   it -- ui/src/core/refusal.ts maps a code to m.*(), and MapView and
+   AddressPanel call that instead of reading `.message`.
+
+   `arg` is the one value that varies (a word, a count), passed separately so
+   the catalogue entry can put it where its own grammar wants it rather than
+   where English does.
+
+   Adding a refusal here means adding its code to ui/src/core/refusal.ts and
+   its text to all six files in ui/messages/. ui/test/messages.mjs enforces
+   both: it reads the codes back out of this file and asserts each one has an
+   entry. A code that slipped through would fall back to the English sentence
+   written here, which is why one is always written. */
+class Refused extends Error {
+  constructor(code, message, arg = "") {
+    super(message);
+    this.code = code;
+    this.arg = arg;
+  }
+}
+
+/* Not a refusal: the core, the wasm modules or the glue is broken, and no
+   wording a user reads will help. One code covers all of them and the
+   English detail rides along as `arg`, so a bug report still carries the
+   specific sentence. */
+const broken = (detail) => new Refused("core_failed", detail, detail);
 
 /* Key derivation runs on the Argon2id wasm module (argon2.wasm) -- the
    SAME vendored reference C the server links, zig-compiled, so the browser
@@ -78,7 +99,7 @@ async function loadWasm(path) {
   const mod = await WebAssembly.compileStreaming(fetch(path));
   for (const imp of WebAssembly.Module.imports(mod)) {
     if (imp.module !== "wasi_snapshot_preview1" || imp.name !== "random_get") {
-      throw new Refused(`unexpected wasm import ${imp.module}.${imp.name}`);
+      throw broken(`unexpected wasm import ${imp.module}.${imp.name}`);
     }
   }
   const instance = await WebAssembly.instantiate(mod, {
@@ -125,7 +146,7 @@ const loadMapCore = once(async () => {
      is `core.cumTable is not a function` from inside a grid refresh, which
      MapView swallows -- the grid just never appears and nothing says why. */
   if (typeof core.cumTable !== "function") {
-    throw new Refused(
+    throw broken(
       "the js_of_ocaml bundle predates the wasm core -- run `make build`, "
         + "then `make ui`",
     );
@@ -137,11 +158,11 @@ const loadMapCore = once(async () => {
   const table = core.cumTable();
   for (let i = 0; i < table.length; i++) {
     if (!exports.set_cum(i, BigInt(table[i]))) {
-      throw new Refused(`the band table was refused at entry ${i}`);
+      throw broken(`the band table was refused at entry ${i}`);
     }
   }
   if (!exports.seal_cum()) {
-    throw new Refused("the band table failed the core's shape check");
+    throw broken("the band table failed the core's shape check");
   }
   return exports;
 });
@@ -194,17 +215,34 @@ const outWords = (m) => {
   return outCache;
 };
 
-/* js_of_ocaml raises OCaml exceptions as ARRAYS -- [tag, exn_id, ..., payload]
-   -- not as Errors, so `e.message` is undefined and String(e) hands the user
-   a comma-joined dump with the useful sentence buried at the end. The payload
-   is the last element. Anything else (a genuine Error, a thrown string) falls
-   through unchanged. */
-const ocamlMessage = (e) =>
-  Array.isArray(e) ? String(e[e.length - 1]) : String(e?.message ?? e);
+/* A refusal from the bundle, copied into a plain object.
+
+   What js_of_ocaml hands back is its own object, and every refusal here
+   either crosses postMessage -- which structure-clones whatever it is given
+   -- or is read by name on the main thread. Three known fields is a
+   contract; the bundle's representation of an object is not, and it changed
+   once already. `String()` on each because Js.string values are JS strings
+   in practice and this does not want to depend on that.
+
+   This replaced a helper that dug messages out of OCaml exception arrays.
+   Nothing raises across that boundary any more: the two bundle calls that
+   could -- validateMnemonic and indicesOfAddress -- answer with a refusal. */
+const refusalOf = (r) =>
+  r === null || r === undefined ? null : {
+    code: String(r.code),
+    arg: String(r.arg),
+    message: String(r.message),
+  };
 
 async function deriveKey(mnemonic, passphrase) {
   const inputs = core.kdfInputs(mnemonic, passphrase);
-  if (inputs.error !== null) throw new Refused(inputs.error);
+  /* A refusal from the core, carrying its own code: a bad phrase or an
+     over-long passphrase. Rethrown rather than reworded -- the core is where
+     the rule lives, so it is where the name of the failure belongs. */
+  const refused = refusalOf(inputs.error);
+  if (refused !== null) {
+    throw new Refused(refused.code, refused.message, refused.arg);
+  }
   const password = bytesOfHex(inputs.password);
   const salt = bytesOfHex(inputs.salt);
   /* The core already bounds both inputs (max_passphrase_bytes), so these
@@ -212,14 +250,14 @@ async function deriveKey(mnemonic, passphrase) {
      checked BEFORE anything is written, because the glue's own check runs
      after the write and cannot protect the memory around the buffers. */
   if (password.length > 1024 || salt.length > 1024) {
-    throw new Refused("KDF input exceeds the wasm buffers");
+    throw broken("KDF input exceeds the wasm buffers");
   }
   const a = await loadArgon2();
   new Uint8Array(a.memory.buffer, a.password_ptr(), password.length)
     .set(password);
   new Uint8Array(a.memory.buffer, a.salt_ptr(), salt.length).set(salt);
   const rc = a.kdf(password.length, salt.length);
-  if (rc !== 0) throw new Refused(`argon2 failed with code ${rc}`);
+  if (rc !== 0) throw broken(`argon2 failed with code ${rc}`);
   return hex(new Uint8Array(a.memory.buffer, a.out_ptr(), 32));
 }
 
@@ -235,7 +273,7 @@ const ops = {
   },
 
   validate({ mnemonic }) {
-    const error = core.validateMnemonic(mnemonic);
+    const error = refusalOf(core.validateMnemonic(mnemonic));
     return { ok: error === null, error };
   },
 
@@ -261,8 +299,8 @@ const ops = {
   },
 
   async unlock({ mnemonic, passphrase }) {
-    const invalid = core.validateMnemonic(mnemonic);
-    if (invalid) return { ok: false, error: invalid };
+    const invalid = refusalOf(core.validateMnemonic(mnemonic));
+    if (invalid !== null) return { ok: false, error: invalid };
     /* The wasm KDF would happily run over plain HTTP -- unlike the old
        WebCrypto path, nothing technical stops it. The refusal is kept as
        POLICY: a seed-phrase form served over plain HTTP is a mistake, and
@@ -271,8 +309,12 @@ const ops = {
     if (!self.isSecureContext) {
       return {
         ok: false,
-        error: "This page is not in a secure context, so it will not "
-          + "derive a key. Serve it over HTTPS or from localhost.",
+        error: {
+          code: "insecure_context",
+          arg: "",
+          message: "This page is not in a secure context, so it will not "
+            + "derive a key. Serve it over HTTPS or from localhost.",
+        },
       };
     }
     /* A refused derivation -- over-long passphrase, wasm trouble -- is a
@@ -280,7 +322,12 @@ const ops = {
     try {
       key = await deriveKey(mnemonic, passphrase ?? "");
     } catch (e) {
-      if (e instanceof Refused) return { ok: false, error: e.message };
+      if (e instanceof Refused) {
+        return {
+          ok: false,
+          error: { code: e.code, arg: e.arg, message: e.message },
+        };
+      }
       throw e;
     }
     return { ok: true, error: null };
@@ -304,18 +351,21 @@ const ops = {
      split is the honest one: the proved code computes an index, and turning
      an index into three words is a wordlist lookup, not arithmetic. */
   async encode({ lat, lon }) {
-    if (key === null) throw new Refused("locked");
+    if (key === null) throw new Refused("locked", "locked");
     const m = await loadMapCore();
     /* Re-read after the await, not before it. These ops were synchronous
        until the core moved to wasm; now a `lock` can land while the first
        call is still fetching and compiling, and `keyWords(null)` would put
        a TypeError in the user's toast instead of "locked". */
     const k = key;
-    if (k === null) throw new Refused("locked");
+    if (k === null) throw new Refused("locked", "locked");
     if (
       !m.encode(...keyWords(k), nsOfDeg(lat) - LAT_MIN, nsOfDeg(lon) - LON_MIN)
     ) {
-      throw new Refused("that point is outside the mapped range");
+      throw new Refused(
+        "point_out_of_range",
+        "that point is outside the mapped range",
+      );
     }
     const out = outWords(m);
     return {
@@ -329,19 +379,16 @@ const ops = {
   },
 
   async decode({ address }) {
-    if (key === null) throw new Refused("locked");
-    let idx;
-    try {
-      idx = core.indicesOfAddress(address);
-    } catch (e) {
-      /* A malformed address is a typo, not a fault. The core's message names
-         the specific problem -- which word, which part -- so it is passed
-         through rather than replaced with something generic. */
-      throw new Refused(ocamlMessage(e));
-    }
+    if (key === null) throw new Refused("locked", "locked");
+    /* A malformed address is a typo, not a fault, and the core names the
+       specific problem -- which word, which part. It answers with a refusal
+       rather than raising, so there is no OCaml exception to unpick here. */
+    const idx = core.indicesOfAddress(address);
+    const bad = refusalOf(idx.error);
+    if (bad !== null) throw new Refused(bad.code, bad.message, bad.arg);
     const m = await loadMapCore();
     const k = key;
-    if (k === null) throw new Refused("locked");
+    if (k === null) throw new Refused("locked", "locked");
     const rc = m.decode(
       ...keyWords(k),
       BigInt(idx.w1),
@@ -360,6 +407,7 @@ const ops = {
     }
     if (rc === 0) {
       throw new Refused(
+        "address_no_location",
         "That address does not correspond to any location. About 35% of "
           + "word combinations do not, which is what makes a typo obvious.",
       );
@@ -411,7 +459,7 @@ const ops = {
             break;
           }
           if (!m.bounds(lat - LAT_MIN, lon - LON_MIN)) {
-            throw new Refused("the grid walk left the mapped range");
+            throw broken("the grid walk left the mapped range");
           }
           const out = outWords(m);
           const latLoC = out[0] + LAT_MIN, latHiC = out[1] + LAT_MIN;
@@ -455,7 +503,7 @@ self.onmessage = async (event) => {
   const { id, op, payload } = event.data;
   const handler = ops[op];
   if (!handler) {
-    self.postMessage({ id, error: `unknown op ${op}` });
+    self.postMessage({ id, error: `unknown op ${op}`, code: null, arg: "" });
     return;
   }
   try {
@@ -472,6 +520,14 @@ self.onmessage = async (event) => {
     const transfer = result.cells ? [result.cells.buffer] : [];
     self.postMessage({ id, result }, transfer);
   } catch (e) {
-    self.postMessage({ id, error: String(e?.message ?? e) });
+    /* The code travels beside the message. Anything without one is not a
+       Refused -- a genuine bug in here -- and the edge shows it as such
+       rather than pretending it is something the user did. */
+    self.postMessage({
+      id,
+      error: String(e?.message ?? e),
+      code: typeof e?.code === "string" ? e.code : null,
+      arg: typeof e?.arg === "string" ? e.arg : "",
+    });
   }
 };

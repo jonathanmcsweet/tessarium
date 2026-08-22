@@ -29,9 +29,20 @@ export type Bounds = {
   lonHi: number;
 };
 
+/* A refusal names itself with a stable code, so the six locales can say it
+   in their own words; `message` is the core's English and is what the edge
+   falls back to for a code it has no entry for. See core/refusal.ts. */
+const Refusal = z.object({
+  code: z.string(),
+  arg: z.string(),
+  message: z.string(),
+});
+
+export type Refusal = z.infer<typeof Refusal>;
+
 const OkOrError = z.object({
   ok: z.boolean(),
-  error: z.string().nullable(),
+  error: Refusal.nullable(),
 });
 
 const Status = z.object({
@@ -68,7 +79,20 @@ type Pending = {
   reject: (reason: Error) => void;
 };
 
-export class CoreError extends Error {}
+/* Carries the worker's code so the display edge can translate it. `code` is
+   null for anything that was not a refusal -- a bug in the worker, a worker
+   that failed to start -- and the edge shows those differently on purpose,
+   because they are not something the user did. */
+export class CoreError extends Error {
+  readonly code: string | null;
+  readonly arg: string;
+
+  constructor(message: string, code: string | null = null, arg = "") {
+    super(message);
+    this.code = code;
+    this.arg = arg;
+  }
+}
 
 export class Core {
   #worker: Worker;
@@ -82,12 +106,19 @@ export class Core {
        every time a component does. */
     this.#worker = new Worker("/core.worker.js");
     this.#worker.onmessage = (event: MessageEvent) => {
-      const { id, result, error } = event.data;
+      const { id, result, error, code, arg } = event.data;
       const pending = this.#pending.get(id);
       if (!pending) return;
       this.#pending.delete(id);
-      if (error) pending.reject(new CoreError(String(error)));
-      else pending.resolve(result);
+      if (error) {
+        pending.reject(
+          new CoreError(
+            String(error),
+            typeof code === "string" ? code : null,
+            typeof arg === "string" ? arg : "",
+          ),
+        );
+      } else pending.resolve(result);
     };
     this.#worker.onerror = (event) => {
       const failure = new CoreError(

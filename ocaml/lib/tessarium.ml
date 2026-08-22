@@ -8,9 +8,24 @@
 module Api = Tessarium_Api
 module Table = Tessarium_Table
 
-exception Invalid_address of string
-exception Bad_mnemonic of string
-exception Bad_passphrase of string
+(* A refusal the user can act on, carrying a stable code beside its English
+   sentence.
+
+   The sentence is unchanged and stays authoritative: it is what the HTTP API
+   puts on the wire and what the tests read. The code exists for the browser,
+   which ships in six locales and cannot translate a sentence it did not
+   choose -- it maps the code to a catalogue entry and substitutes [arg] for
+   the one value that varies. See ui/src/core/refusal.ts.
+
+   [arg] is a string even where it holds a count, because it crosses into
+   JavaScript through js_of_ocaml and there is exactly one of it per refusal.
+   A refusal that ever needs two values is the point at which this should
+   become a proper variant rather than growing an [arg2]. *)
+type refusal = { code : string; arg : string; message : string }
+
+exception Invalid_address of refusal
+exception Bad_mnemonic of refusal
+exception Bad_passphrase of refusal
 
 let grid_version = Table.grid_version
 (* Left as Zarith. Both exceed 2^31, and this module is also compiled to
@@ -87,13 +102,24 @@ let validate_mnemonic m =
   let n = List.length words in
   if n <> required_words then
     Error
-      (Printf.sprintf
-         "expected %d words, got %d. 12-word phrases are not accepted: 128 bits \
-          of entropy is only 64 against a quantum adversary."
-         required_words n)
+      {
+        code = "mnemonic_word_count";
+        arg = string_of_int n;
+        message =
+          Printf.sprintf
+            "expected %d words, got %d. 12-word phrases are not accepted: 128 \
+             bits of entropy is only 64 against a quantum adversary."
+            required_words n;
+      }
   else
     match List.find_opt (fun w -> not (Hashtbl.mem Wordlist.index w)) words with
-    | Some bad -> Error (Printf.sprintf "'%s' is not a BIP-39 word" bad)
+    | Some bad ->
+        Error
+          {
+            code = "mnemonic_not_a_word";
+            arg = bad;
+            message = Printf.sprintf "'%s' is not a BIP-39 word" bad;
+          }
     | None ->
         (* 24 words = 264 bits = 256 entropy + 8 checksum *)
         let bits =
@@ -104,7 +130,12 @@ let validate_mnemonic m =
         let checksum = Z.to_int (Z.logand bits (Z.of_int 0xff)) in
         let entropy = Crypto.be_bytes_of_z (Z.shift_right bits 8) 32 in
         if Char.code (Crypto.sha256 entropy).[0] <> checksum then
-          Error "checksum failed -- likely a typo in one word"
+          Error
+            {
+              code = "mnemonic_checksum";
+              arg = "";
+              message = "checksum failed -- likely a typo in one word";
+            }
         else Ok ()
 
 (* Entropy in, words out -- the inverse of [validate_mnemonic].
@@ -167,9 +198,14 @@ let kdf_salt ~passphrase =
   if String.length p > max_passphrase_bytes then
     raise
       (Bad_passphrase
-         (Printf.sprintf
-            "passphrase too long: %d bytes NFKD-normalised, the limit is %d"
-            (String.length p) max_passphrase_bytes));
+         {
+           code = "passphrase_too_long";
+           arg = string_of_int (String.length p);
+           message =
+             Printf.sprintf
+               "passphrase too long: %d bytes NFKD-normalised, the limit is %d"
+               (String.length p) max_passphrase_bytes;
+         });
   derivation_version ^ p
 
 (* Key derivation is deliberately expensive. Derive once per session and
@@ -330,18 +366,36 @@ let address_of_string s =
         String.length t = 4 && String.for_all (fun ch -> ch >= '0' && ch <= '9') t
       in
       if not (is_digits num) then
-        raise (Invalid_address (Printf.sprintf "'%s' is not a four-digit number" num));
+        raise
+          (Invalid_address
+             {
+               code = "address_not_four_digits";
+               arg = num;
+               message = Printf.sprintf "'%s' is not a four-digit number" num;
+             });
       let idx w =
         match resolve_word w with
         | Some i -> Z.of_int i
-        | None -> raise (Invalid_address (Printf.sprintf "'%s' is not a BIP-39 word" w))
+        | None ->
+            raise
+              (Invalid_address
+                 {
+                   code = "address_not_a_word";
+                   arg = w;
+                   message = Printf.sprintf "'%s' is not a BIP-39 word" w;
+                 })
       in
       (idx a, idx b, idx c, Z.of_int (int_of_string num))
   | parts ->
       raise
         (Invalid_address
-           (Printf.sprintf "expected 3 words and a number, got %d parts"
-              (List.length parts)))
+           {
+             code = "address_part_count";
+             arg = string_of_int (List.length parts);
+             message =
+               Printf.sprintf "expected 3 words and a number, got %d parts"
+                 (List.length parts);
+           })
 
 (* ------------------------------------------------------------ public API *)
 

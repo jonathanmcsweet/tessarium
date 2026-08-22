@@ -40,6 +40,17 @@ let core = Tessarium.extracted_core
 let jstr = Js.string
 let ostr = Js.to_string
 
+(* A refusal crossing to JavaScript keeps its code, so the browser can say the
+   same thing in six languages. The English sentence travels with it and is
+   what the worker falls back to for anything the catalogue has no entry for;
+   see ui/src/core/refusal.ts. *)
+let jrefusal (r : Tessarium.refusal) =
+  object%js
+    val code = jstr r.Tessarium.code
+    val arg = jstr r.Tessarium.arg
+    val message = jstr r.Tessarium.message
+  end
+
 let () =
   Js.export "tessarium"
     (object%js
@@ -64,12 +75,12 @@ let () =
            end
          in
          match Tessarium.validate_mnemonic (ostr mnemonic) with
-         | Error e -> inputs "" "" (Js.Opt.return (jstr e))
+         | Error e -> inputs "" "" (Js.Opt.return (jrefusal e))
          | Ok () -> (
              let mnemonic = ostr mnemonic and passphrase = ostr passphrase in
              match Tessarium.kdf_salt ~passphrase with
              | exception Tessarium.Bad_passphrase e ->
-                 inputs "" "" (Js.Opt.return (jstr e))
+                 inputs "" "" (Js.Opt.return (jrefusal e))
              | salt ->
                  inputs
                    (hex_of_string (Tessarium.kdf_password ~mnemonic))
@@ -86,7 +97,7 @@ let () =
        method validateMnemonic mnemonic =
          match Tessarium.validate_mnemonic (ostr mnemonic) with
          | Ok () -> Js.null
-         | Error e -> Js.some (jstr e)
+         | Error e -> Js.some (jrefusal e)
 
        (* Exact interface: nanodegrees as decimal strings. *)
        method encodeNs keyHex latNs lonNs =
@@ -217,14 +228,29 @@ let () =
           collapsing it into either of the other two leaks or annoys. *)
        method addressShape s = jstr (Tessarium.address_shape_string (ostr s))
 
-       (* Raises Invalid_address, exactly as the typed path does -- the
-          message names which word or which part is wrong. *)
+       (* Returns the indices, or a refusal naming which word or which part
+          is wrong -- it does NOT raise.
+
+          It used to. An OCaml exception reaching JavaScript arrives as an
+          ARRAY, and the worker dug the message out of its last element; that
+          worked only while the payload was a string, and it became a record
+          the moment refusals grew codes. Returning the refusal makes the
+          shape the caller's business rather than js_of_ocaml's
+          representation of an exception. *)
        method indicesOfAddress addr =
-         let w1, w2, w3, n = Tessarium.address_of_string (ostr addr) in
-         object%js
-           val w1 = Z.to_int w1
-           val w2 = Z.to_int w2
-           val w3 = Z.to_int w3
-           val n = Z.to_int n
-         end
+         let indices w1 w2 w3 n error =
+           object%js
+             val w1 = w1
+             val w2 = w2
+             val w3 = w3
+             val n = n
+             val error = error
+           end
+         in
+         match Tessarium.address_of_string (ostr addr) with
+         | w1, w2, w3, n ->
+             indices (Z.to_int w1) (Z.to_int w2) (Z.to_int w3) (Z.to_int n)
+               Js.null
+         | exception Tessarium.Invalid_address e ->
+             indices 0 0 0 0 (Js.some (jrefusal e))
     end)

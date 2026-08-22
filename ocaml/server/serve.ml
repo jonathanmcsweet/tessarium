@@ -726,8 +726,8 @@ let handle_api cfg sessions limiter random ~endpoint ~body ~now =
                   Option.value (string_field "passphrase" json) ~default:""
                 in
                 match Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic ~passphrase with
-                | exception Tessarium.Bad_mnemonic e -> bad e
-                | exception Tessarium.Bad_passphrase e -> bad e
+                | exception Tessarium.Bad_mnemonic e -> bad e.Tessarium.message
+                | exception Tessarium.Bad_passphrase e -> bad e.Tessarium.message
                 | key ->
                     let id = Sessions.new_id random in
                     Sessions.put sessions ~now id key;
@@ -756,7 +756,7 @@ let handle_api cfg sessions limiter random ~endpoint ~body ~now =
               | None -> bad "missing address"
               | Some address -> (
                   match Tessarium.decode ~core ~key address with
-                  | exception Tessarium.Invalid_address e -> bad e
+                  | exception Tessarium.Invalid_address e -> bad e.Tessarium.message
                   (* The C core refuses arguments outside its proved domain
                      rather than computing over them. address_of_string cannot
                      produce such a tuple, so this is unreachable today; it is
