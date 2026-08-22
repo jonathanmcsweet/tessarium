@@ -1006,30 +1006,41 @@ caveat.
         needing no API at all, with an opacity slider over the basemap. This
         is the door. (From knowledge of the app, not re-verified here.)
 
-      **Sort candidates by "can it take a custom XYZ or WMTS source", not by
-      "does it have plugins".** That question keeps being the one that decides
-      things, and it is usually answerable from an app's settings screen in a
-      minute. The table below is from knowledge unless marked otherwise —
-      a shortlist to check, not a set of findings.
+      **The list, refined.** Most of these are not separate pieces of work.
+      One local tile source serves every application that can add a custom
+      map layer, so the question that sorts candidates is "can it take a
+      custom map source", not "does it have plugins".
 
-      | Host | Custom tile source | Third-party code | Licence |
-      | --- | --- | --- | --- |
-      | OsmAnd | yes, overlay + opacity | AIDL (no renderer) / SDK | open, one-way |
-      | ATAK / WinTAK | yes, WMS/WMTS/MBTiles | yes, plugin SDK | ATAK-CIV open |
-      | QGIS / QField | yes | yes, full Python plugin API | GPL-2.0 |
-      | Locus Map | yes | yes, add-on API | closed app, open API |
-      | Guru, OruxMaps, CalTopo | yes | no | closed |
-      | Google Earth Pro | KML NetworkLink, live | no | closed |
-      | Vela | not documented; MapLibre style | fork | GPL-3.0 |
-      | Organic Maps, CoMaps | no | no | open |
-      | Google Maps app | no | no | closed |
-      | Apple Maps app | no | no | closed |
+      *Tier 1 — one piece of work, many applications.* The localhost endpoint
+      above, drawing the grid as tiles. Everything here gets the overlay with
+      no code written for it and nobody's permission: OsmAnd, ATAK and
+      WinTAK, QGIS, QField, Locus Map, Guru Maps, OruxMaps, CalTopo. The
+      limit is the same in all of them — the grid arrives as a picture, so it
+      can be seen and not tapped.
 
-      **QGIS deserves a second look for the desktop and professional side.**
-      It is the only entry with a real, documented, general-purpose plugin
-      API and a plugin repository, it is already in the same hands as ATAK,
-      and a grid overlay is an ordinary thing to write there. QField carries
-      the same projects onto Android.
+      *Tier 2 — deliberate integrations, each buying the thing Tier 1 cannot:
+      tapping a square to read its address.* In build order:
+
+      1. **QGIS.** Python, no signing, no store, no device, and a real plugin
+         API — the cheapest place to prove a full integration works before
+         spending on a hard one. Smallest everyday audience of the three,
+         which is what makes it a good proving ground rather than a bad
+         target. QField would carry the same projects to Android; whether it
+         takes plugins is unchecked.
+      2. **ATAK / CivTAK.** The most value to the audience most likely to
+         want a private grid, and the most work: a version-matched SDK,
+         plugin signing, and a rebuild against each ATAK release. Also the
+         only candidate where an address could ride on a shared marker.
+      3. **Vela.** Worth starting only if its maintainer wants it; otherwise
+         it is a fork. Settle that by asking, not by building.
+
+      *Tier 3 — not doing.* Organic Maps and CoMaps, which need a fork of a
+      decade of C++; Google Maps and Apple Maps, which have no way in at all
+      and whose near-misses fail the host rule in Locked decisions.
+
+      Recommended order: Tier 1 first — one piece of work, eight
+      applications, nobody's agreement needed. Then QGIS, to prove a real
+      integration end to end. Then ATAK.
 
       **Apple Maps and Google Maps cannot take an overlay, and their near
       misses are worse than nothing here.** Neither consumer app has custom
