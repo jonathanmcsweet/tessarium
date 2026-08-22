@@ -1045,7 +1045,41 @@ caveat.
 
       *Tier 3 — not doing.* Organic Maps and CoMaps, which need a fork of a
       decade of C++; Google Maps and Apple Maps, which have no way in at all
-      and whose near-misses fail the host rule in Locked decisions.
+      and whose near-misses fail the host rule in Locked decisions; and GNOME
+      Maps, for the reason below.
+
+      **GNOME Maps — read, and it misses Tier 1 by one feature.** Checked
+      against the source (`GNOME/gnome-maps`, main, 2026-08-22), because it
+      looked like it should qualify and the answer turns on a detail.
+
+      It has a settings key that points the basemap somewhere else —
+      `vector-tile-source-url-pattern`, read in `src/mapSource.js` — and it
+      already speaks PMTiles (`src/pmtiles.js`) and downloads regions for
+      offline use. All of that is convergent with this project and none of it
+      helps: the key REPLACES the basemap rather than adding a layer over it,
+      and the style it generates expects the OpenMapTiles schema, so pointing
+      it at a grid endpoint would mean losing the map to gain the grid.
+
+      What it does have is shape layers — `src/shapeLayer.js` and the GeoJSON,
+      KML and GPX subclasses — loaded from a file and toggled in the layers
+      popover. That is a real overlay, and it is a file, so it carries the
+      limit already recorded for KML: a 3 m grid is about 111,000 squares per
+      km², so a file can only ever be a snapshot of chosen squares and never
+      "the grid". Useful for sharing a handful of addresses; not a grid
+      overlay.
+
+      There is no plugin API, so a real integration means patching the app.
+      That is far cheaper than Organic Maps — GNOME Maps is GJS, so it is
+      JavaScript and a fork is readable rather than a C++ excavation — but it
+      is still a fork, and GPL-2.0-or-later, which takes our Apache-2.0 one
+      way only.
+
+      What would move it to Tier 1, and it is a small thing: an additional
+      raster or vector layer over the basemap, from a URL. libshumate already
+      supports more than one layer; GNOME Maps does not expose it, and the
+      aerial/street buttons in `src/layersPopover.js` are commented out. Worth
+      re-checking if that popover ever grows, and worth asking upstream for
+      rather than forking over.
 
       Recommended order: Tier 1 first — one piece of work, eight
       applications, nobody's agreement needed. Then QGIS, to prove a real
