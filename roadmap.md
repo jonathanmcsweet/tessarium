@@ -962,6 +962,56 @@ caveat.
       - It rules nothing back in for Organic Maps or CoMaps, which have no
         custom online tile source to point at anything.
 
+      **Vela — the best fit found so far, and it changes Phase 9.**
+      <https://github.com/PimpinPumpkin/Vela>. "Degoogled maps & turn-by-turn
+      navigation for Android — MapLibre + Jetpack Compose, no Google Play
+      Services." Kotlin, GPL-3.0, created 2026-06-15, actively developed,
+      carries an `fdroid/` directory. It is, in other words, already building
+      the application Phase 9 describes wanting, against the same GrapheneOS
+      and no-GMS target, and it has solved the parts Phase 9 has not started.
+
+      Verified by reading the repository (README, `docs/MAP-STYLE.md`,
+      `app/build.gradle.kts`, `app/src/main/java/app/vela/ui/TransitLayer.kt`,
+      the file tree):
+
+      - **It renders MapLibre Native.** The reason that killed CoMaps and
+        Organic Maps — no runtime style layer — does not apply. The grid in
+        this project's web UI is already a MapLibre style layer, and the same
+        style JSON concepts carry to MapLibre's Android bindings.
+      - **Injecting layers at runtime is an exercised pattern there, not a
+        theory.** The basemap style is loaded by URL and then modified in
+        place: house-number labels injected, hillshade added under the road
+        layers, palettes reapplied by theme. There is a `LayersButton` in the
+        UI and `TransitLayer` / `SatelliteLayer` / `BuildingOverlay` toggles
+        to copy the shape of.
+      - **Native code already crosses.** The app ships a native `.aar` and
+        manages multi-ABI packaging, so JNI over the KaRaMeL-emitted C is a
+        shim rather than a new build system. No third implementation, so no
+        breach of that rule.
+      - **The licence works in one direction only.** Apache-2.0 source may be
+        taken into a GPL-3.0 work, so contributing the grid to Vela is fine
+        and the combined application is GPL-3.0. The reverse is not: no Vela
+        code can come back into this repository.
+      - **`docs/MAP-STYLE.md` names self-hosted PMTiles as its intended
+        no-key path.** This repository has a PMTiles reader and region
+        extractor already.
+
+      What is NOT established, and has to be before this is a plan:
+
+      - **There is no plugin API, so this is a contribution or a fork, not an
+        add-on.** That is the same structural problem CoMaps has; what differs
+        is scale. Vela is ~400 files and two months old, against a decade of
+        C++ with two front-ends — a fork is tractable and an upstream change
+        is plausible, where there it was neither.
+      - **Whether its maintainer wants it.** A feature that shows nothing
+        without a 24-word seed phrase is a scope question for a project whose
+        pitch is "Google Maps, degoogled". Ask before building, not after.
+      - **How hard adding a source and layer actually is** in its map screen,
+        and what its offline pack format is. Neither has been read.
+      - **It is one person's young project.** 260 stars is real traction, not
+        continuity. GPL-3.0 and the right to fork is the mitigation, and it
+        should be a conscious one rather than an assumption.
+
       **CoMaps and Organic Maps — not viable as an overlay.** One answer
       covers both: CoMaps forked in 2025 over governance rather than
       architecture, so the code is the same shape. Three independent reasons,
@@ -1082,6 +1132,15 @@ map SDK is the failure mode.
       generally: MapLibre GL JS already runs in a WebView with no Google
       dependency, where MapLibre Native's Android bindings would be a second
       map integration to keep in step with the first.
+
+      There is now a third answer that was not on the table when this was
+      written: **do not build one.** Vela (Phase 8, the overlay research) is
+      already a MapLibre, no-GMS, GrapheneOS-targeting Android map app under
+      GPL-3.0, and contributing the grid to it as a layer would skip the
+      basemap, the offline packs, the F-Droid packaging and the navigation
+      entirely. It trades those for a dependency on someone else's project
+      and a licence that only flows one way. Settle this before choosing
+      between the two options above, because it makes both moot if it works.
 - [ ] Offline basemap packs sized for a phone. The desktop answer is a 45 MB
       world overview plus regions; a phone wants the overview to be the
       default and the regions to be small and removable, which the ledger and
