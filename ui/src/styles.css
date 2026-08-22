@@ -926,19 +926,35 @@ button:disabled {
   outline: 2px solid var(--accent-text);
   outline-offset: 1px;
 }
+/* The results card. React Aria renders this in a portal at the end of the
+   document and positions it, so it is no longer a child of the search box:
+   it needs its own stacking order against the map, and it takes its width
+   from the field through the variable the library sets on it rather than by
+   inheriting a parent's. */
 .place-results {
-  list-style: none;
-  margin: 0.35rem 0 0;
-  padding: 0.25rem;
-  max-height: 18rem;
-  overflow-y: auto;
+  width: var(--trigger-width);
+  z-index: 5;
   background: var(--card);
   border: 1px solid var(--line-strong);
   border-radius: 0.5rem;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
 }
-.place-option.active { background: #eef2f6; }
-.place-option:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+.place-listbox {
+  display: block;
+  padding: 0.25rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  outline: none;
+}
+/* `active` was ours, kept in step with an index by hand. These are React
+   Aria's, set on whichever option the arrow keys or the pointer are on --
+   and they are separate states, so hovering no longer has to write to the
+   keyboard's cursor to look right. */
+.place-option[data-focused] { background: #eef2f6; }
+.place-option[data-focus-visible] {
+  outline: 2px solid var(--accent-text);
+  outline-offset: -2px;
+}
 .place-option {
   display: flex;
   border: 0;
