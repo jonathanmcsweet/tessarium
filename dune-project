@@ -1,4 +1,4 @@
-(lang dune 3.6)
+(lang dune 3.17)
 (name tessarium)
 
 (generate_opam_files true)
@@ -20,7 +20,6 @@
  ; built with, so extraction can link its shipped support objects directly.
  (depends
   (ocaml (>= 5.2.0))
-  (dune (>= 3.0))
   zarith
   zarith_stubs_js
   (digestif (>= 1.3.0))

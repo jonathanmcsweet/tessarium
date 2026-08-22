@@ -18,6 +18,8 @@ cd "$root"
 
 FSTAR_VERSION="2026.08.09"
 OCAML_VERSION="5.3.0"
+# Matches (lang dune 3.17) in dune-project; ocaml/js/dune needs its fields.
+DUNE_MIN="3.17"
 SWITCH="tessarium"
 NVM_VERSION="v0.40.6"
 TOOLCHAIN="$HOME/toolchain"
@@ -79,10 +81,20 @@ fi
 
 if command -v opam >/dev/null 2>&1 && opam switch list --short 2>/dev/null | grep -qx "$SWITCH"; then
   if $check_only; then
-    if opam exec --switch="$SWITCH" -- dune --version >/dev/null 2>&1; then
-      ok "project dependencies"
-    else
+    # dune's version, not merely its presence: ocaml/js/dune uses the
+    # `sourcemap` and `compilation_mode` fields, which do not exist before
+    # 3.17. A switch created against the older constraint reports a healthy
+    # dune here and then fails the build, which is the wrong place to find out.
+    dune_have="$(opam exec --switch="$SWITCH" -- dune --version 2>/dev/null || true)"
+    if [ -z "$dune_have" ]; then
       no "project dependencies"; missing=$((missing+1))
+    elif [ "$(printf '%s\n%s\n' "$DUNE_MIN" "$dune_have" \
+             | sort -V | head -1)" != "$DUNE_MIN" ]; then
+      no "dune $dune_have is older than $DUNE_MIN"
+      echo "    opam upgrade --switch=$SWITCH dune"
+      missing=$((missing+1))
+    else
+      ok "project dependencies (dune $dune_have)"
     fi
   else
     echo "    installing dependencies from tessarium.opam"

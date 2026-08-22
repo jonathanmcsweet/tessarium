@@ -21,6 +21,95 @@ than a git log.
 
 ---
 
+### 2026-08-22 — The browser was downloading a megabyte of debug data
+
+**Phase:** 4 · **Branch:** perf/browser-payload
+
+**What:** `tessarium.js` was 5,105,724 bytes, and the server sent 1,057,859
+of them — gzipped — on every first visit. Two dune settings in `ocaml/js/dune`
+fixed it:
+
+`sourcemap no`, because dune's dev profile has js_of_ocaml inline one. It was
+2,924 KB of the 5,106 KB file and 68% of its gzipped weight, a source map
+being text that compresses no better than the code it describes.
+
+`compilation_mode whole_program`, because dune's dev default links each
+library separately and so keeps every module whether the browser reaches it or
+not. yojson, stdint and ppx_deriving arrive through `ocaml/fstarlib`, which
+`tessarium_extracted` depends on, and the browser calls none of them.
+Compiling the whole program at once lets js_of_ocaml drop what nothing calls.
+
+The file is now 1,224,261 bytes and the server sends 181,447 — **5.8× less
+over the wire, 876 KB off every first load.** Both figures are what the
+running server reports as `content-length` with `content-encoding: gzip`, from
+a clean `dune clean && dune build` on each side. `gzip -9` gives 1,015,840 and
+175,524 for the same two files; `ocaml/gzip`, which is what the server
+actually compresses with, is the looser of the two, so the wire numbers above
+are the honest ones to quote. The e2e reports a real first visit at 735 KB
+with the new bundle; the same measurement was not taken before, so what that
+total was is not recorded here.
+
+Both settings live in the dune file rather than in a `--profile release`
+build, so the bundle `ocaml/js/test/test_vectors.cjs` and
+`js/worker-differential.mjs` run against is byte-identical to the bundle that
+ships. That needed `(lang dune 3.6)` → `3.17`; the `sourcemap`
+and `compilation_mode` fields do not exist before it.
+
+`ui/test/payload.mjs` is new and holds both settings in place: a gzipped
+budget for the bundle and for `core.worker.js`, plus an assertion that the
+bundle carries no source map. It measures the bundle where dune writes it,
+which `npm run sync-core` and then Vite copy verbatim, so it cannot grade a
+stale copy. Falsified: as it prints them, the shipped bundle is 169.6 KB
+gzipped against a 200.0 KB budget; putting the source map back makes it
+628.9 KB and trips both checks; dropping `whole_program` alone makes it
+319.8 KB and trips the budget. (Those are node's zlib, which runs 7% under
+`ocaml/gzip` — 169,561 against 181,447 — so the budget is set with that gap
+already spent.)
+
+`npm run check` runs it, and CI now runs `make test-static` — it did not
+before, so the static suite had never run there at all and nothing automated
+would have caught either dune setting being deleted. Eight comments calling
+this "the 5 MB core" were corrected.
+
+**Rationale:** Two other candidates were investigated first and both are
+closed.
+
+*Dead exports in the browser bundle.* The bundle exports thirteen methods and
+four constants. `ui/public/core.worker.js` reads all four constants but calls
+only seven of the methods; the other six looked dead. They are not. `encodeDeg`, `decodeDeg` and `gridForBounds` are the reference oracle in
+`js/worker-differential.mjs`, and `encodeNs`, `decodeNs` and `cellBoundsDeg`
+are the same in `ocaml/js/test/test_vectors.cjs`. The worker gets its
+arithmetic from `wasm/core.wasm`; the bundle's copy is what that arithmetic is
+checked against. Removing them would have deleted a differential wall, not
+tightened one. Nothing here is unnecessary.
+
+*Moving NFKD to the browser's own normaliser.* `Uunf` appeared 10,064 times
+in the bundle as it was, which looked like most of it. It was not: against the bundle as it
+now ships, dropping `uunf` entirely takes it from 1,224,261 to 829,547 bytes
+raw but only from 175,524 to 145,133 gzipped — 395 KB raw for 30 KB on the
+wire, because the Unicode tables are repetitive and compress hard. Occurrence
+count was a bad proxy for size.
+
+30 KB is 17% of the payload, which is not nothing. It still does not pay for
+the failure it would introduce: if OCaml's `uunf` and a browser's normaliser
+ever disagree by one byte, that user derives a different key and gets a map
+they do not recognise, with nothing on screen to explain it. A silent wrong
+answer is the one failure mode this project spends the most to avoid, and
+17% of a payload that is already 5.8× smaller does not buy it.
+`ocaml/lib/normalize.ml` stays as it is and stays the only normaliser.
+
+Two things the bump itself changed, neither of them the point of the commit.
+dune 3.17 drops warning 30 — two mutually recursive record types sharing a
+field name — from the dev profile's error set, where 3.6 had it; the root
+`dune` puts it back with `-w @30`, falsified against a deliberate collision.
+And `tools/setup.sh --check` now reads dune's version rather than only its
+presence, since a switch created under the old `dune >= 3.0` constraint passed
+that check and then failed the build.
+
+**Follow-on:** `assets/index-*.js` is now the largest item at 532 KB gzipped,
+and `vite.config.ts` still ships a 5,019 KB source map into the binary. Both
+are in roadmap.md, Phase 4.
+
 ### 2026-08-21 — The map under the map
 
 **Phase:** 6 · **Branch:** fix/coarse-map-stays

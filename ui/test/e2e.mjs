@@ -150,7 +150,7 @@ check(
   (await page.locator("h1").textContent()) === "Tessarium",
 );
 
-/* The 5 MB core has to load inside the worker before validation replies.
+/* The core has to load inside the worker before validation replies.
    If js_of_ocaml exported to the wrong global, this is where it hangs.
 
    The `null` in every waitForFunction below is the argument passed to the
@@ -2348,15 +2348,26 @@ console.log(
 
 /* Without a first visit that actually downloaded something, the second one
    costing nothing would mean nothing. */
+/* Floors, not budgets. Both exist so that "coming back costs nothing" is
+   measured against a visit that actually paid for something; ui/test/
+   payload.mjs is where size is held to account, and it is the only place that
+   should fail when something grows.
+
+   Lowered from 512 KB and 100 KB when the js_of_ocaml bundle went from
+   1,058 KB on the wire to 181 KB. Neither was in danger of firing -- a first
+   visit is around 735 KB and the bundle is well over 100 KB either way -- but
+   both were sized against a payload that no longer exists, and a floor that
+   tracks the current figure is a budget wearing the wrong name. These are set
+   where making the app smaller still is not a test failure. */
 check(
   `the first visit downloads the app (${Math.round(first / 1024)} KB)`,
-  first > 512 * 1024,
+  first > 256 * 1024,
 );
 check(
   `the core is part of it (${
     firstVisit.filter((r) => r.path === "/tessarium.js").length
   } request)`,
-  firstVisit.some((r) => r.path === "/tessarium.js" && r.bytes > 100 * 1024),
+  firstVisit.some((r) => r.path === "/tessarium.js" && r.bytes > 50 * 1024),
 );
 check(
   `coming back re-downloads almost nothing (${
@@ -2364,13 +2375,15 @@ check(
   } KB against ${Math.round(first / 1024)} KB)`,
   second < first / 20,
 );
-/* Named separately because it is the single biggest item and the one the
-   complaint was really about. */
+/* Named separately because it is the item the complaint was really about.
+   It is not only the verified core: ocaml/lib's BIP-39, NFKD and KDF inputs,
+   the band table, digestif, uunf and the js_of_ocaml runtime are all in
+   there, and it moves when any of them does. */
 const coreAgain = secondVisit.filter((r) =>
   r.path === "/tessarium.js" && r.bytes > 0
 );
 check(
-  `the 5 MB core is not sent again (${coreAgain.length} resends)`,
+  `the core is not sent again (${coreAgain.length} resends)`,
   coreAgain.length === 0,
 );
 /* Whatever the second visit did pay for, name it, so a regression that

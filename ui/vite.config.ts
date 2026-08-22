@@ -40,9 +40,10 @@ export default defineConfig({
   build: {
     target: "es2022",
     sourcemap: true,
-    // The core is a 5 MB generated artifact served from public/ and loaded
-    // by the worker with importScripts. Keeping it out of the bundler means
-    // it is cached separately and never re-chunked by a UI change.
+    // The core is a generated artifact served from public/ and loaded by the
+    // worker with importScripts. Keeping it out of the bundler means it is
+    // cached separately and never re-chunked by a UI change. Its size is held
+    // to a budget by test/payload.mjs, not by the warning below.
     chunkSizeWarningLimit: 1024,
   },
   server: {

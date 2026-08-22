@@ -198,8 +198,8 @@ jobs:
       - name: Build
         run: opam exec -- dune build
 
-      # The dune suites (enumerated in tools/check-suites.sh, which fails
-      # if any of them stops producing output) plus the static checks.
+      # The dune suites, enumerated in tools/check-suites.sh, which fails if
+      # any of them stops producing output.
       - name: Test
         run: opam exec -- tools/check-suites.sh
 
@@ -210,6 +210,14 @@ jobs:
 
       - name: Embed the UI in the binary
         run: opam exec -- dune build
+
+      # Lint, types, message catalogues and the browser payload budgets. After
+      # the UI build because it needs ui/node_modules, and after the dune build
+      # because ui/test/payload.mjs measures the bundle where dune writes it.
+      # Without this step nothing in CI holds ocaml/js/dune's two size
+      # settings, and deleting them would ship a 5 MB bundle to a green build.
+      - name: Static checks
+        run: opam exec -- make test-static
 
       # No --ui, so this drives the UI compiled into the binary rather than a
       # directory beside it. That is what ships, so that is what is tested.
