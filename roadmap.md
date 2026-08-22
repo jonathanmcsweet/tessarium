@@ -215,6 +215,36 @@ code violates the rule above. Revisit only if a profiler points at the core.
   leaves the device. The server keeps an opt-in session/encode/decode API for
   scripting and headless use, but no UI path depends on it, and the README must
   say plainly which mode is in use.
+- **A third-party map host is acceptable, paid or not, so long as it cannot
+  learn that Tessarium is in use or learn a key** (2026-08-22). That is a
+  set of rules rather than a preference, because the ways it fails are
+  specific:
+
+  1. *The grid is computed on the device, always.* A hosted grid-tile service
+     would have to hold the derived key, so it is forbidden rather than
+     deferred. The tile endpoint sketched in Phase 8 is localhost-only for
+     this reason, and "just host it for convenience" is the change that must
+     never be made quietly.
+  2. *Paid maps pass when the money buys bytes you keep, not queries you
+     stream.* A provider selling downloadable regions sees one purchase; a
+     provider streaming tiles sees every viewport, forever. Protomaps PMTiles
+     is the shape that passes, and so are the national mapping agencies and
+     the imagery vendors that sell data rather than access. A metered tile
+     API is the shape that does not.
+  3. *A shared project API key is disqualifying.* Every request under one is
+     by definition a Tessarium user, which hands the provider the user list
+     by IP. If a streamed provider is ever supported, the key is the user's
+     own and the client does not identify the application.
+  4. *Check the host app, not only the provider.* Two ways an overlay leaks
+     through an app that is otherwise fine: it proxies custom tile sources
+     through the vendor, and its analytics report the names and URLs of
+     configured sources. Use `127.0.0.1` and a neutral source name.
+
+  What this cannot buy, and what the README must not imply it does: a
+  streamed basemap tells its provider where you looked, whatever the overlay
+  is doing. Tessarium hides what a square is *called*. It does not hide
+  that you looked at it. Only a fully offline basemap does that, which is why
+  the offline path stays primary rather than becoming an option.
 - **UI is a plain DOM app** — TypeScript, Vite, React, MapLibre GL. Not React
   Native: `react-native-web` would put an abstraction between the app and a
   DOM/WebGL map library, complicate the Web Worker the key derivation needs,
@@ -949,12 +979,12 @@ caveat.
 
       Three things to weigh before that becomes a plan:
 
-      - **It moves the key.** The grid depends on the seed, so a server
-        drawing grid tiles has to hold the derived key — where today the
-        browser derives it and the server never sees a phrase by default.
-        The opt-in scripting API is the precedent; this would have to be
-        presented as that same opt-in, not slipped in as a rendering
-        feature.
+      - **Localhost only, and that is now settled** (Locked decisions,
+        2026-08-22). A server drawing grid tiles holds the derived key, so
+        the endpoint may only ever be the user's own machine. A hosted
+        version would be the single change that breaks the property the
+        whole project exists for, and it would look like a convenience when
+        someone proposes it.
       - **Raster tiles are pictures.** Addresses would be baked into pixels
         at fixed zooms, and tapping a square to read its address needs a
         query the host app has no way to make. Good for seeing the grid,
