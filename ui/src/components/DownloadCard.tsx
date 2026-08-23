@@ -50,6 +50,7 @@ import {
 } from "../regions";
 import { useAppStore } from "../store";
 import { toastError } from "../toast";
+import { Dropdown } from "./Dropdown";
 import { IconButton } from "./IconButton";
 
 /* A refused start -- another download already running, a server gone away
@@ -489,25 +490,20 @@ function DownloadedMaps({ busy }: { busy: boolean; }) {
           <LedgerRow key={entry.id} entry={entry} days={days} busy={busy} />
         ))}
       </ul>
-      <label className="ledger-reminder">
-        {m.map_ledger_reminder()}
-        <select
-          value={String(days)}
-          onChange={(e) =>
-            save.mutate(
-              { update_reminder_days: Number(e.target.value) },
-              loudly,
-            )}
-          disabled={!settings.isSuccess || save.isPending}
-        >
-          <option value="30">{m.map_ledger_reminder_days({ days: 30 })}</option>
-          <option value="90">{m.map_ledger_reminder_days({ days: 90 })}</option>
-          <option value="180">
-            {m.map_ledger_reminder_days({ days: 180 })}
-          </option>
-          <option value="0">{m.map_ledger_reminder_never()}</option>
-        </select>
-      </label>
+      <Dropdown
+        className="ledger-reminder"
+        label={m.map_ledger_reminder()}
+        value={String(days)}
+        onChange={(value) =>
+          save.mutate({ update_reminder_days: Number(value) }, loudly)}
+        options={[
+          { value: "30", label: m.map_ledger_reminder_days({ days: 30 }) },
+          { value: "90", label: m.map_ledger_reminder_days({ days: 90 }) },
+          { value: "180", label: m.map_ledger_reminder_days({ days: 180 }) },
+          { value: "0", label: m.map_ledger_reminder_never() },
+        ]}
+        disabled={!settings.isSuccess || save.isPending}
+      />
     </div>
   );
 }

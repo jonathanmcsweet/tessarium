@@ -570,24 +570,109 @@ button:disabled {
   flex: 1;
 }
 
-.language {
+/* ------------------------------------------------------------ dropdown */
+
+/* The shared dropdown (components/Dropdown.tsx), which replaced two native
+   selects. The closed control keeps the sizing the native one was given --
+   44px so it is a comfortable touch target rather than a 22px system
+   control -- and the open list is deliberately the same card as the search
+   results below, because they are the same gesture and looked like two
+   different applications when one was drawn by the OS. */
+.dropdown {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dropdown-label {
+  font-size: 13px;
   color: var(--ink-soft);
 }
 
-.language select {
+.dropdown-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
   font: inherit;
   font-size: 13px;
   color: var(--ink);
   background: var(--card);
   border: 1px solid var(--line-strong);
   border-radius: 8px;
-  /* 44px so it is a comfortable touch target, not a 22px native select. */
   min-height: 44px;
   padding: 0 8px;
   max-width: 100%;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dropdown-button svg {
+  flex: none;
+  color: var(--ink-soft);
+}
+
+.dropdown-button[data-focus-visible] {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 1px;
+}
+
+.dropdown-button[data-disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Same card as `.place-results`. Sized to the control it hangs from, which
+   is the variable React Aria sets on a popover for exactly this. */
+.dropdown-popover {
+  width: var(--trigger-width);
+  min-width: fit-content;
+  z-index: 40;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+}
+
+.dropdown-listbox {
+  display: block;
+  padding: 0.25rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  outline: none;
+}
+
+.dropdown-option {
+  display: flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.35rem;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dropdown-option[data-focused] {
+  background: #eef2f6;
+}
+
+.dropdown-option[data-selected] {
+  font-weight: 600;
+}
+
+.dropdown-option[data-focus-visible] {
+  outline: 2px solid var(--accent-text);
+  outline-offset: -2px;
+}
+
+.language {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
 }
 
 .gate-language {
@@ -858,7 +943,7 @@ button:disabled {
   font-size: 13px;
 }
 
-.ledger-reminder select {
+.ledger-reminder .dropdown-button {
   flex: none;
   width: auto;
 }
