@@ -740,35 +740,21 @@ not cover.
       regions tested against the view's centre -- a second read per query,
       plus a decision about what an unreadable ledger should say, since
       guessing either way puts a false sentence on screen.
-- [ ] **Three controls are still platform primitives, and that is currently
-      on purpose.** React Aria is the component library (ledger, 2026-08-23):
-      the search box, the tooltip and both dropdowns are on it, and Radix is
-      gone. What was deliberately not moved:
+- [ ] **sonner is the last thing outside React Aria.** Everything else moved
+      (ledger, 2026-08-23): the search box, the tooltip, both dropdowns, both
+      disclosures and the checkboxes. React Aria has `Toast` at 1.20, and the
+      reason this has not followed is that sonner's behaviour here is tuned
+      rather than default — errors never auto-dismiss, because a five-second
+      timeout cuts off a long message being read aloud, and `richColors` is
+      off because its palette fails AA at 13px and lives where the contrast
+      audit cannot see it (`ui/src/toast.ts`, `ui/src/main.tsx`). Moving it
+      means re-deriving both against a different library, and a toast that
+      auto-dismisses under a screen reader is the kind of regression the
+      suite would not catch.
 
-      *Native `<details>`/`<summary>`* — the optional-passphrase disclosure in
-      `PhraseEntry` and the region groups in `DownloadCard`. React Aria has
-      `Disclosure`, and swapping would buy consistent focus styling and
-      nothing else: a disclosure has no popover, no focus trap and no
-      keyboard model beyond Enter, so there is no behaviour to take from a
-      library. Do it only if the styling gap becomes visible.
-
-      *Native checkboxes* — the region picker in `DownloadCard`. The same
-      argument, with one caveat that would change it: the picker has grouped
-      checkboxes with a whole-country parent, and if that ever needs an
-      indeterminate state, `CheckboxGroup` is the right answer rather than
-      wiring `indeterminate` by ref.
-
-      *sonner for toasts* — React Aria has `Toast` at this version. sonner
-      stays because its behaviour here is tuned rather than default: errors
-      never auto-dismiss because a five-second timeout cuts off a long
-      message read aloud, and `richColors` is off because its palette fails
-      AA at 13px and lives where the contrast audit cannot see it
-      (`ui/src/toast.ts`, `ui/src/main.tsx`). Re-deriving all of that against
-      a different library is a real cost for no user-visible gain.
-
-      What would reopen this: any of the three growing behaviour that has to
-      be hand-written. That is the line — a platform primitive that still
-      does the whole job stays, and the moment it needs help it moves.
+      Worth doing for one library rather than two, but only with those two
+      behaviours restated as checks first, so the move cannot quietly lose
+      them.
 - [ ] **Verifiable builds — so a user can tell a legitimate build from an
       imposter.** The naive version does not work and must not be shipped as
       if it did: anything the app DISPLAYS, an imposter displays too — a fake
