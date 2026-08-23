@@ -22,7 +22,14 @@
    never be in. */
 
 import { Search } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ComboBox,
+  Input,
+  ListBox,
+  ListBoxItem,
+  Popover,
+} from "react-aria-components";
 import { toast } from "sonner";
 import { type PlaceResult, usePlaceSearch } from "../core/basemap";
 import {
@@ -69,10 +76,10 @@ export function PlaceSearch(
 ) {
   const [text, setText] = useState("");
   const [debounced, setDebounced] = useState("");
-  const [open, setOpen] = useState(false);
-  const [rawActive, setActive] = useState(0);
-  const listId = useId();
-  const boxRef = useRef<HTMLDivElement>(null);
+  /* No open flag, no highlight index, no listbox id, no ref to the box.
+     React Aria's ComboBox owns those, along with the click-away listener,
+     the blur rule, Escape, the arrow-key wrap, and the aria-activedescendant
+     that has to point at whichever branch drew an option. */
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(text), DEBOUNCE_MS);
@@ -95,57 +102,12 @@ export function PlaceSearch(
 
   const search = usePlaceSearch(debounced, shape === "no");
   const results = search.data?.results ?? [];
-  /* Clamped on read: a refetch can return fewer rows than the highlight was
-     sitting on, and a dangling aria-activedescendant points a screen reader
-     at an element that no longer exists. */
-  const active = Math.min(rawActive, Math.max(0, results.length - 1));
+
   /* An address answer is worth showing from the first character -- there is
-     no "too short to be meaningful" for text already known to be one. */
-  const listOpen = open
-    && (isAddress || isPartial || debounced.trim().length >= 2);
-  /* An address resolves to exactly one option; a place query to a list. The
-     partial and error states render a paragraph and NO listbox, so they must
-     not be advertised as one -- aria-controls pointing at an id that is not
-     in the document is a dangling reference, and "expanded" with nothing to
-     enter is a dead end for a screen reader. */
-  const addressOption = isAddress && !addressError && Boolean(lookup.data);
-  const hasListbox = listOpen && (addressOption || results.length > 0);
-
-  /* Clicking away closes the list; the input keeps what was typed, because
-     losing it would mean retyping to see the same answers. */
-  useEffect(() => {
-    if (!open) return;
-    const away = (event: MouseEvent) => {
-      if (!boxRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", away);
-    return () => document.removeEventListener("mousedown", away);
-  }, [open]);
-
-  /* biome-ignore lint/correctness/useExhaustiveDependencies: the point is to
-     reset the highlight when the QUERY changes, which the body does not read */
-  useEffect(() => setActive(0), [debounced]);
-
-  const pick = (r: PlaceResult) => {
-    onPick(r.lon, r.lat);
-    setOpen(false);
-  };
-
-  /* Cleared on arrival, unlike a place name, which is deliberately kept so
-     the same answers can be seen again without retyping. An address is not a
-     query to refine -- it names one square and the map is now on it -- and it
-     is a secret sitting in a box OVER the map, where the panel keeps the same
-     value behind a conceal toggle. Leaving it there would put an address in
-     every screenshot of the map, which is the exposure the panel's toggle
-     exists to prevent. */
-  const pickAddress = () => {
-    const point = lookup.data;
-    if (!point) return;
-    onPickAddress(point.lon, point.lat);
-    toast.success(m.search_found());
-    setText("");
-    setOpen(false);
-  };
+     no "too short to be meaningful" for text already known to be one. A
+     place name waits for two, which is what keeps one keystroke from
+     scanning the index. */
+  const longEnough = debounced.trim().length >= 2;
 
   /* The catalogue's shapes, once -- they are static data. Labels are NOT
      memoized with them: the locale can change under a live component
@@ -184,166 +146,145 @@ export function PlaceSearch(
     return parts.join(" · ");
   };
 
+  /* One collection, whichever mode is live. The old version branched in the
+     markup and had to keep three sets of ARIA wiring agreeing with each
+     other; a combobox only ever has options, so the branch belongs here. An
+     address resolves to exactly one, which is still an option because Enter
+     and the pointer must do the same thing for it as for a place. */
+  type Option = {
+    id: string;
+    name: string;
+    kind: string;
+    lon: number;
+    lat: number;
+    address: boolean;
+  };
+  const options: Option[] = isAddress
+    ? (lookup.data && !addressError
+      ? [{
+        id: "address",
+        name: debounced.trim(),
+        kind: m.search_address_local(),
+        lon: lookup.data.lon,
+        lat: lookup.data.lat,
+        address: true,
+      }]
+      : [])
+    : shape === "no" && longEnough
+    ? results.map((r) => ({
+      id: `${r.name}-${r.lon}-${r.lat}`,
+      name: r.name,
+      kind: describe(r),
+      lon: r.lon,
+      lat: r.lat,
+      address: false,
+    }))
+    : [];
+
+  /* What to say when there are no options but there IS something to say.
+     Null means the popover should not open at all -- a query under two
+     characters has no answer yet and an empty box over the map is noise.
+     Kept out of the listbox: a paragraph is not an option, and a listbox
+     may only contain options. */
+  const emptyMessage = isPartial
+    ? `${m.search_address_partial()} ${
+      m.search_prefix_hint({ example: m.search_prefix_example() })
+    }`
+    : isAddress
+    ? (addressError ?? m.search_searching())
+    : shape === "no" && longEnough
+    ? (search.isFetching ? m.search_searching() : m.search_none())
+    : null;
+
+  /* Cleared on arrival for an address, unlike a place name, which is
+     deliberately kept so the same answers can be seen again without
+     retyping. An address is not a query to refine -- it names one square and
+     the map is now on it -- and it is a secret sitting in a box OVER the
+     map, where the panel keeps the same value behind a conceal toggle.
+     Leaving it there would put an address in every screenshot of the map,
+     which is the exposure the panel's toggle exists to prevent. */
+  const pickAddress = (option: Option) => {
+    onPickAddress(option.lon, option.lat);
+    toast.success(m.search_found());
+    setText("");
+  };
+
   return (
-    <div className="place-search" ref={boxRef}>
-      <label className="sr-only" htmlFor="place-search-input">
-        {m.search_label()}
-      </label>
+    <ComboBox
+      className="place-search"
+      aria-label={m.search_label()}
+      inputValue={text}
+      onInputChange={setText}
+      items={options}
+      /* Nothing stays chosen: picking is an action, not a state, so the
+         selection is handed back immediately. Without this, choosing the
+         same result twice in a row would be silent the second time. */
+      selectedKey={null}
+      onSelectionChange={(key) => {
+        const option = options.find((o) => o.id === key);
+        if (!option) return;
+        if (option.address) pickAddress(option);
+        else onPick(option.lon, option.lat);
+      }}
+      /* Always allowed to open with nothing in it, and this is the one
+         place where this widget and React Aria genuinely disagree.
+
+         ComboBox decides whether to open in an effect that runs on the
+         render where the input value changed, and refuses if the collection
+         is empty and this flag is off. Every answer here arrives later than
+         that: the text is debounced by 250 ms, then classified in the
+         worker, then either decoded or run past the place index. So at the
+         only moment ComboBox is willing to open, there is never anything to
+         show -- and it never asks again, because by the time the results
+         land the input value has stopped changing. With the flag off this
+         box simply never opened.
+
+         So the answer is to let it open always and decide separately what
+         may be seen: the Popover below is not rendered at all when there is
+         neither an option nor something to say, which is what keeps an empty
+         card off the map while someone types their first character. */
+      allowsEmptyCollection
+      /* Not decoration, and not optional. What is typed here is usually NOT
+         one of the options -- a place query, a half-typed address -- so a
+         custom value is the normal case. Without it, Escape takes the
+         "commit the selection" path, which resets the library's record of
+         the last input value to the empty string while the box still holds
+         text; the reopen effect then sees a value that differs from its
+         record and opens the list again in the same tick. Escape closed
+         nothing. With it, Escape commits what is there and closes, which is
+         also what the hand-written version did. */
+      allowsCustomValue
+    >
       <div className="place-search-field">
         <Search size={16} aria-hidden />
-        <input
+        <Input
           id="place-search-input"
-          type="text"
-          role="combobox"
-          aria-expanded={hasListbox}
-          aria-controls={hasListbox ? listId : undefined}
-          aria-autocomplete="list"
-          /* Must point at the option being rendered, whichever branch drew
-             it. Guarding on the place results alone left the address option
-             -- the one thing a user needs announced when an address
-             resolves -- referenced by nothing. */
-          aria-activedescendant={hasListbox
-            ? `${listId}-${addressOption ? 0 : active}`
-            : undefined}
           autoComplete="off"
           spellCheck={false}
           placeholder={m.search_placeholder()}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            setOpen(true);
-          }}
-          onFocus={() => setOpen(true)}
-          /* Tabbing away closes it; without this the list hangs over the
-             map with focus somewhere else entirely. */
-          onBlur={(e) => {
-            if (!boxRef.current?.contains(e.relatedTarget as Node)) {
-              setOpen(false);
-            }
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              setOpen(false);
-              return;
-            }
-            /* Closed means closed. Without this the widget stays live under
-               a list nobody can see: Enter would fly the map to a result
-               that is not on screen, and the arrows would move an invisible
-               cursor. Down reopens, which is what a combobox does. */
-            if (!listOpen) {
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setOpen(true);
-              }
-              return;
-            }
-            if (isAddress) {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                pickAddress();
-              }
-              return;
-            }
-            if (results.length === 0) return;
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setActive((i) => (i + 1) % results.length);
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setActive((i) => (i - 1 + results.length) % results.length);
-            } else if (e.key === "Enter") {
-              e.preventDefault();
-              const chosen = results[active];
-              if (chosen) pick(chosen);
-            }
-          }}
         />
       </div>
-      {listOpen && (
-        /* Roles on divs rather than ul/li: a list is not interactive, and
-           dressing one up as a listbox is what assistive technology has to
-           un-guess. The options never take focus -- the input keeps it and
-           points at the active one, which is what makes a combobox behave
-           for both a keyboard and a screen reader. */
-        <div className="place-results">
-          {isPartial
-            ? (
-              <p className="place-empty" role="status">
-                {m.search_address_partial()}{" "}
-                {m.search_prefix_hint({ example: m.search_prefix_example() })}
-              </p>
-            )
-            : isAddress
-            ? (
-              /* One option, not a list: an address names exactly one square,
-                 so there is nothing to choose between. Still an option in a
-                 listbox, because Enter and the pointer must do the same
-                 thing here as they do for a place. */
-              <div id={listId} role="listbox" aria-label={m.search_label()}>
-                {addressError
-                  ? <p className="place-empty" role="status">{addressError}</p>
-                  : lookup.data
-                  ? (
-                    <button
-                      type="button"
-                      id={`${listId}-0`}
-                      role="option"
-                      tabIndex={-1}
-                      aria-selected
-                      className="place-option active"
-                      onClick={pickAddress}
-                    >
-                      <span className="place-name">{debounced.trim()}</span>
-                      <span className="place-kind">
-                        {m.search_address_local()}
-                      </span>
-                    </button>
-                  )
-                  : (
-                    <p className="place-empty" role="status">
-                      {m.search_searching()}
-                    </p>
-                  )}
-              </div>
-            )
-            : results.length === 0
-            ? (
-              /* Outside the listbox: a paragraph is not an option, and a
-                 listbox may only contain options. Announced instead. */
-              <p className="place-empty" role="status">
-                {search.isFetching ? m.search_searching() : m.search_none()}
-              </p>
-            )
-            : (
-              <div id={listId} role="listbox" aria-label={m.search_label()}>
-                {results.map((r, i) => (
-                  /* A button, not a styled div: it is a thing you press, so it
-                 should be the element that already knows how -- focusable,
-                 Enter and Space for free, and nothing to re-implement. The
-                 input keeps focus and points here with
-                 aria-activedescendant, which is what makes arrow keys work
-                 without the options stealing it. */
-                  <button
-                    type="button"
-                    key={`${r.name}-${r.lon}-${r.lat}`}
-                    id={`${listId}-${i}`}
-                    role="option"
-                    tabIndex={-1}
-                    aria-selected={i === active}
-                    className={i === active
-                      ? "place-option active"
-                      : "place-option"}
-                    onClick={() => pick(r)}
-                    onMouseEnter={() => setActive(i)}
-                  >
-                    <span className="place-name">{r.name}</span>
-                    <span className="place-kind">{describe(r)}</span>
-                  </button>
-                ))}
-              </div>
+      {(options.length > 0 || emptyMessage !== null) && (
+        <Popover className="place-results">
+          <ListBox
+            className="place-listbox"
+            renderEmptyState={() => (
+              <p className="place-empty" role="status">{emptyMessage}</p>
             )}
-        </div>
+          >
+            {(option: Option) => (
+              <ListBoxItem
+                id={option.id}
+                className="place-option"
+                textValue={option.name}
+              >
+                <span className="place-name">{option.name}</span>
+                <span className="place-kind">{option.kind}</span>
+              </ListBoxItem>
+            )}
+          </ListBox>
+        </Popover>
       )}
-    </div>
+    </ComboBox>
   );
 }
