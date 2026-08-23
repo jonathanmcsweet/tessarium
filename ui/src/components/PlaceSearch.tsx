@@ -34,16 +34,27 @@ import { toast } from "sonner";
 import { type PlaceResult, usePlaceSearch } from "../core/basemap";
 import {
   bearing8,
+  compareRows,
   containingCountry,
-  containingSubdivision,
+  contextDepth,
+  contextTerms,
   type Direction,
   distanceKm,
+  namedSubdivision,
+  overlappingSubdivisions,
+  placeLabels,
 } from "../core/placeContext";
 import { useAddressLookup, useAddressShape } from "../core/queries";
 import { sayError } from "../core/refusal";
 import { getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
-import { citiesOf, countries, countryName, subdivisionsOf } from "../regions";
+import {
+  citiesOf,
+  countries,
+  type Country,
+  countryName,
+  subdivisionsOf,
+} from "../regions";
 
 const DIRECTION_LABEL: Record<Direction, () => string> = {
   n: m.search_dir_n,
@@ -55,6 +66,71 @@ const DIRECTION_LABEL: Record<Direction, () => string> = {
   w: m.search_dir_w,
   nw: m.search_dir_nw,
 };
+
+/* Rows offered. The popover scrolls past about five, so eight is a short
+   scroll rather than a wall. */
+const SHOWN = 8;
+
+/* Rows ASKED FOR when the query carries a context. The server ranks by
+   population and knows nothing of states, so the Jasper in Georgia sits
+   wherever its population puts it among every other Jasper -- sixth, on
+   the real United States index, which is below the fold. Forty rows is a
+   couple of kilobytes on a request that already scanned the whole index,
+   and it is only asked for when there is a comma to justify it. */
+const WIDE = 40;
+
+/* Where each result sits, and how much of the typed context it answers.
+   Both fall out of the same containment work, so it is done once per row
+   rather than once for the label and again for the ranking.
+
+   Module level, with every input named, so the memo that calls it can
+   state what it depends on -- the locale included, because a country is
+   matched against the context under the name the reader would see it
+   under.
+
+   The sort is the whole point of the wider ask -- see [compareRows], which
+   states the two keys and why they are in that order. Ranking only: a row
+   answering none of the context is still offered, because the boxes
+   overlap and the borders are simplified, and a context that DECIDED
+   would hide the right answer every time the catalogue and the atlas
+   disagreed. */
+const placeRows = (
+  results: readonly PlaceResult[],
+  shapes: readonly Country[],
+  terms: readonly string[],
+  locale: string,
+) =>
+  results
+    .map((result) => {
+      const country = containingCountry(
+        shapes,
+        result.lon,
+        result.lat,
+        citiesOf,
+      );
+      const subs = country
+        ? overlappingSubdivisions(
+          subdivisionsOf(country),
+          result.lon,
+          result.lat,
+        )
+        : [];
+      return {
+        result,
+        at: {
+          country,
+          region: namedSubdivision(subs, terms),
+          depth: contextDepth(
+            terms,
+            placeLabels(country, country && countryName(country, locale), subs),
+          ),
+        },
+      };
+    })
+    .sort(compareRows)
+    .slice(0, SHOWN);
+
+type Placing = ReturnType<typeof placeRows>[number]["at"];
 
 /* Long enough that typing a word does not fire a scan per keystroke, short
    enough that the list feels attached to the keyboard. The scan itself is
@@ -100,8 +176,22 @@ export function PlaceSearch(
      likely error anyone here will ever see. */
   const addressError = lookup.error ? sayError(lookup.error) : null;
 
-  const search = usePlaceSearch(debounced, shape === "no");
-  const results = search.data?.results ?? [];
+  /* What was typed after the comma: "Jasper, GA". The server cannot answer
+     it -- its index is tile labels, and a tile label does not know its
+     state -- so the answer is worked out here from the border data already
+     shipped, and a wider slice of the index is asked for when there is a
+     context to answer with it. */
+  const locale = getLocale();
+  const terms = useMemo(
+    () => (shape === "no" ? contextTerms(debounced) : []),
+    [shape, debounced],
+  );
+  const search = usePlaceSearch(
+    debounced,
+    shape === "no",
+    terms.length > 0 ? WIDE : SHOWN,
+  );
+  const results = search.data?.results;
 
   /* An address answer is worth showing from the first character -- there is
      no "too short to be meaningful" for text already known to be one. A
@@ -122,14 +212,14 @@ export function PlaceSearch(
      come from the shipped border data; the distance and compass point from
      the current map centre. All offline -- the query already never leaves
      the machine, and neither does the context. */
-  const describe = (r: PlaceResult) => {
+  const describe = (r: PlaceResult, at: Placing) => {
     const parts = [r.kind === "" ? r.layer : r.kind.replace(/_/g, " ")];
-    const where = containingCountry(shapes, r.lon, r.lat, citiesOf);
-    if (where) {
-      const region = containingSubdivision(subdivisionsOf(where), r.lon, r.lat);
-      const label = countryName(where);
+    if (at.country) {
+      const label = countryName(at.country);
       parts.push(
-        region ? m.search_in_region({ region, country: label }) : label,
+        at.region
+          ? m.search_in_region({ region: at.region, country: label })
+          : label,
       );
     }
     const from = center();
@@ -145,6 +235,15 @@ export function PlaceSearch(
     }
     return parts.join(" · ");
   };
+
+  /* Memoized because placing a point is a ray cast against every border
+     polygon in the catalogue -- ten thousand edges -- and forty of them
+     measured 15 ms: a dropped frame on every keystroke, and several on a
+     phone. */
+  const ranked = useMemo(
+    () => placeRows(results ?? [], shapes, terms, locale),
+    [results, shapes, terms, locale],
+  );
 
   /* One collection, whichever mode is live. The old version branched in the
      markup and had to keep three sets of ARIA wiring agreeing with each
@@ -171,10 +270,10 @@ export function PlaceSearch(
       }]
       : [])
     : shape === "no" && longEnough
-    ? results.map((r) => ({
+    ? ranked.map(({ result: r, at }) => ({
       id: `${r.name}-${r.lon}-${r.lat}`,
       name: r.name,
-      kind: describe(r),
+      kind: describe(r, at),
       lon: r.lon,
       lat: r.lat,
       address: false,

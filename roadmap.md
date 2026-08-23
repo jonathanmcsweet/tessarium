@@ -573,17 +573,23 @@ not cover.
       this build is broken, and the English is for whoever reads the report.
 
 - [ ] **Search context follow-ups.** Result rows now carry country,
-      subdivision and distance (ledger, 2026-08-20); three sharp edges
-      remain. A per-result "no map here yet" marker needs the archive
-      ledger to expose each download's region boxes — today it carries
+      subdivision and distance (ledger, 2026-08-20), and the comma in
+      "Jasper, GA" now ranks them (ledger, 2026-08-23); four sharp edges
+      remain. Only nine countries have catalogued subdivisions, so a
+      context naming a French department or a German state answers
+      nothing — Natural Earth's 50m admin-1 carries the rest and the
+      generator keeps only the federations. A per-result "no map here yet"
+      marker needs the archive ledger to expose each download's region boxes — today it carries
       only counts, so the UI cannot say offline whether a result lands
       on downloaded tiles. The catalogue generator should emit `boxes`
       that bound its FINAL rings — it appends off-coast city quads to
       the polygon without widening the boxes, which forces containment
-      to skip the box prefilter and raycast all 177 countries — and
+      to skip the box prefilter and raycast all 177 countries, now for up
+      to forty rows rather than eight (15 ms, memoized) — and
       could emit enclave holes (Lesotho), retiring the box-nesting
       tiebreak. Subdivision attribution stays silent when boxes overlap
-      (New York City); polygon subdivisions would resolve it.
+      (New York City) unless the query names one of them; polygon
+      subdivisions would resolve it outright.
 - [ ] **Search reaches places and main roads, not every street.** The index
       is built from tiles at zoom 12, where the basemap starts naming roads --
       so towns, villages, lakes, POIs and major roads are findable, and a
@@ -603,25 +609,6 @@ not cover.
       "pharmacie" all find chemists -- here, none of them find anything
       because only names are indexed), and ranking by distance from the
       view, which their model treats as a first-class term. House numbers need OpenAddresses and are a separate decision.
-
-      Nor can it tell two places of the same name apart by the region a
-      query names: an index entry knows its own name, kind and position,
-      and nothing about what contains it, so "Springfield, IL" and
-      "Springfield, MA" ask the same question and both answer with the
-      larger Springfield (169,176). What a comma adds is a tiebreak among
-      names that already answer equally well -- it cannot filter and it
-      cannot promote, because "IL" is written nowhere in the entry.
-      Fixing it means resolving the context to a REGION and testing
-      candidates against its geometry. Organic Maps (Apache-2.0, read for
-      architecture only) does this with a `CitiesBoundariesTable`: city
-      boundary polygons stored beside the map, keyed by feature, with a
-      point-in-polygon test at query time, and a geocoder that partitions
-      the query into country / state / city / street / house and connects
-      the layers by containment rather than by string matching. The cheap
-      version here is the same trick applied to the candidates rather than
-      the corpus: the scan already keeps only the best few dozen, so
-      containment need only be tested on those -- microseconds -- instead
-      of baking a parent into all 1.1M entries and growing the index.
 
       One smaller gap of the same kind: a query is normalised for the
       punctuation people paste -- a non-breaking space, a curly apostrophe

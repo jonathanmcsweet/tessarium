@@ -525,19 +525,28 @@ let search ~fs ~basemap_dir ~query ~limit =
             done
           with End_of_file -> ())
     with
-    | () -> List.map (fun h -> h.entry) !best
+    | () -> !best
     (* A missing or half-written index is "nothing found", not a 500: the
        archive it describes may have been removed a moment ago. *)
     | exception _ -> []
   end
 
-let to_json (entries : entry list) : Yojson.Safe.t =
+(* [score] travels with the row because the caller cannot recompute it and
+   should not try. It is how well the row answered the NAME -- see
+   [rank_key] -- and lower is better; two rows carrying the same one are
+   two answers this index considers equally good, which is the whole set a
+   caller is free to re-order on evidence the index does not have. The
+   browser has exactly that: it knows which country and which state a point
+   falls in, and the index never will. Publishing the number is what keeps
+   that re-ordering from having to guess at the ranking it is refining. *)
+let to_json (hits : hit list) : Yojson.Safe.t =
   `Assoc
     [
       ( "results",
         `List
           (List.map
-             (fun e ->
+             (fun h ->
+               let e = h.entry in
                `Assoc
                  [
                    ("name", `String e.name);
@@ -546,6 +555,7 @@ let to_json (entries : entry list) : Yojson.Safe.t =
                    ("weight", `Float e.weight);
                    ("lon", `Float e.lon);
                    ("lat", `Float e.lat);
+                   ("score", `Int h.score);
                  ])
-             entries) );
+             hits) );
     ]

@@ -27,7 +27,13 @@ export type CountryShape = {
   polygon: [number, number][][];
 };
 
-export type SubdivisionShape = { name: string; boxes: Box[]; };
+export type SubdivisionShape = {
+  name: string;
+  /* The postal abbreviation, where the catalogue has one: "GA", "AB". It
+     is what people actually type after the comma. */
+  abbr?: string | undefined;
+  boxes: Box[];
+};
 
 const inBox = (b: Box, lon: number, lat: number) =>
   lon >= b[0] && lat >= b[1] && lon <= b[2] && lat <= b[3];
@@ -153,19 +159,141 @@ export function containingCountry<C extends CountryShape>(
   return boxOnly.reduce((a, b) => boxArea(b.boxes) < boxArea(a.boxes) ? b : a);
 }
 
-/* Subdivisions are boxes only, and boxes overlap: New York City sits in
-   both New York's and New Jersey's. A box cannot say which is right, so
-   an ambiguous point gets NO subdivision rather than a confident wrong
-   one -- the country still shows, which is never less than before. */
+/* Every subdivision whose box holds the point. Usually one, often more --
+   New York City sits in both New York's box and New Jersey's. The callers
+   want different things from that list, so it is returned whole rather
+   than resolved here. */
+export function overlappingSubdivisions<S extends SubdivisionShape>(
+  subdivisions: readonly S[],
+  lon: number,
+  lat: number,
+): S[] {
+  return subdivisions.filter((s) => s.boxes.some((b) => inBox(b, lon, lat)));
+}
+
+/* ------------------------------------------- the context someone typed
+
+   "Jasper, GA" is how a person names a place, and until now the part
+   after the comma did nothing at all. The server cannot help: its index
+   is built from tile labels, and a tile label does not know its country,
+   so no entry for Jasper contains "GA" anywhere and the context can only
+   ever rank a name against itself (ocaml/server/place_index.ml says as
+   much). The context this file already derives for DISPLAY is the same
+   context the query is asking about, so the ranking happens here, on
+   data already shipped, with nothing leaving the machine.
+
+   Ranking, never filtering, for the same reason the display is hedged:
+   the boxes overlap and the borders are simplified, so a context that
+   decided would hide the right answer whenever the catalogue disagreed
+   with the atlas. */
+
+/* Lower case with the accents taken off, so "Québec" answers "quebec".
+   The server folds its own index the same way; this folds only what was
+   typed and the catalogue's own labels, both of which are already
+   Unicode strings rather than index bytes. */
+export const foldLabel = (s: string) =>
+  s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
+/* Everything after the first comma, in words, folded. Mirrors the
+   server's own split (place_index.ml, [parse_query]) including its cap:
+   two words is a region and a country, and more than that is noise. */
+export function contextTerms(query: string): string[] {
+  const comma = query.indexOf(",");
+  if (comma < 0) return [];
+  return foldLabel(query.slice(comma + 1))
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((t) => t.length > 0)
+    .slice(0, 2);
+}
+
+/* Whether one label answers one term.
+
+   A short term is an abbreviation and must match a whole label: "GA" is
+   Georgia, and read as a prefix it would also be Gabon, Galicia and
+   Gauteng. Four characters or more may start a word instead, so
+   "carolina" finds North Carolina and "united" finds the United
+   States. */
+const answers = (term: string, label: string) =>
+  term === label
+  || (term.length >= 4
+    && label.split(/[^\p{L}\p{N}]+/u).some((w) => w.startsWith(term)));
+
+/* What a subdivision can be called, folded: its name and, where the
+   catalogue has one, its postal abbreviation. */
+export const subdivisionLabels = (s: SubdivisionShape): string[] =>
+  s.abbr ? [foldLabel(s.name), foldLabel(s.abbr)] : [foldLabel(s.name)];
+
+/* How many of the typed terms this place's own labels answer. Higher is
+   a better match; zero is not a rejection. */
+export function contextDepth(
+  terms: readonly string[],
+  labels: readonly string[],
+): number {
+  return terms.filter((t) => labels.some((l) => answers(t, l))).length;
+}
+
+/* The order results are offered in, lower first on both keys.
+
+   How well the row answered the NAME comes first, straight from the index
+   -- "Jasper, GA" must not answer with Jasper County Landfill just
+   because the landfill is in Georgia. Only among rows the index calls
+   equally good does the context decide.
+
+   Used with a stable sort, so rows neither key separates keep the order
+   the index gave them. That is what makes a query with no context at all
+   come back in exactly the order it always did: every depth is 0, so
+   every comparison falls through to the index's own. */
+export const compareRows = (
+  a: { result: { score: number; }; at: { depth: number; }; },
+  b: { result: { score: number; }; at: { depth: number; }; },
+): number => a.result.score - b.result.score || b.at.depth - a.at.depth;
+
+/* Everything a point can be called, folded: its country by the name the
+   reader sees, by the catalogue's own name and by its code, and every
+   subdivision whose box holds it, by name and abbreviation. One list, so
+   the label a row shows and the ranking that put it there are reading the
+   same thing. */
+export function placeLabels(
+  country: { name: string; code: string | null; } | null,
+  countryLabel: string | null,
+  subdivisions: readonly SubdivisionShape[],
+): string[] {
+  const out: string[] = [];
+  if (country) {
+    if (countryLabel) out.push(foldLabel(countryLabel));
+    out.push(foldLabel(country.name));
+    if (country.code) out.push(foldLabel(country.code));
+  }
+  for (const s of subdivisions) out.push(...subdivisionLabels(s));
+  return out;
+}
+
+/* Which subdivision to NAME. Subdivisions are boxes only, and boxes
+   overlap: New York City sits in both New York's and New Jersey's. One
+   box holding the point is the answer. Several is silence rather than a
+   confident wrong one -- the country still shows, which is never less
+   than before -- UNLESS the typed context named one of them, and then
+   saying it is the same box evidence answering the question actually
+   put. */
+export function namedSubdivision(
+  subdivisions: readonly SubdivisionShape[],
+  terms: readonly string[] = [],
+): string | null {
+  if (subdivisions.length === 1) return subdivisions[0]?.name ?? null;
+  const asked = subdivisions.filter((s) =>
+    contextDepth(terms, subdivisionLabels(s)) > 0
+  );
+  return asked.length === 1 ? asked[0]?.name ?? null : null;
+}
+
+/* The no-context case, kept as its own name because most callers have no
+   query to hand: which subdivision holds this point, or nothing. */
 export function containingSubdivision(
   subdivisions: readonly SubdivisionShape[],
   lon: number,
   lat: number,
 ): string | null {
-  const hits = subdivisions.filter((s) =>
-    s.boxes.some((b) => inBox(b, lon, lat))
-  );
-  return hits.length === 1 ? hits[0]?.name ?? null : null;
+  return namedSubdivision(overlappingSubdivisions(subdivisions, lon, lat));
 }
 
 const R_KM = 6371;
