@@ -44,6 +44,28 @@ const sample =
 const sampleMnemonic =
   vectors.key_derivation.find((k) => k.name === sample.mnemonic)?.mnemonic
     ?? mnemonic;
+/* The dropdowns are React Aria's Select, not a native `<select>`, so there is
+   no `selectOption`: press the control, then press the option. Options carry
+   a `data-value` written by components/Dropdown.tsx for exactly this, rather
+   than a key attribute belonging to the library.
+
+   `chooseFrom` returns the button, because what a dropdown currently reads is
+   the button's text -- there is no `inputValue` either. */
+const dropdownIn = (scope) => page.locator(`${scope} .dropdown-button`);
+const chooseFrom = async (scope, value) => {
+  const button = dropdownIn(scope);
+  await button.click();
+  await page.locator(`.dropdown-option[data-value="${value}"]`).click();
+  /* The popover unmounts on selection; waiting for that keeps a later click
+     from landing on a list that is still fading. */
+  await page.waitForFunction(
+    () => document.querySelector(".dropdown-popover") === null,
+    null,
+    { timeout: 10_000 },
+  );
+  return button;
+};
+
 const sampleLat = sample.lat_ns / 1e9;
 const sampleLon = sample.lon_ns / 1e9;
 
@@ -1479,12 +1501,11 @@ check(
 /* The reminder threshold lives on the server, next to the archive it
    describes -- localStorage stays empty, as asserted at the end -- so the
    choice must survive closing the card. */
-const reminder = page.locator(".ledger-reminder select");
 check(
   "the update reminder defaults to 90 days",
-  (await reminder.inputValue()) === "90",
+  ((await dropdownIn(".ledger-reminder").textContent()) ?? "").includes("90"),
 );
-await reminder.selectOption("30");
+await chooseFrom(".ledger-reminder", "30");
 /* The save is a request; let the server confirm it before the card closes,
    or the reopened card can read the old value in perfect honesty. */
 let saved30 = false;
@@ -1503,10 +1524,12 @@ await page.waitForFunction(
   },
 );
 await openButton.click();
-await page.waitForSelector(".ledger-reminder select", { timeout: 10_000 });
+await page.waitForSelector(".ledger-reminder .dropdown-button", {
+  timeout: 10_000,
+});
 check(
   "the reminder choice survives on the server",
-  (await page.locator(".ledger-reminder select").inputValue()) === "30",
+  ((await dropdownIn(".ledger-reminder").textContent()) ?? "").includes("30"),
 );
 
 /* Remove is two presses of the same button, because it discards gigabytes.
@@ -2071,7 +2094,7 @@ check(
    application persists nothing, must not write a cookie or a storage key to
    remember the choice. */
 const englishFooter = await page.locator(".panel-foot p").first().textContent();
-await page.locator(".language select").selectOption("fr-FR");
+await chooseFrom(".language", "fr-FR");
 await page.waitForTimeout(400);
 const frenchFooter = await page.locator(".panel-foot p").first().textContent();
 check(
@@ -2133,7 +2156,7 @@ check(
 await page.locator("#place-search-input").fill("");
 await page.waitForTimeout(350);
 
-await page.locator(".language select").selectOption("en-US");
+await chooseFrom(".language", "en-US");
 await page.waitForTimeout(400);
 
 /* And the same refusal in English, so the check above is testing the
@@ -2567,17 +2590,29 @@ console.log(
   } requests`,
 );
 
-/* 176 KB against a measured 137. The gap is room for the gate itself to grow
-   -- React, the query client, the message catalogue and the icons are all in
-   here -- and it is nowhere near the 551 KB that a static map import costs,
-   which is the regression this exists to catch. Raise it only with a
-   measurement saying why, the same rule ui/test/payload.mjs sets. */
+/* 200 KB against a measured 178 over the wire (173 under gzip -9; the
+   server's compressor emits a little more, and this budget is the wire).
+
+   Raised from 176 when the language picker became a React Aria Select
+   (2026-08-23). That put the library's shared core -- collections, overlays,
+   focus management -- in the entry chunk, because the gate renders a
+   dropdown. Measured: the gate went up 38,617 bytes and the map chunk came
+   DOWN 49,222, because the map no longer carries its own copy, so a whole
+   session is 10,605 bytes cheaper and only the first screen pays more. That
+   is a real cost on the one screen this check exists to protect, and it was
+   taken deliberately for one interaction library rather than two; it is
+   recorded here rather than absorbed silently.
+
+   The remaining gap is room for the gate itself to grow, and it is still
+   nowhere near the 551 KB that a static map import costs, which is the
+   regression this exists to catch. Raise it only with a measurement saying
+   why, the same rule ui/test/payload.mjs sets. */
 check(
   `the phrase screen costs ${Math.round(gateBytes / 1024)} KB`,
-  gateBytes < 176 * 1024,
+  gateBytes < 200 * 1024,
 );
 /* Named, so a regression is legible rather than a total that drifted. */
-if (gateBytes >= 176 * 1024) {
+if (gateBytes >= 200 * 1024) {
   for (
     const r of atGate.filter((r) => r.bytes > 4096).sort((a, b) =>
       b.bytes - a.bytes
