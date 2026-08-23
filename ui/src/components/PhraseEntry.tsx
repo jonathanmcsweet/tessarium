@@ -17,8 +17,9 @@
    phrase goes straight to the worker, which keeps the derived key and returns
    only whether it worked. */
 
-import { Dices } from "lucide-react";
+import { ChevronRight, Dices } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Button, Disclosure, DisclosurePanel } from "react-aria-components";
 import {
   useGeneratePhrase,
   useUnlock,
@@ -205,20 +206,25 @@ export function PhraseEntry() {
           </div>
         )}
 
-        <details className="passphrase">
-          <summary>{m.gate_passphrase_summary()}</summary>
-          <p className="hint">{m.gate_passphrase_what()}</p>
-          <p className="hint">{m.gate_passphrase_exact()}</p>
-          <p className="hint">{m.gate_passphrase_empty()}</p>
-          <label htmlFor="passphrase">{m.gate_passphrase_label()}</label>
-          <input
-            id="passphrase"
-            type="password"
-            autoComplete="off"
-            value={passphrase}
-            onChange={(e) => setPassphrase(e.target.value)}
-          />
-        </details>
+        <Disclosure className="passphrase">
+          <Button slot="trigger" className="passphrase-summary">
+            <ChevronRight size={14} aria-hidden="true" />
+            {m.gate_passphrase_summary()}
+          </Button>
+          <DisclosurePanel>
+            <p className="hint">{m.gate_passphrase_what()}</p>
+            <p className="hint">{m.gate_passphrase_exact()}</p>
+            <p className="hint">{m.gate_passphrase_empty()}</p>
+            <label htmlFor="passphrase">{m.gate_passphrase_label()}</label>
+            <input
+              id="passphrase"
+              type="password"
+              autoComplete="off"
+              value={passphrase}
+              onChange={(e) => setPassphrase(e.target.value)}
+            />
+          </DisclosurePanel>
+        </Disclosure>
 
         <button type="submit" disabled={!ready || unlock.isPending}>
           {unlock.isPending ? m.gate_submit_busy() : m.gate_submit()}
