@@ -332,6 +332,11 @@ export const PlaceResult = z.object({
   weight: z.number(),
   lon: z.number(),
   lat: z.number(),
+  /* How well the row answered the NAME, straight from the index. Lower is
+     better, and rows sharing one are rows the index considers equally good
+     answers -- the set the dropdown is free to re-order on the country and
+     state it can work out and the index cannot. */
+  score: z.number(),
 });
 export type PlaceResult = z.infer<typeof PlaceResult>;
 
@@ -343,12 +348,14 @@ const PlaceResults = z.object({ results: z.array(PlaceResult) });
    that knows whether what was typed is an address. Passing false leaves the
    query disabled, which means no request is made at all -- not a request
    whose result is discarded. */
-export function usePlaceSearch(query: string, allowed: boolean) {
+export function usePlaceSearch(query: string, allowed: boolean, limit = 8) {
   const trimmed = query.trim();
   return useQuery({
-    queryKey: ["place-search", trimmed],
-    queryFn: () =>
-      post(PlaceResults, "basemap-search", { q: trimmed, limit: 8 }),
+    /* The limit is part of the key: a wider ask is a different answer, and
+       serving the eight-row cache for a forty-row question would drop the
+       rows the wider ask was made for. */
+    queryKey: ["place-search", trimmed, limit],
+    queryFn: () => post(PlaceResults, "basemap-search", { q: trimmed, limit }),
     /* Two characters is where the answer stops being "most of the map". */
     enabled: allowed && trimmed.length >= 2,
     /* The index only changes when a region is downloaded or removed, so a

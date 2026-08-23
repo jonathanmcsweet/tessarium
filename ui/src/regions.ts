@@ -32,7 +32,13 @@ const Catalogue = z.object({
   })),
   subdivisions: z.record(
     z.string(),
-    z.array(z.object({ name: z.string(), boxes: z.array(Box).min(1) })),
+    z.array(z.object({
+      name: z.string(),
+      /* The postal abbreviation, which the source carries for all but one
+         subdivision we ship -- Gujarat, whose abbreviation is its name. */
+      abbr: z.string().optional(),
+      boxes: z.array(Box).min(1),
+    })),
   ),
   cities: z.record(
     z.string(),
@@ -48,6 +54,7 @@ const catalogue = Catalogue.parse(data);
 export type Country = (typeof catalogue.countries)[number];
 export type Subdivision = {
   name: string;
+  abbr?: string | undefined;
   boxes: [number, number, number, number][];
 };
 export type City = {
@@ -55,10 +62,17 @@ export type City = {
   bbox: [number, number, number, number];
 };
 
-export const countryName = (country: Country): string => {
+/* The locale is a parameter with a default rather than only a lookup: a
+   caller that memoizes on the locale has to be able to name what it
+   depends on (components/PlaceSearch.tsx does), and a default keeps every
+   other call site unchanged. */
+export const countryName = (
+  country: Country,
+  locale: string = getLocale(),
+): string => {
   if (country.code) {
     try {
-      const display = new Intl.DisplayNames([getLocale()], { type: "region" });
+      const display = new Intl.DisplayNames([locale], { type: "region" });
       return display.of(country.code) ?? country.name;
     } catch {
       /* An unknown code falls back to the dataset's name. */

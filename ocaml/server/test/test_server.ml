@@ -1222,6 +1222,26 @@ let () =
   check "a name lacking the first word is no answer at all"
     (rank "Atlanta, GA" "Georgia Gas" = max_int);
 
+  (* The rank leaves the server with the row.
+
+     The browser re-orders these on evidence this index does not have and
+     never will -- which country and which state the point falls in, out of
+     the border data the download picker already ships. It can only refine
+     a ranking it can see: without the number it would have to guess where
+     the boundaries between equally good answers fall, and "Jasper, GA"
+     would answer with Jasper County Landfill for being in Georgia. *)
+  check "how well the name was answered beats how big the place is"
+    (P.compare_hit { P.entry = big; score = 5 } { P.entry = small; score = 4 }
+    > 0);
+  check "and settles by population only within one rank"
+    (P.compare_hit { P.entry = big; score = 4 } { P.entry = small; score = 4 }
+    < 0);
+  (match P.to_json [ { P.entry = big; score = 42 } ] with
+  | `Assoc [ ("results", `List [ `Assoc fields ]) ] ->
+      check "the rank is published with the row"
+        (List.assoc_opt "score" fields = Some (`Int 42))
+  | _ -> check "the rank is published with the row" false);
+
   (* Names arrive from tiles this project did not write, and the record
      separator must not be forgeable. *)
   let forged =

@@ -1253,6 +1253,31 @@ check(
   "a place name still reaches the index",
   searchRequests.length > 0,
 );
+check(
+  "and asks for a screenful of rows",
+  searchRequests.some((body) => JSON.parse(body).limit === 8),
+);
+
+/* A query that names its context asks for a WIDER slice, and this is what
+   makes answering the context possible at all.
+
+   The server ranks by population and knows nothing of states -- no tile
+   label knows its country -- so on the real United States index the Jasper
+   in Georgia comes back sixth of the Jaspers, below the fold of a list of
+   eight. The dropdown re-ranks by the border data it already ships, but it
+   can only re-rank rows it was given. Ask for eight and the right answer
+   was never in the response to begin with. */
+await page.locator("#place-search-input").fill("");
+await page.waitForTimeout(400);
+searchRequests.length = 0;
+await page.locator("#place-search-input").fill("fixtureville, ZZ");
+await page.waitForTimeout(700);
+const widened = searchRequests.map((body) => JSON.parse(body).limit);
+check(
+  `a query naming its context asks wider (got ${JSON.stringify(widened)})`,
+  widened.length > 0 && widened.every((n) => n === 40),
+);
+await page.locator("#place-search-input").fill("");
 page.off("request", watchSearch);
 await page.locator("#place-search-input").fill("");
 

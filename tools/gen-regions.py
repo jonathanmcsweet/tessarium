@@ -255,9 +255,15 @@ def main(countries_path, states_path, places_path):
         name = p.get("name")
         if not code or not name:
             continue
-        subdivisions.setdefault(code, []).append(
-            {"name": name, "boxes": clustered_boxes(f["geometry"])}
-        )
+        # The postal abbreviation, because "Jasper, GA" is how a person
+        # writes it. Natural Earth carries it for the federations we ship
+        # subdivisions for; where it is missing or is just the name again,
+        # the field is left out rather than shipped as a duplicate.
+        abbr = p.get("postal") or ""
+        entry = {"name": name, "boxes": clustered_boxes(f["geometry"])}
+        if abbr and abbr.casefold() != name.casefold():
+            entry["abbr"] = abbr
+        subdivisions.setdefault(code, []).append(entry)
     for entries in subdivisions.values():
         entries.sort(key=lambda e: e["name"])
 
@@ -325,7 +331,8 @@ def main(countries_path, states_path, places_path):
     points = sum(len(r) for c in countries for r in c["polygon"])
     print(
         f"ui/src/regions.json: {len(countries)} countries ({points} polygon points), "
-        f"{sum(len(v) for v in subdivisions.values())} subdivisions in {len(subdivisions)}, "
+        f"{sum(len(v) for v in subdivisions.values())} subdivisions in {len(subdivisions)} "
+        f"({sum(1 for v in subdivisions.values() for e in v if 'abbr' in e)} abbreviated), "
         f"{sum(len(v) for v in cities.values())} cities in {len(cities)} "
         f"({dropped} places dropped: no matching country)"
     )

@@ -21,6 +21,70 @@ than a git log.
 
 ---
 
+### 2026-08-23 — The comma in "Jasper, GA" finally does something
+
+**Phase:** 6 · **Branch:** fix/search-typed-context
+
+**What:** Typing a state or country after the comma now ranks the results.
+Reported against the real United States index: seven towns are called
+Jasper, the list came back ordered by population, the Georgia one sat sixth
+of eight, and the popover shows about five rows — so it was below the fold,
+and ", GA" moved it not at all. Now it is first.
+
+Three pieces. The index publishes its own rank with each row (`score`,
+lower better), because rows sharing one are rows it considers equally good
+answers to the NAME and that is exactly the set worth re-ordering. The
+dropdown asks for forty rows instead of eight when the query carries a
+comma — it can only re-rank what it was given, and the right answer was
+never in the first eight. And the ranking is layered: name rank first, then
+how much of the context the row's own country and subdivisions answer, then
+the index's order among equals, which a stable sort keeps for free.
+`tools/gen-regions.py` now emits each subdivision's postal abbreviation, so
+"GA" is Georgia; the file is otherwise byte-identical.
+
+**Rationale:** The server cannot answer this and never will. Its index is
+built from tile labels, and a tile label does not know its country — no
+entry for Jasper contains "GA" anywhere, which is why the context could
+only ever rank a name against itself. The browser already derives the
+country and subdivision for the row LABEL, from the border data the
+download picker ships, so the evidence was sitting right there, offline,
+one function away from the ranking. The roadmap had proposed exactly this
+("the same trick applied to the candidates rather than the corpus"); this
+is that, with the candidate set widened so there are candidates to apply
+it to.
+
+Ranking, never filtering — the same hedge the display already makes. The
+boxes overlap and the borders are simplified, so a context that DECIDED
+would hide the right answer every time the catalogue disagreed with the
+atlas. The Jasper on the Florida/Georgia line proves both halves: it
+answers "GA" because Georgia's box holds it, and it is still offered for
+every other query.
+
+An abbreviation matches a whole label, never a prefix: read as a prefix,
+"GA" is also Gauteng and Galicia. It is still Gabon, whose country code is
+literally GA — a real collision in the codes, and one more reason this
+ranks rather than filters.
+
+One display change came with it. An ambiguous point stays silent about its
+subdivision, as before, UNLESS the query named one of the boxes it sits
+in — saying it then is the same box evidence answering the question
+actually put.
+
+**Follow-on:** Only nine countries have catalogued subdivisions, so a
+French department or a German state answers nothing. Placing a point is a
+raycast against every border polygon, now paid on forty rows rather than
+eight — 15 ms measured, memoized on the rows, the context words and the
+locale, which is why `countryName` grew an explicit locale parameter.
+
+**Tests:** 21 new checks in `ui/test/place-context.mjs`, every coordinate a
+real row out of the real index, falsified four ways (abbreviations read as
+prefixes, abbreviations dropped from the labels, an ambiguous point naming
+one anyway, the context thrown away) — each broke the checks named for it
+and no others. Three server checks pin the published rank and its
+precedence over population, falsified two ways. Two e2e checks pin the
+widened ask, falsified by swapping the two limits, which failed both and
+nothing else.
+
 ### 2026-08-23 — Locking asks first, and one eye opens the whole panel
 
 **Phase:** 6 · **Branch:** feat/lock-warning-and-reveal
