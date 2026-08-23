@@ -8,16 +8,15 @@
    squares, so a screenshot or a shared screen gives away one address at most
    -- and the eye toggle here takes that to none. */
 
-import { Copy, Eye, EyeOff, Lock } from "lucide-react";
-
-import { toast } from "sonner";
+import { Eye, EyeOff } from "lucide-react";
 import { useLock } from "../core/queries";
 import { formatCoord } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
-import { toastError } from "../toast";
+import { CopyButton } from "./CopyButton";
 import { IconButton } from "./IconButton";
 import { LanguagePicker } from "./LanguagePicker";
+import { LockDialog } from "./LockDialog";
 
 /* Same shape as an address, so the panel does not change width when it is
    concealed and the layout does not jump on every toggle. */
@@ -31,54 +30,44 @@ export function AddressPanel() {
   const toggleConcealed = useAppStore((s) => s.toggleConcealed);
   const coordsConcealed = useAppStore((s) => s.coordsConcealed);
   const toggleCoordsConcealed = useAppStore((s) => s.toggleCoordsConcealed);
+  const toggleAllConcealed = useAppStore((s) => s.toggleAllConcealed);
+  const anyConcealed = concealed || coordsConcealed;
   const setLocked = useAppStore((s) => s.setLocked);
 
   const lock = useLock();
-
-  async function copy() {
-    if (!selection) return;
-    try {
-      await navigator.clipboard.writeText(selection.address);
-      toast.success(m.panel_copied());
-    } catch {
-      /* Clipboard access is refused in some contexts. The address is on
-         screen and selectable, so say so rather than failing silently. */
-      toastError(m.panel_copy_failed());
-    }
-  }
-
-  async function copyCoords() {
-    if (!selection) return;
-    try {
-      await navigator.clipboard.writeText(
-        `${formatCoord(selection.cell.latLo)}, ${
-          formatCoord(selection.cell.lonLo)
-        }`,
-      );
-      toast.success(m.panel_coords_copied());
-    } catch {
-      /* Unlike the address, the value may be deliberately absent from the
-         screen, so the fallback tells the user how to get at it. */
-      toastError(m.panel_coords_copy_failed());
-    }
-  }
 
   return (
     <aside className="panel">
       <header className="panel-head">
         <span className="brand">{m.app_name()}</span>
-        <button
-          type="button"
-          className="lock"
-          onClick={() => {
-            lock.mutate();
-            setLocked();
-          }}
-          title={m.panel_lock_hint()}
-        >
-          <Lock size={15} aria-hidden />
-          {m.panel_lock()}
-        </button>
+        <div className="panel-head-actions">
+          {
+            /* One press for everything hidden in this panel. Only shown with
+              a selection, because with nothing selected there is nothing
+              hidden and a control that does nothing is worse than no
+              control. */
+          }
+          {selection && (
+            <IconButton
+              label={anyConcealed ? m.panel_reveal_all() : m.panel_hide_all()}
+              pressed={anyConcealed}
+              onClick={toggleAllConcealed}
+              /* Crossed-out means hidden, matching the two eyes below it --
+                 they show state, not the action the press would take, and
+                 one control reading the other way round in the same panel
+                 is worse than either convention. */
+              icon={anyConcealed
+                ? <EyeOff size={18} aria-hidden />
+                : <Eye size={18} aria-hidden />}
+            />
+          )}
+          <LockDialog
+            onConfirm={() => {
+              lock.mutate();
+              setLocked();
+            }}
+          />
+        </div>
       </header>
 
       <section className="selected">
@@ -119,10 +108,11 @@ export function AddressPanel() {
                   /* Copying works while concealed: putting an address on the
                   clipboard is not putting it on the screen. */
                 }
-                <IconButton
+                <CopyButton
                   label={m.panel_copy()}
-                  onClick={copy}
-                  icon={<Copy size={18} aria-hidden />}
+                  copiedLabel={m.panel_copied()}
+                  text={() => selection.address}
+                  onFailure={m.panel_copy_failed()}
                 />
               </div>
               {
@@ -181,10 +171,14 @@ export function AddressPanel() {
                     ? <EyeOff size={18} aria-hidden />
                     : <Eye size={18} aria-hidden />}
                 />
-                <IconButton
+                <CopyButton
                   label={m.panel_coords_copy()}
-                  onClick={copyCoords}
-                  icon={<Copy size={18} aria-hidden />}
+                  copiedLabel={m.panel_coords_copied()}
+                  text={() =>
+                    `${formatCoord(selection.cell.latLo)}, ${
+                      formatCoord(selection.cell.lonLo)
+                    }`}
+                  onFailure={m.panel_coords_copy_failed()}
                 />
               </div>
             </>
@@ -194,7 +188,14 @@ export function AddressPanel() {
 
       <footer className="panel-foot">
         <LanguagePicker />
-        <p>{m.panel_footer()}</p>
+        {
+          /* Standing, not a toast, and not only in the lock dialog: a reload
+            forgets the key exactly as locking does, and a browser will not
+            let a page say anything useful before one. So the one place this
+            can be said in time is before it happens. */
+        }
+        <p className="warning phrase-note">{m.panel_phrase_note()}</p>
+        <p className="panel-explainer">{m.panel_footer()}</p>
         {
           /* A name and a number: nothing to translate, so no message key. The
             grid and derivation versions are deliberately NOT shown -- the

@@ -734,21 +734,16 @@ await page.waitForFunction(
    And the premise is asserted too: if the interception did not take, no tile
    was ever slow, and "the bar did not appear" is the correct answer to a
    question that was never posed. That failure now says so itself. */
-/* Quiet, and STAYING quiet. A single "is the bar gone" sample raced the
-   app's own background loading: the map can start a fetch in the gap between
-   that sample and the observer being installed below, and the tracker then
-   has the bar up before this test asks for it. The check only records the bar
-   being ADDED -- deliberately, so an earlier bar cannot answer for this one --
-   so a bar already up meant a bar that never appeared, and the run failed
-   having proved nothing.
+/* Quiet, and STAYING quiet, BEFORE the tile delay goes on.
 
-   Measured on this suite: the bar's whole life is about 300 ms up and 250 ms
-   down, and the tracker will not raise it again while it is already visible.
-   So the precondition is absence held for longer than that whole cycle,
-   which leaves no window for one to be in flight. Found when a React Aria
-   migration -- which changed no map code and produced an identical event
-   trace -- took this from passing to failing three runs in four. The race was
-   always there; the extra render work only made it likelier to lose. */
+   The bar's whole life is about 300 ms up and 250 ms down, measured here, and
+   the tracker will not raise it again while one is already visible -- so a
+   bar left over from the app's own loading closes the window this test needs.
+   Waiting for absence to hold past that whole cycle is what empties it.
+
+   Order matters and cost a run to learn: once every tile is delayed by half a
+   second the map is almost never quiet, so this has to happen while traffic
+   is still normal. */
 await page.waitForFunction(
   async () => {
     const quiet = () => document.querySelector(".map-loading") === null;
@@ -760,9 +755,7 @@ await page.waitForFunction(
     return true;
   },
   null,
-  {
-    timeout: 60_000,
-  },
+  { timeout: 60_000 },
 );
 await page.evaluate(() => {
   /* Added nodes, not a re-query: a callback runs at a microtask checkpoint,
@@ -799,12 +792,34 @@ await page.route("**/tiles/**", async (route) => {
        Either way there is nothing left to slow down. */
   }
 });
-await page.evaluate(() => {
-  window.__barSeen = false;
-  window.__barLabel = null;
-  const src = window.__tessarium_map.getSource("protomaps");
-  src.setTiles(src.tiles.map((u) => `${u}&e2e_bar=1`));
-});
+/* Reset and refetch in ONE evaluate that first checks no bar is up, and
+   retry if one is.
+
+   Waiting for quiet and then triggering in a separate call leaves a gap: the
+   map can raise a bar inside it, the reset then clears the record of that
+   bar, and the tracker will not raise a second one while the first is still
+   visible -- so the observation window opens onto a bar that can no longer
+   be added. Doing the check, the reset and the trigger in the same
+   synchronous block is what removes the gap; the retry is for the case where
+   the quiet wait above ended just as a fetch began.
+
+   Marked once, not once per attempt, so a retry cannot stack query
+   parameters and change what is being asked for. */
+let started = false;
+for (let attempt = 0; attempt < 6 && !started; attempt++) {
+  if (attempt > 0) await page.waitForTimeout(600);
+  started = await page.evaluate(() => {
+    if (document.querySelector(".map-loading")) return false;
+    window.__barSeen = false;
+    window.__barLabel = null;
+    const src = window.__tessarium_map.getSource("protomaps");
+    src.setTiles(
+      src.tiles.map((u) => u.includes("e2e_bar=1") ? u : `${u}&e2e_bar=1`),
+    );
+    return true;
+  });
+}
+check("the refetch was triggered against a quiet map", started);
 const barSeen = await page
   .waitForFunction(() => window.__barSeen === true, null, { timeout: 30_000 })
   .then(() => true, () => false);
@@ -2116,10 +2131,12 @@ check(
    alone -- it is BIP-39 English in every locale -- and, because this
    application persists nothing, must not write a cookie or a storage key to
    remember the choice. */
-const englishFooter = await page.locator(".panel-foot p").first().textContent();
+/* The explainer by name, not "the first paragraph in the footer" -- a
+   warning was added above it and silently became what this read. */
+const englishFooter = await page.locator(".panel-explainer").textContent();
 await chooseFrom(".language", "fr-FR");
 await page.waitForTimeout(400);
-const frenchFooter = await page.locator(".panel-foot p").first().textContent();
+const frenchFooter = await page.locator(".panel-explainer").textContent();
 check(
   "switching to French translates the interface",
   frenchFooter !== englishFooter,
@@ -2222,7 +2239,17 @@ check(
   nfkdEntry.passphrase !== nfdEntry.passphrase,
 );
 
+/* Locking asks first now: it forgets a key that cannot be recovered from
+   anything this app holds, so the press that does it is confirmed. Cancel is
+   the safe answer and the dialog is dismissable, which is why the
+   destructive one is the only thing that locks. */
 await page.locator(".panel-head .lock").click();
+await page.waitForSelector(".modal-dialog", { timeout: 10_000 });
+check(
+  "locking asks before it forgets the key",
+  (await page.locator(".modal-dialog .warning").count()) === 1,
+);
+await page.locator(".modal-actions button.danger").click();
 await page.waitForSelector("#phrase", { timeout: 30_000 });
 await page.locator("#phrase").fill(nfkdEntry.mnemonic);
 await page.waitForSelector(".valid", { timeout: 30_000 });

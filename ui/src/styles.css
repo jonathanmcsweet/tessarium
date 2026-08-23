@@ -602,6 +602,105 @@ button:disabled {
   flex: 1;
 }
 
+/* --------------------------------------------------------------- modal */
+
+/* The lock confirmation. React Aria portals the overlay to the end of the
+   document and traps focus in it; what is left here is what it looks like. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(15 23 32 / 0.45);
+}
+
+.modal {
+  width: min(440px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.3);
+}
+
+.modal-dialog {
+  padding: 20px;
+  outline: none;
+}
+
+.modal-dialog h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+.modal-dialog p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* Cancel first in the DOM, so it is the first thing Tab reaches and the
+   first thing a screen reader reads out of the pair -- and first on screen
+   too, with the destructive one last, where a pointer expects the action it
+   came to take. `row-reverse` was tried and does the opposite: it puts the
+   FIRST child on the right, which put "Lock the map" on the left and Cancel
+   under the thumb. */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.modal-actions button {
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.modal-actions button.danger {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  font-weight: 600;
+}
+
+.modal-actions button[data-focus-visible] {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------- panel head actions */
+
+.panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The tick after a copy. Green rather than the accent, because the accent
+   here means "this is the address" and this means "that worked". */
+.icon-button.copied {
+  color: #1a7f4b;
+  border-color: #1a7f4b;
+}
+
+/* The standing note about the phrase. Quieter than the gate's warning --
+   it is permanent, and a permanent alarm stops being one. */
+.panel-foot .phrase-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+
 /* ------------------------------------------------------------ dropdown */
 
 /* The shared dropdown (components/Dropdown.tsx), which replaced two native
