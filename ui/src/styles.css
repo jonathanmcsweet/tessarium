@@ -527,8 +527,27 @@ button:disabled {
   z-index: 40;
 }
 
+/* `fill` is an inherited SVG property, so setting it on the wrapper reaches
+   the path inside. React Aria stamps the side the tooltip actually landed on,
+   and the shape is drawn pointing DOWN, which is what a tooltip sitting above
+   its button needs -- the default placement, and the only case that needs no
+   rotation. The other three turn. Radix rotated its own arrow; this is the
+   part that moved out of the library and into here. */
 .tooltip-arrow {
   fill: var(--ink);
+  line-height: 0;
+}
+.tooltip-arrow svg {
+  display: block;
+}
+.tooltip-arrow[data-placement="bottom"] svg {
+  transform: rotate(180deg);
+}
+.tooltip-arrow[data-placement="left"] svg {
+  transform: rotate(-90deg);
+}
+.tooltip-arrow[data-placement="right"] svg {
+  transform: rotate(90deg);
 }
 
 /* Site-wide notices. Full width, above everything, and part of the layout
