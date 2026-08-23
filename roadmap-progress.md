@@ -21,6 +21,37 @@ than a git log.
 
 ---
 
+### 2026-08-23 — Locking asks first, and one eye opens the whole panel
+
+**Phase:** 6 · **Branch:** feat/lock-warning-and-reveal
+
+**What:** Locking now opens a React Aria modal that says the key is
+forgotten immediately and the phrase was never stored, so there is nothing
+here to recover it from. Cancel is first in the DOM and on the left, the
+destructive confirm on the right. A standing note in the panel footer says
+the same about a reload. The panel head gained a reveal-all eye (anything
+still hidden means the next press reveals), and copy now answers where it
+was pressed -- a GitHub-style tick for two seconds instead of a toast at
+the top of the screen. Nine messages across all six locales.
+
+**Rationale:** Nothing about what the app KEEPS changed. The phrase is
+still wiped the moment the key is derived and the worker still holds only
+the key; the ask was for messaging, not retention, and the retention I had
+proposed was withdrawn on that basis. The reload note cannot be a dialog
+because a browser will not let a page put wording in front of a refresh,
+so the only place it can be said in time is before it happens.
+
+**Follow-on:** sonner is the last component outside React Aria. Its two
+tuned behaviours -- errors never auto-dismiss, `richColors` off because
+its tinted palette puts 13px text under AA -- are the checks to write
+first. Already on the roadmap.
+
+**Testing lesson:** the loading-bar check waited for the map to go quiet
+AFTER installing a 500 ms delay on every tile, so it was never quiet and
+the check failed three runs in four. It waits while traffic is still
+normal now, and the reset and refetch happen in one evaluate that first
+verifies no bar is up. Three consecutive clean runs.
+
 ### 2026-08-23 — The last native controls move, and a race comes out with them
 
 **Phase:** 6 · **Branch:** ui/native-controls-react-aria
