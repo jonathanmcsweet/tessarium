@@ -740,62 +740,35 @@ not cover.
       regions tested against the view's centre -- a second read per query,
       plus a decision about what an unreadable ledger should say, since
       guessing either way puts a false sentence on screen.
-- [ ] **Choose a component library, then adopt it.** Today there is none:
-      hand-written components over one plain CSS file, with Radix Tooltip and
-      sonner as the only vetted primitives, and the region picker on native
-      details/summary and checkboxes. That honours the house rule (take
-      accessible primitives, don't hand-roll behavior) but spreads it across
-      three sources. Candidates, in current order of preference: React Aria
-      Components (Adobe — strongest accessibility and touch handling, actively
-      maintained, unstyled so the plain-CSS approach survives), Base UI (the
-      Radix and Material UI teams' successor to Radix primitives, whose own
-      maintenance has slowed), Mantine (if styled-out-of-the-box is wanted).
-      Criteria that decide it: WCAG depth, touch behavior, maintenance
-      cadence, no Tailwind requirement, bundle cost under the strict CSP.
-      Adoption means porting the tooltip, the picker tree, the language menu
-      and the selects — mechanical, not a redesign.
+- [ ] **Three controls are still platform primitives, and that is currently
+      on purpose.** React Aria is the component library (ledger, 2026-08-23):
+      the search box, the tooltip and both dropdowns are on it, and Radix is
+      gone. What was deliberately not moved:
 
-      **Base UI is not a candidate today** (checked 2026-08-22). It is still
-      `1.0.0-rc.0`, published 2025-12-04, with nothing released since — eight
-      months at a release candidate. The premise it was ranked on has also
-      not held: Radix is still publishing (`react-tooltip` 1.2.16, 2026-07),
-      so the successor is stalled and the thing it succeeds is not dead.
-      react-aria-components is on 1.20.0 (2026-07-31).
+      *Native `<details>`/`<summary>`* — the optional-passphrase disclosure in
+      `PhraseEntry` and the region groups in `DownloadCard`. React Aria has
+      `Disclosure`, and swapping would buy consistent focus styling and
+      nothing else: a disclosure has no popover, no focus trap and no
+      keyboard model beyond Enter, so there is no behaviour to take from a
+      library. Do it only if the styling gap becomes visible.
 
-      **React Aria was tried on the search box** (branch
-      `spike/react-aria-search`, 2026-08-22 — not merged, no decision taken).
-      The result: 242 end-to-end checks pass, PlaceSearch loses 43 lines net
-      and with them the open flag, the highlight index, the click-away
-      listener, the blur rule, Escape, the arrow-key wrap and the
-      `aria-activedescendant` that had to agree with three separate render
-      branches. Cost is **+59 KB gzipped, all of it in the map chunk** — the
-      gate moved by 33 bytes, because PlaceSearch is only reachable from
-      MapView, which is a separate download since the payload split.
+      *Native checkboxes* — the region picker in `DownloadCard`. The same
+      argument, with one caveat that would change it: the picker has grouped
+      checkboxes with a whole-country parent, and if that ever needs an
+      indeterminate state, `CheckboxGroup` is the right answer rather than
+      wiring `indeterminate` by ref.
 
-      Two things it got wrong first, both the same root cause and both worth
-      knowing before this is repeated on another widget: **ComboBox assumes
-      the collection is a synchronous function of the input value.** It
-      decides whether to open in an effect on the render where the input
-      changed, and refuses when the collection is empty. Every answer in this
-      box is late — 250 ms of debounce, then a worker round trip, then a
-      decode or an index scan — so the list never opened at all. The fix is
-      `allowsEmptyCollection` always on, with the popover rendered
-      conditionally to keep an empty card off the map. That then broke
-      Escape: the close path resets the library's record of the last input
-      value to the empty string while the box still holds text, so the reopen
-      effect fires in the same tick. `allowsCustomValue` takes the other path
-      and is correct here anyway, since what is typed is usually not one of
-      the options. Interacts with the Phase 9
-      webview-versus-native decision: a webview wraps this build unchanged,
-      while going native (Expo) would instead favor a universal library like
-      Tamagui — so settle that direction before investing heavily.
+      *sonner for toasts* — React Aria has `Toast` at this version. sonner
+      stays because its behaviour here is tuned rather than default: errors
+      never auto-dismiss because a five-second timeout cuts off a long
+      message read aloud, and `richColors` is off because its palette fails
+      AA at 13px and lives where the contrast audit cannot see it
+      (`ui/src/toast.ts`, `ui/src/main.tsx`). Re-deriving all of that against
+      a different library is a real cost for no user-visible gain.
 
-## Phase 7 — Desktop packaging
-
-The tarball and the `.deb` are done. What remains is four more distribution
-formats, the build-host constraint underneath two of them, and the one honest
-caveat.
-
+      What would reopen this: any of the three growing behaviour that has to
+      be hand-written. That is the line — a platform primitive that still
+      does the whole job stays, and the moment it needs help it moves.
 - [ ] **Verifiable builds — so a user can tell a legitimate build from an
       imposter.** The naive version does not work and must not be shipped as
       if it did: anything the app DISPLAYS, an imposter displays too — a fake
