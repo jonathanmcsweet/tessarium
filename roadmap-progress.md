@@ -76,10 +76,11 @@ raycast against every border polygon, now paid on forty rows rather than
 eight — 15 ms measured, memoized on the rows, the context words and the
 locale, which is why `countryName` grew an explicit locale parameter.
 
-**Tests:** 21 new checks in `ui/test/place-context.mjs`, every coordinate a
-real row out of the real index, falsified four ways (abbreviations read as
+**Tests:** 24 new checks in `ui/test/place-context.mjs`, every coordinate a
+real row out of the real index, falsified six ways (abbreviations read as
 prefixes, abbreviations dropped from the labels, an ambiguous point naming
-one anyway, the context thrown away) — each broke the checks named for it
+one anyway, the context thrown away, the context outranking the name rank,
+equal rows no longer comparing equal) — each broke the checks named for it
 and no others. Three server checks pin the published rank and its
 precedence over population, falsified two ways. Two e2e checks pin the
 widened ask, falsified by swapping the two limits, which failed both and

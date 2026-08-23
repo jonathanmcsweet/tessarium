@@ -348,7 +348,11 @@ const PlaceResults = z.object({ results: z.array(PlaceResult) });
    that knows whether what was typed is an address. Passing false leaves the
    query disabled, which means no request is made at all -- not a request
    whose result is discarded. */
-export function usePlaceSearch(query: string, allowed: boolean, limit = 8) {
+export function usePlaceSearch(
+  query: string,
+  allowed: boolean,
+  limit: number,
+) {
   const trimmed = query.trim();
   return useQuery({
     /* The limit is part of the key: a wider ask is a different answer, and

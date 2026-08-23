@@ -232,6 +232,22 @@ export function contextDepth(
   return terms.filter((t) => labels.some((l) => answers(t, l))).length;
 }
 
+/* The order results are offered in, lower first on both keys.
+
+   How well the row answered the NAME comes first, straight from the index
+   -- "Jasper, GA" must not answer with Jasper County Landfill just
+   because the landfill is in Georgia. Only among rows the index calls
+   equally good does the context decide.
+
+   Used with a stable sort, so rows neither key separates keep the order
+   the index gave them. That is what makes a query with no context at all
+   come back in exactly the order it always did: every depth is 0, so
+   every comparison falls through to the index's own. */
+export const compareRows = (
+  a: { result: { score: number; }; at: { depth: number; }; },
+  b: { result: { score: number; }; at: { depth: number; }; },
+): number => a.result.score - b.result.score || b.at.depth - a.at.depth;
+
 /* Everything a point can be called, folded: its country by the name the
    reader sees, by the catalogue's own name and by its code, and every
    subdivision whose box holds it, by name and abbreviation. One list, so

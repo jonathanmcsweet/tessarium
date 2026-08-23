@@ -34,6 +34,7 @@ import { toast } from "sonner";
 import { type PlaceResult, usePlaceSearch } from "../core/basemap";
 import {
   bearing8,
+  compareRows,
   containingCountry,
   contextDepth,
   contextTerms,
@@ -87,19 +88,12 @@ const WIDE = 40;
    matched against the context under the name the reader would see it
    under.
 
-   The sort is the whole point of the wider ask, and it is layered rather
-   than flat. How well a row answered the NAME comes first, straight from
-   the index (`score`, lower better): "Jasper, GA" must not answer with
-   Jasper County Landfill just because the landfill is in Georgia. Within
-   one score -- the seven towns actually called Jasper -- the context
-   decides, and among rows the context cannot separate the index's own
-   order (population, then layer) survives, which a stable sort gives for
-   free.
-
-   Ranking only. A row answering none of the context is still offered,
-   because the boxes overlap and the borders are simplified, and a context
-   that DECIDED would hide the right answer every time the catalogue and
-   the atlas disagreed. */
+   The sort is the whole point of the wider ask -- see [compareRows], which
+   states the two keys and why they are in that order. Ranking only: a row
+   answering none of the context is still offered, because the boxes
+   overlap and the borders are simplified, and a context that DECIDED
+   would hide the right answer every time the catalogue and the atlas
+   disagreed. */
 const placeRows = (
   results: readonly PlaceResult[],
   shapes: readonly Country[],
@@ -133,7 +127,7 @@ const placeRows = (
         },
       };
     })
-    .sort((a, b) => a.result.score - b.result.score || b.at.depth - a.at.depth)
+    .sort(compareRows)
     .slice(0, SHOWN);
 
 type Placing = ReturnType<typeof placeRows>[number]["at"];

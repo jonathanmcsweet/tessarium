@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import {
   bearing8,
+  compareRows,
   containingCountry,
   containingSubdivision,
   contextDepth,
@@ -223,6 +224,22 @@ check(
 check(
   "a longer word may start the name",
   depth("Charlotte, carolina", [-80.843, 35.227]) === 1,
+);
+
+/* The order rows come back in. The second of these is the one that keeps
+   a query with NO context answering exactly as it always did. */
+const row = (score, depth) => ({ result: { score }, at: { depth } });
+check(
+  "a better answer to the name comes first, whatever the context says",
+  compareRows(row(4, 0), row(5, 2)) < 0,
+);
+check(
+  "rows neither key separates keep the order the index gave them",
+  compareRows(row(4, 0), row(4, 0)) === 0,
+);
+check(
+  "and the context decides among equally good answers",
+  compareRows(row(4, 1), row(4, 0)) < 0,
 );
 
 /* Ranking, never deciding. The Jasper on the Florida line sits in
