@@ -1242,6 +1242,50 @@ let () =
         (List.assoc_opt "score" fields = Some (`Int 42))
   | _ -> check "the rank is published with the row" false);
 
+  (* One town, sighted twice.
+
+     The same label is drawn in every tile that touches it and at every
+     zoom above it, and those repeats collapse by name, layer and position.
+     Position was a grid square alone, so whether two sightings collapsed
+     depended on where the lines fell: Jasper, Alberta sits twenty metres
+     from one, and the real index carried it TWICE -- two of the eight rows
+     a search for "Jasper" had to spend. *)
+  let seen = Hashtbl.create 8 in
+  let key lon lat =
+    P.cluster_key seen ~folded:"jasper" ~layer:"places" ~lon ~lat
+  in
+  let file lon lat =
+    let k = key lon lat in
+    Hashtbl.replace seen k
+      (12, { P.name = "Jasper"; kind = "town"; layer = "places";
+             weight = 4590.; lon; lat });
+    k
+  in
+  (* The real pair, either side of a twentieth-degree line. *)
+  let alberta = file (-118.082428) 52.874932 in
+  check "one town sighted twice across a grid line is one row"
+    (key (-118.082428) 52.875139 = alberta);
+  check "and a different town of the same name is not"
+    (key (-84.429095) 34.467876 <> alberta);
+  (* A cluster is joined wherever it was first filed, so the fix cannot
+     depend on which of the two sightings arrived first. *)
+  let seen2 = Hashtbl.create 8 in
+  let key2 lon lat =
+    P.cluster_key seen2 ~folded:"jasper" ~layer:"places" ~lon ~lat
+  in
+  let first2 = key2 (-118.082428) 52.875139 in
+  Hashtbl.replace seen2 first2
+    (12, { P.name = "Jasper"; kind = "town"; layer = "places";
+           weight = 4590.; lon = -118.082428; lat = 52.875139 });
+  check "whichever of the two arrives first"
+    (key2 (-118.082428) 52.874932 = first2);
+  (* Layer is still part of the identity: a road named after the town it
+     runs through is a different row, at the same point. *)
+  check "and a road of the same name at the same point stays separate"
+    (P.cluster_key seen ~folded:"jasper" ~layer:"roads" ~lon:(-118.082428)
+       ~lat:52.874932
+    <> alberta);
+
   (* Names arrive from tiles this project did not write, and the record
      separator must not be forgeable. *)
   let forged =

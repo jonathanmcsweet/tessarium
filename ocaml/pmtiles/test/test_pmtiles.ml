@@ -758,6 +758,47 @@ let () =
         (Printf.sprintf "a tile's named feature is read whole (got %d)"
            (List.length other))
         false);
+
+  (* What a place IS, as specifically as the basemap can say it.
+
+     Every populated place has kind "locality" -- a capital, a town and a
+     hamlet of nine alike -- so a search for a name eight towns share
+     answered with eight identical rows. `kind_detail` is the word a person
+     would use, and for places it is the one to show. *)
+  let with_detail =
+    bfield 3
+      (vfield 15 2 ^ bfield 1 "places" ^ bfield 2 feature ^ bfield 3 "name"
+     ^ bfield 3 "kind" ^ bfield 3 "kind_detail"
+      ^ bfield 4 (bfield 1 "Fixtureville")
+      ^ bfield 4 (bfield 1 "locality")
+      ^ bfield 4 (bfield 1 "town")
+      ^ vfield 5 4096)
+  in
+  check "a place is named as specifically as the tile can"
+    (match Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0 with_detail with
+    | [ (_, _, kind, _, _, _) ] -> kind = "town"
+    | _ -> false);
+  (* A road's detail is more specific but less readable -- "primary" where
+     the kind is "major road" -- and only places have the problem this
+     solves, so only places take the swap. *)
+  let road_detail =
+    bfield 3
+      (vfield 15 2 ^ bfield 1 "roads" ^ bfield 2 feature ^ bfield 3 "name"
+     ^ bfield 3 "kind" ^ bfield 3 "kind_detail"
+      ^ bfield 4 (bfield 1 "Fixture Road")
+      ^ bfield 4 (bfield 1 "major_road")
+      ^ bfield 4 (bfield 1 "primary")
+      ^ vfield 5 4096)
+  in
+  check "every other layer keeps the kind it always had"
+    (match Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0 road_detail with
+    | [ (_, _, kind, _, _, _) ] -> kind = "major_road"
+    | _ -> false);
+  (* Most places carry no detail at all; those must not lose their kind. *)
+  check "and a place with no detail keeps its kind"
+    (match Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0 tile with
+    | [ (_, _, kind, _, _, _) ] -> kind = "locality"
+    | _ -> false);
   check "a feature with no name is not a place"
     (Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0
        (bfield 3 (vfield 15 2 ^ bfield 1 "roads"

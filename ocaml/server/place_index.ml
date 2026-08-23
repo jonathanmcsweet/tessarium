@@ -166,6 +166,47 @@ let compare_entry a b =
    appears in every tile that draws it and at every zoom above it, so the
    walk dedups as it goes and keeps the deepest sighting -- the deeper tile
    places the label more precisely. *)
+(* Position is part of a sighting's identity. The same label is drawn in
+   every tile that touches it and at every zoom above it, and those repeats
+   must collapse -- but two different towns sharing a name must not, which
+   keying on the name alone would do, silently keeping whichever was seen
+   last. A twentieth of a degree is far wider than the quantisation between
+   zooms and far narrower than the gap between distinct places.
+
+   Keying on the square ALONE let one town split in two. Two sightings
+   twenty metres apart collapsed or survived depending on where the grid
+   lines happened to fall, and Jasper, Alberta straddled one: the real
+   index carried it twice, so a list of eight Jaspers spent two rows on the
+   same town. A sighting now looks at the eight squares around its own as
+   well, and joins any cluster of the same name within the radius --
+   wherever that cluster was first filed.
+
+   The other direction is unchanged and is not claimed: the grid, not the
+   radius, is what keeps two DIFFERENT towns of one name apart, so two
+   that share a square are still one row however far apart in it they sit.
+   That is what makes the square coarse -- kilometres wide, and still far
+   narrower than the gap between distinct places. *)
+let cell v = int_of_float (Float.round (v *. 20.))
+let merge_radius = 0.05
+
+let cluster_key seen ~folded ~layer ~lon ~lat =
+  let here = (folded, layer, cell lon, cell lat) in
+  let near = ref None in
+  for dx = -1 to 1 do
+    for dy = -1 to 1 do
+      if !near = None then begin
+        let k = (folded, layer, cell lon + dx, cell lat + dy) in
+        match Hashtbl.find_opt seen k with
+        | Some (_, e) when
+            Float.abs (e.lon -. lon) <= merge_radius
+            && Float.abs (e.lat -. lat) <= merge_radius ->
+            near := Some k
+        | _ -> ()
+      end
+    done
+  done;
+  Option.value !near ~default:here
+
 let build ?(max_zoom = index_zoom) ~on_tile (archive : Pmtiles.Archive.t) =
   let gz =
     archive.Pmtiles.Archive.header.Pmtiles.Header.tile_compression
@@ -204,17 +245,8 @@ let build ?(max_zoom = index_zoom) ~on_tile (archive : Pmtiles.Archive.t) =
                 | named ->
                     List.iter
                       (fun (layer, name, kind, weight, lon, lat) ->
-                        (* Position is part of the identity. The same label
-                           is drawn in every tile that touches it and at
-                           every zoom above it, and those repeats must
-                           collapse -- but two different towns sharing a
-                           name must not, which keying on the name alone
-                           would do, silently keeping whichever was seen
-                           last. A twentieth of a degree is far wider than
-                           the quantisation between zooms and far narrower
-                           than the gap between distinct places. *)
-                        let cell v = Float.round (v *. 20.) in
-                        let key = (fold name, layer, cell lon, cell lat) in
+                        let key = cluster_key seen ~folded:(fold name) ~layer
+                            ~lon ~lat in
                         match Hashtbl.find_opt seen key with
                         | Some (seen_z, _) when seen_z >= z -> ()
                         | _ ->

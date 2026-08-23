@@ -17,6 +17,10 @@ type value = Str of string | Num of float | Bool of bool
 type feature = {
   name : string;  (** the [name] tag, empty when the feature has none *)
   kind : string;  (** the [kind] tag: locality, street, ... *)
+  kind_detail : string;
+      (** the [kind_detail] tag, empty when the feature has none. For a
+          place it is the word a person would use -- city, town, village,
+          hamlet -- where [kind] says only "locality" for all four. *)
   weight : float;
       (** the [population] tag where the basemap carries one. It is what
           separates Paris from the eleven other places called Paris, so a
@@ -232,6 +236,7 @@ let parse_layer s =
             {
               name;
               kind = string_tag !tags "kind";
+              kind_detail = string_tag !tags "kind_detail";
               weight = number_tag !tags "population";
               x;
               y;
@@ -267,6 +272,19 @@ let lon_lat ~z ~x ~y ~extent ~px ~py =
   let lat_rad = atan (sinh (Float.pi *. (1. -. (2. *. fy)))) in
   (lon, lat_rad *. 180. /. Float.pi)
 
+(* How specifically this basemap can name what a feature IS.
+
+   Only for places, and only because [kind] is useless there: Atlanta,
+   a village of two hundred and a hamlet of nine are all "locality", so a
+   list of eight results reads as eight identical rows. [kind_detail] is
+   the word a person would use for each.
+
+   Every other layer keeps [kind]. Its detail is more specific but less
+   readable -- a road's is "primary" or "trunk" where the kind is "major
+   road" -- and a POI usually carries none at all. *)
+let describing_kind layer (f : feature) =
+  if layer = "places" && f.kind_detail <> "" then f.kind_detail else f.kind
+
 (* Every named feature in a tile, placed on Earth. *)
 let named ~z ~x ~y tile =
   List.concat_map
@@ -276,6 +294,7 @@ let named ~z ~x ~y tile =
           let lon, lat =
             lon_lat ~z ~x ~y ~extent:l.extent ~px:f.x ~py:f.y
           in
-          (l.layer_name, f.name, f.kind, f.weight, lon, lat))
+          (l.layer_name, f.name, describing_kind l.layer_name f, f.weight,
+           lon, lat))
         l.features)
     (layers tile)
