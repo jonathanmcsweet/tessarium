@@ -590,6 +590,32 @@ not cover.
       tiebreak. Subdivision attribution stays silent when boxes overlap
       (New York City) unless the query names one of them; polygon
       subdivisions would resolve it outright.
+- [ ] **A better index reaches an existing archive only when it changes.**
+      The index is derived data, rebuilt on a download, an update or a
+      removal — the moments the names on offer change. Code that reads
+      tiles better than it used to has no way to reach an index the old
+      code wrote, and on a finished archive those moments may never come
+      again: the place kind and the duplicate-row fixes (ledger,
+      2026-08-23) are invisible to anyone who does not download something
+      else. The machinery for the job already exists — `reindex` reports
+      `Basemap_job.Indexing` and the card already draws it — so what is
+      missing is a way to ASK: a `basemap-reindex` endpoint over
+      `start_reindex`, a terminal job state of its own (`Done` carries a
+      download's byte count and would read as "0 bytes downloaded"), a
+      control in the download card, and messages in six locales. The
+      alternative is a version marker in the file and an automatic rebuild
+      at startup, which is self-healing but spends minutes of a user's
+      first launch on work nobody asked for.
+
+- [ ] **Result kinds are English for everyone.** A row reads "town",
+      "hamlet", "major road" straight out of the basemap's own vocabulary,
+      untranslated, beside a country name that Intl localises properly.
+      The vocabulary is small and closed (Protomaps' `kind` and
+      `kind_detail`), so this is a lookup table per locale rather than a
+      general problem — the same shape as the refusal codes (ledger,
+      2026-08-23), and the same fallback: an unknown kind shows as it
+      arrives rather than as a blank.
+
 - [ ] **Search reaches places and main roads, not every street.** The index
       is built from tiles at zoom 12, where the basemap starts naming roads --
       so towns, villages, lakes, POIs and major roads are findable, and a

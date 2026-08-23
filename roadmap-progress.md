@@ -21,6 +21,46 @@ than a git log.
 
 ---
 
+### 2026-08-23 — A place says what it is, and says it once
+
+**Phase:** 6 · **Branch:** fix/search-place-kind
+
+**What:** Two index bugs behind the same report — a list of eight Jaspers
+that all read alike.
+
+Every populated place had kind "locality": a capital, a town and a hamlet
+of nine, identically. The tiles carry `kind_detail` — the word a person
+would use — and it was being dropped. Places now take it; every other
+layer keeps `kind`, because a road's detail is "primary" where its kind is
+"major road", and only places have the problem this solves.
+
+And one town could occupy two rows. Repeat sightings collapse by name,
+layer and position, but position was a grid square ALONE, so whether two
+sightings twenty metres apart collapsed depended on where the lines fell.
+Jasper, Alberta straddled one: the real index carried it twice, and a
+search for Jasper spent two of its eight rows on the same town. A sighting
+now looks at the eight squares around its own and joins any cluster of the
+same name within the radius, wherever that cluster was first filed.
+
+**Rationale:** The other direction is deliberately unchanged and is not
+claimed. The grid, not the radius, is what keeps two DIFFERENT towns of one
+name apart, so two sharing a square are still one row however far apart in
+it they sit. That is what makes the square kilometres wide, and it is still
+far narrower than the gap between distinct places.
+
+**Follow-on:** Neither fix reaches an index that already exists — the index
+rebuilds when the archive changes, and a finished archive may never change
+again. Roadmapped with the two ways out. The kinds also arrive in English
+in every locale, which is now a roadmap item of its own.
+
+**Tests:** Three checks in the PMTiles suite (a place takes the detail,
+every other layer does not, a place without one keeps its kind), falsified
+by dropping the detail and by giving it to every layer. Four in the server
+suite over the real Alberta pair — one row across the line, either arrival
+order, a different town of the same name kept apart, a road at the same
+point kept apart — falsified by looking only at the sighting's own square,
+which broke the two named for it.
+
 ### 2026-08-23 — The comma in "Jasper, GA" finally does something
 
 **Phase:** 6 · **Branch:** fix/search-typed-context
