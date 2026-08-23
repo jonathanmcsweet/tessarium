@@ -20,8 +20,14 @@
    the card opens; panning afterwards changes the next download, not this
    one. */
 
-import { X } from "lucide-react";
+import { Check, ChevronRight, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import {
+  Button,
+  Checkbox,
+  Disclosure,
+  DisclosurePanel,
+} from "react-aria-components";
 import {
   isRunning,
   type Job,
@@ -268,25 +274,48 @@ function useSettled<T>(value: T, ms: number): T {
   return settled;
 }
 
-function CheckRow({ text, checked, onChange }: {
+/* The box is drawn here rather than by the browser. React Aria renders a
+   real input, visually hidden, and leaves the appearance to the caller --
+   which is what makes a checkbox look like the rest of the application
+   instead of like the operating system. The tick comes from the shared icon
+   set; `aria-hidden` because the state is already on the input. */
+function CheckRow({ text, checked, onChange, disabled }: {
   text: string;
   checked: boolean;
   onChange: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <label className="region-check">
-      <input type="checkbox" checked={checked} onChange={onChange} />
+    <Checkbox
+      className="region-check"
+      isSelected={checked}
+      onChange={onChange}
+      isDisabled={disabled ?? false}
+    >
+      <span className="checkbox-box" aria-hidden="true">
+        <Check size={14} />
+      </span>
       <span>{text}</span>
-    </label>
+    </Checkbox>
   );
 }
 
 /* Countries disclose their states and cities; any mix across any number of
-   countries rides in one download. Native details/summary and checkboxes on
-   purpose: every behavior here -- disclosure, toggling, keyboard focus --
-   is the browser's own rather than re-implemented. */
+   countries rides in one download.
+
+   The disclosure and the checkboxes were the browser's own until React Aria
+   became the interaction library. Nothing about the BEHAVIOUR needed
+   replacing -- that was the argument for the native elements, and it was a
+   good one -- but a `summary` marker and a system checkbox are drawn by the
+   platform, and this is the densest screen in the application to have two
+   controls in it that do not match anything else. */
 function RegionPicker() {
   const [filter, setFilter] = useState("");
+  /* Which countries the user has opened. A filter overrides it and forces
+     every match open, so the hits are visible without hunting -- which is
+     what `open={needle === "" ? undefined : true}` did on the native
+     element, in the one way `details` allowed it to be said. */
+  const [opened, setOpened] = useState(new Set<string>());
   const [selected, setSelected] = useState(new Map<string, Choice>());
   /* Re-sorted per render on purpose: the locale can change under a live
      picker, and "Germany" and "Allemagne" sort to different places. */
@@ -338,54 +367,69 @@ function RegionPicker() {
                 /* Filtering holds matches open so the hits are visible; with
                   no filter the browser owns the disclosure state. */
               }
-              <details open={needle === "" ? undefined : true}>
-                <summary>{label}</summary>
-                <CheckRow
-                  text={m.map_download_region_whole()}
-                  checked={selected.has(whole.key)}
-                  onChange={() => toggle(whole)}
-                />
-                {subs.length > 0 && (
-                  <p className="region-group">
-                    {m.map_download_region_sub_label()}
-                  </p>
-                )}
-                {subs.map((entry) => {
-                  const choice: Choice = {
-                    key: `state:${code}:${entry.name}`,
-                    label: entry.name,
-                    regions: subdivisionRegions(entry),
-                  };
-                  return (
-                    <CheckRow
-                      key={choice.key}
-                      text={entry.name}
-                      checked={selected.has(choice.key)}
-                      onChange={() => toggle(choice)}
-                    />
-                  );
-                })}
-                {cities.length > 0 && (
-                  <p className="region-group">
-                    {m.map_download_region_cities()}
-                  </p>
-                )}
-                {cities.map((entry) => {
-                  const choice: Choice = {
-                    key: `city:${code}:${entry.name}`,
-                    label: entry.name,
-                    regions: [toRegion(entry.bbox)],
-                  };
-                  return (
-                    <CheckRow
-                      key={choice.key}
-                      text={entry.name}
-                      checked={selected.has(choice.key)}
-                      onChange={() => toggle(choice)}
-                    />
-                  );
-                })}
-              </details>
+              <Disclosure
+                className="region-disclosure"
+                isExpanded={needle !== "" || opened.has(code)}
+                onExpandedChange={(open) =>
+                  setOpened((previous) => {
+                    const next = new Set(previous);
+                    if (open) next.add(code);
+                    else next.delete(code);
+                    return next;
+                  })}
+              >
+                <Button slot="trigger" className="region-summary">
+                  <ChevronRight size={14} aria-hidden="true" />
+                  {label}
+                </Button>
+                <DisclosurePanel>
+                  <CheckRow
+                    text={m.map_download_region_whole()}
+                    checked={selected.has(whole.key)}
+                    onChange={() => toggle(whole)}
+                  />
+                  {subs.length > 0 && (
+                    <p className="region-group">
+                      {m.map_download_region_sub_label()}
+                    </p>
+                  )}
+                  {subs.map((entry) => {
+                    const choice: Choice = {
+                      key: `state:${code}:${entry.name}`,
+                      label: entry.name,
+                      regions: subdivisionRegions(entry),
+                    };
+                    return (
+                      <CheckRow
+                        key={choice.key}
+                        text={entry.name}
+                        checked={selected.has(choice.key)}
+                        onChange={() => toggle(choice)}
+                      />
+                    );
+                  })}
+                  {cities.length > 0 && (
+                    <p className="region-group">
+                      {m.map_download_region_cities()}
+                    </p>
+                  )}
+                  {cities.map((entry) => {
+                    const choice: Choice = {
+                      key: `city:${code}:${entry.name}`,
+                      label: entry.name,
+                      regions: [toRegion(entry.bbox)],
+                    };
+                    return (
+                      <CheckRow
+                        key={choice.key}
+                        text={entry.name}
+                        checked={selected.has(choice.key)}
+                        onChange={() => toggle(choice)}
+                      />
+                    );
+                  })}
+                </DisclosurePanel>
+              </Disclosure>
             </li>
           );
         })}
@@ -516,16 +560,16 @@ function BrowseToggle() {
   const save = useSaveBasemapSettings();
   return (
     <div className="download-option download-browse">
-      <label className="region-check">
-        <input
-          type="checkbox"
-          checked={settings.data?.browse_cache ?? false}
-          disabled={!settings.isSuccess || save.isPending}
-          onChange={(e) =>
-            save.mutate({ browse_cache: e.target.checked }, loudly)}
-        />
-        <span>{m.map_browse_toggle()}</span>
-      </label>
+      <CheckRow
+        text={m.map_browse_toggle()}
+        checked={settings.data?.browse_cache ?? false}
+        disabled={!settings.isSuccess || save.isPending}
+        onChange={() =>
+          save.mutate(
+            { browse_cache: !(settings.data?.browse_cache ?? false) },
+            loudly,
+          )}
+      />
       <p className="hint">{m.map_browse_hint()}</p>
     </div>
   );

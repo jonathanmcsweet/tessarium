@@ -128,8 +128,40 @@ input:focus {
   color: #b4232a;
 }
 
-.passphrase summary {
+/* The disclosure trigger. A `summary` came with a marker triangle the
+   browser drew; this is a button, so the chevron is ours and turns. */
+.region-summary,
+.passphrase-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
   cursor: pointer;
+}
+
+.region-summary svg,
+.passphrase-summary svg {
+  flex: none;
+  color: var(--ink-soft);
+}
+
+.region-disclosure[data-expanded] > .region-summary svg,
+.passphrase[data-expanded] > .passphrase-summary svg {
+  transform: rotate(90deg);
+}
+
+.region-summary[data-focus-visible],
+.passphrase-summary[data-focus-visible] {
+  outline: 2px solid var(--accent-text);
+  outline-offset: -2px;
+}
+
+.passphrase .passphrase-summary {
   font-size: 14px;
   font-weight: 600;
   padding: 4px 0;
@@ -797,14 +829,13 @@ button:disabled {
   border-top: 1px solid var(--line);
 }
 
-.region-tree summary {
-  cursor: pointer;
+.region-tree .region-summary {
   padding: 10px;
   min-height: 40px;
   font-size: 13px;
 }
 
-.region-tree details[open] > summary {
+.region-tree .region-disclosure[data-expanded] > .region-summary {
   font-weight: 600;
 }
 
@@ -816,21 +847,58 @@ button:disabled {
   color: var(--ink-soft);
 }
 
-.download-card .region-check {
+/* The checkbox. React Aria renders a real input, visually hidden, and hands
+   the appearance over -- so this is the box, and `[data-selected]` on the
+   label is what fills it. The tick inside is scaled to nothing until then
+   rather than being mounted and unmounted, so it cannot reflow the row. */
+.region-check {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: pointer;
+}
+
+.checkbox-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--card);
+  color: white;
+}
+
+.checkbox-box svg {
+  transform: scale(0);
+}
+
+.region-check[data-selected] .checkbox-box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.region-check[data-selected] .checkbox-box svg {
+  transform: scale(1);
+}
+
+.region-check[data-focus-visible] .checkbox-box {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 1px;
+}
+
+.region-check[data-disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.download-card .region-check {
   margin: 0;
   padding: 2px 10px 2px 22px;
   min-height: 40px;
   font-size: 13px;
-}
-
-.region-check input {
-  width: 18px;
-  height: 18px;
-  flex: none;
-  accent-color: var(--accent);
 }
 
 /* The picked region's offer nests inside the picker option; no divider. */

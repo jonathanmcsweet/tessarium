@@ -734,8 +734,31 @@ await page.waitForFunction(
    And the premise is asserted too: if the interception did not take, no tile
    was ever slow, and "the bar did not appear" is the correct answer to a
    question that was never posed. That failure now says so itself. */
+/* Quiet, and STAYING quiet. A single "is the bar gone" sample raced the
+   app's own background loading: the map can start a fetch in the gap between
+   that sample and the observer being installed below, and the tracker then
+   has the bar up before this test asks for it. The check only records the bar
+   being ADDED -- deliberately, so an earlier bar cannot answer for this one --
+   so a bar already up meant a bar that never appeared, and the run failed
+   having proved nothing.
+
+   Measured on this suite: the bar's whole life is about 300 ms up and 250 ms
+   down, and the tracker will not raise it again while it is already visible.
+   So the precondition is absence held for longer than that whole cycle,
+   which leaves no window for one to be in flight. Found when a React Aria
+   migration -- which changed no map code and produced an identical event
+   trace -- took this from passing to failing three runs in four. The race was
+   always there; the extra render work only made it likelier to lose. */
 await page.waitForFunction(
-  () => !document.querySelector(".map-loading"),
+  async () => {
+    const quiet = () => document.querySelector(".map-loading") === null;
+    if (!quiet()) return false;
+    for (let i = 0; i < 8; i++) {
+      await new Promise((done) => setTimeout(done, 100));
+      if (!quiet()) return false;
+    }
+    return true;
+  },
   null,
   {
     timeout: 60_000,
@@ -855,13 +878,15 @@ check(
    something the browser recognises. */
 await page.locator("#region-filter").fill("United Kingdom");
 const ukEntry = page
-  .locator(".region-tree details")
+  .locator(".region-tree .region-disclosure")
   .filter({ hasText: "United Kingdom" });
+/* Pressed rather than checked: React Aria's checkbox keeps a real input and
+   hides it, so `check()` refuses it as invisible. The label IS the control
+   -- clicking it is what a person does. */
 await ukEntry
   .locator(".region-check")
   .filter({ hasText: "The whole country" })
-  .locator("input")
-  .check();
+  .click();
 await page.waitForFunction(
   () => !document.querySelector(".download-region-offer button")?.disabled,
   null,
@@ -880,8 +905,7 @@ check("the selection names its price", ukAlone !== "");
 await ukEntry
   .locator(".region-check")
   .filter({ hasText: "London" })
-  .locator("input")
-  .check();
+  .click();
 await page.waitForFunction(
   () =>
     (document.querySelector(".download-region-offer .hint")?.textContent ?? "")
@@ -912,7 +936,7 @@ await openButton.click();
 await page.waitForSelector(".download-card", { timeout: 10_000 });
 await page.locator("#region-filter").fill("United States");
 const usEntry = page
-  .locator(".region-tree details")
+  .locator(".region-tree .region-disclosure")
   .filter({ hasText: "United States" });
 check(
   "a federation exposes its states",
@@ -933,12 +957,11 @@ check(
    survived validation, planning and the merge arithmetic end to end. */
 await page.locator("#region-filter").fill("Fiji");
 await page
-  .locator(".region-tree details")
+  .locator(".region-tree .region-disclosure")
   .filter({ hasText: "Fiji" })
   .locator(".region-check")
   .filter({ hasText: "The whole country" })
-  .locator("input")
-  .check();
+  .click();
 await page.waitForFunction(
   () =>
     (document.querySelector(".download-region-offer .hint")?.textContent ?? "")
@@ -2203,7 +2226,7 @@ await page.locator(".panel-head .lock").click();
 await page.waitForSelector("#phrase", { timeout: 30_000 });
 await page.locator("#phrase").fill(nfkdEntry.mnemonic);
 await page.waitForSelector(".valid", { timeout: 30_000 });
-await page.locator(".passphrase summary").click();
+await page.locator(".passphrase-summary").click();
 await page.locator("#passphrase").fill(nfkdEntry.passphrase);
 await page.locator("button[type=submit]").click();
 await page.waitForSelector(".map-wrap", { timeout: 60_000 });
