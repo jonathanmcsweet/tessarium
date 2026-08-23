@@ -21,6 +21,60 @@ than a git log.
 
 ---
 
+### 2026-08-23 — React Aria is the component library
+
+**Phase:** 6 · **Branches:** spike/react-aria-search, ui/tooltip-react-aria,
+ui/selects-react-aria
+
+**What:** The search box, the tooltip and both dropdowns are React Aria
+Components; `@radix-ui/react-tooltip` is uninstalled and the root
+`Tooltip.Provider` is gone. A shared `components/Dropdown.tsx` replaced two
+native `<select>` elements, so the two dropdowns in the application are now
+one component. `PlaceSearch` lost 43 lines net and with them the open flag,
+the highlight index, the click-away listener, the blur rule, Escape, the
+arrow-key wrap and an `aria-activedescendant` that had to agree with three
+render branches.
+
+**Rationale:** Base UI was the obvious pick and is out — `1.0.0-rc.0`
+published 2025-12-04 with nothing since, eight months at a release candidate,
+while the thing it succeeds is still publishing. React Aria is on 1.20.0
+(2026-07-31), ships no styling so the plain-CSS approach survives, and needs
+no Tailwind.
+
+The native `<select>` had a comment defending it, and that comment was right
+about what it argued: a HAND-ROLLED listbox would be worse than the platform's.
+That stops deciding anything once the project has a vetted library for it. What
+was left is that the OS drew it, so it was the one control that did not look
+like the application. Recorded because the reasoning changed rather than the
+decision being wrong.
+
+**The cost, measured:** the gate went UP 38,617 bytes gzipped, because the
+language picker lives on it and pulled React Aria's shared core into the entry
+chunk. The map chunk came DOWN 49,222, since it no longer carries its own copy
+— so a whole session is 10,605 bytes cheaper and only the first screen pays
+more. The gate budget in `ui/test/e2e.mjs` moved 176 -> 200 KB with that
+measurement written beside it. Against where this started, the phrase screen is
+551 KB -> 178 KB.
+
+**Two impedance mismatches, both worth knowing before the next widget:**
+ComboBox decides whether to open in an effect on the render where the input
+changed, and refuses when the collection is empty — every answer in the search
+box is late (250 ms debounce, a worker round trip, then a decode or an index
+scan), so the list never opened at all. Fixed with `allowsEmptyCollection`
+always on and the popover rendered conditionally. That broke Escape: the close
+path resets the library's record of the last input value to the empty string
+while the box still holds text, so the reopen effect fires in the same tick.
+`allowsCustomValue` takes the other path and is correct here anyway.
+
+**Checks:** 242 end-to-end checks, 0 failures, at every step. The suite drives
+the dropdowns the way a person does now — press the control, press the option
+— because there is no `selectOption` for a listbox; options carry a
+`data-value` written for that purpose rather than the suite reading a library
+internal.
+
+**Follow-on:** `<details>`, native checkboxes and sonner deliberately stay;
+roadmap.md, Phase 6, says what would change each.
+
 ### 2026-08-22 — Refusals say themselves in the user's language
 
 **Phase:** 6 · **Branch:** i18n/worker-errors
