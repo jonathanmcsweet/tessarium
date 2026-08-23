@@ -57,6 +57,7 @@ type AppState = {
   requestFlyTo: (lat: number, lon: number) => void;
   toggleConcealed: () => void;
   toggleCoordsConcealed: () => void;
+  toggleAllConcealed: () => void;
   setBasemapFailed: () => void;
   clearBasemapFailed: () => void;
   openDownload: () => void;
@@ -98,6 +99,15 @@ export const useAppStore = create<AppState>()((set) => ({
   toggleConcealed: () => set((state) => ({ concealed: !state.concealed })),
   toggleCoordsConcealed: () =>
     set((state) => ({ coordsConcealed: !state.coordsConcealed })),
+  /* One control for every hidden value at once. Anything still hidden means
+     the next press reveals -- so a half-revealed panel goes fully open rather
+     than fully shut, which is what someone reaching for a "show everything"
+     button is asking for. */
+  toggleAllConcealed: () =>
+    set((state) => {
+      const hiding = state.concealed || state.coordsConcealed;
+      return { concealed: !hiding, coordsConcealed: !hiding };
+    }),
   setBasemapFailed: () => set({ basemapFailed: true }),
   clearBasemapFailed: () => set({ basemapFailed: false }),
   openDownload: () => set({ downloadOpen: true }),
