@@ -21,6 +21,41 @@ than a git log.
 
 ---
 
+### 2026-08-23 — The last native controls move, and a race comes out with them
+
+**Phase:** 6 · **Branch:** ui/native-controls-react-aria
+
+**What:** Both `<details>` disclosures (the optional passphrase, the region
+tree) and both checkboxes (region picks, the browse-cache toggle) are React
+Aria. Only sonner is now outside it.
+
+**Rationale, and it reverses what was written the same day.** The entry above
+recorded these as deliberately staying native, on the grounds that a
+disclosure and a checkbox have no behaviour worth taking from a library. That
+reasoning was sound and was answering the wrong question: the ask was
+consistency, and what these two controls have that the others do not is an
+appearance drawn by the operating system — a `summary` marker triangle and a
+system checkbox — on the densest screen in the application. Behaviour was
+never the reason to move them.
+
+**A race, found rather than caused.** The loading-bar check waited for
+`.map-loading` to be absent, once, then watched for it to be ADDED. The map
+can begin a fetch in the gap between that sample and the observer, and the
+tracker will not raise a bar that is already up — so the check recorded
+nothing and failed. This migration touched no map code and produced an
+IDENTICAL map event trace (`dataloading` 1, `sourcedata` 2, `data` 2, `idle`
+0, measured on both branches); it simply added enough render work to lose a
+race that was always there, taking the check from passing to failing three
+runs in four. Master lost two different timing checks in the same session,
+which is how the suite says it has more of these.
+
+The precondition is now absence held for 800 ms, past the bar's whole
+measured cycle (~300 ms up, ~250 ms down), so no bar can be in flight when
+the observation starts. Three consecutive clean runs after, against three
+failures in four before.
+
+**Follow-on:** sonner; roadmap.md, Phase 6.
+
 ### 2026-08-23 — React Aria is the component library
 
 **Phase:** 6 · **Branches:** spike/react-aria-search, ui/tooltip-react-aria,
