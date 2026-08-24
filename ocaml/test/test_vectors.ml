@@ -244,6 +244,28 @@ let () =
      generator that had been wired to a constant. *)
   check "distinct entropy gives distinct phrases"
     (List.length (List.sort_uniq compare generated) = 256);
+  (* The two constants whose LENGTH the Low* transcription bakes in as
+     sixteen literal words and a counter of 107. Nothing recomputes that
+     arithmetic on this side, so a constant of another length would leave
+     this leg and the js oracle agreeing on one MAC while the proved core,
+     the vendored C and wasm/core.wasm agreed on another -- everything
+     building, everything verifying. 16 + 2 + 16 + 1 + 8 = 43. *)
+  check "the grid tweak is the transcribed 16 bytes"
+    (String.length Tessarium.grid_version = 16);
+  (* And the message those two lengths add up to. This is the invariant the
+     transcription actually depends on, so it is checked against the message
+     round_fn builds rather than against either constant on its own. *)
+  let mac tweak =
+    match Tessarium.round_fn "k" tweak Z.zero Z.zero (Z.of_int 7) with
+    | _ -> true
+    | exception Failure _ -> false
+  in
+  check "the shipping tweak makes a 43-byte message"
+    (mac Tessarium.grid_version);
+  check "a shorter tweak is refused rather than quietly hashed"
+    (not (mac "tessarium-grid"));
+  check "and a longer one" (not (mac "tessarium-grid-333"));
+
   check "entropy of the wrong length is refused"
     (try ignore (Tessarium.mnemonic_of_entropy (String.make 16 '\x00')); false
      with Invalid_argument _ -> true);
