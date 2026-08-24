@@ -1226,20 +1226,14 @@ let () =
 
      Ids 20..23 are the last tile of zoom 2 and the first three of zoom 3, so
      at max_zoom 2 the walk visits exactly one of the four. *)
-  let straddling_archive () =
+  let run_archive ?(reads = ref 0) ~tile_id ~run_length () =
     let module H = Pmtiles.Header in
     let module D = Pmtiles.Directory in
     let payload = "not-a-tile" in
     let root =
       D.serialize
-        [|
-          {
-            D.tile_id = 20;
-            offset = 0;
-            length = String.length payload;
-            run_length = 4;
-          };
-        |]
+        [| { D.tile_id = tile_id; offset = 0;
+             length = String.length payload; run_length } |]
     in
     let header =
       {
@@ -1274,6 +1268,7 @@ let () =
       {
         Pmtiles.Archive.read =
           (fun ~offset ~length ->
+            incr reads;
             String.sub bytes offset (min length (String.length bytes - offset)));
       }
   in
@@ -1281,9 +1276,22 @@ let () =
   ignore
     (P.build ~max_zoom:2
        ~on_tile:(fun done_ total -> seen_progress := (done_, total))
-       (straddling_archive ()));
+       (run_archive ~tile_id:20 ~run_length:4 ()));
   check "a run spanning the zoom edge does not leave the total unreachable"
     (fst !seen_progress = snd !seen_progress && fst !seen_progress = 1);
+
+  (* And the blob behind a run is read ONCE. Ids 21..24 are all zoom 3, so
+     the walk visits four of them; fetching per id re-ran the directory
+     search, the source read and the inflate for each, on bytes that cannot
+     differ. Only the reprojection varies with the id. Counted at the source,
+     because that is where the cost is. *)
+  let reads = ref 0 in
+  let archive = run_archive ~reads ~tile_id:21 ~run_length:4 () in
+  let visited = ref 0 in
+  reads := 0;
+  ignore (P.build ~max_zoom:3 ~on_tile:(fun d _ -> visited := d) archive);
+  check "the walk visited every id in the run" (!visited = 4);
+  check "and read the run's blob once, not once per id" (!reads = 1);
 
   (* A line survives the file it is written to. *)
   let e =
