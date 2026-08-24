@@ -83,6 +83,7 @@ let respond_string ?etag cfg ~status ~content_type body =
   ( `Response
       (Cohttp_eio.Server.respond ~headers ~status
          ~body:(Cohttp_eio.Body.of_string body) ()),
+    status,
     String.length body )
 
 let respond_json ?etag cfg ~status json =
@@ -575,8 +576,8 @@ let serve_file cfg ~what ~root ~segments ~meth ~range_header ~if_none_match
       in
       (`Expert (response, body), (status :> Http.Status.t), length, range)
   | None ->
-      let response, bytes = error cfg ~status:`Not_found "not found" in
-      (response, `Not_found, bytes, Http_range.Whole)
+      let response, status, bytes = error cfg ~status:`Not_found "not found" in
+      (response, status, bytes, Http_range.Whole)
 
 (* The arithmetic behind every answer the HTTP API gives: the C emitted by
    KaRaMeL from the F* proofs, over the FFI (ocaml/c_core). It replaced the
@@ -1190,7 +1191,13 @@ let status_code s = Http.Status.to_int s
 
 let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
     ~basemap_ops ~settings_ops =
-  let simple (result, bytes) status = (result, status, bytes, Http_range.Whole) in
+  (* The status the log records travels WITH the response. It used to be a
+     literal beside each call, and both /api/ branches passed `OK for every
+     answer their handler could give -- a 500 from an unreadable ledger, a 403
+     from the browse gate, a 429 from the limiter, all recorded as 200, so
+     Access_log's `status >= 500 -> Error` never once fired. A literal that
+     has to agree with a value chosen three calls away eventually will not. *)
+  let simple (result, status, bytes) = (result, status, bytes, Http_range.Whole) in
   fun _conn (request : Http.Request.t) body ->
     let meth = Http.Request.meth request in
     let header = Http.Header.get (Http.Request.headers request) in
@@ -1210,7 +1217,6 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
                     ("grid", `String Tessarium.grid_version);
                     ("api", `Bool cfg.api_enabled);
                   ]))
-            `OK
       (* Both guards sit above the --api gate on purpose: the basemap
          endpoints are reachable without it, and they are the ones that can
          spend a user's disk and bandwidth. *)
@@ -1219,41 +1225,34 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
           simple
             (error cfg ~status:`Forbidden
                "this endpoint cannot be called from another site")
-            `Forbidden
       | Route.Api _ when not (is_json header) ->
           if declares_body (Http.Request.headers request) then drain_body body;
           simple
             (error cfg ~status:`Unsupported_media_type
                "this endpoint takes application/json")
-            `Unsupported_media_type
       | Route.Api endpoint when Route.is_basemap_api endpoint -> (
           (* Reachable without --api: see [Route.is_basemap_api]. *)
           match sized_body (Http.Request.headers request) body with
           | None -> simple
                 (error cfg ~status:`Request_entity_too_large
                    "that request body is too large")
-                `Request_entity_too_large
           | Some body ->
               simple
-                (handle_basemap cfg basemap_ops settings_ops ~endpoint ~body)
-                `OK)
+                (handle_basemap cfg basemap_ops settings_ops ~endpoint ~body))
       | Route.Api endpoint -> (
           if not cfg.api_enabled then
             simple
               (error cfg ~status:`Not_found
                  "the encode/decode API is disabled; start with --api to enable it")
-              `Not_found
           else
             match sized_body (Http.Request.headers request) body with
             | None -> simple
                 (error cfg ~status:`Request_entity_too_large
                    "that request body is too large")
-                `Request_entity_too_large
             | Some body ->
                 let now = Eio.Time.now clock in
                 simple
-                  (handle_api cfg sessions limiter random ~endpoint ~body ~now)
-                  `OK)
+                  (handle_api cfg sessions limiter random ~endpoint ~body ~now))
       | Route.Tile { z; x; y } ->
           serve_tile cfg ~basemap_root ~meth
             ~client_headers:(Http.Request.headers request) ~z ~x ~y
@@ -1295,7 +1294,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
            with
           | `Not_modified etag ->
               not_modified cfg ~etag ~cache_control:"no-cache" ~vary:[]
-          | `Body body -> simple body `OK)
+          | `Body body -> simple body)
       | Route.Basemap segments ->
           serve_file cfg ~what:"basemap" ~root:basemap_root ~segments ~meth
             ~range_header
@@ -1332,11 +1331,10 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
           | Some served -> served
           | None -> from_disk ())
       | Route.Not_found ->
-          simple (error cfg ~status:`Not_found "not found") `Not_found
+          simple (error cfg ~status:`Not_found "not found")
       | Route.Method_not_allowed ->
           simple
             (error cfg ~status:`Method_not_allowed "method not allowed")
-            `Method_not_allowed
     in
     Access_log.emit
       {
