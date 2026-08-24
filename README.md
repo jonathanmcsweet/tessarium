@@ -214,6 +214,13 @@ The server has an encode/decode API which is **off by default**. Turning it on
 with `--api` means seed phrases cross the network to that process. The UI
 never uses it; it exists for scripting and headless use.
 
+Every `/api/` call must be a POST carrying `content-type: application/json`,
+and a call arriving with another site's `Origin` or `Sec-Fetch-Site` is
+refused. Both exist because the server listens on loopback and asks for no
+credentials, which makes a page the user happens to have open as privileged
+as a script they ran on purpose. curl and scripts send neither header, so
+they are unaffected beyond the content type.
+
 ## How it works
 
 **Grid.** The globe is divided into 6,553,600 latitude rows, grouped into 4096
