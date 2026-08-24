@@ -663,23 +663,27 @@ let () =
       let module R = Tessarium_server.Rate_limit in
       let limiter = ref (R.create R.default) in
       let random = Eio.Flow.string_source (String.make 64 'x') in
-      (* Status is not observable through the response closure, but body
-         LENGTH is: the 404 for a bogus session is 38 bytes, the 429 with
-         its retry_after is over 50. *)
-      let body_length endpoint body =
-        snd (S.handle_api scfg sessions limiter random ~endpoint ~body ~now:1000.)
+      (* The status travels with the response now, so this asks for it
+         rather than inferring a 429 from the body being longer than a 404 --
+         which is what it had to do while the status was a literal chosen by
+         the caller three frames away. *)
+      let status_of endpoint body =
+        let _, status, _ =
+          S.handle_api scfg sessions limiter random ~endpoint ~body ~now:1000.
+        in
+        status
       in
       let body = {|{"session":"nope","lat_ns":"1","lon_ns":"1"}|} in
-      let not_limited = body_length "encode" body in
+      check "an unthrottled call answers for itself"
+        (status_of "encode" body <> `Too_many_requests);
       let rec drain n last =
-        if n = 0 then last else drain (n - 1) (body_length "encode" body)
+        if n = 0 then last else drain (n - 1) (status_of "encode" body)
       in
-      let eleventh = drain 10 not_limited in
       check "encode shares the key api's rate ceiling"
-        (eleventh > not_limited + 10);
+        (drain 10 `OK = `Too_many_requests);
       check "decode shares it too"
-        (body_length "decode" {|{"session":"nope","address":"a.b.c.1"}|}
-        > not_limited + 10));
+        (status_of "decode" {|{"session":"nope","address":"a.b.c.1"}|}
+        = `Too_many_requests));
   check "the key api is limited; the tile api is not"
     (S.rate_limited_endpoint "session" && S.rate_limited_endpoint "encode"
     && S.rate_limited_endpoint "decode"
