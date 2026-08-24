@@ -241,36 +241,54 @@ let address_to_string (w1, w2, w3, n) =
   Printf.sprintf "%s.%s.%s.%04d" Wordlist.words.(Z.to_int w1)
     Wordlist.words.(Z.to_int w2) Wordlist.words.(Z.to_int w3) (Z.to_int n)
 
-(* Exact match, else a unique ABBREVIATION -- what was typed has to be a
-   prefix of the word it resolves to. BIP-39 guarantees the first four letters
-   identify a word, so "slic" resolves to "slice".
+(* The abbreviation rule is PROVED, in fstar/Tessarium.Words.fst: nothing
+   resolves to a word the typing does not spell the beginning of. That is
+   there because the rule shipped wrong -- it compared the first four letters
+   of the INPUT, which makes "cannot" an abbreviation of "cannon", so a word
+   the user never typed decoded to a square they never meant and nothing said
+   so. A test now covers three spellings of that; the theorem covers every
+   input against every list.
 
-   Comparing only the first four letters of the INPUT is the mistake this
-   guards against: it makes "cannot" an abbreviation of "cannon" and
-   "artistic" one of "artist", so a word the user never typed decodes to a
-   square they never meant, and they are told nothing -- the one failure this
-   parser exists to prevent. The honest answer to a word that is not on the
-   list is to say so. *)
+   Bytes, because the proved module works on bytes -- see its header for why
+   F* strings could not carry the claim. *)
+let bytes_of_word w =
+  List.init (String.length w) (fun i -> Z.of_int (Char.code w.[i]))
+
+(* Built once. [address_of_string] resolves three words per address, and
+   rebuilding 2048 byte lists per call would be most of a decode. *)
+let word_bytes =
+  lazy (Array.to_list Wordlist.words |> List.map bytes_of_word)
+
+(* No two words are the same word.
+
+   The proved lookup answers with the FIRST index whose word matches; the
+   hashtable below answers with whichever the table kept. On a list with a
+   duplicate those are two different answers to one question, and which one a
+   user got would depend on a fast path. BIP-39 has no duplicate, and this is
+   the line that means the code does not merely assume so. Checked once, at
+   load, because the list is generated and a regeneration is exactly when it
+   could stop being true. *)
+let () =
+  if Hashtbl.length Wordlist.index <> Array.length Wordlist.words then
+    failwith "tessarium: the wordlist holds a duplicate word"
+
+(* A word spelled in full is the common case -- a pasted address -- and
+   walking 2048 byte lists for it costs 25x what a hashtable does, measured
+   in the browser. So the table stays, as a fast path, and carries the
+   theorem's property as a runtime check instead of a proof: [i] is only
+   accepted when the list really does hold [w] there. One string comparison.
+   With the duplicate check above, the two paths cannot give different
+   answers, and if the guard ever failed the fall-through is the proved
+   lookup, which is right either way. *)
 let resolve_word w =
   match Hashtbl.find_opt Wordlist.index w with
-  | Some i -> Some i
-  | None ->
-      let n = String.length w in
-      if n < 4 then None
-      else begin
-        (* One pass, no intermediate lists: [address_of_string] calls this
-           three times per address and [becoming_word] below already has
-           this shape. *)
-        let found = ref None and hits = ref 0 in
-        Array.iteri
-          (fun i x ->
-            if String.length x >= n && String.sub x 0 n = w then begin
-              incr hits;
-              found := Some i
-            end)
-          Wordlist.words;
-        if !hits = 1 then !found else None
-      end
+  | Some i
+    when i < Array.length Wordlist.words && String.equal Wordlist.words.(i) w ->
+      Some i
+  | _ -> (
+      match Tessarium_Words.resolve (bytes_of_word w) (Lazy.force word_bytes) with
+      | Some i -> Some (Z.to_int i)
+      | None -> None)
 
 let split_address s =
   let norm =
@@ -348,13 +366,17 @@ let address_shape s =
   let becoming_word p =
     p <> "" && (not (digits p))
     && (not (Hashtbl.mem Wordlist.index p))
-    && (let n = String.length p in
-        1
-        = Array.fold_left
-            (fun acc w ->
-              if String.length w > n && String.sub w 0 n = p then acc + 1
-              else acc)
-            0 Wordlist.words)
+    (* The same proved predicate the resolver uses, rather than a second
+       hand-written prefix comparison beside it -- which is what the two were
+       before, and only one of them was right. [p] is not a word here, so
+       "spells the beginning of" and "is a strict abbreviation of" name the
+       same set. *)
+    && (match
+          Tessarium_Words.matching (bytes_of_word p) (Lazy.force word_bytes)
+            Z.zero
+        with
+       | [ _ ] -> true
+       | _ -> false)
   in
   let rec count = function
     | [] -> 0

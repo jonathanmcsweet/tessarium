@@ -21,6 +21,66 @@ than a git log.
 
 ---
 
+### 2026-08-24 — Three of the review's findings enforced rather than tested
+
+**Phase:** 6 · **Branches:** feat/checked-request, test/doc-drift,
+feat/prove-word-lookup
+
+**What:** Asked whether the review's fixes could be made structural instead
+of test-guarded. Three could.
+
+**The /api/ guard is now unskippable by type.** The origin, content-type and
+size checks were three branches sitting in the right place in one match --
+correct until someone reorders it, adds a route below them, or writes a
+second dispatch. They moved behind an abstract type in `api_guard.mli` that
+`handle_api` and `handle_basemap` demand, so a route that skips them fails to
+compile. Shown: passing a raw string is a type error, and the record field
+is not even in scope to forge one. Draining moved in with them, because that
+is the part that was got wrong twice while these checks were written -- and,
+per the comment already in test_server.ml, once before that, where an undrained
+body turned every later poll on the connection into a 405.
+
+**The documents are held to the code.** `tools/check-doc-constants.mjs`
+derives the message length and byte counter from the constants themselves and
+checks every claim about them across the tracked tree. It fails if it matches
+nothing, which is how a check like this dies quietly. Skips
+roadmap-progress.md on purpose: an entry records what was true on its date,
+and 47 was true on 2026-08-20.
+
+**The abbreviation rule is proved.** `fstar/Tessarium.Words.fst`:
+`theorem_spelled` says nothing resolves to a word the typing does not spell
+the beginning of, and `theorem_unambiguous` says an abbreviation resolves only
+when one word could have been meant. Both falsified first -- the theorem stops
+verifying against the four-letter comparison that shipped, and a false variant
+("four letters always resolve") is rejected against the correct code.
+
+**Rationale:** The proof works on BYTE LISTS, not strings, and this is the
+reason: F*'s string operations are specified only by the LENGTH of what they
+return, so nothing relates the contents of a slice to the string it came from
+and the claim cannot even be stated against them. The missing fact could be
+assumed; `--report_assumes error` correctly forbids that. Tessarium.UrlPath
+had already taken the same route for the same reason.
+
+The word list crosses as a parameter, like the band table. The guarantee comes
+from counting the matches, so nothing has to be proved about the 2048 words --
+which is what keeps this cheap. The expensive statement (no two share four
+letters) is four million comparisons and is not needed.
+
+**Measured, and it changed the design.** Going through the proved lookup for
+every word made a pasted address 25x slower in the browser -- 3.1 to 78.8
+microseconds -- because an exact match walked 2048 byte lists instead of
+hitting a hashtable. The table is back as a fast path, carrying the theorem's
+property as a one-comparison runtime check instead of a proof, over a
+load-time check that the list holds no duplicate so the two paths cannot give
+different answers. Back to 2.8 microseconds. The abbreviation path costs 249
+against 70, and the per-keystroke place-name check 32 against 11; both are
+rare or off the main thread, and both now share one prefix predicate instead
+of two hand-written ones, only one of which was ever right.
+
+**Follow-on:** `CLAUDE.md`'s "say exactly what is proved" paragraph names
+`url_path.ml` as the only proved server decision and does not know about this
+one. Left for the user, per that document's own first rule.
+
 ### 2026-08-24 — An adversarial review, and the fifteen things it found
 
 **Phase:** 6 · **Branches:** twenty-one, one per fix

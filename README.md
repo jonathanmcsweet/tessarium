@@ -59,6 +59,8 @@ admits, enforced by `--report_assumes error` rather than by a convention.
 | `UrlPath.theorem_no_escape` | no segment the server agrees to open can leave the asset root |
 | `UrlPath.theorem_no_dotfile` | no accepted segment begins with a dot, so no dotfile is served |
 | `UrlPath.theorem_traversal_refused` | a target that percent-decodes to `..` is refused |
+| `Words.theorem_spelled` | a word only resolves to one the typing spells the beginning of |
+| `Words.theorem_unambiguous` | an abbreviation only resolves when one word could have been meant |
 
 `theorem_containment` is the floor/ceiling bug the reference implementation
 shipped, stated as a theorem. `theorem_injective` is the one that matters:
