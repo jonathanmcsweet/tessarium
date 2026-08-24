@@ -181,8 +181,8 @@ the version number rather than reusing it. The domain prefix and the tweak
 also have their LENGTHS baked into `fstar/low/Tessarium.Low.Blake2s.fst`,
 which transcribes the whole 43-byte message as sixteen literal words and a
 byte counter; changing either length means redoing that transcription and
-re-verifying. All four moved once, on 2026-08-23, with the rename from
-Tessarium — see the ledger for what that took.
+re-verifying. All four moved once, on 2026-08-23, with the project's
+rename — see the ledger for what that took.
 
 ## Where to start
 

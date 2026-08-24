@@ -79,8 +79,8 @@ typo detection and is a feature, not waste.
   Feistel. This pair is 2:1.*
 - **16 rounds**, keyed BLAKE2s-256 as the round function (HMAC-SHA256
   until 2026-08-20, when the security functions moved off NIST designs --
-  see the ledger; the mapping version bumped to `tessarium/v2/fe1`, and
-  again to `tessarium/v3/fe1` with the 2026-08-23 rename).
+  see the ledger; the mapping version bumped then, and again to
+  `tessarium/v3/fe1` with the 2026-08-23 rename).
   Raised from 10 on
   2026-08-17. Four rounds is distinguishable; do not economise here regardless
   of what has been proved. The count must be even — the halves swap domains
@@ -97,9 +97,9 @@ typo detection and is a feature, not waste.
 - **Tweak = grid version string** (`tessarium-grid-3`), the round-function
   domain prefix is `tessarium/v3/fe1`, and the KDF version salt is
   `tessarium-kdf-4`. (Older text here named HKDF strings; HKDF left on
-  2026-08-18, as ledgered. The prefix was `tessarium/v1/*` until
-  2026-08-20, the BLAKE2s move, and `tessarium/v2/fe1` until the
-  2026-08-23 rename.) Renamed from `w3wx/*` on 2026-08-15 and again with
+  2026-08-18, as ledgered. The prefix carried two earlier version
+  numbers, one per round-function change; the ledger has them.) Renamed
+  from `w3wx/*` on 2026-08-15 and again with
   the project on 2026-08-23; both times no address had been issued, which
   is the only reason either was free. After launch this invalidates every
   address anyone has written down. Version numbers are bumped, never
@@ -353,8 +353,8 @@ The theorem set is complete and in the ledger. What is left is narrower.
       and js/wasm-differential.mjs replaying the differential corpus
       through it in every `make test` (32,298 points: every address,
       every centre, per-axis bounds containment, 11,454 rejections). The round
-      function primitive CHANGED (2026-08-20, keyed BLAKE2s-256, mapping
-      `tessarium/v2/fe1`): the whole chain above -- proof module
+      function primitive CHANGED (2026-08-20, keyed BLAKE2s-256, and the
+      mapping version with it): the whole chain above -- proof module
       (Low.Blake2s replacing Low.Hmac; two compressions, native keying,
       little-endian throughout), vendored C, wasm (14.1 KB now), vectors,
       walls -- moved together, pinned by RFC 7693 + keyed KATs and
