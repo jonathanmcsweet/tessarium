@@ -42,8 +42,16 @@ const N = A * B;
 const ROUNDS = 16;
 /* The three protocol constants, here as in the core they check. Each is
    hashed into every address. This oracle stops agreeing with the core if
-   either side changes one alone, which is exactly what it is for. */
+   either side changes one alone, which is exactly what it is for.
+
+   All three really are here. Two of them used to be literals buried in the
+   functions that use them, under a comment saying "here" -- so bumping the
+   one on this line and trusting the comment would have left the oracle
+   running the old prefix and the old salt against the new tweak, which is a
+   half-rename in the one file whose whole job is to disagree. */
 const TWEAK = Buffer.from("tessarium-grid-3");
+const DOMAIN_PREFIX = Buffer.from("tessarium/v3/fe1");
+const KDF_SALT_PREFIX = "tessarium-kdf-4";
 
 // ------------------------------------------------------------------- grid
 
@@ -109,7 +117,7 @@ function be(value, bytes) {
 function roundFunc(key, tweak, i, x, m) {
   const len = Buffer.alloc(2);
   len.writeUInt16BE(tweak.length);
-  const msg = Buffer.concat([Buffer.from("tessarium/v3/fe1"), len, tweak,
+  const msg = Buffer.concat([DOMAIN_PREFIX, len, tweak,
                              Buffer.from([i]), be(x, 8)]);
   const d = Buffer.from(blake2s(msg, { key }));
   // The first 16 digest bytes, little-endian -- BLAKE2s's own order.
@@ -149,7 +157,7 @@ export function deriveKey(mnemonic, passphrase = "") {
   // otherwise.
   return Buffer.from(argon2id(
     enc.encode(words.join(" ").normalize("NFKD")),
-    enc.encode("tessarium-kdf-4" + passphrase.normalize("NFKD")),
+    enc.encode(KDF_SALT_PREFIX + passphrase.normalize("NFKD")),
     { t: 3, m: 65536, p: 1, dkLen: 32 },
   ));
 }
