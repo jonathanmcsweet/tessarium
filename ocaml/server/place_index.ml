@@ -214,13 +214,22 @@ let build ?(max_zoom = index_zoom) ~on_tile (archive : Pmtiles.Archive.t) =
   in
   let seen = Hashtbl.create 8192 in
   let entries = Pmtiles.Archive.entries archive in
-  let total =
-    List.fold_left
-      (fun acc (e : Pmtiles.Directory.entry) ->
-        let z, _, _ = Pmtiles.Tile_id.to_zxy e.Pmtiles.Directory.tile_id in
-        if z <= max_zoom then acc + e.Pmtiles.Directory.run_length else acc)
-      0 entries
+  (* How many ids the walk below will actually visit. Counting a whole run
+     whenever its FIRST id is within max_zoom is not the same thing: an empty
+     ocean tile is byte-identical at zoom 12 and at 13, so one run can span
+     the boundary. Then the total counts ids the walk skips, and the progress
+     the UI is shown stops short of it and never arrives. *)
+  let within (e : Pmtiles.Directory.entry) =
+    let n = ref 0 in
+    for k = 0 to e.Pmtiles.Directory.run_length - 1 do
+      let z, _, _ =
+        Pmtiles.Tile_id.to_zxy (e.Pmtiles.Directory.tile_id + k)
+      in
+      if z <= max_zoom then incr n
+    done;
+    !n
   in
+  let total = List.fold_left (fun acc e -> acc + within e) 0 entries in
   let done_ = ref 0 in
   List.iter
     (fun (e : Pmtiles.Directory.entry) ->
