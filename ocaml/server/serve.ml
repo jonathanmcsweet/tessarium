@@ -68,9 +68,11 @@ let security_headers cfg =
     ("cross-origin-resource-policy", "same-origin");
   ]
 
-(* Paired with its length so the access log reports what was actually sent. A
-   byte count that is always zero is worse than no byte count. *)
-(* [close] ends the connection after this response. Needed exactly once: a
+(* Paired with the status and the length, so the access log reports what was
+   actually sent. A byte count that is always zero is worse than no byte
+   count, and a status that is always 200 is worse than no status.
+
+   [close] ends the connection after this response. Needed exactly once: a
    body over the bound cannot be drained -- being over the bound is what it
    means -- so the rest of it would still be on the socket when the next
    request on a keep-alive connection began parsing, and that request would
@@ -1208,7 +1210,10 @@ let read_body flow =
   | s -> Some s
   | exception Eio.Buf_read.Buffer_limit_exceeded -> None
 
-let drain_body flow = ignore (read_body flow)
+(* [false] when the body was too big to take off the socket -- then the rest
+   of it is still there, and the only safe answer is to end the connection
+   rather than let the next request parse the tail of this one. *)
+let drain_body flow = read_body flow <> None
 
 (* [None] means the body is over the bound. A request that declares no body
    has an empty one rather than a missing one. *)
@@ -1263,14 +1268,20 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
          endpoints are reachable without it, and they are the ones that can
          spend a user's disk and bandwidth. *)
       | Route.Api _ when from_another_site header ->
-          if declares_body (Http.Request.headers request) then drain_body body;
+          let drained =
+            (not (declares_body (Http.Request.headers request)))
+            || drain_body body
+          in
           simple
-            (error cfg ~status:`Forbidden
+            (error ~close:(not drained) cfg ~status:`Forbidden
                "this endpoint cannot be called from another site")
       | Route.Api _ when not (is_json header) ->
-          if declares_body (Http.Request.headers request) then drain_body body;
+          let drained =
+            (not (declares_body (Http.Request.headers request)))
+            || drain_body body
+          in
           simple
-            (error cfg ~status:`Unsupported_media_type
+            (error ~close:(not drained) cfg ~status:`Unsupported_media_type
                "this endpoint takes application/json")
       | Route.Api endpoint when Route.is_basemap_api endpoint -> (
           (* Reachable without --api: see [Route.is_basemap_api]. *)
