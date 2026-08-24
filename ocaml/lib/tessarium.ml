@@ -38,6 +38,17 @@ let address_space = Tessarium_Spec.addr_space
    every address rather than silently reinterpreting old ones. *)
 let tweak = grid_version
 
+(* Its LENGTH is transcribed into fstar/low/Tessarium.Low.Blake2s.fst as
+   literal words and a byte counter, so a tweak of any other length parts the
+   OCaml and JS legs from the proved core, the vendored C and the wasm --
+   quietly, since both halves still build and still verify. The prefix half
+   of the same invariant is checked in ocaml/lib/crypto.ml. *)
+let () =
+  if String.length tweak <> 16 then
+    failwith
+      "tessarium: the grid tweak must be 16 bytes -- redo the transcription \
+       in fstar/low/Tessarium.Low.Blake2s.fst first"
+
 (* The injected round function, exposed so tests can drive the core directly. *)
 let round_fn = Crypto.round_fn
 
