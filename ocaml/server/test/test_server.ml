@@ -400,6 +400,43 @@ let () =
   check "absolute entries are dropped" (find "/abs" = None);
   check "nothing unexpected survives" (List.length files = 3);
 
+  (* What a dropped connection leaves behind. Every one of these reached a
+     String.sub or an int_of_string that raised, so the download job reported
+     an OCaml exception rather than saying the archive was incomplete. *)
+  let rejects a =
+    match Tessarium_server.Untar.list a with
+    | _ -> false
+    | exception Failure _ -> true
+  in
+  let whole = tar_entry "fonts/a.pbf" (String.make 600 'g') in
+  check "the archive it is cut from parses" (not (rejects whole));
+  check "an entry cut short is refused"
+    (rejects (String.sub whole 0 700));
+  check "a header cut short is simply the end"
+    (not (rejects (String.sub whole 0 300)));
+  (* GNU writes sizes over 8 GB in base 256, high bit set. Nothing in a glyph
+     tarball is that size, so here it is indistinguishable from garbage. *)
+  let clobber at bytes =
+    let b = Bytes.of_string whole in
+    Bytes.blit_string bytes 0 b at (String.length bytes);
+    Bytes.to_string b
+  in
+  check "a base-256 size field is refused" (rejects (clobber 124 "\x80\x00\x00\x00"));
+  check "a size field of letters is refused" (rejects (clobber 124 "nonsense    "));
+  (* A pax record whose length covers nothing, which made String.sub negative. *)
+  let pax r =
+    tar_entry ~typeflag:'x' "pax" r ^ tar_entry "next" "body"
+    ^ String.make 1024 '\000'
+  in
+  check "a zero-length pax record is refused, not crashed on"
+    (not (rejects (pax "0 path=x\n")));
+  check "a pax length past the payload is refused, not crashed on"
+    (not (rejects (pax "9999 path=x\n")));
+  check "and a well-formed one still renames"
+    (List.assoc_opt "renamed"
+       (Tessarium_server.Untar.list (pax "16 path=renamed\n"))
+     = Some "body");
+
   (* -------------------------------------------------- basemap endpoints *)
   (* The dispatch is tested with fake ops, so what is asserted is exactly the
      decision layer: which closure runs, with what request, and that a bad
