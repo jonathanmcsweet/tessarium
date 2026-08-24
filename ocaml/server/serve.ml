@@ -118,17 +118,52 @@ let joined headers name =
 
 (* Used by tiles and embedded assets alike: gzip is served as-is to a client
    that accepts it and inflated for one that does not -- browsers all accept
-   it, and the exceptions are curl and scripts, which should still work. *)
-let accepts_gzip headers =
-  match Http.Header.get headers "accept-encoding" with
+   it, and the exceptions are curl and scripts, which should still work.
+
+   Which is exactly who writes the headers this used to get wrong. Looking
+   for the four letters anywhere in the field answered "yes" to
+   `gzip;q=0` -- which says the opposite -- and to `identity, notgzip`. So the
+   field is parsed as RFC 9110 12.5.3 describes it: a comma-separated list of
+   codings, each optionally weighted, where q=0 means not acceptable, and a
+   coding named outright beats the `*` wildcard.
+
+   The weight is compared as text rather than parsed as a number. A qvalue is
+   0-1 with at most three decimals, so "is it zero" is a spelling question,
+   and this file has no reason to reach for a float to answer it. *)
+let zero_weight q =
+  match String.split_on_char '.' (String.trim q) with
+  | [ "0" ] -> true
+  | [ "0"; d ] -> d <> "" && String.for_all (fun c -> c = '0') d
+  | _ -> false
+
+let accepts_gzip get =
+  match get "accept-encoding" with
   | None -> false
   | Some v ->
-      let v = String.lowercase_ascii v in
-      let rec contains i =
-        i + 4 <= String.length v
-        && (String.sub v i 4 = "gzip" || contains (i + 1))
+      (* "coding;q=0.5" -> ("coding", acceptable?) *)
+      let entry e =
+        match String.split_on_char ';' e with
+        | [] -> ("", false)
+        | coding :: params ->
+            let weighted p =
+              match String.index_opt p '=' with
+              | Some i when String.trim (String.sub p 0 i) = "q" ->
+                  not
+                    (zero_weight
+                       (String.sub p (i + 1) (String.length p - i - 1)))
+              | _ -> true
+            in
+            (String.trim coding, List.for_all weighted params)
       in
-      contains 0
+      let entries =
+        List.map entry (String.split_on_char ',' (String.lowercase_ascii v))
+      in
+      let named n = List.assoc_opt n entries in
+      (* Most specific wins: an explicit gzip;q=0 refuses it even alongside
+         a wildcard that would otherwise allow it. *)
+      (match (named "gzip", named "x-gzip") with
+      | Some ok, _ | None, Some ok -> ok
+      | None, None -> ( match named "*" with Some ok -> ok | None -> false))
 
 (* [Eio.Path.kind] answers [`Not_found] for a path that is simply absent, and
    RAISES for one the filesystem refuses to look at: a segment over NAME_MAX
@@ -368,7 +403,7 @@ let serve_tile cfg ~basemap_root ~meth ~client_headers ~z ~x ~y =
          not decompress a tile to say nothing changed. *)
       let enc, inflate =
         match header.Pmtiles.Header.tile_compression with
-        | Pmtiles.Header.Gzip when accepts_gzip client_headers ->
+        | Pmtiles.Header.Gzip when accepts_gzip (Http.Header.get client_headers) ->
             (Some "gzip", false)
         | Pmtiles.Header.Gzip -> (None, true)
         | Pmtiles.Header.Brotli -> (Some "br", false)
@@ -431,7 +466,7 @@ let serve_embedded cfg ~segments ~meth ~headers =
       (* One answer to "which encoding is this", used for both the header and
          the tag. Deriving it twice is how a tag comes to describe the other
          representation. *)
-      let enc = if accepts_gzip headers then Some "gzip" else None in
+      let enc = if accepts_gzip (Http.Header.get headers) then Some "gzip" else None in
       let extra =
         match enc with None -> [] | Some e -> [ ("content-encoding", e) ]
       in

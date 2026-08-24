@@ -478,6 +478,31 @@ let () =
   (* The last leg: the three body types a page can post with NO preflight.
      Requiring JSON means the browser has to ask first, and we never answer. *)
   let json l = S.is_json (hdr l) in
+  (* ------------------------------------------------- accept-encoding *)
+  (* Tiles and embedded assets are STORED gzipped, so this decides whether a
+     client gets the stored bytes or an inflated copy. Getting it wrong in
+     the generous direction hands gzip to something that said it cannot read
+     it -- and the clients that spell this carefully are curl and scripts,
+     the exact ones the inflating path exists for. *)
+  let gz v = S.accepts_gzip (hdr [ ("accept-encoding", v) ]) in
+  check "a browser's header accepts gzip" (gz "gzip, deflate, br, zstd");
+  check "so does a bare gzip" (gz "gzip");
+  check "and a weighted one" (gz "gzip;q=0.8, identity;q=0.5");
+  check "and the wildcard" (gz "*");
+  check "q=0 means it cannot read gzip" (not (gz "gzip;q=0"));
+  check "however many zeroes it writes"
+    (not (gz "gzip;q=0.000") && not (gz "gzip;q=0.0"));
+  check "a coding that merely contains the word is not gzip"
+    (not (gz "identity, notgzip"));
+  check "x-gzip is the same coding" (gz "x-gzip");
+  check "an empty field accepts nothing" (not (gz ""));
+  check "no field at all accepts nothing" (not (S.accepts_gzip (hdr [])));
+  (* Naming a coding outright is more specific than the wildcard. *)
+  check "an explicit refusal beats a permissive wildcard"
+    (not (gz "*, gzip;q=0"));
+  check "and an explicit accept beats a refusing wildcard"
+    (gz "*;q=0, gzip");
+
   check "text/plain is not json" (not (json [ ("content-type", "text/plain") ]));
   check "a form post is not json"
     (not (json [ ("content-type", "application/x-www-form-urlencoded") ]));
