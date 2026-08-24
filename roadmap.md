@@ -108,8 +108,10 @@ typo detection and is a feature, not waste.
   address anyone has written down. Version numbers are bumped, never
   reused, so an old address can never be silently reread as a new one.
   The prefix and the tweak also have their LENGTHS baked into the Low\*
-  message transcription (16 and 16, message 43 bytes, counter 107);
-  changing either length re-does that transcription by hand.
+  message transcription; changing either length re-does that transcription
+  by hand. The numbers are in `fstar/low/Tessarium.Low.Blake2s.fst` and in
+  `ocaml/lib/crypto.ml`, which enforces them — not repeated here, because
+  five copies of them left two stale at the last rename.
   Regenerating the band table changes every address rather than silently
   reinterpreting old ones.
 

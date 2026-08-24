@@ -55,9 +55,11 @@ let domain_prefix = "tessarium/v3/fe1"
    and the js oracle agreeing on one MAC while the proved core, the vendored
    C and wasm/core.wasm agree on another -- everything building, everything
    verifying, and the divergence surfacing only if someone regenerated
-   check_vectors.h and ran the Low* leg. Five files say so in prose; this
-   one says it where a mistake is made. Not [assert], which -noassert
-   removes. *)
+   check_vectors.h and ran the Low* leg. This file and the transcription it
+   names are the only two that spell the numbers; the other places that warn
+   about the length point at them rather than repeating them, because five
+   copies left two of them stale at the last rename. Not [assert], which
+   -noassert removes. *)
 let () =
   if String.length domain_prefix <> 16 then
     failwith

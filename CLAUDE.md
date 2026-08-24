@@ -178,11 +178,13 @@ address — the tweak above, the round-function domain prefix
 fourth (`tessarium_ledger`) names a blob inside downloaded map archives.
 Changing any of the three invalidates every address anyone holds, so bump
 the version number rather than reusing it. The domain prefix and the tweak
-also have their LENGTHS baked into `fstar/low/Tessarium.Low.Blake2s.fst`,
-which transcribes the whole 43-byte message as sixteen literal words and a
-byte counter; changing either length means redoing that transcription and
-re-verifying. All four moved once, on 2026-08-23, with the project's
-rename — see the ledger for what that took.
+also have their LENGTHS baked into the message transcription in
+`fstar/low/Tessarium.Low.Blake2s.fst`; changing either length means redoing
+that transcription by hand and re-verifying. The numbers themselves live in
+that file and in `ocaml/lib/crypto.ml`, which refuses to load if a length is
+wrong — and nowhere else, because when this warning carried its numbers in
+five places, two of them went stale. All four constants moved once, on
+2026-08-23, with the project's rename — see the ledger for what that took.
 
 ## Where to start
 

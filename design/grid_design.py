@@ -26,7 +26,8 @@ N = WORDS**3 * NUM
 
 HERE = Path(__file__).parent
 # The Feistel tweak: every address on Earth depends on its exact bytes, and
-# on its LENGTH, which the Low* message transcription is written against.
+# on its LENGTH, which the Low* message transcription is written against
+# (fstar/low/Tessarium.Low.Blake2s.fst; ocaml/lib/crypto.ml enforces it).
 # Bump it whenever the grid or the naming changes -- never reuse a number --
 # and regenerate the vectors and fstar/check when you do.
 GRID_VERSION = "tessarium-grid-3"

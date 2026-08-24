@@ -30,6 +30,9 @@ module Tessarium.Low.Blake2s
 /// The message this MAC signs is fixed-shape (43 bytes): the production
 /// key is exactly 32 bytes and the tweak is the constant
 /// "tessarium-grid-3", so both blocks have statically known padding --
+/// this file and ocaml/lib/crypto.ml are the ONLY two that spell these
+/// numbers, and everything else warning about them points here. Five
+/// copies left two of them reading 47 after the rename made it 43 --
 /// which is why no buffers, loops or length arithmetic appear anywhere in
 /// this file. BLAKE2s is little-endian throughout, and this protocol
 /// reads the first 16 digest bytes as a little-endian integer, so no word
