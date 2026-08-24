@@ -21,7 +21,7 @@ than a git log.
 
 ---
 
-### 2026-08-23 — Tessarium becomes Tessarium, protocol constants and all
+### 2026-08-23 — The project is renamed to Tessarium, constants and all
 
 **Phase:** 6 · **Branch:** rename/tessarium
 
@@ -39,12 +39,15 @@ records, this holds tiles.
 The constants, version numbers bumped rather than reused so an old address
 can never be silently reread as a new one:
 
+Each was the old project name carrying the version number in the left
+column; each is now the new name carrying the one on the right.
+
 | | was | now |
 |---|---|---|
-| Feistel tweak | `tessarium-grid-2` | `tessarium-grid-3` |
-| Round-function domain prefix | `tessarium/v2/fe1` | `tessarium/v3/fe1` |
-| Argon2id salt | `tessarium-kdf-3` | `tessarium-kdf-4` |
-| Archive metadata key | `tessarium_ledger` | `tessarium_ledger` |
+| Feistel tweak | `…-grid-2` | `tessarium-grid-3` |
+| Round-function domain prefix | `…/v2/fe1` | `tessarium/v3/fe1` |
+| Argon2id salt | `…-kdf-3` | `tessarium-kdf-4` |
+| Archive metadata key | `…_ledger` | `tessarium_ledger` |
 
 **Every address on Earth changed.** That was affordable only because
 nothing is deployed — the same reason the `w3wx/*` rename was free on
@@ -78,11 +81,13 @@ core, agrees with it on 32,298 points under the new constants; so does the
 wasm core. Three independent implementations landing on the same new
 answers is what says the transcription is right, not the proof alone.
 
-**One thing the sweep got wrong and had to be undone:** it rewrote
-`tessarium-grid-1` and `tessarium-kdf-2` in this file — historical
-constants named in old entries — into version strings that never existed. A
-blind substitution over a ledger corrupts the record the ledger exists to
-keep.
+**One thing the sweep got wrong and had to be undone:** it rewrote two
+historical constants named in older entries — the grid version before
+`-grid-2` and the derivation version before `-kdf-3` — into strings that
+never existed on any date. A blind substitution over a ledger corrupts the
+record the ledger exists to keep. (Those entries no longer spell the old
+name either; they were elided by hand afterwards, which keeps them true
+where a substitution would not have.)
 
 **Follow-on:** a basemap archive downloaded before today carries the old
 metadata key, so its ledger reads as absent: tiles still serve, the
@@ -1058,7 +1063,7 @@ Left open in roadmap.md rather than explained away here.
 
 **What:** Key derivation is now a single stage of Argon2id -- t=3, m=64 MiB,
 p=1 (RFC 9106's second recommended option), password = the NFKD phrase, salt
-= `tessarium-kdf-3` ++ the NFKD passphrase, 32 bytes out -- replacing the
+= the kdf-3 version salt ++ the NFKD passphrase, 32 bytes out -- replacing the
 two-stage PBKDF2-HMAC-SHA512 chain. One vendored implementation of the
 primitive: the PHC winner's reference C (release 20190702, tarball sha256
 pinned, CC0/Apache-2.0), linked natively by the server (`ocaml/argon2`,
@@ -1123,7 +1128,7 @@ refreshes only low/ caches) -- refreshed by hand, same documented class.
 
 **What:** The user directed the project's security functions off NIST designs
 onto community-vetted primitives. The Feistel round function is now keyed
-BLAKE2s-256 (RFC 7693): domain prefix `tessarium/v2/fe1`, the same 47-byte
+BLAKE2s-256 (RFC 7693): domain prefix bumped to v2, the same 47-byte
 message layout, the first 16 digest bytes read as a LITTLE-endian integer
 (BLAKE2s's own order -- no byte swap anywhere), the 32-byte key crossing every
 ABI as eight little-endian words. Every address changed; pre-release, so a
@@ -2021,7 +2026,7 @@ with `--check` to report without changing anything.
 **Phase:** 2 (locked decision revised)
 
 **What:** The Feistel round count went from 10 to 16, and the grid version
-string from `tessarium-grid-1` to `tessarium-grid-2`. Every address
+string from grid-1 to grid-2. Every address
 changed. All nine modules re-verify, all seven suites pass, and the
 independently written implementation agrees on the new addresses.
 
@@ -2179,7 +2184,7 @@ UI rules require touch parity and the source string did not have it.
 NFKD-normalised before hashing, as BIP-39 requires. A second PBKDF2-SHA512
 stage of 200,000 iterations now derives the Feistel key from the BIP-39 seed,
 replacing HKDF. The browser derives with WebCrypto instead of the bundled core.
-`derivation_version` is `tessarium-kdf-2`; every address changed.
+`derivation_version` moves to kdf-2; every address changed.
 
 **Rationale:**
 
@@ -2586,7 +2591,7 @@ committed bench, not the ten-round-era 53 µs; the 2:1 split is
 round-parameterized (demonstrations at 8-10 rounds), stated as such; the
 offline-Simon citation no longer absorbs Hosoyamada-Sasaki's separate
 six-round classical-query Feistel work. CLAUDE.md still names the tweak
-tessarium-grid-1 (code says -2); left for the user, per its own rule.
+at grid-1 (code says -2); left for the user, per its own rule.
 
 **Rationale:** the write-up exists to be checked against the code; being
 falsified by its own review and forcing the code to match is that working.
