@@ -119,6 +119,35 @@ let () =
   let back = D.deserialize (D.serialize entries) in
   check "directory round-trips" (back = entries);
 
+  (* The entry count is the first thing off the wire and Array.make believes
+     it. A short blob claiming a huge count allocates before anything can
+     notice the bytes are not there -- and Archive.open_ arrives here with a
+     length out of the header of a downloaded file. Four columns, one byte
+     each at minimum, is the floor a real entry cannot go under. *)
+  let refuses s =
+    match D.deserialize s with
+    | _ -> false
+    | exception Invalid_argument _ -> true
+  in
+  (* Varint 0x80 0x80 0x80 0x80 0x01 = 2^28, in five bytes with nothing after. *)
+  let overclaim = "\x80\x80\x80\x80\x01" in
+  check "a directory claiming more entries than it holds is refused"
+    (refuses overclaim);
+  (* Refusing is not the point -- the truncated varint refuses anyway, one
+     column in and two gigabytes of pointers later. What has to hold is that
+     the ALLOCATION never happens, so it is the allocation that is measured.
+     Without the bound this delta is about 2e9. *)
+  let allocated f =
+    let before = Gc.allocated_bytes () in
+    (try ignore (f ()) with _ -> ());
+    Gc.allocated_bytes () -. before
+  in
+  check "and refused before it allocates"
+    (allocated (fun () -> D.deserialize overclaim) < 1e6);
+  (* The floor is exact, so a directory sitting on it still parses. *)
+  check "four entries in sixteen bytes still parse"
+    (not (refuses (D.serialize entries)));
+
   (* An exact hit, a hit inside a run, and a miss just past the run's end. *)
   check "find exact" (D.find entries 5 = Some entries.(2));
   check "find inside a run" (D.find entries 3 = Some entries.(1));

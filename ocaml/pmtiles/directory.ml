@@ -23,6 +23,16 @@ let is_leaf_pointer e = e.run_length = 0
    for. *)
 let deserialize s =
   let n, pos = Varint.decode s 0 in
+  (* The count comes off the wire and Array.make believes it. Every entry
+     costs at least four bytes -- one per column, one byte each at minimum --
+     so a count larger than the remaining bytes could hold is corrupt or
+     hostile, and saying so costs one comparison. Without it a five-byte blob
+     whose leading varint reads 2^28 allocates two gigabytes of pointers
+     before the first Varint.decode runs out of input. Archive.open_ arrives
+     here with a length taken straight from the header of a file the user
+     downloaded, so this is a boundary, not an internal invariant. *)
+  if n > (String.length s - pos) / 4 then
+    invalid_arg "pmtiles: directory claims more entries than it holds";
   let entries = Array.make n { tile_id = 0; offset = 0; length = 0; run_length = 0 } in
   let pos = ref pos in
 
