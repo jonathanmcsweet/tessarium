@@ -728,7 +728,8 @@ let rate_limited_endpoint = function
   | "session" | "encode" | "decode" -> true
   | _ -> false
 
-let handle_api cfg sessions limiter random ~endpoint ~body ~now =
+let handle_api cfg sessions limiter random ~endpoint ~request ~now =
+  let body = Api_guard.body request in
   let bad = error cfg ~status:`Bad_request in
   match Yojson.Safe.from_string body with
   | exception _ -> bad "body is not valid JSON"
@@ -928,7 +929,8 @@ let coverage_message = function
   | Basemap_download.Too_large e | Basemap_download.Unreadable e -> e
 
 let handle_basemap cfg (ops : Basemap_download.ops)
-    (settings : Settings.ops) ~endpoint ~body =
+    (settings : Settings.ops) ~endpoint ~request =
+  let body = Api_guard.body request in
   let bad = error cfg ~status:`Bad_request in
   (* A ledger or settings failure is this server's own data gone wrong, not
      the caller's request and not the upstream source. *)
@@ -1147,90 +1149,29 @@ let declares_body headers =
   Http.Header.get headers "content-length" <> None
   || Http.Header.get headers "transfer-encoding" <> None
 
-(* ------------------------------------------------------- cross-origin writes
-
-   Every /api/ endpoint DOES something: derives a key from a phrase, starts a
-   multi-gigabyte download, deletes a downloaded map, turns on the cache that
-   fetches over the network. The server listens on loopback and asks for no
-   credentials, so "a program on this machine" is the whole of its access
-   control -- and a page the user happens to have open is, to a socket, a
-   program on this machine. Without this, that page can drive every one of
-   them; it cannot read the answers back, but every side effect lands.
-
-   Two headers decide it, and the BROWSER sets both -- a page cannot forge
-   either. Sec-Fetch-Site says where the request came from; Origin names the
-   page behind a cross-origin write. curl and scripts send neither, which is
-   what --api exists for, so silence is allowed: this judges browsers.
-
-   The content type is the third leg, for the shapes a page can post with no
-   preflight at all -- text/plain, form-urlencoded, multipart. Requiring JSON
-   means the browser has to ask permission first, and nothing here answers. *)
-let same_origin_as_host origin host =
-  let o = String.lowercase_ascii (String.trim origin) in
-  (* Origin is scheme://host[:port]; Host is host[:port]. A null origin --
-     a sandboxed frame, a data: URL -- has no host and matches nothing. *)
-  let authority =
-    match String.index_opt o '/' with
-    | Some i when i + 1 < String.length o && o.[i + 1] = '/' ->
-        String.sub o (i + 2) (String.length o - i - 2)
-    | _ -> ""
-  in
-  authority <> "" && String.equal authority (String.lowercase_ascii host)
-
-let from_another_site get =
-  match get "sec-fetch-site" with
-  | Some s -> (
-      match String.lowercase_ascii (String.trim s) with
-      | "same-origin" | "none" -> false
-      | _ -> true)
-  | None -> (
-      match get "origin" with
-      | None -> false
-      | Some o ->
-          let host = Option.value (get "host") ~default:"" in
-          not (same_origin_as_host o host))
-
-(* A request we are going to refuse still has to come off the socket. Leaving
-   its body there makes the NEXT request on a keep-alive connection start
-   parsing mid-JSON, which is how the browser suite caught this: one refused
-   text/plain post and every check after it on that connection failed. The
-   bound is there because the caller being refused is precisely the one with
-   no reason to be honest about Content-Length.
-
-   The same bound caps what an ACCEPTED request may send. Without it,
-   Eio.Flow.read_all grows a buffer to whatever Content-Length claims, on
-   endpoints that need no --api and are outside the rate limiter -- a
-   four-gigabyte header and a slow trickle is enough to have the process
-   killed, repeatedly. 4 MiB against a real ceiling of about 250 KB: every
-   region the UI knows about, polygons included, selected at once. *)
-let max_body = 1 lsl 22
-
+(* Taking the body off the socket is the only part of the /api/ guard that
+   touches Eio, so it is the only part that stays here; everything the guard
+   DECIDES is in Api_guard, behind an abstract type the handlers demand. See
+   that file for why. *)
 let read_body flow =
-  match Eio.Buf_read.(take_all (of_flow flow ~max_size:max_body)) with
+  match Eio.Buf_read.(take_all (of_flow flow ~max_size:Api_guard.max_body)) with
   | s -> Some s
   | exception Eio.Buf_read.Buffer_limit_exceeded -> None
 
-(* [false] when the body was too big to take off the socket -- then the rest
-   of it is still there, and the only safe answer is to end the connection
-   rather than let the next request parse the tail of this one. *)
-let drain_body flow = read_body flow <> None
-
-(* [None] means the body is over the bound. A request that declares no body
-   has an empty one rather than a missing one. *)
-let sized_body headers flow =
-  if declares_body headers then read_body flow else Some ""
-
-let is_json get =
-  match get "content-type" with
-  | None -> false
-  | Some v ->
-      let v = String.lowercase_ascii (String.trim v) in
-      let base =
-        match String.index_opt v ';' with
-        | Some i -> String.trim (String.sub v 0 i)
-        | None -> v
-      in
-      String.equal base "application/json"
+(* No wildcard: a new refusal must be given a status and a sentence here
+   before this compiles. *)
+let refused cfg (r : Api_guard.refusal) (d : Api_guard.disposal) =
+  let close = d = Api_guard.Connection_must_close in
+  match r with
+  | Api_guard.From_another_site ->
+      error ~close cfg ~status:`Forbidden
+        "this endpoint cannot be called from another site"
+  | Api_guard.Not_json ->
+      error ~close cfg ~status:`Unsupported_media_type
+        "this endpoint takes application/json"
+  | Api_guard.Too_large ->
+      error ~close cfg ~status:`Request_entity_too_large
+        "that request body is too large"
 
 (* ---------------------------------------------------------------- handler *)
 
@@ -1264,48 +1205,33 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
                     ("grid", `String Tessarium.grid_version);
                     ("api", `Bool cfg.api_enabled);
                   ]))
-      (* Both guards sit above the --api gate on purpose: the basemap
-         endpoints are reachable without it, and they are the ones that can
-         spend a user's disk and bandwidth. *)
-      | Route.Api _ when from_another_site header ->
-          let drained =
-            (not (declares_body (Http.Request.headers request)))
-            || drain_body body
-          in
-          simple
-            (error ~close:(not drained) cfg ~status:`Forbidden
-               "this endpoint cannot be called from another site")
-      | Route.Api _ when not (is_json header) ->
-          let drained =
-            (not (declares_body (Http.Request.headers request)))
-            || drain_body body
-          in
-          simple
-            (error ~close:(not drained) cfg ~status:`Unsupported_media_type
-               "this endpoint takes application/json")
-      | Route.Api endpoint when Route.is_basemap_api endpoint -> (
-          (* Reachable without --api: see [Route.is_basemap_api]. *)
-          match sized_body (Http.Request.headers request) body with
-          | None -> simple
-                (error ~close:true cfg ~status:`Request_entity_too_large
-                   "that request body is too large")
-          | Some body ->
-              simple
-                (handle_basemap cfg basemap_ops settings_ops ~endpoint ~body))
+      (* ONE branch for every /api/ route. The checks are not above this in
+         the match any more -- they are in the type [handle_api] and
+         [handle_basemap] demand, so a route added here cannot skip them.
+         Still before the --api gate, because the basemap endpoints are
+         reachable without it and they are the ones that can spend a user's
+         disk and bandwidth. *)
       | Route.Api endpoint -> (
-          if not cfg.api_enabled then
-            simple
-              (error cfg ~status:`Not_found
-                 "the encode/decode API is disabled; start with --api to enable it")
-          else
-            match sized_body (Http.Request.headers request) body with
-            | None -> simple
-                (error ~close:true cfg ~status:`Request_entity_too_large
-                   "that request body is too large")
-            | Some body ->
+          match
+            Api_guard.check ~header
+              ~declares_body:(declares_body (Http.Request.headers request))
+              ~read:(fun () -> read_body body)
+          with
+          | Api_guard.Refused (r, disposal) -> simple (refused cfg r disposal)
+          | Api_guard.Allowed checked ->
+              if Route.is_basemap_api endpoint then
+                simple
+                  (handle_basemap cfg basemap_ops settings_ops ~endpoint
+                     ~request:checked)
+              else if not cfg.api_enabled then
+                simple
+                  (error cfg ~status:`Not_found
+                     "the encode/decode API is disabled; start with --api to enable it")
+              else
                 let now = Eio.Time.now clock in
                 simple
-                  (handle_api cfg sessions limiter random ~endpoint ~body ~now))
+                  (handle_api cfg sessions limiter random ~endpoint
+                     ~request:checked ~now))
       | Route.Tile { z; x; y } ->
           serve_tile cfg ~basemap_root ~meth
             ~client_headers:(Http.Request.headers request) ~z ~x ~y
