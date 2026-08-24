@@ -1501,6 +1501,25 @@ let () =
   check "a place name shaped like an address is treated as one"
     (String.equal (shape "route 66 exit 1234") "complete");
 
+  (* What an abbreviation IS. The prefix rule exists so "slic" can stand for
+     "slice"; it must not also make a word the user typed stand for a
+     different one. Comparing only the first four letters of the INPUT does
+     exactly that, and the result is the worst answer this program can give:
+     a valid-looking address for a square nobody asked about, with no error.
+     "cannot" is not a BIP-39 word; "cannon" is, and they share four letters. *)
+  let parsed s =
+    match Tessarium.address_of_string s with
+    | a -> Some a
+    | exception Tessarium.Invalid_address _ -> None
+  in
+  check "a four-letter abbreviation resolves to its word"
+    (parsed "slic.pena.abando.0001" <> None
+     && parsed "slic.pena.abando.0001" = parsed "slice.penalty.abandon.0001");
+  check "a non-word sharing four letters with a word is refused"
+    (parsed "cannot.slice.artist.0001" = None);
+  check "a word extended past its end is refused"
+    (parsed "artistic.slice.cannon.0001" = None);
+
   (* ------------------------------------------- conditional requests
 
      Every response is `no-cache`, which means "ask before reusing", and until

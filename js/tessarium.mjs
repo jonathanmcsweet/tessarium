@@ -170,8 +170,13 @@ export function addressToIndex(address) {
   if (!/^\d{4}$/.test(num)) throw new Error("not a four-digit number");
   const idx = parts.slice(0, 3).map((w) => {
     let i = WORDLIST.indexOf(w);
+    // An abbreviation is a PREFIX of the word. Matching on the input's first
+    // four letters instead would resolve "cannot" to "cannon" -- a different
+    // square, returned as if it were the one asked for. Deliberately the same
+    // rule as resolve_word in ocaml/lib/tessarium.ml, since this oracle only
+    // disagrees usefully when it is not copying the core's mistakes.
     if (i < 0 && w.length >= 4) {
-      const hits = WORDLIST.map((x, j) => x.startsWith(w.slice(0, 4)) ? j : -1)
+      const hits = WORDLIST.map((x, j) => (x.startsWith(w) ? j : -1))
                            .filter((j) => j >= 0);
       if (hits.length === 1) i = hits[0];
     }

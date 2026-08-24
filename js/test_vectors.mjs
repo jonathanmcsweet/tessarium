@@ -37,5 +37,18 @@ for (const a of V.addresses) {
   check(`addr rt ${a.lat_ns}`, w.pointToCell(la, lo) === c);
 }
 
+// The abbreviation rule, pinned on both sides. Matching only the INPUT's first
+// four letters would resolve "cannot" -- which is not a BIP-39 word -- to
+// "cannon", handing back a different square with no error. An oracle that
+// copied that mistake could never report it, so it is checked here too.
+const parses = (a) => { try { return w.addressToIndex(a); } catch { return null; } };
+check("abbreviation resolves to its word",
+  parses("slic.pena.abando.0001") !== null
+  && parses("slic.pena.abando.0001") === parses("slice.penalty.abandon.0001"));
+check("a non-word sharing four letters is refused",
+  parses("cannot.slice.artist.0001") === null);
+check("a word extended past its end is refused",
+  parses("artistic.slice.cannon.0001") === null);
+
 console.log(`\n${pass} checks passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

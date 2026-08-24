@@ -230,23 +230,36 @@ let address_to_string (w1, w2, w3, n) =
   Printf.sprintf "%s.%s.%s.%04d" Wordlist.words.(Z.to_int w1)
     Wordlist.words.(Z.to_int w2) Wordlist.words.(Z.to_int w3) (Z.to_int n)
 
-(* Exact match, else unique four-letter prefix. BIP-39 guarantees the first
-   four letters identify a word, so 'slic' resolves to 'slice'. *)
+(* Exact match, else a unique ABBREVIATION -- what was typed has to be a
+   prefix of the word it resolves to. BIP-39 guarantees the first four letters
+   identify a word, so "slic" resolves to "slice".
+
+   Comparing only the first four letters of the INPUT is the mistake this
+   guards against: it makes "cannot" an abbreviation of "cannon" and
+   "artistic" one of "artist", so a word the user never typed decodes to a
+   square they never meant, and they are told nothing -- the one failure this
+   parser exists to prevent. The honest answer to a word that is not on the
+   list is to say so. *)
 let resolve_word w =
   match Hashtbl.find_opt Wordlist.index w with
   | Some i -> Some i
   | None ->
-      if String.length w < 4 then None
-      else
-        let p = String.sub w 0 4 in
-        let hits =
-          Array.to_list Wordlist.words
-          |> List.filteri (fun _ _ -> true)
-          |> List.mapi (fun i x -> (i, x))
-          |> List.filter (fun (_, x) ->
-                 String.length x >= 4 && String.sub x 0 4 = p)
-        in
-        (match hits with [ (i, _) ] -> Some i | _ -> None)
+      let n = String.length w in
+      if n < 4 then None
+      else begin
+        (* One pass, no intermediate lists: [address_of_string] calls this
+           three times per address and [becoming_word] below already has
+           this shape. *)
+        let found = ref None and hits = ref 0 in
+        Array.iteri
+          (fun i x ->
+            if String.length x >= n && String.sub x 0 n = w then begin
+              incr hits;
+              found := Some i
+            end)
+          Wordlist.words;
+        if !hits = 1 then !found else None
+      end
 
 let split_address s =
   let norm =
