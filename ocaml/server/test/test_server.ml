@@ -413,6 +413,44 @@ let () =
   check "the key-material endpoints do not"
     (not (Route.is_basemap_api "session") && not (Route.is_basemap_api "encode"));
 
+  (* Who may call them. The server listens on loopback and asks for no
+     credentials, so a page the user happens to have open can reach every
+     endpoint the UI can -- and start a download, delete a map, or switch on
+     the network cache. A page cannot set either header below; the browser
+     does. So what is asserted here is what a browser will send, and the two
+     clients that send neither -- curl and a script -- stay welcome, which is
+     what --api is for. *)
+  let hdr l name = List.assoc_opt name l in
+  let foreign l = S.from_another_site (hdr l) in
+  check "a cross-site fetch is foreign"
+    (foreign [ ("sec-fetch-site", "cross-site"); ("host", "127.0.0.1:7373") ]);
+  check "so is same-site -- another port is another origin"
+    (foreign [ ("sec-fetch-site", "same-site") ]);
+  check "our own page is not" (not (foreign [ ("sec-fetch-site", "same-origin") ]));
+  check "nor is an address bar" (not (foreign [ ("sec-fetch-site", "none") ]));
+  check "nor curl, which sends neither header" (not (foreign []));
+  (* Browsers without Sec-Fetch-Site still send Origin on a cross-origin write. *)
+  check "an origin naming another host is foreign"
+    (foreign [ ("origin", "http://evil.example"); ("host", "127.0.0.1:7373") ]);
+  check "an origin naming us is not"
+    (not
+       (foreign
+          [ ("origin", "http://127.0.0.1:7373"); ("host", "127.0.0.1:7373") ]));
+  check "a null origin -- a sandboxed frame, a data: URL -- is foreign"
+    (foreign [ ("origin", "null"); ("host", "127.0.0.1:7373") ]);
+  (* The last leg: the three body types a page can post with NO preflight.
+     Requiring JSON means the browser has to ask first, and we never answer. *)
+  let json l = S.is_json (hdr l) in
+  check "text/plain is not json" (not (json [ ("content-type", "text/plain") ]));
+  check "a form post is not json"
+    (not (json [ ("content-type", "application/x-www-form-urlencoded") ]));
+  check "a file upload is not json"
+    (not (json [ ("content-type", "multipart/form-data; boundary=x") ]));
+  check "and neither is nothing at all" (not (json []));
+  check "json is" (json [ ("content-type", "application/json") ]);
+  check "json with a charset still is"
+    (json [ ("content-type", "application/json; charset=utf-8") ]);
+
   let scfg =
     {
       S.ui_dir = "ui";
