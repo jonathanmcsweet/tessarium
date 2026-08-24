@@ -235,33 +235,47 @@ let build ?(max_zoom = index_zoom) ~on_tile (archive : Pmtiles.Archive.t) =
     (fun (e : Pmtiles.Directory.entry) ->
       (* A run is one blob shared by consecutive tile ids, so it is read once
          and re-projected per id. Walking the entry alone would skip every
-         id after the first -- and leave the progress total, which counts
-         ids, permanently unreachable. *)
+         id after the first.
+
+         Read once means read HERE, not inside the loop. It was fetched per
+         id, which re-ran the directory search, the source read and the
+         inflate for every id in the run: five thousand identical ocean tiles
+         cost five thousand reads and five thousand inflations of the same
+         bytes, when only Mvt.named below actually varies with the id. Lazy,
+         so a run lying entirely past max_zoom is never read at all. *)
+      let blob =
+        lazy
+          (match Pmtiles.Archive.tile archive e.Pmtiles.Directory.tile_id with
+          | None -> None
+          | Some raw -> (
+              match if gz then Gzip.decompress raw else raw with
+              | exception _ -> None
+                  (* one unreadable tile is not a failed index *)
+              | plain -> Some plain))
+      in
       for k = 0 to e.Pmtiles.Directory.run_length - 1 do
         let id = e.Pmtiles.Directory.tile_id + k in
         let z, x, y = Pmtiles.Tile_id.to_zxy id in
         if z <= max_zoom then begin
           incr done_;
           on_tile !done_ total;
-          match Pmtiles.Archive.tile archive id with
+          match Lazy.force blob with
           | None -> ()
-          | Some raw -> (
-            match if gz then Gzip.decompress raw else raw with
-            | exception _ -> ()  (* one unreadable tile is not a failed index *)
-            | plain -> (
-                match Pmtiles.Mvt.named ~z ~x ~y plain with
-                | exception _ -> ()
-                | named ->
-                    List.iter
-                      (fun (layer, name, kind, weight, lon, lat) ->
-                        let key = cluster_key seen ~folded:(fold name) ~layer
-                            ~lon ~lat in
-                        match Hashtbl.find_opt seen key with
-                        | Some (seen_z, _) when seen_z >= z -> ()
-                        | _ ->
-                            Hashtbl.replace seen key
-                              (z, { name; kind; layer; weight; lon; lat }))
-                      named))
+          | Some plain -> (
+              match Pmtiles.Mvt.named ~z ~x ~y plain with
+              | exception _ -> ()
+              | named ->
+                  List.iter
+                    (fun (layer, name, kind, weight, lon, lat) ->
+                      let key =
+                        cluster_key seen ~folded:(fold name) ~layer ~lon ~lat
+                      in
+                      match Hashtbl.find_opt seen key with
+                      | Some (seen_z, _) when seen_z >= z -> ()
+                      | _ ->
+                          Hashtbl.replace seen key
+                            (z, { name; kind; layer; weight; lon; lat }))
+                    named)
         end
       done)
     entries;
