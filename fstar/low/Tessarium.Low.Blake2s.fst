@@ -27,9 +27,9 @@ module Tessarium.Low.Blake2s
 ///     layout word fails the digestif legs alone -- the same diagnostic
 ///     layering the v1 falsification log demonstrated.
 ///
-/// The message this MAC signs is fixed-shape (47 bytes): the production
+/// The message this MAC signs is fixed-shape (43 bytes): the production
 /// key is exactly 32 bytes and the tweak is the constant
-/// "tessarium-grid-2", so both blocks have statically known padding --
+/// "tessarium-grid-3", so both blocks have statically known padding --
 /// which is why no buffers, loops or length arithmetic appear anywhere in
 /// this file. BLAKE2s is little-endian throughout, and the v2 protocol
 /// reads the first 16 digest bytes as a little-endian integer, so no word
@@ -358,18 +358,18 @@ type key8 = st8
 /// Keyed BLAKE2s-256 over the round-function message of
 /// ocaml/lib/crypto.ml:
 ///
-///   "tessarium/v2/fe1" (18) || len16(tweak)=0x0012 || "tessarium-grid-2" (18)
-///   || i (1 byte) || x (8 bytes BE)                              = 47 bytes
+///   "tessarium/v3/fe1" (16) || len16(tweak)=0x0010 || "tessarium-grid-3" (16)
+///   || i (1 byte) || x (8 bytes BE)                              = 43 bytes
 ///
 /// x < 2^24 makes the first five of its eight big-endian bytes zero,
-/// which is why little-endian words 9-11 below take the shapes they do.
+/// which is why little-endian words 8-10 below take the shapes they do.
 /// Parameter block: digest length 32, key length 32, fanout=depth=1, so
 /// h0 = IV0 xor 0x01012020. Key block: t=64, not final. Message block:
-/// t=64+47=111, final. Returns the first four digest words -- the 128
+/// t=64+43=107, final. Returns the first four digest words -- the 128
 /// bits crypto.ml reduces, little-endian.
 #push-options "--ifuel 1"
 [@@"opaque_to_smt"]
-let blake2s47 (k: key8)
+let blake2s43 (k: key8)
     (i: U64.t{0 < U64.v i /\ U64.v i <= 16})
     (x: U64.t{U64.v x < 0x1000000})
   : (w32 & w32 & w32 & w32)
@@ -381,24 +381,24 @@ let blake2s47 (k: key8)
       k0 k1 k2 k3 k4 k5 k6 k7
       0uL 0uL 0uL 0uL 0uL 0uL 0uL 0uL
       64uL 0uL in
-  (* final block: the 47 message bytes, zero-padded; t = 111 *)
-  let mw9 = m32 (U64.add 0x322DuL (U64.mul i 65536uL)) in   (* "-2" || i || x[0]=0 *)
+  (* final block: the 43 message bytes, zero-padded; t = 107 *)
+  let mw8 = m32 (U64.add 0x332DuL (U64.mul i 65536uL)) in   (* "-3" || i || x[0]=0 *)
   (* x's low three big-endian bytes land in one little-endian word:
-     byte 44 is x[5] = x / 2^16, byte 45 is x[6], byte 46 is x[7] = x mod
-     256, byte 47 is padding zero. *)
-  let mw11 =
+     byte 40 is x[5] = x / 2^16, byte 41 is x[6], byte 42 is x[7] = x mod
+     256, byte 43 is padding zero. *)
+  let mw10 =
     m32 (U64.add (U64.div x 65536uL)
            (U64.add (U64.mul (U64.rem (U64.div x 256uL) 256uL) 256uL)
               (U64.mul (U64.rem x 256uL) 65536uL))) in
   let (b0, b1, b2, b3, _, _, _, _) =
     compress a0 a1 a2 a3 a4 a5 a6 a7
-      0x70797263uL (* "cryp" *) 0x73736574uL (* "tess" *)
-      0x2F617265uL (* "era/" *) 0x662F3276uL (* "v2/f" *)
-      0x12003165uL (* "e1" || tweak length 18 *)
-      0x70797263uL (* "cryp" *) 0x73736574uL (* "tess" *)
-      0x2D617265uL (* "era-" *) 0x64697267uL (* "grid" *)
-      mw9 0uL (* x[1..4] = 0 *) mw11
-      0uL 0uL 0uL 0uL
-      111uL 0xffffffffuL in
+      0x73736574uL (* "tess" *) 0x75697261uL (* "ariu" *)
+      0x33762F6DuL (* "m/v3" *) 0x3165662FuL (* "/fe1" *)
+      0x65741000uL (* tweak length 16 || "te" *)
+      0x72617373uL (* "ssar" *) 0x2D6D7569uL (* "ium-" *)
+      0x64697267uL (* "grid" *)
+      mw8 0uL (* x[1..4] = 0 *) mw10
+      0uL 0uL 0uL 0uL 0uL
+      107uL 0xffffffffuL in
   (b0, b1, b2, b3)
 #pop-options

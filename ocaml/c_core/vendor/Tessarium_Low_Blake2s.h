@@ -31,14 +31,7 @@ uint64_t Tessarium_Low_Blake2s_rotr8(uint64_t x);
 uint64_t Tessarium_Low_Blake2s_rotr7(uint64_t x);
 
 K___uint64_t_uint64_t_uint64_t_uint64_t
-Tessarium_Low_Blake2s_g(
-  uint64_t a,
-  uint64_t b,
-  uint64_t c,
-  uint64_t d,
-  uint64_t x,
-  uint64_t y
-);
+Tessarium_Low_Blake2s_g(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t x, uint64_t y);
 
 typedef struct Tessarium_Low_Blake2s_st8_s
 {
@@ -470,7 +463,7 @@ Tessarium_Low_Blake2s_compress(
 typedef Tessarium_Low_Blake2s_st8 Tessarium_Low_Blake2s_key8;
 
 K___uint64_t_uint64_t_uint64_t_uint64_t
-Tessarium_Low_Blake2s_blake2s47(Tessarium_Low_Blake2s_st8 k, uint64_t i, uint64_t x);
+Tessarium_Low_Blake2s_blake2s43(Tessarium_Low_Blake2s_st8 k, uint64_t i, uint64_t x);
 
 
 #define Tessarium_Low_Blake2s_H_DEFINED

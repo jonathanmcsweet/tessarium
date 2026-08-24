@@ -21,6 +21,76 @@ than a git log.
 
 ---
 
+### 2026-08-23 — Tessarium becomes Tessarium, protocol constants and all
+
+**Phase:** 6 · **Branch:** rename/tessarium
+
+**What:** The project is renamed, including the four constants that carry
+its name into what the software computes. 1,359 occurrences across 136
+files: nine F* modules and their extraction, the KaRaMeL C emission and its
+vendored copy, every OCaml library and binary, the js_of_ocaml export and
+the worker that reads it, the differential oracle, the UI in all six
+locales, the packaging app IDs, the opam package and switch, the docs.
+
+*Tessarium* is Latin `-arium`, the place a thing is kept, on *tessera*, one
+tile of a mosaic — an *aquarium* holds water, a *tabularium* held Rome's
+records, this holds tiles.
+
+The constants, version numbers bumped rather than reused so an old address
+can never be silently reread as a new one:
+
+| | was | now |
+|---|---|---|
+| Feistel tweak | `tessarium-grid-2` | `tessarium-grid-3` |
+| Round-function domain prefix | `tessarium/v2/fe1` | `tessarium/v3/fe1` |
+| Argon2id salt | `tessarium-kdf-3` | `tessarium-kdf-4` |
+| Archive metadata key | `tessarium_ledger` | `tessarium_ledger` |
+
+**Every address on Earth changed.** That was affordable only because
+nothing is deployed — the same reason the `w3wx/*` rename was free on
+2026-08-15, and the last time it will be.
+
+**Rationale:** the two length-bearing ones. `Tessarium.Low.Blake2s` does not
+prove anything generic about message lengths; it transcribes the whole
+round-function message as sixteen literal little-endian words and a byte
+counter, which is what lets the file carry no buffers, loops or length
+arithmetic. Both strings lost two bytes, so the message went 47 → 43, the
+counter 111 → 107, and the words holding `i` and `x` moved from 9 and 11 to
+8 and 10. Every word constant was recomputed — and the method was validated
+first by rederiving the OLD constants from the OLD strings and diffing them
+against what the file already said. A transcription tool that cannot
+reproduce the thing it is replacing is not evidence.
+
+The Argon2 known-answer rows had to move with the salt. They were
+recomputed the way the originals were made: the vendored reference C (via
+`wasm/argon2.wasm`) and noble's independent implementation, required to
+agree before either number was written down. Taking them from one
+implementation alone would have turned known-answer tests into a snapshot
+of whatever the code currently does.
+
+**Evidence the change was exactly what was intended, and no more:**
+`design/bands.json` came back byte-identical, so the grid geometry did not
+move — only which permutation of it a phrase gets. The regenerated vectors
+say the same thing from the other side: all 47 `grid_vectors` rows
+unchanged, and every keyed row — key derivation, Feistel, addresses — fully
+changed. The hand-written JS oracle, which shares no code with the proved
+core, agrees with it on 32,298 points under the new constants; so does the
+wasm core. Three independent implementations landing on the same new
+answers is what says the transcription is right, not the proof alone.
+
+**One thing the sweep got wrong and had to be undone:** it rewrote
+`tessarium-grid-1` and `tessarium-kdf-2` in this file — historical
+constants named in old entries — into version strings that never existed. A
+blind substitution over a ledger corrupts the record the ledger exists to
+keep.
+
+**Follow-on:** a basemap archive downloaded before today carries the old
+metadata key, so its ledger reads as absent: tiles still serve, the
+downloads list shows nothing, and anything that would rewrite the archive
+refuses rather than overwriting. Re-download to restore it. opam cannot
+rename a switch, so the local one was rebuilt from an export (112
+packages).
+
 ### 2026-08-23 — A place says what it is, and says it once
 
 **Phase:** 6 · **Branch:** fix/search-place-kind

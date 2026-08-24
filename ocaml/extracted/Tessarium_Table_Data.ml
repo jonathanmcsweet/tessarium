@@ -1,5 +1,5 @@
 open Prims
-let grid_version : Prims.string= "tessarium-grid-2"
+let grid_version : Prims.string= "tessarium-grid-3"
 let rows : Prims.pos= Prims.of_int 6553600
 let bands : Prims.pos= Prims.of_int 4096
 let rows_per_band : Prims.pos= Prims.of_int 1600

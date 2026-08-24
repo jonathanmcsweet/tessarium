@@ -1,8 +1,9 @@
 # Tessarium
 
-*cryp-TESS-er-a* — from **crypto** + **tessera**, a single tile in a mosaic.
-The `t` is shared. One address is one tile; a seed phrase decides which mosaic
-you are looking at.
+*tess-AH-ree-um* — Latin `-arium`, the place where a thing is kept, on
+**tessera**, a single tile in a mosaic. An *aquarium* holds water; a
+*tabularium* held Rome's records; this holds tiles. One address is one tile,
+and a seed phrase decides which mosaic you are looking at.
 
 Three BIP-39 words plus a number address every ~3 m square on Earth — under a
 mapping that is **private to your seed phrase**.

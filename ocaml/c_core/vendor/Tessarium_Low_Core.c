@@ -14,14 +14,9 @@
 #include "Tessarium_Low_Api.h"
 
 uint64_t
-Tessarium_Low_Core_rf_real_low(
-  Tessarium_Low_Blake2s_st8 k,
-  uint64_t i,
-  uint64_t x,
-  uint64_t m
-)
+Tessarium_Low_Core_rf_real_low(Tessarium_Low_Blake2s_st8 k, uint64_t i, uint64_t x, uint64_t m)
 {
-  K___uint64_t_uint64_t_uint64_t_uint64_t scrut = Tessarium_Low_Blake2s_blake2s47(k, i, x);
+  K___uint64_t_uint64_t_uint64_t_uint64_t scrut = Tessarium_Low_Blake2s_blake2s43(k, i, x);
   uint64_t h0 = scrut.fst;
   uint64_t h1 = scrut.snd;
   uint64_t h2 = scrut.thd;

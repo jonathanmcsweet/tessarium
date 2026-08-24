@@ -19,8 +19,8 @@ Z_a × Z_b with
 | Domain a·b | 8.59 × 10^13 (every address) | |
 | Rounds | 16 (even, by proof obligation) | `fstar/Tessarium.Feistel.fst` |
 | Round function | keyed BLAKE2s-256, full PRF per round | injected, `ocaml/lib`; vector-pinned machine-integer port in `fstar/low` |
-| Tweak | the fixed string `tessarium-grid-2` | not an input anywhere |
-| Key | 32 bytes: Argon2id(t=3, m=64 MiB, p=1) over the NFKD phrase, salt `tessarium-kdf-3` ++ passphrase | `ocaml/lib/tessarium.ml`, `ocaml/argon2` |
+| Tweak | the fixed string `tessarium-grid-3` | not an input anywhere |
+| Key | 32 bytes: Argon2id(t=3, m=64 MiB, p=1) over the NFKD phrase, salt `tessarium-kdf-4` ++ passphrase | `ocaml/lib/tessarium.ml`, `ocaml/argon2` |
 
 The a:b split is 2:1 — near-balanced, one bit of imbalance, which the FE1
 analysis tolerates (the pair it replaced was 250:1; the correction is in
@@ -72,7 +72,7 @@ domain is ~2^46.3.
 A slide attack requiring *chosen tweaks*: FF3 XORs an attacker-supplied
 tweak into its round inputs, and the attack needs encryptions under related
 tweaks, on 8 rounds. Structurally inapplicable twice over: Tessarium's
-tweak is a compile-time version constant (`tessarium-grid-2`) that no
+tweak is a compile-time version constant (`tessarium-grid-3`) that no
 API, UI or file format accepts as input, and there are 16 rounds, not 8.
 The fix NIST eventually shipped (FF3-1) restricts tweaks — the very input
 this design never exposed.

@@ -25,7 +25,11 @@ WORDS, NUM = 2048, 10000
 N = WORDS**3 * NUM
 
 HERE = Path(__file__).parent
-GRID_VERSION = "tessarium-grid-2"
+# The Feistel tweak: every address on Earth depends on its exact bytes, and
+# on its LENGTH, which the Low* message transcription is written against.
+# Bump it whenever the grid or the naming changes -- never reuse a number --
+# and regenerate the vectors and fstar/check when you do.
+GRID_VERSION = "tessarium-grid-3"
 
 R_E = 6371008.8
 AREA = 4 * math.pi * R_E**2

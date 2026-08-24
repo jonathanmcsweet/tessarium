@@ -4,22 +4,21 @@ let row_of (lat : Tessarium_Spec.lat_ns) : Prims.nat=
   if lat = (Tessarium_Spec.lat_min + Tessarium_Spec.lat_span)
   then Tessarium_Table.rows - Prims.int_one
   else
-    Tessarium_Spec.bucket lat Tessarium_Spec.lat_min
-      Tessarium_Spec.lat_span Tessarium_Table.rows
+    Tessarium_Spec.bucket lat Tessarium_Spec.lat_min Tessarium_Spec.lat_span
+      Tessarium_Table.rows
 let lon_fold (lon : Tessarium_Spec.lon_ns) : Prims.int=
   if lon = (Tessarium_Spec.lon_min + Tessarium_Spec.lon_span)
   then Tessarium_Spec.lon_min
   else lon
 let col_of (lon : Tessarium_Spec.lon_ns) (k : Prims.pos) : Prims.nat=
   let v = lon_fold lon in
-  Tessarium_Spec.bucket v Tessarium_Spec.lon_min
-    Tessarium_Spec.lon_span k
+  Tessarium_Spec.bucket v Tessarium_Spec.lon_min Tessarium_Spec.lon_span k
 let band_of_row (r : Prims.nat) : Prims.nat=
   r / Tessarium_Table.rows_per_band
 let row_in_band (r : Prims.nat) : Prims.nat=
   let b = band_of_row r in r - (b * Tessarium_Table.rows_per_band)
-let point_to_cell (lat : Tessarium_Spec.lat_ns)
-  (lon : Tessarium_Spec.lon_ns) : cell=
+let point_to_cell (lat : Tessarium_Spec.lat_ns) (lon : Tessarium_Spec.lon_ns)
+  : cell=
   let r = row_of lat in
   let b = band_of_row r in
   let k = Tessarium_Table.col_counts b in
@@ -68,11 +67,11 @@ let cell_bounds (index : cell) :
   match uu___ with
   | FStar_Pervasives.Mkdtuple3 (r, b, c) ->
       let k = Tessarium_Table.col_counts b in
-      ((Tessarium_Spec.edge r Tessarium_Spec.lat_min
-          Tessarium_Spec.lat_span Tessarium_Table.rows),
+      ((Tessarium_Spec.edge r Tessarium_Spec.lat_min Tessarium_Spec.lat_span
+          Tessarium_Table.rows),
         (Tessarium_Spec.edge (r + Prims.int_one) Tessarium_Spec.lat_min
            Tessarium_Spec.lat_span Tessarium_Table.rows),
-        (Tessarium_Spec.edge c Tessarium_Spec.lon_min
-           Tessarium_Spec.lon_span k),
+        (Tessarium_Spec.edge c Tessarium_Spec.lon_min Tessarium_Spec.lon_span
+           k),
         (Tessarium_Spec.edge (c + Prims.int_one) Tessarium_Spec.lon_min
            Tessarium_Spec.lon_span k))

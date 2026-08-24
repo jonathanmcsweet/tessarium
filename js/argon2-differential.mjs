@@ -43,7 +43,7 @@ for (let i = 0; i < 12; i++) {
     .join(" ");
   const pass = enc.encode(phrase);
   const salt = enc.encode(
-    "tessarium-kdf-3" + (i % 3 === 0 ? "" : `pp-${next(100000)}`),
+    "tessarium-kdf-4" + (i % 3 === 0 ? "" : `pp-${next(100000)}`),
   );
   new Uint8Array(memory.buffer, password_ptr(), pass.length).set(pass);
   new Uint8Array(memory.buffer, salt_ptr(), salt.length).set(salt);

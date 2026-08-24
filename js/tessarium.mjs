@@ -40,7 +40,10 @@ const A = 262144n * 25n;         // 2^18 * 25
 const B = 524288n * 25n;         // 2^19 * 25
 const N = A * B;
 const ROUNDS = 16;
-const TWEAK = Buffer.from("tessarium-grid-2");
+/* The three protocol constants, here as in the core they check. Each is
+   hashed into every address. This oracle stops agreeing with the core if
+   either side changes one alone, which is exactly what it is for. */
+const TWEAK = Buffer.from("tessarium-grid-3");
 
 // ------------------------------------------------------------------- grid
 
@@ -106,7 +109,7 @@ function be(value, bytes) {
 function roundFunc(key, tweak, i, x, m) {
   const len = Buffer.alloc(2);
   len.writeUInt16BE(tweak.length);
-  const msg = Buffer.concat([Buffer.from("tessarium/v2/fe1"), len, tweak,
+  const msg = Buffer.concat([Buffer.from("tessarium/v3/fe1"), len, tweak,
                              Buffer.from([i]), be(x, 8)]);
   const d = Buffer.from(blake2s(msg, { key }));
   // v2 reads the first 16 digest bytes little-endian -- BLAKE2s's own order.
@@ -146,7 +149,7 @@ export function deriveKey(mnemonic, passphrase = "") {
   // otherwise.
   return Buffer.from(argon2id(
     enc.encode(words.join(" ").normalize("NFKD")),
-    enc.encode("tessarium-kdf-3" + passphrase.normalize("NFKD")),
+    enc.encode("tessarium-kdf-4" + passphrase.normalize("NFKD")),
     { t: 3, m: 65536, p: 1, dkLen: 32 },
   ));
 }

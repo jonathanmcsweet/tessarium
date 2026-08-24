@@ -79,26 +79,34 @@ typo detection and is a feature, not waste.
   Feistel. This pair is 2:1.*
 - **16 rounds**, keyed BLAKE2s-256 as the round function (HMAC-SHA256
   until 2026-08-20, when the security functions moved off NIST designs --
-  see the ledger; the mapping version bumped to `tessarium/v2/fe1`).
+  see the ledger; the mapping version bumped to `tessarium/v2/fe1`, and
+  again to `tessarium/v3/fe1` with the 2026-08-23 rename).
   Raised from 10 on
   2026-08-17. Four rounds is distinguishable; do not economise here regardless
   of what has been proved. The count must be even — the halves swap domains
   each round, and the proof fails outright at an odd count.
 - **Key derivation:** single-stage Argon2id (t=3, m=64 MiB, p=1 -- RFC
   9106's second recommended option) over password = NFKD phrase, salt =
-  `tessarium-kdf-3` ++ NFKD passphrase → 32-byte Feistel key. One vendored
+  `tessarium-kdf-4` ++ NFKD passphrase → 32-byte Feistel key. One vendored
   reference implementation (ocaml/argon2), compiled natively for the server
   and to wasm for the browser. Replaced the two-stage PBKDF2-HMAC-SHA512
   chain on 2026-08-20 (ledgered): the phrase stays a valid BIP-39 phrase,
   but the intermediate is no longer the standard BIP-39 seed -- nothing
   external ever consumed it. Derived once per session and cached; the KDF
   is deliberately expensive and must not sit in the hot path.
-- **Tweak = grid version string** (`tessarium-grid-2`), the round-function
-  domain prefix is `tessarium/v2/fe1` (v1 until 2026-08-20, the BLAKE2s
-  move), and the KDF version salt is `tessarium-kdf-3`. (Older text here
-  named HKDF strings; HKDF left on 2026-08-18, as ledgered.) Renamed from
-  `w3wx/*` on 2026-08-15; since no address had been issued, this was free.
-  After launch it would invalidate every address anyone had written down.
+- **Tweak = grid version string** (`tessarium-grid-3`), the round-function
+  domain prefix is `tessarium/v3/fe1`, and the KDF version salt is
+  `tessarium-kdf-4`. (Older text here named HKDF strings; HKDF left on
+  2026-08-18, as ledgered. The prefix was `tessarium/v1/*` until
+  2026-08-20, the BLAKE2s move, and `tessarium/v2/fe1` until the
+  2026-08-23 rename.) Renamed from `w3wx/*` on 2026-08-15 and again with
+  the project on 2026-08-23; both times no address had been issued, which
+  is the only reason either was free. After launch this invalidates every
+  address anyone has written down. Version numbers are bumped, never
+  reused, so an old address can never be silently reread as a new one.
+  The prefix and the tweak also have their LENGTHS baked into the Low\*
+  message transcription (16 and 16, message 43 bytes, counter 107);
+  changing either length re-does that transcription by hand.
   Regenerating the band table changes every address rather than silently
   reinterpreting old ones.
 

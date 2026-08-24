@@ -36,6 +36,13 @@ type entry = {
 
 type t = entry list
 
+(* Names a blob inside the PMTiles archive. Renamed with the project on
+   2026-08-23, which an archive downloaded before then does not know: its
+   ledger reads as absent, and an absent ledger stops any operation that
+   would rewrite the archive rather than overwriting it -- by design, since
+   silently forgetting what a gigabyte archive holds is the one failure the
+   download feature must never have. Nobody was running this yet; re-download
+   if you were. *)
 let metadata_key = "tessarium_ledger"
 let version = 1
 
