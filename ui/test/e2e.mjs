@@ -1531,6 +1531,75 @@ check(
 );
 await page.unroute("**/api/basemap-coverage");
 
+/* The grid overlay had the same hazard and no guard.
+
+   Its answers come from the worker rather than the network, so the delay
+   goes into the worker script -- which is fetched over HTTP, and is created
+   once per page, so it has to be in place before the page loads. Hence a
+   page of its own, and a longitude range nothing else in this suite visits,
+   so only this check pays for the delay. */
+const gridPage = await context.newPage();
+await gridPage.route("**/core.worker.js", async (route) => {
+  const body = await (await route.fetch()).text();
+  await route.fulfill({
+    contentType: "text/javascript",
+    body: body.replace(
+      "const result = await handler(payload ?? {});",
+      `const result = await handler(payload ?? {});
+       if (op === "grid" && payload && payload.lonLo < -100) {
+         await new Promise((r) => setTimeout(r, 2500));
+       }`,
+    ),
+  });
+});
+await gridPage.goto(base, { waitUntil: "networkidle" });
+await gridPage.locator("#phrase").fill(sampleMnemonic);
+await gridPage.waitForSelector(".valid", { timeout: 30_000 });
+await gridPage.locator("button[type=submit]").click();
+await gridPage.waitForSelector(".map-wrap", { timeout: 60_000 });
+
+/* The westmost longitude the overlay currently holds. Read from the source's
+   own data rather than from the screen: cells painted for a viewport already
+   left are off-screen, which is the whole complaint. */
+const gridWest = () =>
+  gridPage.evaluate(async () => {
+    const data = await window.__tessarium_map?.getSource("grid")?.getData();
+    const ring = data?.features?.[0]?.geometry?.coordinates?.[0];
+    return ring ? ring[0][0] : null;
+  });
+const gridSettled = () =>
+  gridPage.waitForFunction(
+    async () =>
+      ((await window.__tessarium_map?.getSource("grid")?.getData())?.features
+        ?.length ?? 0) > 0,
+    null,
+    { timeout: 30_000 },
+  );
+
+/* London first, so its answer is in the query cache and comes back in a
+   microtask on the way home. */
+await gridPage.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [-0.12, 51.5], zoom: 19 })
+);
+await gridSettled();
+/* Out to a longitude the worker is holding back 2.5 s. The pause is what
+   makes it a race: two jumps back to back settle as one move, and the
+   request being outrun would never be sent. */
+await gridPage.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [-122.4, 37.8], zoom: 19 })
+);
+await new Promise((done) => setTimeout(done, 700));
+await gridPage.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [-0.12, 51.5], zoom: 19 })
+);
+await new Promise((done) => setTimeout(done, 4500));
+const west = await gridWest();
+check(
+  `a grid answer for a view already left cannot paint over the current one (${west})`,
+  west !== null && west > -10 && west < 10,
+);
+await gridPage.close();
+
 /* Focused first: the note goes away on its own when tiles land or a
    fly-to settles, and if its button still had focus the page would drop
    to <body>, where the keyboard does nothing at all. */
