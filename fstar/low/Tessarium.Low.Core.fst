@@ -39,7 +39,7 @@ module U64 = FStar.UInt64
 /// domain (inputs clamped into machine range -- the clamps are identities
 /// everywhere the Feistel calls it, which the agreement proof below uses),
 /// yielding the MAC's first 128 bits mod m. BLAKE2s serializes its state
-/// words little-endian and the v2 protocol reads the first 16 digest
+/// words little-endian and this protocol reads the first 16 digest
 /// bytes as a little-endian integer, so the fourth word is the most
 /// significant and no byte ever swaps.
 #push-options "--ifuel 1"
