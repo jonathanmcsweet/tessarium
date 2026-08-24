@@ -21,6 +21,135 @@ than a git log.
 
 ---
 
+### 2026-08-24 — An adversarial review, and the fifteen things it found
+
+**Phase:** 6 · **Branches:** twenty-one, one per fix
+
+**What:** A whole-repo adversarial review plus a diff-scoped one. Fifteen
+findings held up under checking and were fixed on their own branches; two
+were dismissed with reasons, below. Every fix landed with a check shown to
+fail without it.
+
+The four that gave wrong answers or let something else drive the server:
+
+- `resolve_word` compared the input's FIRST FOUR letters, so `cannot`
+  resolved to `cannon` and decoded a different square with no error. An
+  abbreviation must now be a prefix of the word. The js oracle had the
+  identical bug, so it could never have reported it.
+- Every `/api/` endpoint was reachable from any page the user happened to
+  have open: no Origin check, no Sec-Fetch-Site check, no content type. A
+  visited page could start a planet-sized download, delete a map, or switch
+  on the network cache. It could not read the answers; every side effect
+  landed.
+- CI started ONE server and passed ONE URL to a suite that needs five and
+  four. `base3`/`base4`/`base5` pointed at dead ports, so every check past
+  the first download section had been failing on a refused connection —
+  the resume, mismatch and cancel guarantees were not being exercised at
+  all. CI now runs `make test-ui`, which owns the servers and the teardown.
+- `Ledger.of_metadata` returned `Ok []` for a record written under a name
+  this version does not use, so a pre-rename archive read as having no
+  downloads. The next download would rewrite the ledger naming only itself,
+  and the removal after that would prune tiles nothing remembered. It is
+  now an error — matched on the `_ledger` suffix, so this file need not
+  carry old spellings to recognise them.
+
+Hardening, all reachable from a downloaded archive or an unauthenticated
+POST: request bodies bounded (4 MiB against a real ceiling near 250 KB);
+the PMTiles directory entry count bounded before `Array.make` believes it
+(a five-byte blob claiming 2^28 entries allocated two gigabytes first);
+inflated gzip bounded as it is produced (64 MiB); every tar header field
+validated instead of trusted, so a dropped connection reports an
+incomplete archive rather than `Invalid_argument`; and the band-table index
+bounded in both C shims, where KaRaMeL had erased the refinement and a
+probe just past the table returned `0` and kept going.
+
+Three that were quietly lying: the access log recorded `200` for every
+`/api/` answer, so its `>= 500 -> Error` rule had never once fired;
+`accepts_gzip` searched for four letters anywhere and so served gzip to a
+client writing `gzip;q=0`; and the search index re-read AND re-inflated a
+run's blob once per tile id under a comment saying it read it once.
+
+Two counting bugs and a race: indexing progress counted whole runs whenever
+the first id was in range, and a run can span the max_zoom edge, so the bar
+could never arrive; and the grid overlay had no sequence guard, so a slower
+answer for a viewport already left painted over a faster newer one — the
+hazard `refreshCoverage` twenty lines away already guarded.
+
+Documentation: the message length read 43 in three places and 47 in two,
+in the one file where that number is the whole load-bearing fact; five
+files called the current digest convention "the v2 protocol"; the roadmap
+tied both prefix bumps to round-function changes when only the first was
+one; and the oracle's "the three protocol constants, here" comment sat
+above one of them, with the other two buried as literals in the functions
+that use them.
+
+**Rationale:** Two findings were dismissed rather than fixed. The review
+called editing `CLAUDE.md` a violation of its own first rule — the user
+authorised it directly, which is recorded here because the document says
+to. And it noted that eliding the old constants leaves nothing anywhere
+able to name them, so no migration or diagnostic can ever be written for an
+archive or address made under them. That is true, it is the cost of what
+was asked for, and it is accepted.
+
+Two fixes broke something the unit tests could not see, and the browser
+suite caught both: refusing a request without draining its body left the
+body on the socket, so the next request on a keep-alive connection began
+parsing mid-JSON; and a body over the bound cannot be drained at all, so
+that response has to close the connection. Both are the same lesson —
+a refusal is still a full HTTP transaction.
+
+The 16-byte constant lengths that `fstar/low/Tessarium.Low.Blake2s.fst`
+transcribes as literal words were documented in five files and enforced
+nowhere. A bumped length would have left OCaml and the oracle computing
+one MAC while the proved core, the vendored C and the wasm computed
+another — both halves building, both verifying. Now `crypto.ml` refuses to
+load and `round_fn` refuses to hash anything that is not 43 bytes.
+
+**Follow-on:** none open.
+
+### 2026-08-24 — The old name leaves the git history and the downloaded archive
+
+**Phase:** 6 · **Branch:** direct on master, plus a history rewrite
+
+**What:** The rename left the working tree clean but the name still stood
+in 223 commits and 53 branch names, and inside a 6.4 GB archive already on
+disk. Both are now gone. `git filter-branch`, not `git filter-repo`:
+fetching the latter needs network authorisation that had not been given,
+and the slower tool was already present. One blob resisted — an unstripped
+`wasm/core.wasm` carrying the name in DWARF — and had its custom sections
+dropped (705,913 → 15,686 bytes; still validates, same eight exports, same
+answers, no hit in any standard section). The rename commit's own subject
+was special-cased so it did not become "rename tessarium to tessarium".
+
+The basemap archive's metadata turned out to be plaintext JSON, 1,229 bytes
+at offset 9,329. Patched at the BYTE level rather than by a JSON round
+trip, so nothing but the key could move: 1,227 bytes, freed slack zeroed,
+the uint64 length field at offset 32 updated, header and metadata region
+backed up first and the result read back before anything else ran. One
+entry, France, intact. `world.pmtiles` held `{}` and needed nothing.
+
+Historical constants in this ledger were ELIDED, never substituted. An
+earlier bulk sweep had rewritten two of them into strings that never
+existed on any date, which is how a ledger stops being a record.
+
+**Rationale:** Erasing history means the history is now a coherent fiction.
+Old commits name constants that were not in use on those dates, so an old
+checkout's `vectors/vectors.json` will not reproduce — the addresses in it
+were computed under the real old strings while the code beside them now
+names the new ones. HEAD is fully consistent; only historical checkouts are
+affected. That is inherent to the request, not a defect to be fixed later.
+
+The verification worth keeping: `grep` on PATH here is **ugrep**, which
+silently skips hidden files and gitignored directories. It called the tree
+clean while GNU grep found the name in `fstar/.depend`, a paraglide cache,
+a `.pyc`, two `_build` trees and two npm hidden lockfiles. Three "clean"
+reports were wrong before that surfaced. Any "is this really gone" sweep
+needs `/usr/bin/grep`.
+
+**Follow-on:** none. A copy of the pre-rewrite `.git` was kept in a
+scratch directory for the session only; it is not part of the repository
+and will not survive.
+
 ### 2026-08-23 — The project is renamed to Tessarium, constants and all
 
 **Phase:** 6 · **Branch:** rename/tessarium
@@ -90,9 +219,12 @@ name either; they were elided by hand afterwards, which keeps them true
 where a substitution would not have.)
 
 **Follow-on:** a basemap archive downloaded before today carries the old
-metadata key, so its ledger reads as absent: tiles still serve, the
-downloads list shows nothing, and anything that would rewrite the archive
-refuses rather than overwriting. Re-download to restore it. opam cannot
+metadata key, so its ledger reads as absent: tiles still serve and the
+downloads list shows nothing. This paragraph also claimed that anything
+which would rewrite such an archive refuses rather than overwriting. That
+was not true when it was written — `of_metadata` returned `Ok []` for an
+absent key and the rewrite proceeded — and it was made true afterwards; see
+2026-08-24. Re-download to restore the record either way. opam cannot
 rename a switch, so the local one was rebuilt from an export (112
 packages).
 
