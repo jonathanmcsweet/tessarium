@@ -524,6 +524,34 @@ check(
     body: "{}",
   })).status === 403,
 );
+/* A refusal is still a whole HTTP transaction: the body has to come off the
+   socket, or the next request on the connection parses its tail. When it is
+   too big to take off, the connection has to end instead. */
+const refusedHuge = await fetch(`${base}/api/basemap-status`, {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    "sec-fetch-site": "cross-site",
+  },
+  body: `{"regions":[${"null,".repeat(1_000_000)}null]}`,
+});
+check(
+  "a refusal whose body is too big to drain closes the connection",
+  refusedHuge.status === 403
+    && refusedHuge.headers.get("connection") === "close",
+);
+check(
+  "and one small enough to drain does not",
+  (await fetch(`${base}/api/basemap-status`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "sec-fetch-site": "cross-site",
+    },
+    body: "{}",
+  })).headers.get("connection") !== "close",
+);
+
 /* text/plain is the shape that needs no preflight, so it is the one a page
    would actually reach for. */
 check(
