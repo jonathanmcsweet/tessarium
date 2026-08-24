@@ -98,7 +98,10 @@ typo detection and is a feature, not waste.
   domain prefix is `tessarium/v3/fe1`, and the KDF version salt is
   `tessarium-kdf-4`. (Older text here named HKDF strings; HKDF left on
   2026-08-18, as ledgered. The prefix carried two earlier version
-  numbers, one per round-function change; the ledger has them.) Renamed
+  numbers: v1 until the BLAKE2s move on 2026-08-20, v2 until the rename
+  on 2026-08-23 -- a change of NAME, not of round function, which is why
+  "one per round-function change" was wrong here. The ledger has both
+  dates.) Renamed
   from `w3wx/*` on 2026-08-15 and again with
   the project on 2026-08-23; both times no address had been issued, which
   is the only reason either was free. After launch this invalidates every
