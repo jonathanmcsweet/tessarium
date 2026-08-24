@@ -31,7 +31,7 @@ module Tessarium.Low.Blake2s
 /// key is exactly 32 bytes and the tweak is the constant
 /// "tessarium-grid-3", so both blocks have statically known padding --
 /// which is why no buffers, loops or length arithmetic appear anywhere in
-/// this file. BLAKE2s is little-endian throughout, and the v2 protocol
+/// this file. BLAKE2s is little-endian throughout, and this protocol
 /// reads the first 16 digest bytes as a little-endian integer, so no word
 /// ever needs a byte swap.
 

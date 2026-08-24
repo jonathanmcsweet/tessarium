@@ -110,7 +110,7 @@ over unchanged.)
   3 * 2^32 < 2^34.
 - The 128-bit reduction never builds a 128-bit integer: the four digest
   words Horner-fold mod m, each step below m * 2^32 < 2^56 (m <= fe_b
-  < 2^24). BLAKE2s serializes little-endian and v2 reads the digest
+  < 2^24). BLAKE2s serializes little-endian and the protocol reads the digest
   little-endian, so the fold runs h3 down to h0 -- most significant
   word first -- and its agreement with "first 16 digest bytes as one
   LITTLE-endian integer, mod m" is `horner_step`, proved, not assumed.

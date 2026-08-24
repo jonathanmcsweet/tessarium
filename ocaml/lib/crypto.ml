@@ -19,7 +19,7 @@ let z_of_be_bytes s =
     Z.zero s
 
 (* BLAKE2s serializes little-endian; reading its digest low byte first keeps
-   the whole v2 protocol swap-free on every implementation. *)
+   the whole protocol swap-free on every implementation. *)
 let z_of_le_bytes s =
   String.fold_right (fun c acc -> Z.add (Z.mul acc (Z.of_int 256)) (Z.of_int (Char.code c)))
     s Z.zero

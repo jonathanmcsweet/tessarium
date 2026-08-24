@@ -112,7 +112,7 @@ function roundFunc(key, tweak, i, x, m) {
   const msg = Buffer.concat([Buffer.from("tessarium/v3/fe1"), len, tweak,
                              Buffer.from([i]), be(x, 8)]);
   const d = Buffer.from(blake2s(msg, { key }));
-  // v2 reads the first 16 digest bytes little-endian -- BLAKE2s's own order.
+  // The first 16 digest bytes, little-endian -- BLAKE2s's own order.
   return BigInt("0x" + d.subarray(0, 16).reverse().toString("hex")) % m;
 }
 
