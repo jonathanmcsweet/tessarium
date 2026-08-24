@@ -5,7 +5,19 @@
    embedded UI assets are stored gzipped, and the server has to decompress them
    again for the rare client that will not accept gzip. *)
 
-let chunked ~f data =
+exception Bad_gzip of string
+
+(* What comes OUT is bounded by nothing the compressed bytes have to declare:
+   a megabyte of zeroes inflates to a gigabyte. This runs on PMTiles
+   directories and tiles out of an archive the user downloaded, on the assets
+   tarball fetched from a configured source, and on embedded assets -- so the
+   input is not always ours. 64 MiB is roughly five times the largest real
+   case (fonts and sprites, near 12 MB uncompressed) and far below what would
+   take the process down. Compression does not need it: deflate output is
+   bounded by its input. *)
+let max_output = 64 * 1024 * 1024
+
+let chunked ?(limit = max_int) ~f data =
   let i = De.bigstring_create De.io_buffer_size in
   let o = De.bigstring_create De.io_buffer_size in
   let out = Buffer.create (String.length data) in
@@ -16,16 +28,21 @@ let chunked ~f data =
     pos := !pos + len;
     len
   in
-  let flush buf len = Buffer.add_string out (Bigstringaf.substring buf ~off:0 ~len) in
+  let flush buf len =
+    (* Checked as it is produced, not after: the point is to never hold the
+       whole of a bomb, so noticing at the end would be too late. *)
+    if Buffer.length out + len > limit then
+      raise (Bad_gzip "gzip: inflated stream is over the limit");
+    Buffer.add_string out (Bigstringaf.substring buf ~off:0 ~len)
+  in
   f ~refill ~flush ~i ~o;
   Buffer.contents out
 
-exception Bad_gzip of string
-
-let decompress data =
+let decompress ?(limit = max_output) data =
   let result = ref (Ok ()) in
   let out =
-    chunked ~f:(fun ~refill ~flush ~i ~o ->
+    chunked ~limit
+      ~f:(fun ~refill ~flush ~i ~o ->
         match Gz.Higher.uncompress ~refill ~flush i o with
         | Ok _ -> ()
         | Error (`Msg m) -> result := Error m)

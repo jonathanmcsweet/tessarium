@@ -1,3 +1,5 @@
 (tests
  (names test_pmtiles test_source_fds)
- (libraries pmtiles pmtiles_source cohttp-eio eio eio_main http))
+ ; gzip: PMTiles directories and tiles arrive gzipped, so the bound on
+ ; what an inflated stream may reach is a pmtiles concern.
+ (libraries pmtiles pmtiles_source gzip cohttp-eio eio eio_main http))

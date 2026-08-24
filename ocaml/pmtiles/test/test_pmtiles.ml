@@ -148,6 +148,29 @@ let () =
   check "four entries in sixteen bytes still parse"
     (not (refuses (D.serialize entries)));
 
+  (* ------------------------------------------------------------- gzip *)
+  (* Directories and tiles arrive gzipped, out of an archive the user
+     downloaded, and what comes out is bounded by nothing the compressed
+     bytes declare. Two megabytes of zeroes is a few kilobytes gzipped. *)
+  let bomb = Gzip.compress (String.make (2 * 1024 * 1024) '\000') in
+  check "a small blob can inflate enormously"
+    (String.length bomb < 16 * 1024);
+  check "inflating within the limit is fine"
+    (String.length (Gzip.decompress bomb) = 2 * 1024 * 1024);
+  check "inflating past it stops"
+    (match Gzip.decompress ~limit:(1024 * 1024) bomb with
+     | _ -> false
+     | exception Gzip.Bad_gzip _ -> true);
+  (* And it stops WHILE inflating rather than after, or the bomb has already
+     been held whole and the bound bought nothing. *)
+  let allocated_by f =
+    let before = Gc.allocated_bytes () in
+    (try ignore (f ()) with _ -> ());
+    Gc.allocated_bytes () -. before
+  in
+  check "and stops before the whole of it is held"
+    (allocated_by (fun () -> Gzip.decompress ~limit:1024 bomb) < 1e6);
+
   (* An exact hit, a hit inside a run, and a miss just past the run's end. *)
   check "find exact" (D.find entries 5 = Some entries.(2));
   check "find inside a run" (D.find entries 3 = Some entries.(1));
