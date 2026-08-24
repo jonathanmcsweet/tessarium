@@ -497,6 +497,38 @@ check(
     && (await fetch(`${base}/tiles/3/04/0.mvt`)).status === 404,
 );
 
+/* The guard, against the real route rather than the predicate. A page the
+   user is merely visiting shares this loopback socket with the UI, and
+   nothing here asks for credentials -- so without this, that page can start
+   a download, delete a map, or switch on the network cache. It cannot read
+   the reply either way; what matters is that the side effect never runs. */
+check(
+  "an api call from another site is refused",
+  (await fetch(`${base}/api/basemap-status`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" },
+    body: "{}",
+  })).status === 403,
+);
+check(
+  "so is one carrying another site's origin",
+  (await fetch(`${base}/api/basemap-status`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "http://evil.example" },
+    body: "{}",
+  })).status === 403,
+);
+/* text/plain is the shape that needs no preflight, so it is the one a page
+   would actually reach for. */
+check(
+  "and one posted as text/plain, which needs no preflight",
+  (await fetch(`${base}/api/basemap-status`, {
+    method: "POST",
+    headers: { "content-type": "text/plain" },
+    body: "{}",
+  })).status === 415,
+);
+
 const idleStatus = await (await postJson("basemap-status")).json();
 check(
   "the download job starts idle at generation zero",

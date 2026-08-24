@@ -1102,6 +1102,61 @@ let declares_body headers =
   Http.Header.get headers "content-length" <> None
   || Http.Header.get headers "transfer-encoding" <> None
 
+(* ------------------------------------------------------- cross-origin writes
+
+   Every /api/ endpoint DOES something: derives a key from a phrase, starts a
+   multi-gigabyte download, deletes a downloaded map, turns on the cache that
+   fetches over the network. The server listens on loopback and asks for no
+   credentials, so "a program on this machine" is the whole of its access
+   control -- and a page the user happens to have open is, to a socket, a
+   program on this machine. Without this, that page can drive every one of
+   them; it cannot read the answers back, but every side effect lands.
+
+   Two headers decide it, and the BROWSER sets both -- a page cannot forge
+   either. Sec-Fetch-Site says where the request came from; Origin names the
+   page behind a cross-origin write. curl and scripts send neither, which is
+   what --api exists for, so silence is allowed: this judges browsers.
+
+   The content type is the third leg, for the shapes a page can post with no
+   preflight at all -- text/plain, form-urlencoded, multipart. Requiring JSON
+   means the browser has to ask permission first, and nothing here answers. *)
+let same_origin_as_host origin host =
+  let o = String.lowercase_ascii (String.trim origin) in
+  (* Origin is scheme://host[:port]; Host is host[:port]. A null origin --
+     a sandboxed frame, a data: URL -- has no host and matches nothing. *)
+  let authority =
+    match String.index_opt o '/' with
+    | Some i when i + 1 < String.length o && o.[i + 1] = '/' ->
+        String.sub o (i + 2) (String.length o - i - 2)
+    | _ -> ""
+  in
+  authority <> "" && String.equal authority (String.lowercase_ascii host)
+
+let from_another_site get =
+  match get "sec-fetch-site" with
+  | Some s -> (
+      match String.lowercase_ascii (String.trim s) with
+      | "same-origin" | "none" -> false
+      | _ -> true)
+  | None -> (
+      match get "origin" with
+      | None -> false
+      | Some o ->
+          let host = Option.value (get "host") ~default:"" in
+          not (same_origin_as_host o host))
+
+let is_json get =
+  match get "content-type" with
+  | None -> false
+  | Some v ->
+      let v = String.lowercase_ascii (String.trim v) in
+      let base =
+        match String.index_opt v ';' with
+        | Some i -> String.trim (String.sub v 0 i)
+        | None -> v
+      in
+      String.equal base "application/json"
+
 (* ---------------------------------------------------------------- handler *)
 
 let status_code s = Http.Status.to_int s
@@ -1111,6 +1166,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
   let simple (result, bytes) status = (result, status, bytes, Http_range.Whole) in
   fun _conn (request : Http.Request.t) body ->
     let meth = Http.Request.meth request in
+    let header = Http.Header.get (Http.Request.headers request) in
     let target = Http.Request.resource request in
     let route = Route.of_request ~meth ~target in
     let range_header = Http.Header.get (Http.Request.headers request) "range" in
@@ -1128,6 +1184,19 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
                     ("api", `Bool cfg.api_enabled);
                   ]))
             `OK
+      (* Both guards sit above the --api gate on purpose: the basemap
+         endpoints are reachable without it, and they are the ones that can
+         spend a user's disk and bandwidth. *)
+      | Route.Api _ when from_another_site header ->
+          simple
+            (error cfg ~status:`Forbidden
+               "this endpoint cannot be called from another site")
+            `Forbidden
+      | Route.Api _ when not (is_json header) ->
+          simple
+            (error cfg ~status:`Unsupported_media_type
+               "this endpoint takes application/json")
+            `Unsupported_media_type
       | Route.Api endpoint when Route.is_basemap_api endpoint ->
           (* Reachable without --api: see [Route.is_basemap_api]. *)
           let body =
