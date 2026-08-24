@@ -539,13 +539,23 @@ check(
    an unbounded read here is a way to have the process killed by declaring a
    body far larger than memory. The bound is 4 MiB against a real ceiling of
    about 250 KB -- every region the UI knows, polygons included, at once. */
+const oversized = await fetch(`${base}/api/basemap-estimate`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: `{"regions":[${"null,".repeat(1_000_000)}null]}`,
+});
 check(
   "a request body past the bound is refused, not buffered",
-  (await fetch(`${base}/api/basemap-estimate`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: `{"regions":[${"null,".repeat(1_000_000)}null]}`,
-  })).status === 413,
+  oversized.status === 413,
+);
+/* And the connection ends with it. What is over the bound cannot be drained
+   -- being over the bound is what it means -- so the rest of the body would
+   still be on the socket when the next request began parsing, and would be
+   read as that request. Every check below this one is the regression test;
+   this is the reason. */
+check(
+  "and the connection closes rather than leaving the body on the socket",
+  oversized.headers.get("connection") === "close",
 );
 
 const idleStatus = await (await postJson("basemap-status")).json();
