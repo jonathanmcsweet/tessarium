@@ -105,7 +105,12 @@ one MAC while the proved core, the vendored C and the wasm computed
 another — both halves building, both verifying. Now `crypto.ml` refuses to
 load and `round_fn` refuses to hash anything that is not 43 bytes.
 
-**Follow-on:** none open.
+**Follow-on:** none open. The README claimed the 10,061,490-point deep sweep
+was "earned under what ships"; the rename had moved all three hashed
+constants and only 32,298 points had been redone under them. Rather than
+soften the sentence the sweep was re-run in full — 5 x 2,012,298 points,
+zero disagreements — so the claim is true again rather than merely smaller.
+Re-earning it is now stated as the price of touching a constant.
 
 ### 2026-08-24 — The old name leaves the git history and the downloaded archive
 
