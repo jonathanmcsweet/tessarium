@@ -1150,12 +1150,27 @@ let from_another_site get =
    parsing mid-JSON, which is how the browser suite caught this: one refused
    text/plain post and every check after it on that connection failed. The
    bound is there because the caller being refused is precisely the one with
-   no reason to be honest about Content-Length. *)
-let max_body = 1 lsl 20
+   no reason to be honest about Content-Length.
 
-let drain_body flow =
-  try ignore (Eio.Buf_read.(take_all (of_flow flow ~max_size:max_body)))
-  with Eio.Buf_read.Buffer_limit_exceeded | End_of_file -> ()
+   The same bound caps what an ACCEPTED request may send. Without it,
+   Eio.Flow.read_all grows a buffer to whatever Content-Length claims, on
+   endpoints that need no --api and are outside the rate limiter -- a
+   four-gigabyte header and a slow trickle is enough to have the process
+   killed, repeatedly. 4 MiB against a real ceiling of about 250 KB: every
+   region the UI knows about, polygons included, selected at once. *)
+let max_body = 1 lsl 22
+
+let read_body flow =
+  match Eio.Buf_read.(take_all (of_flow flow ~max_size:max_body)) with
+  | s -> Some s
+  | exception Eio.Buf_read.Buffer_limit_exceeded -> None
+
+let drain_body flow = ignore (read_body flow)
+
+(* [None] means the body is over the bound. A request that declares no body
+   has an empty one rather than a missing one. *)
+let sized_body headers flow =
+  if declares_body headers then read_body flow else Some ""
 
 let is_json get =
   match get "content-type" with
@@ -1211,28 +1226,34 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
             (error cfg ~status:`Unsupported_media_type
                "this endpoint takes application/json")
             `Unsupported_media_type
-      | Route.Api endpoint when Route.is_basemap_api endpoint ->
+      | Route.Api endpoint when Route.is_basemap_api endpoint -> (
           (* Reachable without --api: see [Route.is_basemap_api]. *)
-          let body =
-            if declares_body (Http.Request.headers request) then
-              Eio.Flow.read_all body
-            else ""
-          in
-          simple (handle_basemap cfg basemap_ops settings_ops ~endpoint ~body) `OK
-      | Route.Api endpoint ->
+          match sized_body (Http.Request.headers request) body with
+          | None -> simple
+                (error cfg ~status:`Request_entity_too_large
+                   "that request body is too large")
+                `Request_entity_too_large
+          | Some body ->
+              simple
+                (handle_basemap cfg basemap_ops settings_ops ~endpoint ~body)
+                `OK)
+      | Route.Api endpoint -> (
           if not cfg.api_enabled then
             simple
               (error cfg ~status:`Not_found
                  "the encode/decode API is disabled; start with --api to enable it")
               `Not_found
           else
-            let body =
-              if declares_body (Http.Request.headers request) then
-                Eio.Flow.read_all body
-              else ""
-            in
-            let now = Eio.Time.now clock in
-            simple (handle_api cfg sessions limiter random ~endpoint ~body ~now) `OK
+            match sized_body (Http.Request.headers request) body with
+            | None -> simple
+                (error cfg ~status:`Request_entity_too_large
+                   "that request body is too large")
+                `Request_entity_too_large
+            | Some body ->
+                let now = Eio.Time.now clock in
+                simple
+                  (handle_api cfg sessions limiter random ~endpoint ~body ~now)
+                  `OK)
       | Route.Tile { z; x; y } ->
           serve_tile cfg ~basemap_root ~meth
             ~client_headers:(Http.Request.headers request) ~z ~x ~y

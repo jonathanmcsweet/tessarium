@@ -529,6 +529,19 @@ check(
   })).status === 415,
 );
 
+/* The basemap endpoints need no --api and sit outside the rate limiter, so
+   an unbounded read here is a way to have the process killed by declaring a
+   body far larger than memory. The bound is 4 MiB against a real ceiling of
+   about 250 KB -- every region the UI knows, polygons included, at once. */
+check(
+  "a request body past the bound is refused, not buffered",
+  (await fetch(`${base}/api/basemap-estimate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: `{"regions":[${"null,".repeat(1_000_000)}null]}`,
+  })).status === 413,
+);
+
 const idleStatus = await (await postJson("basemap-status")).json();
 check(
   "the download job starts idle at generation zero",
