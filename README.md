@@ -37,7 +37,7 @@ build.
 | Offline basemap | Done — PMTiles reader and region extractor in OCaml |
 | Desktop | Done — single binary with the UI embedded; tarball |
 | Theorems | Done — containment, injectivity, round-trip, end to end |
-| JavaScript cross-check | Independent implementation; agrees on 10,061,490 points (re-run under mapping v2 / kdf-3) |
+| JavaScript cross-check | Independent implementation; agrees on 10,061,490 points (re-run under the shipping constants, 2026-08-24) |
 
 ### What "verified" means here, exactly
 
@@ -322,10 +322,12 @@ the same vectors — and it remains the only one whose oracle is not F\*
 itself.
 
 It has been run against **10,061,490 points across five keys with zero
-disagreements (tools/differential-deep.sh)** — re-run in full after each of
-the 2026-08-20 crypto changes (the BLAKE2s round function, then the Argon2id
-KDF), so the number is earned under what ships rather than inherited — and a
-32,298-point version runs in CI. Because the oracle derives each key itself,
+disagreements (tools/differential-deep.sh)** — re-run in full after every
+change to the hashed constants: both 2026-08-20 crypto changes (the BLAKE2s
+round function, then the Argon2id KDF) and the 2026-08-23 rename, which moved
+all three. So the number is earned under what ships rather than inherited,
+and re-earning it is the price of touching a constant. A 32,298-point version
+runs in CI. Because the oracle derives each key itself,
 that run also checks the KDF: five keys, vendored Argon2id against an
 independent implementation. The corpus is deliberately unbalanced towards
 band seams: uniformly random points essentially never land on one, and seams
