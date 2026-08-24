@@ -74,7 +74,18 @@ pipeline and `ocamlopt`; `digestif`'s BLAKE2s and SHA-2, which are
 vector-tested; `ocaml/pmtiles/`, `ui/`, and all of `ocaml/server/` except
 which files it will open -- `resolve` in `url_path.ml` is a wrapper over
 extracted F\* since 2026-08-22, and the rest of that file, `content_type`
-included, is not. Do not let a summary blur the line between "the core is proved" and "the
+included, is not.
+
+Since 2026-08-24 the word ABBREVIATION rule is proved as well
+(`Tessarium.Words`): a typed word only ever resolves to one it spells the
+beginning of, and an abbreviation only when a single word could have been
+meant. Its EXACT-match fast path is not proved -- that is a hashtable in
+front of the proved lookup, carrying the same property as a one-comparison
+runtime check, over a load-time check that the list holds no duplicate so
+the two paths cannot disagree. Say it that way; "the word lookup is proved"
+is one clause too few.
+
+Do not let a summary blur the line between "the core is proved" and "the
 program is correct".
 
 **A theorem that asserts nothing is worse than a missing one**, because it
@@ -113,7 +124,11 @@ square and get its address; paste an address and fly back to that square.
   F\* by way of KaRaMeL. This bundle supplies what that cannot — the wordlist
   codec, BIP-39, the KDF's inputs, the band table.
 - `ocaml/server/` — Eio HTTP server. Also the desktop binary. Its path
-  resolver is extracted F\*; nothing else in it is.
+  resolver is extracted F\*; nothing else in it is. Every `/api/` endpoint
+  takes an `Api_guard.t` rather than a body, and only `Api_guard.check`
+  builds one — so a new endpoint cannot skip the cross-origin, content-type
+  and size checks, or forget to drain what it refuses. That is a type, not a
+  convention: skipping it does not fail a test, it fails to compile.
 - `ocaml/pmtiles/` — PMTiles v3 reader and region extractor.
 - `ui/` — Vite + React + MapLibre GL. The key lives in a Web Worker.
 - `ocaml/gzip/` — gzip, in one place; three callers need it.

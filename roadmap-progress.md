@@ -77,9 +77,10 @@ against 70, and the per-keystroke place-name check 32 against 11; both are
 rare or off the main thread, and both now share one prefix predicate instead
 of two hand-written ones, only one of which was ever right.
 
-**Follow-on:** `CLAUDE.md`'s "say exactly what is proved" paragraph names
-`url_path.ml` as the only proved server decision and does not know about this
-one. Left for the user, per that document's own first rule.
+**Follow-on:** none. `CLAUDE.md` was brought up to date with the user's
+consent: the proved-and-not-proved paragraph now names the abbreviation rule
+AND says its exact-match fast path is not proved, and the `ocaml/server/`
+entry records that the /api/ guard is a type rather than a convention.
 
 ### 2026-08-24 — An adversarial review, and the fifteen things it found
 
