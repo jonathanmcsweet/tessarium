@@ -18,9 +18,24 @@ let trimmed s =
   in
   String.trim s
 
+(* A tarball arriving over a connection that dropped is a partial one, and
+   its last header is whatever bytes made it. Every field below is therefore
+   checked rather than believed, and a failed check is a [Failure] because
+   that is the shape the download job turns into a message the user reads --
+   an Invalid_argument out of String.sub is an uncaught exception instead.
+
+   Refusing base-256 size fields (the GNU encoding for files over 8 GB) along
+   with the garbage is deliberate: nothing in a glyph-and-sprite tarball is
+   that size, so the two are indistinguishable here and both are wrong. *)
+let malformed what = failwith ("the assets archive is " ^ what)
+
 let octal s =
   let s = trimmed s in
-  if s = "" then 0 else int_of_string ("0o" ^ s)
+  if s = "" then 0
+  else
+    match int_of_string_opt ("0o" ^ s) with
+    | Some n when n >= 0 -> n
+    | _ -> malformed "malformed: a header field is not an octal number"
 
 (* PAX extended headers carry "len key=value\n" records; a "path" record
    overrides the next entry's name, which is how names longer than 100 bytes
@@ -31,17 +46,28 @@ let pax_path payload =
     else
       match String.index_from_opt payload pos ' ' with
       | None -> acc
-      | Some sp ->
-          let len = int_of_string (String.sub payload pos (sp - pos)) in
-          let record = String.sub payload pos (len - 1) in
-          let record = String.sub record (sp - pos + 1) (String.length record - (sp - pos + 1)) in
-          let acc =
-            match String.index_opt record '=' with
-            | Some eq when String.sub record 0 eq = "path" ->
-                Some (String.sub record (eq + 1) (String.length record - eq - 1))
-            | _ -> acc
-          in
-          scan (pos + len) acc
+      | Some sp -> (
+          (* The record's own length has to cover the digits and the space it
+             just read, and has to stay inside the payload -- otherwise the
+             String.subs below run off the end, and a length of zero makes
+             one of them negative. *)
+          match int_of_string_opt (String.sub payload pos (sp - pos)) with
+          | Some len when len > sp - pos && pos + len <= String.length payload
+            ->
+              let record = String.sub payload pos (len - 1) in
+              let record =
+                String.sub record (sp - pos + 1)
+                  (String.length record - (sp - pos + 1))
+              in
+              let acc =
+                match String.index_opt record '=' with
+                | Some eq when String.sub record 0 eq = "path" ->
+                    Some
+                      (String.sub record (eq + 1) (String.length record - eq - 1))
+                | _ -> acc
+              in
+              scan (pos + len) acc
+          | _ -> acc)
   in
   scan 0 None
 
@@ -61,6 +87,11 @@ let list (data : string) : (string * string) list =
       else
         let name = trimmed (String.sub header 0 100) in
         let size = octal (String.sub header 124 12) in
+        (* The payload has to actually be there. Without this, a connection
+           that dropped mid-entry reaches String.sub with a size past the end
+           of what arrived. *)
+        if size > len - (pos + block) then
+          malformed "truncated: an entry claims more bytes than arrived";
         let typeflag = header.[156] in
         let prefix = trimmed (String.sub header 345 155) in
         let payload_blocks = (size + block - 1) / block in
