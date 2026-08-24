@@ -37,12 +37,11 @@ type entry = {
 type t = entry list
 
 (* Names a blob inside the PMTiles archive. Renamed with the project on
-   2026-08-23, which an archive downloaded before then does not know: its
-   ledger reads as absent, and an absent ledger stops any operation that
-   would rewrite the archive rather than overwriting it -- by design, since
-   silently forgetting what a gigabyte archive holds is the one failure the
-   download feature must never have. Nobody was running this yet; re-download
-   if you were. *)
+   2026-08-23, which an archive downloaded before then does not know. Such an
+   archive is REFUSED rather than read as empty -- see [foreign] below --
+   because silently forgetting what a gigabyte archive holds is the one
+   failure the download feature must never have. Nobody was running this yet;
+   re-download if you were. *)
 let metadata_key = "tessarium_ledger"
 let version = 1
 
@@ -366,7 +365,29 @@ let duplicated fields =
   List.length (List.filter (fun (k, _) -> String.equal k metadata_key) fields)
   > 1
 
-(* An archive with no ledger key has an empty ledger -- that is every
+(* A ledger written under a name we no longer use. Not the same thing as an
+   archive with no downloads, and the difference is destructive: read as
+   empty, the next download rewrites the file with a ledger naming only
+   itself, and the removal after that prunes every tile the forgotten
+   regions were holding -- since [drops] keeps a tile only when some entry
+   still in the ledger asks for it. So an unreadable record has to be an
+   error, not an empty one, and the suffix is what identifies it without
+   this file having to carry the old spellings around. *)
+let suffix = "_ledger"
+
+let foreign fields =
+  let ends_in_suffix k =
+    String.length k > String.length suffix
+    && String.equal
+         (String.sub k (String.length k - String.length suffix)
+            (String.length suffix))
+         suffix
+  in
+  List.exists
+    (fun (k, _) -> (not (String.equal k metadata_key)) && ends_in_suffix k)
+    fields
+
+(* An archive with no ledger key at all has an empty ledger -- that is every
    archive written before this feature, and every fresh extract. Anything
    else that fails to parse is corruption and says so -- including a ledger
    key that appears twice, which reads and writes would otherwise resolve
@@ -376,6 +397,11 @@ let of_metadata s =
   | exception _ -> Error (wrap "archive metadata is not JSON")
   | `Assoc fields when duplicated fields ->
       Error (wrap "the ledger key appears more than once")
+  | `Assoc fields when foreign fields ->
+      Error
+        (wrap
+           "it was written under a name this version does not use; re-download \
+            this map")
   | `Assoc fields -> (
       match List.assoc_opt metadata_key fields with
       | None -> Ok []
@@ -390,6 +416,14 @@ let to_metadata (t : t) ~previous =
   | exception _ -> Error (wrap "archive metadata is not JSON")
   | `Assoc fields when duplicated fields ->
       Error (wrap "the ledger key appears more than once")
+  (* Same refusal on the way out. A write that preserved the old key would
+     leave the archive carrying two records, and the next read could not tell
+     which one the tiles belong to. *)
+  | `Assoc fields when foreign fields ->
+      Error
+        (wrap
+           "it was written under a name this version does not use; re-download \
+            this map")
   | `Assoc fields ->
       let without = List.remove_assoc metadata_key fields in
       let fields' =

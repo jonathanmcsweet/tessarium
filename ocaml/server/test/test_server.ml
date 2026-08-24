@@ -1080,6 +1080,21 @@ let () =
   check "a duplicated ledger key is refused on write"
     (unreadable (L.to_metadata [ e1 ] ~previous:doubled));
 
+  (* A record written under a name this version does not use. Reading it as
+     "no downloads" is the destructive answer: the next download rewrites the
+     archive with a ledger naming only itself, and the removal after that
+     prunes every tile the forgotten regions were holding. *)
+  let older = {|{"name":"a map","someoneelse_ledger":{"v":1,"entries":[]}}|} in
+  check "a ledger under another name is refused on read"
+    (unreadable (L.of_metadata older));
+  check "a ledger under another name is refused on write"
+    (unreadable (L.to_metadata [ e1 ] ~previous:older));
+  (* And the two cases it must not swallow. *)
+  check "an archive with no ledger at all still reads as empty"
+    (L.of_metadata {|{"name":"a map"}|} = Ok []);
+  check "a key that merely contains the word is not a ledger"
+    (L.of_metadata {|{"ledger_notes":"hi"}|} = Ok []);
+
   (* Invisible characters exist mostly to make one name display as another. *)
   check "C1 controls are invalid" (not (L.valid_name "a\xc2\x85b"));
   check "zero-width characters are invalid"
