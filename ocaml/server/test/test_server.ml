@@ -1218,6 +1218,73 @@ let () =
   check "folding drops accents" (P.fold "Orléans" = "orleans");
   check "folding leaves other scripts alone" (P.fold "Энурмино" = "Энурмино");
 
+  (* Progress has to be able to ARRIVE. A run is one blob shared by
+     consecutive tile ids, and an empty ocean tile is byte-identical either
+     side of a zoom boundary, so one run can span it. Counting the whole run
+     whenever its FIRST id is in range then counts ids the walk skips, and
+     what the UI is shown stops short of its own total and stays there.
+
+     Ids 20..23 are the last tile of zoom 2 and the first three of zoom 3, so
+     at max_zoom 2 the walk visits exactly one of the four. *)
+  let straddling_archive () =
+    let module H = Pmtiles.Header in
+    let module D = Pmtiles.Directory in
+    let payload = "not-a-tile" in
+    let root =
+      D.serialize
+        [|
+          {
+            D.tile_id = 20;
+            offset = 0;
+            length = String.length payload;
+            run_length = 4;
+          };
+        |]
+    in
+    let header =
+      {
+        H.root_offset = H.size;
+        root_length = String.length root;
+        metadata_offset = H.size + String.length root;
+        metadata_length = 0;
+        leaf_offset = H.size + String.length root;
+        leaf_length = 0;
+        data_offset = H.size + String.length root;
+        data_length = String.length payload;
+        addressed_tiles = 4;
+        tile_entries = 1;
+        tile_contents = 1;
+        clustered = true;
+        internal_compression = H.None_;
+        tile_compression = H.None_;
+        tile_type = H.Mvt;
+        min_zoom = 2;
+        max_zoom = 3;
+        min_lon_e7 = -1800000000;
+        min_lat_e7 = -850000000;
+        max_lon_e7 = 1800000000;
+        max_lat_e7 = 850000000;
+        center_zoom = 2;
+        center_lon_e7 = 0;
+        center_lat_e7 = 0;
+      }
+    in
+    let bytes = H.serialize header ^ root ^ payload in
+    Pmtiles.Archive.open_
+      {
+        Pmtiles.Archive.read =
+          (fun ~offset ~length ->
+            String.sub bytes offset (min length (String.length bytes - offset)));
+      }
+  in
+  let seen_progress = ref (0, 0) in
+  ignore
+    (P.build ~max_zoom:2
+       ~on_tile:(fun done_ total -> seen_progress := (done_, total))
+       (straddling_archive ()));
+  check "a run spanning the zoom edge does not leave the total unreachable"
+    (fst !seen_progress = snd !seen_progress && fst !seen_progress = 1);
+
   (* A line survives the file it is written to. *)
   let e =
     {
