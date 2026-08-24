@@ -16,6 +16,7 @@
 #include <caml/memory.h>
 #include <caml/mlvalues.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "Tessarium_Low_Core.h"
 
@@ -28,7 +29,18 @@
 static uint64_t cum_table[CUM_ENTRIES];
 static int cum_ready = 0;
 
-static uint64_t cum_lookup(uint64_t b) { return cum_table[b]; }
+/* Bounded here for the same reason as every other argument in this file: the
+   emitted C's refinement holding this index below CUM_ENTRIES was erased, so
+   nothing at runtime holds it. Reading past the table would answer with
+   whatever follows it in .bss and the grid would turn that into an address
+   for the wrong square. Unreachable through the entry points below -- it is
+   here so a future change to the band arithmetic stops rather than lies, and
+   abort rather than an OCaml exception because this unwinds through emitted
+   frames. */
+static uint64_t cum_lookup(uint64_t b) {
+  if (b >= CUM_ENTRIES) abort();
+  return cum_table[b];
+}
 
 /* The proved code's erased precondition on the table is cum_low: the
    lookup answers exactly T.cum. What a wrong table costs is not a wrong

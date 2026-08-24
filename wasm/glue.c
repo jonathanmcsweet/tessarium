@@ -41,7 +41,18 @@
 static uint64_t cum_table[CUM_ENTRIES];
 static int cum_ready = 0;
 
-static uint64_t cum_lookup(uint64_t b) { return cum_table[b]; }
+/* The band index comes out of the emitted C, whose refinement bounding it
+   below CUM_ENTRIES was erased by KaRaMeL (BOUNDS.md) -- so nothing at
+   runtime holds it there. Under wasm an out-of-range read does not fault: it
+   lands in adjacent linear memory and returns a plausible number, which the
+   grid would turn into a plausible address for the wrong square. Trapping is
+   the difference between a wrong answer and no answer. Unreachable through
+   the exports below, which is the point: it is here so that a future change
+   to the band arithmetic stops rather than lies. */
+static uint64_t cum_lookup(uint64_t b) {
+  if (b >= CUM_ENTRIES) __builtin_trap();
+  return cum_table[b];
+}
 
 __attribute__((export_name("set_cum"))) int32_t set_cum(uint32_t i,
                                                         uint64_t v) {
