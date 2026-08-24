@@ -70,15 +70,22 @@ let security_headers cfg =
 
 (* Paired with its length so the access log reports what was actually sent. A
    byte count that is always zero is worse than no byte count. *)
-let respond_string ?etag cfg ~status ~content_type body =
+(* [close] ends the connection after this response. Needed exactly once: a
+   body over the bound cannot be drained -- being over the bound is what it
+   means -- so the rest of it would still be on the socket when the next
+   request on a keep-alive connection began parsing, and that request would
+   read the tail of the last one as its own request line. The browser suite
+   found it: the check after the oversized one failed, then two more. *)
+let respond_string ?etag ?(close = false) cfg ~status ~content_type body =
   let validator =
     match etag with None -> [] | Some t -> [ ("etag", t) ]
   in
+  let closing = if close then [ ("connection", "close") ] else [] in
   let headers =
     Http.Header.of_list
       (("content-type", content_type)
       :: ("content-length", string_of_int (String.length body))
-      :: (validator @ security_headers cfg))
+      :: (closing @ validator @ security_headers cfg))
   in
   ( `Response
       (Cohttp_eio.Server.respond ~headers ~status
@@ -86,12 +93,12 @@ let respond_string ?etag cfg ~status ~content_type body =
     status,
     String.length body )
 
-let respond_json ?etag cfg ~status json =
-  respond_string ?etag cfg ~status
+let respond_json ?etag ?close cfg ~status json =
+  respond_string ?etag ?close cfg ~status
     ~content_type:"application/json; charset=utf-8" (Yojson.Safe.to_string json)
 
-let error cfg ~status message =
-  respond_json cfg ~status (`Assoc [ ("error", `String message) ])
+let error ?close cfg ~status message =
+  respond_json ?close cfg ~status (`Assoc [ ("error", `String message) ])
 
 (* "You already have this." A 304 carries the validator and the freshness rule
    that produced it, and no body -- and so no content-length, because there is
@@ -1269,7 +1276,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
           (* Reachable without --api: see [Route.is_basemap_api]. *)
           match sized_body (Http.Request.headers request) body with
           | None -> simple
-                (error cfg ~status:`Request_entity_too_large
+                (error ~close:true cfg ~status:`Request_entity_too_large
                    "that request body is too large")
           | Some body ->
               simple
@@ -1282,7 +1289,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
           else
             match sized_body (Http.Request.headers request) body with
             | None -> simple
-                (error cfg ~status:`Request_entity_too_large
+                (error ~close:true cfg ~status:`Request_entity_too_large
                    "that request body is too large")
             | Some body ->
                 let now = Eio.Time.now clock in
