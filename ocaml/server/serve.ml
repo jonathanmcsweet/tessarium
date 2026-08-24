@@ -1145,6 +1145,18 @@ let from_another_site get =
           let host = Option.value (get "host") ~default:"" in
           not (same_origin_as_host o host))
 
+(* A request we are going to refuse still has to come off the socket. Leaving
+   its body there makes the NEXT request on a keep-alive connection start
+   parsing mid-JSON, which is how the browser suite caught this: one refused
+   text/plain post and every check after it on that connection failed. The
+   bound is there because the caller being refused is precisely the one with
+   no reason to be honest about Content-Length. *)
+let max_body = 1 lsl 20
+
+let drain_body flow =
+  try ignore (Eio.Buf_read.(take_all (of_flow flow ~max_size:max_body)))
+  with Eio.Buf_read.Buffer_limit_exceeded | End_of_file -> ()
+
 let is_json get =
   match get "content-type" with
   | None -> false
@@ -1188,11 +1200,13 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
          endpoints are reachable without it, and they are the ones that can
          spend a user's disk and bandwidth. *)
       | Route.Api _ when from_another_site header ->
+          if declares_body (Http.Request.headers request) then drain_body body;
           simple
             (error cfg ~status:`Forbidden
                "this endpoint cannot be called from another site")
             `Forbidden
       | Route.Api _ when not (is_json header) ->
+          if declares_body (Http.Request.headers request) then drain_body body;
           simple
             (error cfg ~status:`Unsupported_media_type
                "this endpoint takes application/json")
