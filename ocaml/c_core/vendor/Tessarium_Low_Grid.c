@@ -31,8 +31,8 @@ uint64_t Tessarium_Low_Grid_row_of_low(uint64_t dlat)
 {
   return
     dlat == Tessarium_Low_Grid_lat_span64 ? Tessarium_Low_Grid_rows64 - 1ULL
-                                            : dlat * Tessarium_Low_Grid_rows64 /
-                                              Tessarium_Low_Grid_lat_span64;
+                                          : dlat * Tessarium_Low_Grid_rows64 /
+                                            Tessarium_Low_Grid_lat_span64;
 }
 
 uint64_t Tessarium_Low_Grid_lon_fold_low(uint64_t dlon)
@@ -93,11 +93,7 @@ Tessarium_Low_Grid_band_search_low(
 
 uint64_t Tessarium_Low_Grid_band_of_cell_low(uint64_t (*cum)(uint64_t x0), uint64_t index)
 {
-  return
-    Tessarium_Low_Grid_band_search_low(cum,
-      0ULL,
-      Tessarium_Low_Grid_bands64 - 1ULL,
-      index);
+  return Tessarium_Low_Grid_band_search_low(cum, 0ULL, Tessarium_Low_Grid_bands64 - 1ULL, index);
 }
 
 K___uint64_t_uint64_t_uint64_t
@@ -121,8 +117,7 @@ Tessarium_Low_Grid_cell_to_point_low(uint64_t (*cum)(uint64_t x0), uint64_t inde
   uint64_t c = scrut.thd;
   uint64_t k = Tessarium_Low_Grid_col_counts_low(cum, b);
   uint64_t
-  dlat =
-    (2ULL * r + 1ULL) * Tessarium_Low_Grid_lat_span64 / (2ULL * Tessarium_Low_Grid_rows64);
+  dlat = (2ULL * r + 1ULL) * Tessarium_Low_Grid_lat_span64 / (2ULL * Tessarium_Low_Grid_rows64);
   uint64_t dlon = (2ULL * c + 1ULL) * Tessarium_Low_Grid_lon_span64 / (2ULL * k);
   return ((K___uint64_t_uint64_t){ .fst = dlat, .snd = dlon });
 }

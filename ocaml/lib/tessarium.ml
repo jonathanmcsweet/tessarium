@@ -80,7 +80,11 @@ let required_words = 24
    shares its name, so sibling modules are otherwise unreachable from outside. *)
 let nfkd = Normalize.nfkd
 
-let derivation_version = "tessarium-kdf-3"
+(* The Argon2id salt, so it decides every key and therefore every address.
+   Bumped to -4 with the 2026-08-23 rename rather than reusing -3, so an
+   address issued under the old derivation can never be silently reread as
+   a new one. *)
+let derivation_version = "tessarium-kdf-4"
 
 (* For the mnemonic only. BIP-39's English words are lowercase, so folding case
    and trimming here is safe and forgiving of how a phrase was pasted.

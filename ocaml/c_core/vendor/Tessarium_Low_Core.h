@@ -14,12 +14,7 @@
 #include "Tessarium_Low_Blake2s.h"
 
 uint64_t
-Tessarium_Low_Core_rf_real_low(
-  Tessarium_Low_Blake2s_st8 k,
-  uint64_t i,
-  uint64_t x,
-  uint64_t m
-);
+Tessarium_Low_Core_rf_real_low(Tessarium_Low_Blake2s_st8 k, uint64_t i, uint64_t x, uint64_t m);
 
 K___uint64_t_uint64_t
 Tessarium_Low_Feistel_enc_loop_low___uint64_t___uint64_t___uint64_t___uint64_t___uint64_t___uint64_t___uint64_t___uint64_t____(

@@ -48,7 +48,7 @@ let rf_real : F.round_fn B.key8 unit =
   fun k _ i x m ->
     let im = U64.uint_to_t (if i = 0 then 1 else i) in
     let xm = U64.uint_to_t (x % 0x1000000) in
-    let (h0, h1, h2, h3) = B.blake2s47 k im xm in
+    let (h0, h1, h2, h3) = B.blake2s43 k im xm in
     (U64.v h3 * 0x1000000000000000000000000 +
      U64.v h2 * 0x10000000000000000 +
      U64.v h1 * 0x100000000 +
@@ -85,7 +85,7 @@ let rf_real_low (k: B.key8) (t: unit)
   M.small_mod (U64.v x) 0x1000000;
   U64.uv_inv i;
   U64.uv_inv x;
-  let (h0, h1, h2, h3) = B.blake2s47 k i x in
+  let (h0, h1, h2, h3) = B.blake2s43 k i x in
   let r0 = U64.rem h3 m in
   let r1 = U64.rem (U64.add (U64.mul r0 0x100000000uL) h2) m in
   let r2 = U64.rem (U64.add (U64.mul r1 0x100000000uL) h1) m in

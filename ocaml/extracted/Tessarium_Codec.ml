@@ -11,6 +11,6 @@ let from_address (a : address) : Prims.nat=
   let uu___ = a in
   match uu___ with
   | (w1, w2, w3, n) ->
-      (((((w1 * Tessarium_Spec.words) + w2) * Tessarium_Spec.words) + w3)
-         * Tessarium_Spec.num_max)
+      (((((w1 * Tessarium_Spec.words) + w2) * Tessarium_Spec.words) + w3) *
+         Tessarium_Spec.num_max)
         + n

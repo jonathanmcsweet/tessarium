@@ -613,8 +613,7 @@ const overlayAlive = await page.evaluate(() => {
 check("the grid overlay survives the download's style swap", overlayAlive);
 const gridRefilled = await page
   .waitForFunction(
-    () =>
-      (window.__tessarium_map?.querySourceFeatures("grid").length ?? 0) > 0,
+    () => (window.__tessarium_map?.querySourceFeatures("grid").length ?? 0) > 0,
     null,
     { timeout: 30_000 },
   )

@@ -170,7 +170,19 @@ cd design && python3 grid_design.py    # regenerate the band table
 ```
 
 Regenerating the band table changes every address. The tweak string
-(`tessarium-grid-2`) must be bumped if it ever changes, and the vectors regenerated.
+(`tessarium-grid-3`) must be bumped if it ever changes, and the vectors regenerated.
+
+Four protocol constants carry the project name. Three are hashed into every
+address — the tweak above, the round-function domain prefix
+(`tessarium/v3/fe1`) and the Argon2id salt (`tessarium-kdf-4`) — and the
+fourth (`tessarium_ledger`) names a blob inside downloaded map archives.
+Changing any of the three invalidates every address anyone holds, so bump
+the version number rather than reusing it. The domain prefix and the tweak
+also have their LENGTHS baked into `fstar/low/Tessarium.Low.Blake2s.fst`,
+which transcribes the whole 43-byte message as sixteen literal words and a
+byte counter; changing either length means redoing that transcription and
+re-verifying. All four moved once, on 2026-08-23, with the rename from
+Tessarium — see the ledger for what that took.
 
 ## Where to start
 

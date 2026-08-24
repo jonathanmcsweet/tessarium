@@ -36,14 +36,20 @@ let be_bytes_of_z z n =
 (* --------------------------------------------------------- round function *)
 
 (* The Feistel round function, injected into the verified core: keyed
-   BLAKE2s-256 over the fixed 47-byte message, first 16 digest bytes as a
+   BLAKE2s-256 over the fixed 43-byte message, first 16 digest bytes as a
    little-endian integer, reduced mod m.
 
    128 bits are taken before reduction. With m < 2^24 the modulo bias is around
    2^-104, far below anything that matters. *)
 let round_fn (key : string) (tweak : string) (i : Z.t) (x : Z.t) (m : Z.t) : Z.t =
   let buf = Buffer.create 64 in
-  Buffer.add_string buf "tessarium/v2/fe1";
+  (* Every address depends on these exact bytes, and its LENGTH is
+     load-bearing: fstar/low/Tessarium.Low.Blake2s.fst transcribes the whole
+     message as sixteen literal words and a byte counter, all derived from
+     this prefix being 16 bytes and the tweak 16. Changing either re-does
+     that transcription -- see the v2-to-v3 entry in roadmap-progress.md for
+     what it takes. *)
+  Buffer.add_string buf "tessarium/v3/fe1";
   let tl = String.length tweak in
   Buffer.add_char buf (Char.chr ((tl lsr 8) land 0xff));
   Buffer.add_char buf (Char.chr (tl land 0xff));

@@ -50,14 +50,7 @@ uint64_t Tessarium_Low_Blake2s_rotr7(uint64_t x)
 }
 
 K___uint64_t_uint64_t_uint64_t_uint64_t
-Tessarium_Low_Blake2s_g(
-  uint64_t a,
-  uint64_t b,
-  uint64_t c,
-  uint64_t d,
-  uint64_t x,
-  uint64_t y
-)
+Tessarium_Low_Blake2s_g(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t x, uint64_t y)
 {
   uint64_t a1 = a + b + x & 0xffffffffULL;
   uint64_t
@@ -3045,7 +3038,7 @@ Tessarium_Low_Blake2s_compress(
 }
 
 K___uint64_t_uint64_t_uint64_t_uint64_t
-Tessarium_Low_Blake2s_blake2s47(Tessarium_Low_Blake2s_st8 k, uint64_t i, uint64_t x)
+Tessarium_Low_Blake2s_blake2s43(Tessarium_Low_Blake2s_st8 k, uint64_t i, uint64_t x)
 {
   uint64_t k0 = k.fst;
   uint64_t k1 = k.snd;
@@ -3091,9 +3084,9 @@ Tessarium_Low_Blake2s_blake2s47(Tessarium_Low_Blake2s_st8 k, uint64_t i, uint64_
   uint64_t a5 = scrut.f5;
   uint64_t a6 = scrut.f6;
   uint64_t a7 = scrut.f7;
-  uint64_t mw9 = 0x322DULL + i * 65536ULL & 0xffffffffULL;
+  uint64_t mw8 = 0x332DULL + i * 65536ULL & 0xffffffffULL;
   uint64_t
-  mw11 = x / 65536ULL + (x / 256ULL % 256ULL * 256ULL + x % 256ULL * 65536ULL) & 0xffffffffULL;
+  mw10 = x / 65536ULL + (x / 256ULL % 256ULL * 256ULL + x % 256ULL * 65536ULL) & 0xffffffffULL;
   Tessarium_Low_Blake2s_st8
   scrut0 =
     Tessarium_Low_Blake2s_compress(a0,
@@ -3104,23 +3097,23 @@ Tessarium_Low_Blake2s_blake2s47(Tessarium_Low_Blake2s_st8 k, uint64_t i, uint64_
       a5,
       a6,
       a7,
-      0x70797263ULL,
       0x73736574ULL,
-      0x2F617265ULL,
-      0x662F3276ULL,
-      0x12003165ULL,
-      0x70797263ULL,
-      0x73736574ULL,
-      0x2D617265ULL,
+      0x75697261ULL,
+      0x33762F6DULL,
+      0x3165662FULL,
+      0x65741000ULL,
+      0x72617373ULL,
+      0x2D6D7569ULL,
       0x64697267ULL,
-      mw9,
+      mw8,
       0ULL,
-      mw11,
-      0ULL,
-      0ULL,
+      mw10,
       0ULL,
       0ULL,
-      111ULL,
+      0ULL,
+      0ULL,
+      0ULL,
+      107ULL,
       0xffffffffULL);
   uint64_t b3 = scrut0.f3;
   uint64_t b2 = scrut0.thd;
