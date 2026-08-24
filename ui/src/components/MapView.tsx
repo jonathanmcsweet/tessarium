@@ -519,9 +519,18 @@ export function MapView() {
   }, [basemapPresent.data, setBasemapFailed]);
 
   /* -------------------------------------------------------- grid refresh */
+  const gridSeq = useRef(0);
   const refreshGrid = useCallback(async () => {
     const map = mapRef.current;
     if (!map) return;
+    /* Only the newest question gets to answer -- the same hazard
+       refreshCoverage guards against below, for the same reason. fetchGrid
+       goes through React Query with a 30s staleTime, so panning back to
+       somewhere visited seconds ago resolves from cache in a microtask while
+       the fresh viewport is still walking the grid in the worker. The older
+       answer then lands second and paints its cells over the viewport the
+       user has already left, and drags setTruncated back with it. */
+    const mine = ++gridSeq.current;
     setZoom(map.getZoom());
 
     const source = map.getSource("grid") as
@@ -549,7 +558,7 @@ export function MapView() {
       },
       CELL_LIMIT,
     ).catch(() => null);
-    if (!g) return;
+    if (!g || mine !== gridSeq.current) return;
 
     setTruncated(g.truncated);
 
