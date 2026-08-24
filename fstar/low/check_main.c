@@ -64,7 +64,7 @@ static void compress_block(uint64_t h[8], const uint8_t b[64], uint64_t t,
    section 3.3): the zero-padded key block first when a key is present, then
    the message in 64-byte blocks, the byte counter at the true count, the
    finalization word all-ones on the last block only. Exercises the general
-   chaining the fixed-shape blake2s47 never uses -- which is the point: a
+   chaining the fixed-shape blake2s43 never uses -- which is the point: a
    wrong sigma or rotation cannot hide behind the production layout. */
 static void blake2s256(const uint8_t *key, size_t klen, const uint8_t *msg,
                        size_t len, uint64_t out[8]) {

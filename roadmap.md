@@ -334,8 +334,8 @@ The theorem set is complete and in the ledger. What is left is narrower.
       function LANDED inside the proof (2026-08-20, Low.Hmac/Low.Core):
       pure machine-integer SHA-256/HMAC — NOT HACL\*, whose stateful
       buffer model would have pulled the whole Tot core into the Stack
-      effect; the fixed-shape production message (32-byte key, constant
-      tweak, 47 bytes, four compressions) needs no buffers — with the
+      effect; the fixed-shape production message of the day (32-byte key,
+      constant tweak, four compressions) needs no buffers — with the
       Horner 128-bit reduction proved equal to the ghost spec, NIST
       vectors pinning compress, digestif recomputing the composed round
       function and full real-key encodes in the C harness, and the

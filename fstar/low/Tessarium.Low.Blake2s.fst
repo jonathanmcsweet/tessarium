@@ -6,7 +6,7 @@ module Tessarium.Low.Blake2s
 /// HMAC-SHA256 of mapping v1: the project moved its security functions off
 /// NIST designs onto community-vetted primitives (see the ledger), and
 /// BLAKE2s keys natively, so the HMAC construction disappears -- the whole
-/// MAC is TWO compressions (key block, then the fixed 47-byte message)
+/// MAC is TWO compressions (key block, then the fixed 43-byte message)
 /// against HMAC's four.
 ///
 /// What is proved here and what is pinned:

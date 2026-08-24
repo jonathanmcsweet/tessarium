@@ -116,7 +116,7 @@ over unchanged.)
   LITTLE-endian integer, mod m" is `horner_step`, proved, not assumed.
 - No HMAC layer at all: BLAKE2s keys natively (the zero-padded key is
   block one), so the whole MAC is TWO compressions with static padding
-  -- key block at t=64, the fixed 47-byte message block at t=111,
+  -- key block at t=64, the fixed 43-byte message block at t=107,
   final -- and needs no buffers. (The HACL* rationale recorded for v1
   still applies to why no library: stateful buffer model, and the
   current F* release ships no LowStar libraries.)
@@ -137,7 +137,7 @@ over unchanged.)
   the SHA-256 port: 8 rounds 0.6s, 24 rounds 5m); per-round chunk
   functions keep every value a binder, and state travels as two
   8-tuples because F* tuples stop at arity 14. The rounds, compress and
-  blake2s47 are `opaque_to_smt` -- no downstream proof needs their
+  blake2s43 are `opaque_to_smt` -- no downstream proof needs their
   definitions, and leaving them visible let Z3 unfold a chained
   compression without bound.
 
