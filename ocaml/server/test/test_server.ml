@@ -458,7 +458,8 @@ let () =
      clients that send neither -- curl and a script -- stay welcome, which is
      what --api is for. *)
   let hdr l name = List.assoc_opt name l in
-  let foreign l = S.from_another_site (hdr l) in
+  let module G = Tessarium_server.Api_guard in
+  let foreign l = G.from_another_site (hdr l) in
   check "a cross-site fetch is foreign"
     (foreign [ ("sec-fetch-site", "cross-site"); ("host", "127.0.0.1:7373") ]);
   check "so is same-site -- another port is another origin"
@@ -477,7 +478,7 @@ let () =
     (foreign [ ("origin", "null"); ("host", "127.0.0.1:7373") ]);
   (* The last leg: the three body types a page can post with NO preflight.
      Requiring JSON means the browser has to ask first, and we never answer. *)
-  let json l = S.is_json (hdr l) in
+  let json l = G.is_json (hdr l) in
   (* ------------------------------------------------- accept-encoding *)
   (* Tiles and embedded assets are STORED gzipped, so this decides whether a
      client gets the stored bytes or an inflated copy. Getting it wrong in
@@ -512,6 +513,55 @@ let () =
   check "json is" (json [ ("content-type", "application/json") ]);
   check "json with a charset still is"
     (json [ ("content-type", "application/json; charset=utf-8") ]);
+
+  (* And the guard itself, which is the thing a handler cannot be reached
+     without. What matters is not that these predicates are right but that
+     nothing gets an Api_guard.t unless they all are. *)
+  let ok = [ ("content-type", "application/json"); ("host", "127.0.0.1:7373") ] in
+  let run ?(declares = true) ?(read = fun () -> Some "{}") l =
+    G.check ~header:(hdr l) ~declares_body:declares ~read
+  in
+  let allowed o = match o with G.Allowed _ -> true | G.Refused _ -> false in
+  let refused_with r o =
+    match o with G.Refused (r', _) -> r' = r | G.Allowed _ -> false
+  in
+  let closes o =
+    match o with
+    | G.Refused (_, G.Connection_must_close) -> true
+    | _ -> false
+  in
+  check "a well-formed same-origin call is allowed" (allowed (run ok));
+  check "the body survives the guard"
+    (match run ok ~read:(fun () -> Some {|{"a":1}|}) with
+     | G.Allowed t -> String.equal (G.body t) {|{"a":1}|}
+     | G.Refused _ -> false);
+  check "a call declaring no body has an empty one, not a missing one"
+    (match run ok ~declares:false ~read:(fun () -> assert false) with
+     | G.Allowed t -> String.equal (G.body t) ""
+     | G.Refused _ -> false);
+  check "another site is refused"
+    (refused_with G.From_another_site
+       (run (("sec-fetch-site", "cross-site") :: ok)));
+  check "a non-json body is refused"
+    (refused_with G.Not_json (run [ ("content-type", "text/plain") ]));
+  check "a body over the bound is refused"
+    (refused_with G.Too_large (run ok ~read:(fun () -> None)));
+  (* The half that was got wrong twice: a refusal has to clear the socket,
+     and when it cannot, the connection has to end. *)
+  check "a refusal drains a body it can"
+    (not (closes (run (("sec-fetch-site", "cross-site") :: ok))));
+  check "and closes the connection when it cannot"
+    (closes (run (("sec-fetch-site", "cross-site") :: ok) ~read:(fun () -> None)));
+  check "the size refusal always closes"
+    (closes (run ok ~read:(fun () -> None)));
+  (* Read at most once, whatever the answer: reading twice on one flow would
+     block on a socket that has nothing more to give. *)
+  check "the body is read exactly once"
+    (let reads = ref 0 in
+     let read () = incr reads; Some "{}" in
+     ignore (run ok ~read);
+     ignore (run [ ("content-type", "text/plain") ] ~read);
+     !reads = 2);
 
   let scfg =
     {
@@ -602,9 +652,24 @@ let () =
   check "no declaration means nothing to read -- reading would hang"
     (not (S.declares_body (h [ ("accept", "*/*") ])));
 
+  (* The handlers demand a request that has passed the guard, and this is the
+     only way to make one -- the tests go through it exactly as the server
+     does. *)
+  let checked body =
+    match
+      G.check
+        ~header:(function
+          | "content-type" -> Some "application/json"
+          | _ -> None)
+        ~declares_body:true
+        ~read:(fun () -> Some body)
+    with
+    | G.Allowed t -> t
+    | G.Refused _ -> failwith "the test's own request did not pass the guard"
+  in
   let run ~endpoint ~body =
     calls := [];
-    ignore (S.handle_basemap scfg ops settings ~endpoint ~body);
+    ignore (S.handle_basemap scfg ops settings ~endpoint ~request:(checked body));
     !calls
   in
 
@@ -694,7 +759,8 @@ let () =
          the caller three frames away. *)
       let status_of endpoint body =
         let _, status, _ =
-          S.handle_api scfg sessions limiter random ~endpoint ~body ~now:1000.
+          S.handle_api scfg sessions limiter random ~endpoint
+            ~request:(checked body) ~now:1000.
         in
         status
       in
@@ -768,7 +834,9 @@ let () =
   (* Settings: an empty body reads, a value writes, junk reaches nothing. *)
   let run_settings ~body =
     settings_calls := [];
-    ignore (S.handle_basemap scfg ops settings ~endpoint:"basemap-settings" ~body);
+    ignore
+      (S.handle_basemap scfg ops settings ~endpoint:"basemap-settings"
+         ~request:(checked body));
     !settings_calls
   in
   check "an empty settings body reads the current value"
