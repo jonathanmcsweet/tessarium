@@ -506,7 +506,10 @@ check(
   "an api call from another site is refused",
   (await fetch(`${base}/api/basemap-status`, {
     method: "POST",
-    headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" },
+    headers: {
+      "content-type": "application/json",
+      "sec-fetch-site": "cross-site",
+    },
     body: "{}",
   })).status === 403,
 );
@@ -514,7 +517,10 @@ check(
   "so is one carrying another site's origin",
   (await fetch(`${base}/api/basemap-status`, {
     method: "POST",
-    headers: { "content-type": "application/json", origin: "http://evil.example" },
+    headers: {
+      "content-type": "application/json",
+      origin: "http://evil.example",
+    },
     body: "{}",
   })).status === 403,
 );
