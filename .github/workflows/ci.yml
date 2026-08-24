@@ -219,20 +219,23 @@ jobs:
       - name: Static checks
         run: opam exec -- make test-static
 
-      # No --ui, so this drives the UI compiled into the binary rather than a
-      # directory beside it. That is what ships, so that is what is tested.
+      # Through the Makefile, not by hand. The suite needs FIVE servers -- a
+      # fixture archive to download from, and four clients configured
+      # differently (whole-file, multi-part, compression mismatch, cancel) --
+      # and it takes their URLs as arguments. Starting one server and passing
+      # one URL leaves base3/base4/base5 pointing at ports nothing is
+      # listening on, which is what this step used to do: every check past
+      # the first download section failed on a refused connection, so the
+      # resume, mismatch and cancel guarantees were not being tested at all.
+      #
+      # The recipe also owns the teardown. No --ui in it either, so this
+      # drives the UI compiled into the binary -- what ships is what is
+      # tested.
       - name: Browser end-to-end
         run: |
           cd ui && npx playwright install chromium
           cd ..
-          mkdir -p basemap
-          opam exec -- ./_build/default/ocaml/server/bin/main.exe \
-            --port 7373 --basemap basemap --no-open &
-          for i in $(seq 40); do
-            curl -sf -o /dev/null http://127.0.0.1:7373/healthz && break
-            sleep 0.25
-          done
-          cd ui && node test/e2e.mjs http://127.0.0.1:7373
+          opam exec -- make test-ui
 
       - name: Package
         run: opam exec -- tools/package.sh
