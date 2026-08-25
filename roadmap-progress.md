@@ -21,6 +21,40 @@ than a git log.
 
 ---
 
+### 2026-08-25 — A saved address, held to its place across a re-entered phrase
+
+**Phase:** 6 · **Branches:** test/same-phrase-same-place
+
+**What:** Reported from use: save two addresses, lock, type the same phrase
+back in, and they no longer land where they were saved from -- inconsistently,
+so one lookup looked fine and only repeating it showed the drift. The browser
+suite now saves two addresses, then locks and re-enters the SAME phrase three
+times, checking both where the address takes the camera and what the square at
+the original point is still called. Tolerance 1e-6 degrees, about 11 cm, far
+tighter than the ~3 m cell so it cannot pass by naming a neighbour. Falsified
+against a worker whose key changes on every unlock.
+
+**Rationale:** The suite could not have caught this. It unlocked once and
+locked once, to a DIFFERENT phrase, so "the same phrase twice" was never
+asked -- and js/worker-differential.mjs cannot ask it either, since a key that
+changed across a lock is invisible from inside the worker that holds it. Two
+checks rather than one because a changed key decodes an address to a new place
+and re-encodes that place back to the same words: the camera check alone is
+satisfiable by a wrong key.
+
+No code fault was found. The core is deterministic across lock/unlock (six
+cycles at the worker level, identical), decode lands on the cell centre and
+re-encodes to the same address, and nothing time-varying, build-varying or
+random reaches the codec. The committed vectors, generated at the 17:36 rename,
+still reproduce 69 commits later. The best-supported account of the report is
+the constants rename itself: it moved every address, and the server serves a UI
+embedded at build time, so page loads either side of that rebuild disagreed.
+Circumstantial -- the older builds are gone -- and recorded as such rather than
+as a diagnosis.
+
+**Follow-on:** An address carries no version, so one issued under an older grid
+decodes silently to a plausible wrong place. Added to roadmap.md.
+
 ### 2026-08-24 — Three of the review's findings enforced rather than tested
 
 **Phase:** 6 · **Branches:** feat/checked-request, test/doc-drift,

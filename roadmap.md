@@ -469,6 +469,24 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
+- [ ] **A saved address carries no version, so an old one is silently wrong.**
+      An address is three words and four digits; there is no room in it for a
+      grid or derivation version. So a code issued under `tessarium-grid-3`
+      and typed back in after a future bump does not get refused -- it decodes
+      to a different, entirely plausible square, and nothing on screen says
+      why. Reported from use on 2026-08-25, where the rename supplied the
+      version change (ledger).
+
+      The application knows both versions -- the worker's `status` returns
+      them and the end-to-end suite checks them against the vectors -- and
+      shows neither. The cheap half is to display them, so a user can label
+      the codes in their notepad with the epoch they belong to; that does not
+      make an old code work, and nothing can, but it turns "this went
+      somewhere strange" into "these are from the old grid". The expensive
+      half is refusing outright, which needs a version inside the address and
+      that space does not exist. Deliberately left as the cheap half until
+      someone asks for more.
+
 - [ ] **No response carries a `Date`.** RFC 9110 6.6.1 requires an origin
       server with a clock to send one, and it is what a shared cache computes
       `age` from. Harmless today — everything is either `no-cache`, where the
