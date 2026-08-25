@@ -21,6 +21,33 @@ than a git log.
 
 ---
 
+### 2026-08-25 — The icons ship with the licence they are under
+
+**Phase:** 6 · **Branches:** docs/sprite-licence
+
+**What:** The bundled map icons were conveyed as "under that project's own
+terms", which named nothing. Confirmed upstream: protomaps/basemaps-assets
+states in its README that its sprites are derived from the MIT-licensed
+tangrams/icons project, (c) 2017 Mapzen.
+
+MIT requires its notice to travel with the copies, and neither upstream
+project ships a licence file beside the icons — so `tools/stage-bundle.sh`
+writes one into the payload, saying where the icons came from and reproducing
+the MIT text. The .deb's copyright file and the tarball's README now name the
+licence and the holder instead of gesturing at them.
+
+Staging refuses to produce a package if either notice — the fonts' `OFL.txt`
+or the icons' `LICENSE.txt` — is missing or empty. Redistribution is the
+whole of what a package does, and a missing notice is invisible until
+somebody goes looking for it.
+
+**Rationale:** The notice is written by us rather than copied because there
+is no file upstream to copy. That is stated in the notice itself: it says
+which project it reproduces the terms of and why the file is ours, so nobody
+later reads it as a licence upstream granted us directly.
+
+---
+
 ### 2026-08-25 — The world overview gets its own archive
 
 **Phase:** 6 · **Branches:** feat/world-own-archive

@@ -494,17 +494,6 @@ not cover.
       glyphs must keep revalidating either way. Worth doing when the worker's
       own loading is next touched, not on its own.
 
-- [ ] **The sprites ship under terms nobody has read.** Packages now carry
-      `basemap/sprites`, which comes from the Protomaps basemaps-assets
-      repository. The glyphs beside them are covered — the Noto fonts are
-      OFL 1.1 and upstream's own `OFL.txt` travels inside the payload — and
-      the tiles are OpenStreetMap data under ODbL, named in the .deb's
-      copyright file and in the tarball's README. The sprites are conveyed
-      as "under that project's own terms", which is true and is not a
-      licence. Read upstream's licence file, name it, and copy its text in
-      beside the OFL as the fonts do. A release must not go out before this;
-      redistribution is exactly what a package does.
-
 - [ ] **The floor re-asks its deepest tile once per integer camera zoom.**
       MapLibre keys an overzoomed vector tile by `overscaledZ`, so stepping
       zoom 7 to 16 asks for the same `/tiles/6/x/y.mvt` ten times. Each is a

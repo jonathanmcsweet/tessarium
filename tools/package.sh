@@ -150,8 +150,10 @@ The map under basemap/ is not ours and travels under its own terms:
            https://www.openstreetmap.org/copyright
   Glyphs   The Noto fonts, SIL Open Font License 1.1. The licence travels
            with them, at basemap/fonts/OFL.txt.
-  Sprites  Map icons from the Protomaps basemaps-assets project, under that
-           project's own terms.
+  Sprites  Map icons from the Protomaps basemaps-assets project, derived
+           from the MIT-licensed tangrams/icons project, (c) 2017 Mapzen.
+           The MIT notice travels with them, at
+           basemap/sprites/LICENSE.txt.
 TXT
 
 cp packaging/tessarium.desktop packaging/tessarium.svg "$out/"

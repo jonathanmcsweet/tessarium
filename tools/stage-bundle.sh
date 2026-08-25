@@ -79,12 +79,48 @@ rm -rf "$dest/fonts" "$dest/sprites"
 cp -r "$ASSETS_DIR/fonts" "$dest/fonts"
 cp -r "$ASSETS_DIR/sprites" "$dest/sprites"
 
-# The glyph licence travels with the glyphs. It is upstream's own file and
-# is the only licence text inside the payload; the rest are named in each
-# package's copyright file.
+# The glyph licence travels with the glyphs. It is upstream's own file, and
+# it is the only licence text that arrives with the assets.
 if [ ! -f "$dest/fonts/OFL.txt" ] && [ -f "$ASSETS_DIR/fonts/OFL.txt" ]; then
   cp "$ASSETS_DIR/fonts/OFL.txt" "$dest/fonts/OFL.txt"
 fi
+
+# The icons have no such file, and MIT is a licence that requires one:
+# "the above copyright notice and this permission notice shall be included
+# in all copies or substantial portions of the Software". Upstream states
+# the terms in its README and ships no LICENSE beside the sprites, so
+# shipping them means writing that notice ourselves. Verified against
+# protomaps/basemaps-assets and tangrams/icons on 2026-08-25.
+cat > "$dest/sprites/LICENSE.txt" <<'ICONS'
+The map icons in this directory come from the Protomaps basemaps-assets
+project (https://github.com/protomaps/basemaps-assets), whose README states
+that they are derived from the MIT-licensed tangrams/icons project
+(https://github.com/tangrams/icons). Neither project ships a licence file
+beside the icons themselves; this notice reproduces the licence that
+tangrams/icons is published under.
+
+The MIT License (MIT)
+
+Copyright (c) 2017 Mapzen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+ICONS
 
 find "$dest" -type d -exec chmod 755 {} +
 find "$dest" -type f -exec chmod 644 {} +
@@ -104,6 +140,18 @@ if [ "$world_bytes" -lt 1000000 ] \
        "${sprite_count} sprite sheets" >&2
   exit 1
 fi
+
+# Both licences that have to travel with the payload, checked for the same
+# reason the tiles are: this is a package, redistributing is the whole of
+# what it does, and neither notice being there is invisible until someone
+# looks for it.
+for notice in fonts/OFL.txt sprites/LICENSE.txt; do
+  if [ ! -s "$dest/$notice" ]; then
+    echo "error: $notice is missing from the staged map." >&2
+    echo "       These assets may not be redistributed without it." >&2
+    exit 1
+  fi
+done
 
 printf '    world overview zooms 0-%s  %s\n' "$WORLD_ZOOM" \
   "$(du -h "$dest/world.pmtiles" | cut -f1)"
