@@ -87,6 +87,65 @@ let () =
     (int_list "cumcols" Tessarium_Table_Data.cumcols_list);
   addf "\n";
 
+  (* --------------------------------------------------------- word lookup *)
+  (* `Tessarium.Words` is the one proved module whose theorem is about ALL
+     inputs and whose extracted code was, until this section, exercised on
+     three spellings. What crosses here is the whole question the module
+     answers: a fixture list, a corpus of typed spellings, and the extracted
+     code's answer for each. F* recomputes all three from the proved source.
+
+     Sixteen real BIP-39 words rather than all 2048: the code path does not
+     depend on the list's length, and F*'s normalizer would be walking
+     2048 byte lists per input. The SHIPPED list is covered separately and
+     exhaustively by ocaml/test/test_words.ml, which runs the same function
+     over every word and every partial spelling. What is checked here is that
+     extraction did not change what the function computes.
+
+     The fixture is chosen for the shapes that decide the answer, not for
+     coverage of the alphabet: words sharing a four-letter prefix with a
+     non-word ("cannon"/"cannot", "artist"/"artistic"), words that are
+     prefixes of other words ("card" under "cardboard"-shaped neighbours,
+     "zoo" under nothing), and a three-letter word that must resolve exactly
+     while a three-letter ABBREVIATION must not. *)
+  let word_fixture =
+    [ "abandon"; "ability"; "able"; "cannon"; "canoe"; "canvas"; "artist";
+      "artefact"; "zone"; "zoo"; "zebra"; "carbon"; "cargo"; "carpet";
+      "card"; "cart" ]
+  in
+  let word_corpus =
+    [ ""; "a"; "ab"; "aba"; "aban"; "abandon"; "abandonx"; "abil"; "able";
+      "can"; "cann"; "canno"; "cannon"; "cannot"; "cano"; "canv"; "canvas";
+      "art"; "arti"; "artis"; "artist"; "artistic"; "arte"; "artefact";
+      "z"; "zo"; "zoo"; "zon"; "zone"; "zeb"; "zebra";
+      "car"; "carb"; "carg"; "carp"; "card"; "cart"; "cardboard" ]
+  in
+  let bytes_of s =
+    List.init (String.length s) (fun i -> Z.of_int (Char.code s.[i]))
+  in
+  let fixture_bytes = List.map bytes_of word_fixture in
+  let word_answers =
+    List.map
+      (fun typed ->
+        match Tessarium_Words.resolve (bytes_of typed) fixture_bytes with
+        | Some i -> i
+        | None -> Z.of_int (-1))
+      word_corpus
+  in
+  let byte_lists name values =
+    spf "[@@\"opaque_to_smt\"]\nlet %s : list (list int) = [\n  %s\n]\n" name
+      (String.concat ";\n  "
+         (List.map
+            (fun w ->
+              spf "[%s]" (String.concat "; " (List.map lit w)))
+            values))
+  in
+  Buffer.add_string b (byte_lists "words_fixture" fixture_bytes);
+  Buffer.add_string b (byte_lists "words_typed" (List.map bytes_of word_corpus));
+  (* -1 is None. The corpus deliberately contains more misses than hits, so a
+     checker that answered None for everything would still fail. *)
+  Buffer.add_string b (int_list "words_answer" word_answers);
+  addf "\n";
+
   (* ------------------------------------------------------------- feistel *)
   let fe_a = Tessarium_Spec.fe_a and fe_b = Tessarium_Spec.fe_b in
   let addr_space = Tessarium_Spec.addr_space in

@@ -21,6 +21,44 @@ than a git log.
 
 ---
 
+### 2026-08-25 — The word lookup, cross-examined on both sides
+
+**Phase:** 1-3 · **Branches:** test/cross-examine-words
+
+**What:** `Tessarium.Words` was the widest gap in the tree: two theorems about
+ALL typed spellings against ALL lists, and extracted code exercised on three
+spellings. Closed from both directions.
+
+`fstar/check/Tessarium.Check.Words` puts F\*'s own evaluator against the
+extracted binary over a 38-spelling corpus and a 16-word fixture, with the
+fixture, the corpus and the answers all coming from Expected so there is no
+second copy of the data to drift. `ocaml/test/test_words.ml` holds the SHIPPED
+lookup to the proved one over the real 2048 words and all 13,343 partial
+spellings of them, which is the part the evaluator leg cannot reach cheaply.
+
+**Rationale:** Two legs rather than one because they answer different
+questions. The evaluator leg asks whether extraction was faithful, and its
+corpus is small on purpose -- the code path does not depend on list length and
+the normalizer would otherwise walk 2048 byte lists per spelling. The OCaml
+leg asks whether the SHIPPED resolver agrees with the proved one, which is a
+live question that no proof touches: `resolve_word` answers a fully spelled
+word from a hashtable because walking the list costs 25x, so the common path
+is not the proved path at all. The guard that keeps them together was one
+string comparison and an argument.
+
+Falsified three ways. Changing `min_abbrev` in the extracted OCaml from 4 to 3
+fails the evaluator leg. Truncating the typed word to four bytes -- the
+comparison that actually shipped once -- fails the OCaml leg on four spellings
+including "cannot" reading as "cannon". An off-by-one in the hashtable path
+fails it on six.
+
+`Tessarium.word_count` and `word_at` are new, and are the only reason the test
+can walk the list: `Wordlist` is not reachable through the library's namespace
+and an accessor pair is a smaller opening than exposing the array.
+
+**Follow-on:** `Tessarium.Check.UrlPath` is what is left of the item; the
+roadmap entry is narrowed to it rather than closed.
+
 ### 2026-08-25 — A promised length is now a promise, and the grid says its name
 
 **Phase:** 6/8 · **Branches:** fix/serve-file-open-first,

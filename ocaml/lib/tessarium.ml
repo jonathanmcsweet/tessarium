@@ -251,6 +251,14 @@ let address_to_string (w1, w2, w3, n) =
 
    Bytes, because the proved module works on bytes -- see its header for why
    F* strings could not carry the claim. *)
+(* The list, reachable from outside. Everything else here takes an index or a
+   spelling, and that is the right shape for callers -- but a test that holds
+   the fast path below to the proved lookup has to walk every word, and it
+   cannot reach `Wordlist` through this module's namespace. Read-only by
+   construction: an accessor and a count, not the array. *)
+let word_count = Array.length Wordlist.words
+let word_at i = Wordlist.words.(i)
+
 let bytes_of_word w =
   List.init (String.length w) (fun i -> Z.of_int (Char.code w.[i]))
 
