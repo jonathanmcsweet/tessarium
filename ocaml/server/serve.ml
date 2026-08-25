@@ -531,29 +531,65 @@ let stream_region file ~offset ~length oc =
 (* Serving a file is `Expert` rather than `Response` because the body has to be
    written while the file is still open. cohttp-eio applies the response
    closure after the callback returns, so a `with_open_in` around a `Response`
-   closes the file before a single byte is written. *)
-let serve_file cfg ~what ~root ~segments ~meth ~range_header ~if_none_match
+   closes the file before a single byte is written.
+
+   The file is OPENED BEFORE the response is built, and the size and the ETag
+   are taken from that open handle rather than from the path. The ordering is
+   the point. `content-length` is a promise, and it used to be made from a
+   stat of a NAME and then kept from a second look at the same name -- so a
+   file renamed in between left the client holding `200 OK, content-length: N`
+   and then a closed socket with nothing in it. That is worse than the 404 it
+   would have got a microsecond earlier, because a truncated body against a
+   promised length is the one failure a client cannot tell from a network
+   fault. The window is one this application opens itself: the downloader
+   renames `map.pmtiles` into place under this very root, and this endpoint
+   serves it.
+
+   An fd pins the inode it opened -- the same fact `open_tile_archive` above
+   already relies on -- so once the handle is in hand, nothing that happens to
+   the name can change the bytes this promised.
+
+   The handle is the server switch's, and is closed explicitly on every path
+   below: immediately on 304 and on the not-a-file path, and under
+   [Fun.protect] in the body callback otherwise, so a client that vanishes
+   mid-stream still releases it. One case does not release it: cohttp writes
+   the response header before calling the body, and if THAT write raises, the
+   body never runs and the handle lives until the server stops. Stated rather
+   than fixed -- closing it would need a per-connection switch, which this
+   callback is not given. *)
+let serve_file cfg ~sw ~what ~root ~segments ~meth ~range_header ~if_none_match
     ~if_range ~immutable =
   let path = List.fold_left Eio.Path.( / ) root segments in
-  (* Probe and stat together, not one then the other. `Url_path.resolve`
-     cannot prevent a 300-byte segment reaching here and is not wrong not to:
-     it holds no separator and cannot leave the root, which is all
-     `theorem_no_escape` claims and all that is needed here. Whether a
+  (* `Url_path.resolve` cannot prevent a 300-byte segment reaching here and is
+     not wrong not to: it holds no separator and cannot leave the root, which
+     is all `theorem_no_escape` claims and all that is needed here. Whether a
      filesystem will hold a name that long is a fact about the directory, and
-     F* is never told about directories.
-
-     Sharing one [path_kind] with the stat closes the window where the file
-     was there for the probe and gone for the stat -- the downloader renames
-     `map.pmtiles` into place under this very root, and this endpoint serves
-     it. *)
+     F* is never told about directories. *)
+  let opened =
+    try Some (Eio.Path.open_in ~sw path)
+    with Eio.Io _ as e ->
+      Logs.warn (fun m ->
+          m "%s: not readable: %s" what
+            (Access_log.printable (Printexc.to_string e)));
+      None
+  in
+  (* The kind is checked on the HANDLE, not on the path. A directory opens
+     perfectly well and fails only on the first read, and re-asking the name
+     would be re-asking a question the handle has already answered about a
+     name that may no longer mean the same file. *)
   let probed =
-    match path_kind ~what path with
-    | `Regular_file -> (
-        try Some (Eio.Path.stat ~follow:true path) with Eio.Io _ -> None)
-    | _ -> None
+    match opened with
+    | None -> None
+    | Some file -> (
+        match (try Some (Eio.File.stat file) with Eio.Io _ -> None) with
+        | Some stat when stat.Eio.File.Stat.kind = `Regular_file ->
+            Some (file, stat)
+        | _ ->
+            Eio.Resource.close file;
+            None)
   in
   match probed with
-  | Some stat ->
+  | Some (file, stat) ->
       let size = Optint.Int63.to_int stat.Eio.File.Stat.size in
       let name = match List.rev segments with [] -> "" | n :: _ -> n in
       let cache_control =
@@ -588,8 +624,10 @@ let serve_file cfg ~what ~root ~segments ~meth ~range_header ~if_none_match
       (* Ahead of the range: If-None-Match is evaluated before Range (RFC 9110
          13.2.2), so a client holding the current bytes gets a 304 whether it
          asked for all of them or a window. *)
-      if Http_cache.is_fresh ~if_none_match ~etag then
+      if Http_cache.is_fresh ~if_none_match ~etag then begin
+        Eio.Resource.close file;
         not_modified cfg ~etag ~cache_control ~vary:[]
+      end
       else
       let status, offset, length, extra =
         match range with
@@ -612,10 +650,13 @@ let serve_file cfg ~what ~root ~segments ~meth ~range_header ~if_none_match
       in
       let response = Http.Response.make ~status ~headers () in
       let body _ic oc =
-        (* HEAD is the same response with the body withheld, not a different
-           one -- the Content-Length must still describe what a GET returns. *)
-        if meth <> `HEAD && length > 0 then
-          Eio.Path.with_open_in path (fun file ->
+        Fun.protect
+          ~finally:(fun () -> Eio.Resource.close file)
+          (fun () ->
+            (* HEAD is the same response with the body withheld, not a
+               different one -- the Content-Length must still describe what a
+               GET returns. *)
+            if meth <> `HEAD && length > 0 then
               stream_region file ~offset ~length oc)
       in
       (`Expert (response, body), (status :> Http.Status.t), length, range)
@@ -1177,7 +1218,7 @@ let refused cfg (r : Api_guard.refusal) (d : Api_guard.disposal) =
 
 let status_code s = Http.Status.to_int s
 
-let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
+let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
     ~basemap_ops ~settings_ops =
   (* The status the log records travels WITH the response. It used to be a
      literal beside each call, and both /api/ branches passed `OK for every
@@ -1275,7 +1316,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
               not_modified cfg ~etag ~cache_control:"no-cache" ~vary:[]
           | `Body body -> simple body)
       | Route.Basemap segments ->
-          serve_file cfg ~what:"basemap" ~root:basemap_root ~segments ~meth
+          serve_file cfg ~sw ~what:"basemap" ~root:basemap_root ~segments ~meth
             ~range_header
             ~if_none_match ~if_range ~immutable:false
       | Route.Asset segments -> (
@@ -1287,7 +1328,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
              matter what --ui says. Refresh it (make ui) and rebuild. *)
           let from_disk () =
             let served =
-              serve_file cfg ~what:"asset" ~root:ui_root ~segments ~meth
+              serve_file cfg ~sw ~what:"asset" ~root:ui_root ~segments ~meth
                 ~range_header
                 ~if_none_match ~if_range ~immutable:true
             in
@@ -1301,7 +1342,7 @@ let handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
               with
               | Some shell -> shell
               | None ->
-                  serve_file cfg ~what:"asset" ~root:ui_root
+                  serve_file cfg ~sw ~what:"asset" ~root:ui_root
                     ~segments:[ "index.html" ] ~meth ~range_header:None
                     ~if_none_match ~if_range ~immutable:false
             else served
@@ -1344,7 +1385,7 @@ let run env ~sw ~port cfg =
   in
   let settings_ops = Settings.ops ~fs ~basemap_dir:cfg.basemap_dir in
   let callback =
-    handler cfg ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
+    handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
       ~basemap_ops ~settings_ops
   in
   let server = Cohttp_eio.Server.make_response_action ~callback () in
