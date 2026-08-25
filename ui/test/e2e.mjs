@@ -2180,6 +2180,25 @@ const pinVisible = await page.evaluate(async () => {
 });
 check("a pin marks the selected square when zoomed out", pinVisible);
 
+/* The epoch the panel names, and it has to be the one this build actually
+   speaks. An address carries no version inside it, so a code issued under an
+   older grid decodes to a different and entirely plausible square with nothing
+   to say why -- naming the grid here is what lets someone label the codes they
+   keep with the grid those codes belong to. Held to the VECTORS rather than to
+   a copy of the string in this file, so a panel left showing a stale version
+   fails here. */
+const shownVersions = await page.locator(".versions code").allTextContents();
+check(
+  `the panel names the grid version (${vectors.grid_version}, got ${
+    shownVersions.join(" ")
+  })`,
+  shownVersions.includes(vectors.grid_version),
+);
+check(
+  `the panel names the derivation version (${vectors.derivation_version})`,
+  shownVersions.includes(vectors.derivation_version),
+);
+
 const panelCoords = async () => {
   const cells = await page.locator(".coords dd").allTextContents();
   return cells.map((t) => Number.parseFloat(t.replace(/[^0-9.-]/g, "")));

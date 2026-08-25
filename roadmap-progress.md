@@ -21,6 +21,52 @@ than a git log.
 
 ---
 
+### 2026-08-25 — A promised length is now a promise, and the grid says its name
+
+**Phase:** 6/8 · **Branches:** fix/serve-file-open-first,
+test/settle-before-select, feat/show-grid-version
+
+**What:** `serve_file` stat'd a NAME, sent `content-length`, and then opened the
+same name again inside the body callback. A file renamed in between gave the
+client `200 OK, content-length: N` followed by a closed socket with nothing in
+it. It now opens the file first and takes size, kind and ETag from the handle,
+which pins the inode; the handle is closed on every path. Falsified against the
+old code: 2 of 300 requests truncated, 0 with the fix. The e2e check moves the
+file away and back for 600 rounds and holds every 200 to what it promised.
+
+The panel now names the grid and derivation versions.
+
+**Rationale:** Two reversals worth recording.
+
+The first is `serve_file`'s: the probe and the stat were deliberately shared
+(2026-08-22) to close the window between them, which was right and did not go
+far enough -- the third look, the one in the body callback, was the one that
+mattered, because by then the promise had already gone out. An fd was always
+the answer; what stopped it was that the handle has to outlive the callback,
+so it now comes from the server switch. That leaves one case unclosed: cohttp
+writes the response header before calling the body, and if THAT write raises
+the body never runs and the handle lives until the server stops. Stated in the
+code rather than fixed -- closing it needs a per-connection switch the callback
+is not given.
+
+The second is the panel's: the grid and derivation versions were deliberately
+NOT shown, on the grounds that the end-to-end suite checks them against the
+vectors. That is still true and is no longer the whole question. An address is
+three words and four digits with no room for a version inside it, so a code
+issued under an older grid is not refused -- it decodes to a different and
+entirely plausible square with nothing to say why. Reported from use the same
+day. Naming the epoch cannot make an old code work; it lets someone label the
+codes they keep.
+
+Also: `inspectAt` in the browser suite was racing. Waiting for `.address`
+returned immediately while the previous square was still on screen, and under
+`make test` a click could land before the map settled and select nothing at
+all. The panel's own coordinates now decide when it has caught up.
+
+**Follow-on:** Refusing an out-of-epoch address outright is the expensive half
+and stays undone -- there is no room in the address for a version. Not added to
+roadmap.md as an item, because nothing about the format is changing.
+
 ### 2026-08-25 — A saved address, held to its place across a re-entered phrase
 
 **Phase:** 6 · **Branches:** test/same-phrase-same-place
