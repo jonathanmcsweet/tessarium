@@ -320,15 +320,22 @@ let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which =
       let e7f v = float_of_int v /. 1e7 in
       let min_zoom, max_zoom, bounds =
         match headers with
-        (* Nothing downloaded. The depth stated here is not only what
-           MapLibre asks for: the coverage note clamps its question to it,
-           to avoid calling a view blank when the source is overzooming
-           tiles it really holds. Reporting 0 for an empty archive silences
-           the note at every zoom -- in the one state where offering the
-           download is the whole point. So the honest 15 stays, and the
-           cost is a viewport of misses on every pan until something is
-           downloaded. Roadmap: one field, two jobs. *)
-        | [] -> (0, 15, whole_planet)
+        (* Nothing downloaded: an empty range, which is a source that
+           requests nothing at all. MapLibre skips every tile shallower
+           than [minzoom] and never looks deeper than [maxzoom], so this
+           costs no request rather than a viewport of misses per pan --
+           which is what a fresh install used to pay, every pan, until the
+           first region was downloaded.
+
+           This number used to have to lie. The coverage note clamped its
+           question to it, so an honest depth here dragged that question
+           down to the floor's zoom, where the overview answers "present"
+           and the offer to download the area you are looking at never
+           appeared -- in the one state where offering it is the whole
+           point. The clamp now happens on the server, against the
+           archives that really hold detail, so this field has one job
+           again. *)
+        | [] -> (1, 0, whole_planet)
         | h :: t ->
             let fold f field =
               List.fold_left (fun acc h -> f acc (field h)) (field h) t

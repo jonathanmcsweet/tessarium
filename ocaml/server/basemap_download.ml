@@ -1539,12 +1539,51 @@ let ledger_json ~fs ~basemap_dir =
 
 let max_coverage_tiles = 4096
 
+(* The deepest zoom the DOWNLOADED archives reach, and [None] when there
+   are none of them at all.
+
+   Separate from the floor's depth, which is about the overview underneath.
+   This one answers "how deep does detail go", and it is the question the
+   coverage clamp below needs. *)
+let detail_depth ~sw ~fs ~basemap_dir =
+  match List.filter_map (open_readable ~sw ~fs ~basemap_dir) detail_files with
+  | [] -> None
+  | archives ->
+      Some
+        (List.fold_left
+           (fun acc (a : Pmtiles.Archive.t) ->
+             max acc a.Pmtiles.Archive.header.Pmtiles.Header.max_zoom)
+           0 archives)
+
 let coverage ~fs ~basemap_dir (req : Basemap_job.request) =
-  (* The zoom the map is DISPLAYING -- what MapLibre asks the tile endpoint
-     for, which is the camera zoom floored and clamped to the source's own
-     depth. Carried in [max_zoom] because that is the field a validated
-     request has; nothing here downloads. *)
-  let z = req.max_zoom in
+  (* The zoom the map is DISPLAYING, carried in [max_zoom] because that is
+     the field a validated request has; nothing here downloads.
+
+     Clamped HERE rather than by the client, and that is the whole of this
+     fix. Past a source's own depth MapLibre stops asking for more and
+     overzooms the deepest tiles it has, so a query at the camera zoom
+     would report a blank that is not on screen -- the clamp is real and
+     has to happen somewhere. It used to happen in the browser, against the
+     depth `/tiles.json` advertised, which forced that number to lie: an
+     archive with no detail in it had to claim depth 15 or the clamp
+     dragged every question down to the floor's zoom, where the overview
+     answers "present" and the offer to download this area never appears.
+     One number cannot both tell MapLibre what to request and tell this
+     query what to ask about.
+
+     So the client sends the zoom it is really looking at, and the answer
+     is clamped against the archives that actually hold detail. With none
+     of them the camera zoom stands, which is the honest reading: there is
+     no detail at any zoom, and the note that says so is exactly what a
+     fresh install needs to see. *)
+  let z =
+    match
+      Eio.Switch.run (fun sw -> detail_depth ~sw ~fs ~basemap_dir)
+    with
+    | Some deepest -> min req.max_zoom deepest
+    | None -> req.max_zoom
+    | exception _ -> req.max_zoom
+  in
   let last = (1 lsl z) - 1 in
   let grid v = max 0 (min last v) in
   (* The same floor arithmetic [Tile_id.covering] plans with, so a cell

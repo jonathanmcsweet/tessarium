@@ -594,11 +594,12 @@ export function MapView() {
      that changes under the map: a download adds them, a removal takes them
      away, and browsing fills them in while the user pans.
 
-     The zoom asked about is the one MapLibre will REQUEST -- the camera
-     zoom floored, clamped to the source's own depth -- not the camera
-     zoom. Past the source's maxzoom the map overzooms the deepest tiles it
-     has rather than asking for more, so a query at the camera zoom would
-     report a blank that is not on screen. */
+     The camera zoom is sent as it is, and the server decides what to
+     answer about. Past a source's own depth MapLibre overzooms the deepest
+     tiles it has rather than asking for more, so the question does have to
+     be clamped -- but only the server knows how deep the downloaded
+     archives really go, and having the browser clamp against the depth
+     `/tiles.json` advertised is what forced that number to lie. */
   const coverageSeq = useRef(0);
   const refreshCoverage = useCallback(async () => {
     const map = mapRef.current;
@@ -619,20 +620,15 @@ export function MapView() {
       | undefined;
     if (!fill || !edge) return;
 
-    const source = map.getSource("protomaps") as unknown as {
-      maxzoom?: number;
-    } | undefined;
-    /* Clamped to the depth the tile grid is cut to, not just to what the
-       source says: MapLibre reports a vector source's spec default of 22
-       until tiles.json arrives, so the first query after every style swap
-       asked about zoom 19 over an archive that stops at 15 -- which the
-       server refused, four times a run. */
-    const deepest = Math.min(
-      MAX_TILE_ZOOM,
-      typeof source?.maxzoom === "number" ? source.maxzoom : MAX_TILE_ZOOM,
-    );
     const view = regionOf(map);
-    const zoom = Math.max(0, Math.min(deepest, Math.floor(map.getZoom())));
+    /* Capped at the deepest zoom the tile grid is cut to, which is a limit
+       of the format rather than a fact about what is downloaded: the
+       server refuses a question past it. Everything else about how deep to
+       ask is the server's to decide. */
+    const zoom = Math.max(
+      0,
+      Math.min(MAX_TILE_ZOOM, Math.floor(map.getZoom())),
+    );
 
     /* A failure here must leave the map alone rather than claim the world
        is blank: the server is on loopback, but a query can still be cut

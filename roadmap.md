@@ -503,29 +503,6 @@ not cover.
       requests across that sweep. Fixable only inside MapLibre's tile keying
       or by a service worker, so it is recorded rather than attempted.
 
-- [ ] **`/tiles.json`'s `maxzoom` does two jobs, and they disagree when
-      nothing is downloaded.** It tells MapLibre how deep to request, and it
-      is what `refreshCoverage` clamps its question to — so that a view the
-      source is overzooming from tiles it really holds is not called blank.
-      With a world overview and no region yet, those two want opposite
-      answers: reporting the archive's real depth (nothing) silences the
-      download note at every zoom, which is the one state where offering the
-      download is the whole point, and reporting 15 means the detail source
-      asks for a viewport of tiles nobody holds on every pan. The honest 15
-      is what ships, so the cost is those misses — header-only 204s. The fix
-      is to stop overloading the field: let the coverage query carry the
-      camera zoom and have the server clamp it against the detail archives'
-      own depth, which is where that fact lives. (Adversarial review,
-      2026-08-22.)
-
-      **This is now the state every fresh install starts in.** Packages ship
-      a world overview and no region (ledger, 2026-08-25), so the detail
-      source asks for a viewport of tiles nobody holds on every pan until
-      the first region is downloaded — where before it took a deliberate
-      command-line fetch to reach this state at all. That moves it from a
-      curiosity to something every new user pays, and round trips are the
-      cost that shows over a forwarded port.
-
 - [ ] **Far past the floor's depth the map is one stretched polygon.** The
       floor is complete, so it always draws — but an archive holding a single
       city floors at zoom 0 or 1, and at street zoom that is one `earth`

@@ -770,14 +770,16 @@ check(
 const tilejson = await (await fetch(`${base}/tiles.json`)).json();
 const worldjson = await (await fetch(`${base}/world.json`)).json();
 /* With an overview and no region, the detail source describes an archive
-   that does not exist yet. It says 15 rather than 0 because the coverage
-   note clamps its question to this number, and a 0 here would silence the
-   download offer in the one state where offering it is the entire point --
-   the cost is a viewport of header-only misses per pan, which is the
-   "one field, two jobs" item in the roadmap. */
+   that does not exist. It says so with an empty range -- MapLibre skips
+   everything shallower than minzoom and never looks past maxzoom, so this
+   source asks for nothing at all rather than a viewport of misses on every
+   pan, which is what a fresh install used to pay until its first download.
+   The offer to download this area survives that honesty because the
+   coverage question is now clamped by the server instead of by this
+   number. */
 check(
-  "with no region downloaded the detail source still states a depth",
-  tilejson.maxzoom === 15 && Array.isArray(tilejson.bounds)
+  `with no region downloaded the detail source asks for nothing (${tilejson.minzoom}-${tilejson.maxzoom})`,
+  tilejson.minzoom > tilejson.maxzoom && Array.isArray(tilejson.bounds)
     && tilejson.bounds.length === 4,
 );
 /* The floor is the whole planet or it is not a floor -- and only as deep as
@@ -804,6 +806,51 @@ check(
 check(
   "still unlocked after the style swap -- no reload happened",
   (await page.locator(".panel").count()) === 1,
+);
+
+/* An overview and no region is the state every fresh install starts in, and
+   two things have to be true of it at once. */
+
+/* First: street zoom is undownloaded ground, and the note offering to fetch
+   it has to be on screen. This is the check that fails if the detail
+   source's advertised depth is made honest without moving the coverage
+   clamp to the server -- the question then drags down to the overview's own
+   zoom, where the answer is "present" and the offer disappears in the one
+   state where it is the entire point. */
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [-0.1, 51.5], zoom: 16 })
+);
+check(
+  "with only an overview, street zoom still offers to download the area",
+  await page.waitForSelector(".map-note.action", { timeout: 20_000 })
+    .then(() => true, () => false),
+);
+
+/* Second: it must cost nothing to look around. The floor draws every tile
+   on screen and there is no detail to ask for, so a pan should not fetch a
+   single empty tile. It used to fetch a viewport of them per pan, for as
+   long as the install went without a region -- each one a round trip
+   carrying no data, which is the cost that shows over a forwarded port.
+   Counted rather than asserted, so the number is in the output. */
+const emptyTiles = [];
+const countEmpty = (res) => {
+  if (res.status() === 204 && /\/tiles\/\d+\/\d+\/\d+\.mvt/.test(res.url())) {
+    emptyTiles.push(res.url());
+  }
+};
+page.on("response", countEmpty);
+for (const [lon, lat] of [[-0.13, 51.52], [-0.16, 51.48], [-0.09, 51.51]]) {
+  await page.evaluate(
+    ([lo, la]) =>
+      window.__tessarium_map?.jumpTo({ center: [lo, la], zoom: 16 }),
+    [lon, lat],
+  );
+  await page.waitForTimeout(1500);
+}
+page.off("response", countEmpty);
+check(
+  `three street-level pans over an overview fetch no empty tiles (got ${emptyTiles.length})`,
+  emptyTiles.length === 0,
 );
 
 /* Second download: detail for the current view, MERGED over the world map.
