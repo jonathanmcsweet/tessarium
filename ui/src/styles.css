@@ -847,6 +847,12 @@ button:disabled {
   margin: 10px 0 0;
   font-size: 11px;
   color: var(--ink-soft);
+  /* Three identifiers rather than one since the grid epoch joined the app
+     version, and they must wrap as units -- a version broken across a line
+     is one a reader cannot match against what they wrote down. */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
 }
 
 .versions code {

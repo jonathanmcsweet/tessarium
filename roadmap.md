@@ -469,24 +469,6 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
-- [ ] **A saved address carries no version, so an old one is silently wrong.**
-      An address is three words and four digits; there is no room in it for a
-      grid or derivation version. So a code issued under `tessarium-grid-3`
-      and typed back in after a future bump does not get refused -- it decodes
-      to a different, entirely plausible square, and nothing on screen says
-      why. Reported from use on 2026-08-25, where the rename supplied the
-      version change (ledger).
-
-      The application knows both versions -- the worker's `status` returns
-      them and the end-to-end suite checks them against the vectors -- and
-      shows neither. The cheap half is to display them, so a user can label
-      the codes in their notepad with the epoch they belong to; that does not
-      make an old code work, and nothing can, but it turns "this went
-      somewhere strange" into "these are from the old grid". The expensive
-      half is refusing outright, which needs a version inside the address and
-      that space does not exist. Deliberately left as the cheap half until
-      someone asks for more.
-
 - [ ] **No response carries a `Date`.** RFC 9110 6.6.1 requires an origin
       server with a clock to send one, and it is what a shared cache computes
       `age` from. Harmless today — everything is either `no-cache`, where the
@@ -937,25 +919,6 @@ not cover.
       are slow and none of them gates correctness.
 
 ## Phase 8 — Later, unscheduled
-
-- [ ] **`serve_file` can promise bytes it then fails to send.** The probe and
-      the stat are guarded together (ledger, 2026-08-22), but
-      `Eio.Path.with_open_in` runs in the body callback, after the status line
-      and `content-length` have gone out. If the file is renamed or becomes
-      unreadable in between, the client gets `200 OK, content-length: N` and
-      then a closed socket with zero bytes — worse than the 404 it would get a
-      microsecond earlier, because a truncated body against a promised length
-      is what a client cannot distinguish from a network fault. Measured under
-      a rename loop against the basemap root, the pattern
-      `Basemap_download` actually uses: 9 of 400 requests dropped, two of them
-      after the headers.
-
-      The fix is to open the file before responding and stat the descriptor,
-      so there is one syscall that can fail and it fails before anything is
-      promised. That needs the fd to outlive the handler and be closed by the
-      body, which means threading a switch into `serve_file` — a resource
-      ownership change, not a guard, which is why it was not folded into the
-      connection-drop fix.
 
 - [ ] **RESEARCH: can this ride inside an existing map app rather than being
       one?** Worth asking because the hard part of this project is the proved

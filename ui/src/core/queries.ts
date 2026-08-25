@@ -84,6 +84,22 @@ export function useLock() {
   });
 }
 
+/* Which grid and which key derivation this build speaks.
+
+   Both are constants of the build, so this is asked once per tab and kept.
+   `status` also reports whether the worker is unlocked, which is emphatically
+   NOT constant -- `select` drops it here so that a cached snapshot of it can
+   never be read back as the current state. */
+export function useCoreVersions() {
+  return useQuery({
+    queryKey: ["core-versions"],
+    queryFn: () => core().status(),
+    select: (s) => ({ grid: s.gridVersion, derivation: s.derivationVersion }),
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+}
+
 /* Cached forever, like phrase validation and for the same reason: the shape
    of a given string cannot change. Runs on every keystroke, ahead of the
    search, and its answer decides whether a request happens at all. */

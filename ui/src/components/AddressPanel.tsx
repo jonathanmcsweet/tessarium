@@ -9,7 +9,7 @@
    -- and the eye toggle here takes that to none. */
 
 import { Eye, EyeOff } from "lucide-react";
-import { useLock } from "../core/queries";
+import { useCoreVersions, useLock } from "../core/queries";
 import { formatCoord } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
@@ -35,6 +35,7 @@ export function AddressPanel() {
   const setLocked = useAppStore((s) => s.setLocked);
 
   const lock = useLock();
+  const versions = useCoreVersions();
 
   return (
     <aside className="panel">
@@ -197,12 +198,25 @@ export function AddressPanel() {
         <p className="warning phrase-note">{m.panel_phrase_note()}</p>
         <p className="panel-explainer">{m.panel_footer()}</p>
         {
-          /* A name and a number: nothing to translate, so no message key. The
-            grid and derivation versions are deliberately NOT shown -- the
-            end-to-end suite checks them against the vectors instead. */
+          /* Names and numbers: nothing to translate, so no message key.
+
+            The grid and derivation versions ARE shown, which reverses the
+            decision that used to sit here (ledger, 2026-08-25). An address is
+            three words and four digits, with no room inside it for a version,
+            so a code issued under an older grid is not refused -- it decodes
+            to a different and entirely plausible square, and nothing on screen
+            says why. Reported from use. Naming the epoch is the cheap half of
+            the answer: it cannot make an old code work, but it lets someone
+            label the codes they keep with the grid those codes belong to. */
         }
         <p className="versions">
           <code>Tessarium v{__APP_VERSION__}</code>
+          {versions.data && (
+            <>
+              <code className="epoch">{versions.data.grid}</code>
+              <code className="epoch">{versions.data.derivation}</code>
+            </>
+          )}
         </p>
       </footer>
     </aside>
