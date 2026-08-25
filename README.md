@@ -36,7 +36,7 @@ side-by-side wall, so the two are compared on every build.
 | Offline basemap | Done — PMTiles reader and region extractor in OCaml |
 | Desktop | Done — one binary with the UI embedded, shipped with a world map; tarball, `.deb`, AppImage |
 | Theorems | Done — containment, injectivity, round-trip, end to end |
-| JavaScript cross-check | Independent implementation; agrees on 10,061,490 points (re-run under the shipping constants, 2026-08-24) |
+| JavaScript cross-check | Independent implementation; agrees on 10,061,490 points, re-run under the shipping constants |
 
 ### What "verified" means here, exactly
 
@@ -341,9 +341,8 @@ F\* itself.
 
 It has been run against **10,061,490 points across five keys with zero
 disagreements (tools/differential-deep.sh)**, re-run in full after every
-change to the hashed constants — both 2026-08-20 crypto changes and the
-2026-08-23 rename — so the number is earned under what ships rather than
-inherited, and re-earning it is the price of touching a constant. A
+change to the hashed constants — the crypto changes and the rename each moved
+them — so the number is earned under what ships rather than inherited, and re-earning it is the price of touching a constant. A
 32,298-point version runs in CI. Because the oracle derives each key itself,
 that run also checks the KDF: five keys, vendored Argon2id against an
 independent implementation. The corpus is deliberately unbalanced towards
