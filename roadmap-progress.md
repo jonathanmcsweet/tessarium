@@ -21,6 +21,35 @@ than a git log.
 
 ---
 
+### 2026-08-25 — Arriving at an address selects its square
+
+**Phase:** 6 · **Branches:** fix/select-on-arrival
+
+**What:** Typing an address flew the camera to the square it names and left
+the panel showing whatever was selected before, so the user had to find and
+click the square they had just asked about. The fly-to effect now runs the
+same encode-and-select path a click runs.
+
+**Rationale:** Selected at once rather than when the flight lands. The panel
+is then right from the moment the answer is known, and interrupting the
+flight -- by dragging, or by asking for somewhere else -- leaves the square
+that was asked for rather than whichever one the camera passed over. It goes
+through `selectAt` rather than trusting the typed address because a decoded
+point re-encodes to the address it came from under ANY key: taking the string
+at its word would put a cell in the panel that nothing had confirmed.
+
+A place pick still only moves the camera. A town is somewhere to look at; an
+address is a square to be told about.
+
+**Falsified**, and the first attempt was worthless. The check ran where the
+panel already named that address from an earlier click, so it passed with the
+selection deleted -- vacuously true. It now selects a different square first,
+which is also what the neighbouring "Enter selects the centre square" check
+was missing: that one had the same hole and would have passed with the key
+handler removed.
+
+---
+
 ### 2026-08-25 — The word lookup, cross-examined on both sides
 
 **Phase:** 1-3 · **Branches:** test/cross-examine-words
