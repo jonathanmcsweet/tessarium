@@ -21,6 +21,46 @@ than a git log.
 
 ---
 
+### 2026-08-25 — The README and the FE1 write-up are true again
+
+**Phase:** 6 · **Branches:** docs/refresh-readme-and-fe1
+
+**What:** An accuracy pass over both documents, with tightening as the smaller
+half of it.
+
+Corrected in `docs/fe1-security.md`: the oracle arithmetic still quoted 81 µs
+per encode, which is the HMAC-SHA256 figure from mapping v1, in a document
+that names keyed BLAKE2s two paragraphs earlier. It is 56 µs, so an
+unthrottled oracle answers a million queries in under a minute rather than
+under two. The limiter figures downstream of it were already right.
+
+Corrected in `README.md`: 8 extracted modules is 10; 227 vector checks is
+231; the two hand-written shims are 142 and 133 lines, not 130 and ~118; and
+the extraction was watched by "three checks" in one paragraph and "four legs"
+in another. The `fstar/low/` section still described the machine-integer port
+as "now underway" with the grid, table and codec stages yet to come — all of
+it landed on 2026-08-20, and both hosts have answered from the emitted C
+since.
+
+Removed: the "Name" section, which warned that the Cryptomeria cipher was a
+near-neighbour with an awkwardly shared round count. The rename to Tessarium
+made the names unalike, and sixteen rounds made the round count unshared.
+
+**Rationale:** The prose in both places had drifted the way prose does — each
+individual claim was true when written. What makes that dangerous here is
+that these are the two documents a reader uses to decide what to believe
+about the proofs, so a stale number in them is worth more than a stale number
+in a comment.
+
+Tightening was deliberately the smaller half: the FE1 write-up lost 9% of its
+words, the README 3%. Most of the README's length is the section that says
+exactly what is and is not proved, and thinning that to hit a word count
+would trade the property the document exists for. What did change there is
+shape — two walls of text became lists, which is what the writing rule in
+CLAUDE.md is actually asking for.
+
+---
+
 ### 2026-08-25 — The detail source stops asking for tiles nobody has
 
 **Phase:** 6 · **Branches:** fix/detail-source-asks-honestly
