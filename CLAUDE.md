@@ -43,6 +43,13 @@ left checked off in both). Do not create `TODO.md`, `NOTES.md`, `PLAN.md`,
 If a decision is worth keeping, it belongs in the roadmap's *Locked decisions*
 section or in a progress entry's rationale field.
 
+**No dates in documentation.** `README.md`, `docs/` and roadmap items say
+what is true, not when it became true — no "as of", no "since 2026-08-20",
+no "landed on". Git records when a thing changed and `roadmap-progress.md`
+records why. The ledger is the one exception, because dated entries are what
+it is; citing one from elsewhere ("ledger, 2026-08-22") is a pointer to a
+record, not a changelog.
+
 **Never hand-edit extracted code.** `ocaml/extracted/` is a build artifact,
 like an object file. Changes belong upstream in `fstar/`, or they are silently
 overwritten at the next extraction. CI regenerates and diffs, so a hand edit

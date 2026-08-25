@@ -132,8 +132,8 @@ README, and the standard one underneath Argon2 and WireGuard's use of the
 same primitive.
 
 If BLAKE2s ever falls, the hash is an injected parameter: swap it, bump the
-grid version, regenerate the vectors. That path was exercised for real in the
-2026-08-20 move off HMAC-SHA256.
+grid version, regenerate the vectors. That path has been walked for real, in
+the move off HMAC-SHA256.
 
 ## References
 
