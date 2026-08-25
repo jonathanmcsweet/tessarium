@@ -186,7 +186,7 @@ test: test-core test-static test-extraction test-lowstar test-ui
 # no browser and no npm install. It holds the prose to the code: the message
 # length is transcribed BY HAND into the Low* module, so nothing else can
 # catch a document that still describes the shape before a constant moved --
-# which is exactly what the 2026-08-23 rename left behind in two files.
+# which is exactly what the project rename left behind in two files.
 test-core:
 	tools/check-suites.sh
 	node tools/check-doc-constants.mjs

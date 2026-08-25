@@ -89,8 +89,8 @@ fi
 # "the above copyright notice and this permission notice shall be included
 # in all copies or substantial portions of the Software". Upstream states
 # the terms in its README and ships no LICENSE beside the sprites, so
-# shipping them means writing that notice ourselves. Verified against
-# protomaps/basemaps-assets and tangrams/icons on 2026-08-25.
+# shipping them means writing that notice ourselves. Checked against
+# protomaps/basemaps-assets and tangrams/icons.
 cat > "$dest/sprites/LICENSE.txt" <<'ICONS'
 The map icons in this directory come from the Protomaps basemaps-assets
 project (https://github.com/protomaps/basemaps-assets), whose README states

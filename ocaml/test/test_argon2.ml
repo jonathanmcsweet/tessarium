@@ -8,7 +8,7 @@
    in the stubs: a parameter drift changes every digest and rings here.
    The salt prefixes are the real kdf-4 shapes on purpose, so these rows
    double as regression pins for the derivation inputs. Recomputed the same
-   two ways when the salt moved from kdf-3 to kdf-4 on 2026-08-23; a row
+   two ways when the salt moved from kdf-3 to kdf-4; a row
    taken from one implementation alone would pin nothing but itself. *)
 
 let hex s =

@@ -4,7 +4,7 @@
 // TRANSCRIBED by hand into fstar/low/Tessarium.Low.Blake2s.fst as literal
 // words and a byte counter. No test can catch a stale prose copy of it, and
 // the prose is what a maintainer reads before touching a constant. It has
-// gone stale once already: after the 2026-08-23 rename the count read 43 in
+// gone stale once already: after the project rename the count read 43 in
 // three files and 47 in two, in the one place where that number is the whole
 // load-bearing fact.
 //
@@ -12,8 +12,8 @@
 // claim about them anywhere in the tracked tree has to agree.
 //
 // Deliberately NOT run over roadmap-progress.md: a ledger entry records what
-// was true on its date, and 47 was true on 2026-08-20. Rewriting that to
-// match today is how a ledger stops being a record.
+// was true on its date, and 47 was true when it was written. Rewriting that
+// to match today is how a ledger stops being a record.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";

@@ -3181,8 +3181,8 @@ console.log(
 /* 200 KB against a measured 178 over the wire (173 under gzip -9; the
    server's compressor emits a little more, and this budget is the wire).
 
-   Raised from 176 when the language picker became a React Aria Select
-   (2026-08-23). That put the library's shared core -- collections, overlays,
+   Raised from 176 when the language picker became a React Aria Select.
+   That put the library's shared core -- collections, overlays,
    focus management -- in the entry chunk, because the gate renders a
    dropdown. Measured: the gate went up 38,617 bytes and the map chunk came
    DOWN 49,222, because the map no longer carries its own copy, so a whole
