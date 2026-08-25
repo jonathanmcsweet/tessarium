@@ -21,6 +21,67 @@ than a git log.
 
 ---
 
+### 2026-08-25 — Every package ships the map it opens on
+
+**Phase:** 6 · **Branches:** feat/bundled-world-map
+
+**What:** A map application that opens on a blank planet is not one. The
+tarball, the .deb and the AppImage now all carry a world overview at zoom 4
+(5.8 MB), the glyphs its labels are drawn from and the sprites its icons come
+from — 21 MB of payload — so a fresh install draws a planet with no network
+and nothing read first.
+
+`tools/stage-bundle.sh` assembles that payload and is the single place all
+three packages get it from. It EXTRACTS the overview to a fixed depth from a
+local archive rather than copying whatever the developer has, so the shipped
+depth does not depend on who built it and packaging needs no network; the
+extract is byte-identical for a given source, and the tarball and .deb still
+double-build to the same sha256. It refuses to produce a package when the
+inputs are missing, and checks what landed — a header with no tiles, or an
+empty assets directory, is a build failure rather than a discovery someone
+makes after installing.
+
+`ocaml/server/bundled.ml` copies the bundle into the directory the app writes
+to, the first time it finds an entry missing. The .deb installs the payload
+read-only under `/usr/share/tessarium/basemap` and its new `/usr/bin/tessarium`
+launcher points the server at the user's data home, which is what the AppImage
+already did; `tessarium-server` run directly keeps its documented `./basemap`
+default, which is what the tarball needs.
+
+**Rationale:** Copied into the writable directory rather than read where it
+lies. A second read-only root would have to be threaded through the tile
+lookup, the floor measurement, the coverage query and the static file route,
+and "which archive answered" is load-bearing in every one of them. Seeding
+costs the user 21 MB once and leaves all four untouched.
+
+Zoom 4 rather than deeper: it draws countries, coastlines and capitals, which
+is enough that the download card is an offer instead of a rescue, and each
+further level roughly triples the package. A deeper overview is a download the
+user chooses.
+
+Verified against a real .deb rather than a staged directory: unpacked, run
+against an empty map directory, seeded all three entries, and served tile
+0/0/0 (93 KB), a glyph range and a sprite sheet, with `/world.json` reporting
+a measured floor of zoom 4. The tarball runs the same way with no seeding at
+all, because its map sits where the server already looks.
+
+**Falsified.** The seeding suite (17 checks) fails when the overwrite guard
+goes — the user's own deeper overview is destroyed on the next restart — when
+a torn `.seeding` directory is published instead of discarded, when the copy
+takes whatever is in the bundle rather than the entries it names, and when it
+follows a link out of the bundle. That last check first pointed its link at
+`/etc`, where it passed because the copy failed rather than because the link
+was refused; it now points somewhere readable. The packaging guards fail a
+build with an assets directory holding no glyphs, and with no overview to
+cut.
+
+**Follow-on:** The sprites' licence is named as "that project's own terms",
+which is not a licence; a roadmap item now blocks a release on reading it.
+`tools/check-suites.sh` also gained the two suites it was missing — the new
+one and `test_words` from yesterday, which had never been registered.
+
+---
+
 ### 2026-08-25 — Arriving at an address selects its square
 
 **Phase:** 6 · **Branches:** fix/select-on-arrival

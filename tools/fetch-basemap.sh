@@ -11,6 +11,8 @@
 #   tools/fetch-basemap.sh -b -74.05,40.68,-73.90,40.80 -z 15
 #   tools/fetch-basemap.sh -W 5                   # a deeper world overview
 #   tools/fetch-basemap.sh -W ""                  # region only, no overview
+#   tools/fetch-basemap.sh -z ""                  # overview and assets only,
+#                                                 # which is what packaging needs
 #
 # Two archives land: the region you asked for, and a world overview at -W
 # zoom levels. The overview is what the map falls back to everywhere you did
@@ -64,9 +66,16 @@ fi
 
 mkdir -p "$OUT_DIR"
 
-echo "==> tiles"
-"$fetcher" "$SOURCE" --bbox="$BBOX" --max-zoom "$MAX_ZOOM" \
-  --out "$OUT_DIR/map.pmtiles"
+# Skippable, symmetrically with the overview below: building a package needs
+# the world and the assets and no region at all, and fetching London to throw
+# it away is tens of megabytes of someone else's bandwidth.
+if [ -z "$MAX_ZOOM" ]; then
+  echo "==> region skipped"
+else
+  echo "==> tiles"
+  "$fetcher" "$SOURCE" --bbox="$BBOX" --max-zoom "$MAX_ZOOM" \
+    --out "$OUT_DIR/map.pmtiles"
+fi
 
 # The world overview, fetched second so a failure here leaves a usable region
 # behind. Skipped when one is already present: it does not change with the

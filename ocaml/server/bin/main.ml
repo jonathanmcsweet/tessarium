@@ -8,6 +8,7 @@
 
 module Serve = Tessarium_server.Serve
 module Basemap_download = Tessarium_server.Basemap_download
+module Bundled = Tessarium_server.Bundled
 
 let default_port = 7373
 
@@ -48,7 +49,7 @@ let setup_log level =
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ())
 
-let serve port ui basemap api connect_src basemap_source basemap_assets
+let serve port ui basemap bundled api connect_src basemap_source basemap_assets
     budget no_open log_level =
   setup_log log_level;
   (* Hand the band table to the C core before anything can serve a request.
@@ -77,6 +78,16 @@ let serve port ui basemap api connect_src basemap_source basemap_assets
   Logs.app (fun m -> m "tessarium serving %s" url);
   Logs.app (fun m -> m "  ui      %s" ui);
   Logs.app (fun m -> m "  basemap %s" basemap);
+  (* Before the first request rather than on demand: the browser asks for
+     tiles and glyphs the moment the page loads, and a map that filled in
+     halfway through the first paint would be a stranger sight than one
+     that was there from the start. *)
+  (match bundled with
+  | Some "" -> ()
+  | dir ->
+      Bundled.seed ~fs:(Eio.Stdenv.fs env)
+        ~from:(Option.value dir ~default:(Bundled.default_dir ()))
+        ~into:basemap);
   if not no_open then
     Eio.Fiber.fork ~sw (fun () -> open_browser (Eio.Stdenv.process_mgr env) url);
   Serve.run env ~sw ~port cfg
@@ -94,6 +105,22 @@ let ui =
 let basemap =
   let doc = "Directory holding .pmtiles basemaps and the map style." in
   Arg.(value & opt string "basemap" & info [ "basemap" ] ~docv:"DIR" ~doc)
+
+(* Not a compiled-in path: the same binary runs from a tarball, from
+   /usr/bin and from inside an AppImage, and each keeps its bundle
+   somewhere different relative to the root. Deriving it from the running
+   executable makes all three work with nothing passed. *)
+let bundled =
+  let doc =
+    "Directory holding the world overview, glyphs and sprites that a package \
+     ships, copied into the basemap directory whenever that is missing them. \
+     Defaults to ../share/tessarium/basemap beside this binary. Pass an \
+     empty string to seed nothing."
+  in
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "bundled-basemap" ] ~docv:"DIR" ~doc)
 
 let api =
   let doc =
@@ -181,7 +208,8 @@ let cmd =
   let info = Cmd.info "tessarium-server" ~version:"0.1.0" ~doc in
   Cmd.v info
     Term.(
-      const serve $ port $ ui $ basemap $ api $ connect_src $ basemap_source
-      $ basemap_assets $ tile_budget $ no_open $ Logs_cli.level ())
+      const serve $ port $ ui $ basemap $ bundled $ api $ connect_src
+      $ basemap_source $ basemap_assets $ tile_budget $ no_open
+      $ Logs_cli.level ())
 
 let () = exit (Cmd.eval cmd)

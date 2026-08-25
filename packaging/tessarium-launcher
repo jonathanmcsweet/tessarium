@@ -1,0 +1,23 @@
+#!/bin/sh
+# What the menu entry runs on an installed system.
+#
+# The binary's own default map directory is ./basemap, which is right for the
+# tarball -- the map is extracted beside it -- and wrong for a package, where
+# the map is installed read-only under /usr and the launcher's working
+# directory is wherever the desktop happened to start it. So an installed run
+# is pointed at the user's data home, and the server seeds that from the
+# bundle under /usr the first time it finds it missing.
+#
+# --basemap given on the command line wins: the flag cannot be repeated, and
+# someone who names a directory means it.
+set -eu
+case " $* " in
+  *" --basemap "* | *" --basemap="*)
+    exec tessarium-server "$@"
+    ;;
+  *)
+    dir="${XDG_DATA_HOME:-$HOME/.local/share}/tessarium/basemap"
+    mkdir -p "$dir"
+    exec tessarium-server --basemap "$dir" "$@"
+    ;;
+esac
