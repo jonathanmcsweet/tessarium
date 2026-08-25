@@ -92,7 +92,7 @@ flag word instead of an option -- generic over the round function like
 the spec, with theorem_end_to_end_low restating the user-facing round
 trip on machine types. Every pure-math stage of the core is now ported.
 
-## The real round function (Low.Blake2s / Low.Core; BLAKE2s since 2026-08-20)
+## The real round function (Low.Blake2s / Low.Core)
 
 Keyed BLAKE2s-256, in pure machine integers -- the round function lives
 inside the proof rather than being injected. (The first port, same day,

@@ -36,9 +36,9 @@ type entry = {
 
 type t = entry list
 
-(* Names a blob inside the PMTiles archive. Renamed with the project on
-   2026-08-23, which an archive downloaded before then does not know. Such an
-   archive is REFUSED rather than read as empty -- see [foreign] below --
+(* Names a blob inside the PMTiles archive. Renamed with the project, which
+   an archive downloaded before that does not know. Such an archive is
+   REFUSED rather than read as empty -- see [foreign] below --
    because silently forgetting what a gigabyte archive holds is the one
    failure the download feature must never have. Nobody was running this yet;
    re-download if you were. *)

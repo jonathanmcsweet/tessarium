@@ -201,7 +201,7 @@ export function AddressPanel() {
           /* Names and numbers: nothing to translate, so no message key.
 
             The grid and derivation versions ARE shown, which reverses the
-            decision that used to sit here (ledger, 2026-08-25). An address is
+            decision that used to sit here. An address is
             three words and four digits, with no room inside it for a version,
             so a code issued under an older grid is not refused -- it decodes
             to a different and entirely plausible square, and nothing on screen

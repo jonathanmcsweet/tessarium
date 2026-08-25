@@ -92,7 +92,7 @@ let required_words = 24
 let nfkd = Normalize.nfkd
 
 (* The Argon2id salt, so it decides every key and therefore every address.
-   Bumped to -4 with the 2026-08-23 rename rather than reusing -3, so an
+   Bumped to -4 with the project rename rather than reusing -3, so an
    address issued under the old derivation can never be silently reread as
    a new one. *)
 let derivation_version = "tessarium-kdf-4"
