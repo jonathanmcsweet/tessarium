@@ -2543,23 +2543,68 @@ const reveal = async () => {
 /* Click one exact point and read back what the panel says about it. Always
    the same physical point across cycles: the panel prints the square's LOW
    CORNER, and re-clicking that corner is a coin toss between four squares. */
-const inspectAt = async (lat, lon) => {
-  await page.evaluate(
-    ([la, lo]) =>
-      window.__tessarium_map?.jumpTo({ center: [lo, la], zoom: 20 }),
-    [lat, lon],
+/* Whether the panel is showing the square for the point just clicked rather
+   than the one selected before it. The panel prints the square's low corner,
+   so a point inside its own square sits at or above that corner by less than
+   one square's width. The bound is loose deliberately: this only has to tell
+   "our point" from "the other saved point", which is a hemisphere away. The
+   precise comparison belongs to the caller. */
+const showsSquareFor = async (lat, lon) => {
+  const cells = await page.locator(".coords dd").allTextContents();
+  if (cells.length !== 2 || cells.some((t) => t.includes("•"))) return null;
+  const [cornerLat, cornerLon] = cells.map((t) =>
+    Number.parseFloat(t.replace(/[^0-9.-]/g, ""))
   );
-  await page.waitForTimeout(900);
+  const holds = (point, corner) => point - corner >= 0 && point - corner < 1e-3;
+  return holds(lat, cornerLat) && holds(lon, cornerLon)
+    ? { cornerLat, cornerLon }
+    : null;
+};
+
+/* Click one exact point and read back what the panel says about it. Always
+   the same physical point across cycles: the panel prints the square's LOW
+   CORNER, and re-clicking that corner is a coin toss between four squares.
+
+   Two things here are load-related rather than fussy, and both were seen.
+   Selecting is a click plus a round trip into the worker, and under `make
+   test` -- where this runs alongside everything else -- the click can land
+   while the map is still settling and select nothing, so it is retried. And
+   waiting for `.address` is not enough on its own: the PREVIOUS square's
+   address is still on screen, so the wait returns immediately and the read
+   races the update. [showsSquareFor] is what actually decides the panel has
+   caught up. */
+const inspectAt = async (lat, lon) => {
   const box = await page.locator(".map").boundingBox();
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await page.waitForSelector(".address", { timeout: 15_000 });
-  await page.waitForTimeout(1200);
-  await reveal();
-  const [cornerLat, cornerLon] = await panelCoords();
+  let corner = null;
+  for (let attempt = 1; attempt <= 3 && corner === null; attempt++) {
+    await page.evaluate(([la, lo]) => {
+      const map = window.__tessarium_map;
+      if (!map) return;
+      /* Cancel any flight still running: a jumpTo during one is overtaken by
+         it, and the click would then land on a different square. */
+      map.stop();
+      map.jumpTo({ center: [lo, la], zoom: 20 });
+    }, [lat, lon]);
+    await page.waitForTimeout(600);
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    const showed = await page
+      .waitForSelector(".address", { timeout: 10_000 })
+      .then(() => true, () => false);
+    if (!showed) continue;
+    await reveal();
+    for (let i = 0; i < 20 && corner === null; i++) {
+      corner = await showsSquareFor(lat, lon);
+      if (corner === null) await page.waitForTimeout(250);
+    }
+  }
+  check(
+    `a square containing ${lat.toFixed(4)},${lon.toFixed(4)} was selected`,
+    corner !== null,
+  );
   return {
     address: await page.locator(".address").textContent(),
-    cornerLat,
-    cornerLon,
+    cornerLat: corner?.cornerLat ?? Number.NaN,
+    cornerLon: corner?.cornerLon ?? Number.NaN,
   };
 };
 
