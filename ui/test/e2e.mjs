@@ -2467,6 +2467,172 @@ check(
     && nearly(nfkdLon, nfkdSample.lon_ns / 1e9),
 );
 
+/* ------- the same phrase, the same address, the same place, every time -----
+
+   Reported from use: save two addresses in a notepad, lock, type the same
+   phrase back in, and the two addresses no longer land where they were saved
+   from -- and not consistently, so a single lookup looks fine and only
+   repeating it shows the drift.
+
+   Nothing above catches that. The suite unlocks once at the top and locks
+   exactly once, to a DIFFERENT phrase, so "the same phrase twice" was never
+   asked. js/worker-differential.mjs cannot ask it either: it drives the
+   worker in one process, and a key that changed across a lock is invisible
+   from inside the worker that holds it.
+
+   So this locks and re-enters the SAME phrase three times, and holds two
+   addresses, saved once at the start, to the place they were saved from.
+   Three cycles rather than one, because the report was that it was
+   inconsistent rather than always wrong.
+
+   Two things are compared, and they fail in different ways:
+     - where the address takes the CAMERA. That is decode under the key, so a
+       key that changed moves it.
+     - what the square at the original point is CALLED. A changed key decodes
+       an address to a new place and re-encodes that place back to the same
+       words, so the camera check alone can be satisfied by a wrong key; this
+       is the half that cannot be.
+
+   The tolerance is 1e-6 degrees, about 11 cm. That is deliberately far
+   tighter than the ~3 m cell: at cell width this would pass while pointing
+   at the wrong square. The panel prints 7 fraction digits, so the parsed
+   value is good to about 1e-7 and the margin is real.
+
+   If the grid or the constants ever change on purpose, saved addresses SHOULD
+   stop lining up and this must fail: the two points come from the committed
+   vectors, which are regenerated in the same commit. */
+
+const same = (a, b) => Math.abs(a - b) < 1e-6;
+
+const relock = async (mnemonic) => {
+  await page.locator(".panel-head .lock").click();
+  await page.waitForSelector(".modal-dialog", { timeout: 10_000 });
+  await page.locator(".modal-actions button.danger").click();
+  await page.waitForSelector("#phrase", { timeout: 30_000 });
+  await page.locator("#phrase").fill(mnemonic);
+  await page.waitForSelector(".valid", { timeout: 30_000 });
+  await page.locator("button[type=submit]").click();
+  await page.waitForSelector(".map-wrap", { timeout: 60_000 });
+};
+
+/* Both values are concealed after every unlock and STAY as the user set them
+   across squares, so this reveals only what is actually masked -- pressing
+   unconditionally hides them again on the second square. */
+const reveal = async () => {
+  if (((await page.locator(".address").textContent()) ?? "").includes("•")) {
+    await page.locator(".address-row .icon-button").first().click();
+  }
+  if (
+    (await page.locator(".coords dd").allTextContents()).some((t) =>
+      t.includes("•")
+    )
+  ) {
+    await page.locator(".coords-row .icon-button").first().click();
+  }
+  await page.waitForFunction(
+    () =>
+      !(document.querySelector(".address")?.textContent ?? "").includes("•")
+      && ![...document.querySelectorAll(".coords dd")].some((d) =>
+        (d.textContent ?? "").includes("•")
+      ),
+    undefined,
+    { timeout: 10_000 },
+  );
+};
+
+/* Click one exact point and read back what the panel says about it. Always
+   the same physical point across cycles: the panel prints the square's LOW
+   CORNER, and re-clicking that corner is a coin toss between four squares. */
+const inspectAt = async (lat, lon) => {
+  await page.evaluate(
+    ([la, lo]) =>
+      window.__tessarium_map?.jumpTo({ center: [lo, la], zoom: 20 }),
+    [lat, lon],
+  );
+  await page.waitForTimeout(900);
+  const box = await page.locator(".map").boundingBox();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForSelector(".address", { timeout: 15_000 });
+  await page.waitForTimeout(1200);
+  await reveal();
+  const [cornerLat, cornerLon] = await panelCoords();
+  return {
+    address: await page.locator(".address").textContent(),
+    cornerLat,
+    cornerLon,
+  };
+};
+
+/* Where an address takes the camera -- the user's actual question, so it is
+   read off the map rather than the panel. */
+const flyToAddress = async (address) => {
+  await goToAddress(address);
+  return await page.evaluate(() => {
+    const c = window.__tessarium_map.getCenter();
+    return { lat: c.lat, lon: c.lng };
+  });
+};
+
+/* Two ordinary points, opposite hemispheres on both axes, chosen by
+   COORDINATE rather than by address: the addresses move whenever the
+   constants do, while the coordinates are the generator's inputs and do not.
+   Deliberately not the vector list's first two, which are (0, 0) and a pole
+   -- a dropped sign is invisible at the origin. */
+const savedPoints = [[51.508, -0.1281], [-33.8568, 151.2153]].map((
+  [lat, lon],
+) =>
+  vectors.addresses.find((a) =>
+    a.mnemonic === vectors.key_derivation[0].name
+    && Math.abs(a.lat_ns / 1e9 - lat) < 1e-9
+    && Math.abs(a.lon_ns / 1e9 - lon) < 1e-9
+  )
+);
+check(
+  "two ordinary vector points are available to save addresses for",
+  savedPoints.length === 2 && savedPoints.every(Boolean),
+);
+
+await relock(sampleMnemonic);
+
+/* Saved once, the way a user saves them: click the square, write down what
+   the panel says, and note where looking the address back up goes. */
+const saved = [];
+for (const point of savedPoints) {
+  const at = { lat: point.lat_ns / 1e9, lon: point.lon_ns / 1e9 };
+  const seen = await inspectAt(at.lat, at.lon);
+  check(
+    `saving ${seen.address} agrees with the committed vector `
+      + `(${point.address})`,
+    seen.address === point.address,
+  );
+  saved.push({ at, ...seen, landed: await flyToAddress(seen.address) });
+}
+
+for (let cycle = 1; cycle <= 3; cycle++) {
+  await relock(sampleMnemonic);
+  for (const [i, s] of saved.entries()) {
+    const landed = await flyToAddress(s.address);
+    check(
+      `cycle ${cycle}: ${s.address} still lands where it was saved from `
+        + `(got ${landed.lat.toFixed(7)},${landed.lon.toFixed(7)} `
+        + `want ${s.landed.lat.toFixed(7)},${s.landed.lon.toFixed(7)})`,
+      same(landed.lat, s.landed.lat) && same(landed.lon, s.landed.lon),
+    );
+    const again = await inspectAt(s.at.lat, s.at.lon);
+    check(
+      `cycle ${cycle}: point ${i + 1} is still called ${s.address} `
+        + `(got ${again.address})`,
+      again.address === s.address,
+    );
+    check(
+      `cycle ${cycle}: and point ${i + 1}'s square has not moved `
+        + `(got ${again.cornerLat.toFixed(7)},${again.cornerLon.toFixed(7)} `
+        + `want ${s.cornerLat.toFixed(7)},${s.cornerLon.toFixed(7)})`,
+      same(again.cornerLat, s.cornerLat) && same(again.cornerLon, s.cornerLon),
+    );
+  }
+}
+
 /* ------------------ the coarse map stays under you -------------------------
 
    Reported from use: zoom into an area you only have the low-resolution map
