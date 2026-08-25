@@ -448,19 +448,6 @@ The theorem set is complete and in the ledger. What is left is narrower.
       Argon2 runs, so the ordinary cost of it is zero and the case for
       spending on it is weak until something else makes it visible.
 
-- [ ] **`vite.config.ts` sets `sourcemap: true`, and the map ships.**
-      There are two of them now that the map is its own chunk — 2,730 KB for
-      `MapView-*.js.map` and 2,110 KB for `index-*.js.map` — and `gen_assets`
-      embeds both in the binary, so they travel in the tarball, the .deb and
-      the AppImage. No visitor downloads either — a browser fetches a `.map`
-      only with devtools open — so this costs package size, not load time, which is why it was
-      left alone rather than folded into the payload work. The decision to
-      make is whether a shipped build should be debuggable at all; turning it
-      off is one line and reclaims three fifths of the binary's asset weight
-      (4,841 KB of 7,965 KB raw, re-measured 2026-08-22; the split moved these
-      figures a little and did not change the share).
-      Settle it with the packaging work above, not before.
-
 ## Phase 6 — Web UI
 
 The prototype is complete: phrase in, grid drawn, click a square, get its

@@ -39,7 +39,19 @@ export default defineConfig({
   ],
   build: {
     target: "es2022",
-    sourcemap: true,
+    /* Off, and the reason is what a shipped build is for.
+
+       Nobody downloads a source map: a browser fetches one only with
+       developer tools open, so this was never a cost on load. It was a cost
+       on every package. The maps are 6.1 MB of the 8.1 MB of assets compiled
+       into the server binary, so they travelled in the tarball, the .deb and
+       the AppImage — three quarters of the asset weight, to make a release
+       build debuggable by whoever happens to open devtools on it.
+
+       Debugging happens against a development build, where `vite dev` emits
+       maps regardless of this setting. Anyone who wants a debuggable release
+       has the source and one line to change. */
+    sourcemap: false,
     // The core is a generated artifact served from public/ and loaded by the
     // worker with importScripts. Keeping it out of the bundler means it is
     // cached separately and never re-chunked by a UI change. Its size is held
