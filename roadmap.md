@@ -562,15 +562,6 @@ not cover.
       `basemapLayers` describes the intent rather than the behaviour. Found
       by adversarial review of the floor work, which did not cause it.
 
-- [ ] **Arriving at an address does not select its square.** The search box
-      flies the camera to the square an address names, at zoom 20, but the
-      panel still shows whatever was selected before — the user has to click
-      the square they just asked for. The old panel form behaved the same way,
-      so this is not a regression, but with one box doing both it reads as
-      one. `requestFlyTo` would need to select on arrival, which means the
-      fly-to effect calling the same encode-and-select path the click handler
-      uses rather than only moving the camera through `ui/src/core/camera.ts`.
-
 - [ ] **The server's messages are still English, and one of them reaches a
       user.** Refusals from the core and the worker now carry codes and are
       said in the interface language (ledger, 2026-08-22), but nothing was

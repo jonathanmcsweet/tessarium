@@ -2308,10 +2308,47 @@ check(
   (await page.locator(".address").textContent()) === sample.address,
 );
 
+/* Arriving at an address selects it, and Enter on the canvas selects the
+   centre square. Both are checked here, and BOTH need something else to be
+   selected first or they pass against a build that does neither: the panel
+   already says `sample.address` from the click above, so an assertion that
+   it says so again is true no matter what the code does. That is exactly how
+   the first version of this passed with the feature removed.
+
+   `clickAway` is what makes them mean something. At zoom 20 a quarter of the
+   canvas is tens of metres, which is several squares, so it lands on a
+   different one every time -- and it moves the selection without moving the
+   camera, which is the state both checks need. */
+await goToAddress(sample.address);
+const centreBox = await page.locator(".map").boundingBox();
+const clickAway = async () => {
+  await page.mouse.click(
+    centreBox.x + centreBox.width * 0.25,
+    centreBox.y + centreBox.height * 0.25,
+  );
+  await page.waitForTimeout(1500);
+  return await page.locator(".address").textContent();
+};
+
+check(
+  "clicking away from the centre selects a different square",
+  (await clickAway()) !== sample.address,
+);
+
+/* The papercut this closes: typing an address is asking to be told about
+   that square, and until now it moved the camera and left the panel on
+   whatever was selected before. The camera is already there, so nothing but
+   the selection can be making this true. */
+await goToAddress(sample.address);
+check(
+  `arriving at ${sample.address} selects its square without a click`,
+  (await page.locator(".address").textContent()) === sample.address,
+);
+
 /* Keyboard access. The map is the one control that cannot be reached with the
    search box, so Enter on the focused canvas must select the centre square --
    the same square flyTo just centred, and the same address as the click. */
-await goToAddress(sample.address);
+await clickAway();
 await page.evaluate(() => document.querySelector(".map canvas")?.focus());
 check(
   "the map canvas is focusable",

@@ -1037,11 +1037,24 @@ export function MapView() {
   }, [selection, ready, styleEpoch]);
 
   /* ------------------------------------------------------------- fly to */
+  /* Asking for an address selects the square it names, as well as going
+     there. The camera and the selection are set together rather than the
+     selection waiting for the flight to land: the panel is then right from
+     the moment the answer is known, and a user who interrupts the flight --
+     by dragging, or by asking for somewhere else -- still has the square
+     they asked about rather than whichever one they happened to leave.
+
+     Selected through the same encode-and-select path a click uses, not from
+     the address that was typed. A decoded point re-encodes to the address it
+     came from under any key, so trusting the typed string would show the
+     panel a cell nothing had confirmed; going through `selectAt` means the
+     panel's square is derived exactly like every other square on the map. */
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready || !flyTo) return;
     goTo(map, [flyTo.lon, flyTo.lat], Math.max(map.getZoom(), 20));
-  }, [flyTo, ready]);
+    void selectAt(flyTo.lat, flyTo.lon);
+  }, [flyTo, ready, selectAt]);
 
   /* The note can go away without the user doing anything -- browsed tiles
      land, a fly-to settles -- and if its button held the keyboard the page
@@ -1122,12 +1135,9 @@ export function MapView() {
             goTo(map, [lon, lat], Math.max(map.getZoom(), 15));
           }}
           /* An address names one square, so this goes all the way in --
-             requestFlyTo lands at zoom 20 where onPick stops at 15. It moves
-             the CAMERA only: the panel still shows whatever was selected
-             before, and the square becomes the selection when the user
-             clicks it or presses Enter on the canvas. Selecting on arrival
-             would be better and is in the roadmap; saying it happens here
-             would just be untrue. */
+             requestFlyTo lands at zoom 20 where onPick stops at 15 -- and it
+             selects that square, which a place pick does not: a town is a
+             place to look at, an address is a square to be told about. */
           onPickAddress={(lon, lat) => requestFlyTo(lat, lon)}
         />
       </div>
