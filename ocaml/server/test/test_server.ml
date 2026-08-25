@@ -578,12 +578,12 @@ let () =
   let ops =
     {
       D.estimate =
-        (fun req ->
-          calls := `Estimate req :: !calls;
+        (fun ~world req ->
+          calls := `Estimate (world, req) :: !calls;
           Ok (`Assoc []));
       start =
-        (fun ~name req ->
-          calls := `Start (name, req) :: !calls;
+        (fun ~name ~world req ->
+          calls := `Start (name, world, req) :: !calls;
           Ok ());
       cancel =
         (fun () ->
@@ -680,7 +680,7 @@ let () =
   let box = {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15}|} in
   let wrap boxes = {|{"regions":[|} ^ String.concat "," boxes ^ "]}" in
   (match run ~endpoint:"basemap-download" ~body:(wrap [ box ]) with
-  | [ `Start (_, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
+  | [ `Start (_, _, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
       check "a good box starts a download with the parsed values"
         (req.min_lon = -0.25 && req.max_lat = 51.55 && req.max_zoom = 15);
       (* max_lon arrived as the JSON integer 0 and must still be a number. *)
@@ -692,7 +692,7 @@ let () =
   (* Several regions ride in one request, in order: the picker sends its
      whole selection at once and reads the depths back by position. *)
   (match run ~endpoint:"basemap-download" ~body:(wrap [ box; paris ]) with
-  | [ `Start (_, [ (a : Tessarium_server.Basemap_job.request); b ]) ] ->
+  | [ `Start (_, _, [ (a : Tessarium_server.Basemap_job.request); b ]) ] ->
       check "two regions arrive as one download, in order"
         (a.min_lon = -0.25 && b.min_lon = 2.1)
   | _ -> check "two regions arrive as one download, in order" false);
@@ -721,7 +721,7 @@ let () =
     {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15,"polygon":[[[-0.2,51.46],[-0.05,51.46],[-0.1,51.54]]]}|}
   in
   (match run ~endpoint:"basemap-download" ~body:(wrap [ with_polygon ]) with
-  | [ `Start (_, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
+  | [ `Start (_, _, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
       check "a polygon rides in with its region"
         (match req.polygon with
         | Some [| ring |] -> Array.length ring = 3 && fst ring.(0) = -0.2
@@ -820,16 +820,69 @@ let () =
        run ~endpoint:"basemap-download"
          ~body:({|{"name":"France","regions":[|} ^ box ^ "]}")
      with
-    | [ `Start (Some "France", _) ] -> true
+    | [ `Start (Some "France", false, _) ] -> true
     | _ -> false);
   check "a download without a name still starts"
     (match run ~endpoint:"basemap-download" ~body:(wrap [ box ]) with
-    | [ `Start (None, _) ] -> true
+    | [ `Start (None, false, _) ] -> true
     | _ -> false);
   check "a name with control characters reaches nothing"
     (run ~endpoint:"basemap-download"
        ~body:({|{"name":"a\nb","regions":[|} ^ box ^ "]}")
      = []);
+  (* Which archive a download joins is the client's to say and the server's
+     to check: the overview is a separate file, and asking for one has to be
+     distinguishable from asking for a region that happens to be large. *)
+  check "a download says which archive it is for"
+    (match
+       run ~endpoint:"basemap-download"
+         ~body:({|{"world":true,"regions":[|} ^ box ^ "]}")
+     with
+    | [ `Start (_, true, _) ] -> true
+    | _ -> false);
+  (* And its estimate is quoted against the same one. A quote taken against
+     the detail archive would price a world overview the user mostly has. *)
+  check "an estimate is asked for the same archive the download joins"
+    (match
+       run ~endpoint:"basemap-estimate"
+         ~body:({|{"world":true,"regions":[|} ^ box ^ "]}")
+     with
+    | [ `Estimate (true, _) ] -> true
+    | _ -> false);
+  check "and is a region download unless it says otherwise"
+    (match
+       run ~endpoint:"basemap-download"
+         ~body:({|{"world":"yes","regions":[|} ^ box ^ "]}")
+     with
+    | [ `Start (_, false, _) ] -> true
+    | _ -> false);
+
+  (* And what the server does with that claim. A box that does not reach the
+     edges is a region however large it is: writing it to world.pmtiles
+     would leave a partial planet in the file every later reader takes for
+     the whole one. *)
+  let region ~min_lon ~min_lat ~max_lon ~max_lat =
+    match
+      Tessarium_server.Basemap_job.validate ~min_lon ~min_lat ~max_lon ~max_lat
+        ~max_zoom:6 ()
+    with
+    | Ok r -> r
+    | Error e -> failwith e
+  in
+  let whole = region ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85. in
+  check "the whole planet is a world overview"
+    (D.covers_the_planet [ whole ]);
+  check "a box short of the edges is not, however large"
+    (not
+       (D.covers_the_planet
+          [ region ~min_lon:(-179.9) ~min_lat:(-84.) ~max_lon:179.9 ~max_lat:84. ]));
+  check "and neither are two halves that between them would cover it"
+    (not
+       (D.covers_the_planet
+          [
+            region ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:0. ~max_lat:85.;
+            region ~min_lon:0. ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.;
+          ]));
 
   (* Settings: an empty body reads, a value writes, junk reaches nothing. *)
   let run_settings ~body =

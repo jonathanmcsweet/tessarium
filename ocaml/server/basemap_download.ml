@@ -66,6 +66,24 @@ let tile_files = [ cache_file; base_file; world_file ]
    fetched. *)
 let detail_files = [ cache_file; base_file ]
 
+(* Which archive a download writes, and the only thing that differs between
+   the two kinds of download this server runs.
+
+   A region joins the detail archive and is recorded in the ledger there, so
+   it can be named, listed, updated and removed. The world overview is not a
+   region: it belongs to no place, it is what the map falls back to
+   everywhere, and every package now ships one. Putting it in the detail
+   archive made it removable by accident -- take away the region whose entry
+   happened to carry it and the floor goes with it -- and gave the ledger a
+   row for something the user cannot meaningfully remove.
+
+   So it goes to its own file and writes no record. It merges with whatever
+   overview is already there, which is what makes deepening the shipped zoom
+   4 to zoom 6 cost only the levels in between. *)
+type target = Detail | World
+
+let file_of = function Detail -> base_file | World -> world_file
+
 (* How deep the floor is ever allowed to go. The scan below is one lookup
    per tile of a whole zoom level, so the work quadruples with every step:
    zoom 6 is 4096 lookups and zoom 10 would be a million. Six is also as
@@ -134,9 +152,13 @@ type coverage_error = Too_large of string | Unreadable of string
 (* What the request handler sees: closures, so the handler can be tested
    with pure fakes and never needs the switch, the network or the clock. *)
 type ops = {
-  estimate : Basemap_job.request list -> (Yojson.Safe.t, string) result;
+  estimate :
+    world:bool -> Basemap_job.request list -> (Yojson.Safe.t, string) result;
   start :
-    name:string option -> Basemap_job.request list -> (unit, string) result;
+    name:string option ->
+    world:bool ->
+    Basemap_job.request list ->
+    (unit, string) result;
   cancel : unit -> bool;
   status : unit -> Yojson.Safe.t;
   ledger : unit -> (Yojson.Safe.t, string) result;
@@ -469,13 +491,21 @@ let guard_compression ~h base =
    "you have all of this" from "the source has nothing here". Units are
    planned one at a time and discarded, so a giant estimate costs the time
    of its planning but only one part's memory. *)
-let estimate ~fs ~net ~source ~basemap_dir ~budget
+(* Quoted against the archive the download would JOIN, which is why this
+   needs to know which kind it is. Diffing a world overview against the
+   detail archive would quote the whole planet to someone whose packaged
+   zoom 4 already holds most of it, and would then report it uncovered
+   forever -- an offer that never goes away however many times it is
+   accepted. *)
+let estimate ~fs ~net ~source ~basemap_dir ~budget ~world
     (reqs : Basemap_job.request list) =
   match
     Eio.Switch.run @@ fun sw ->
     let _resolved, _src, archive = open_source ~sw ~fs ~net ~source in
     let h = archive.Pmtiles.Archive.header in
-    let base = open_base ~sw ~fs ~basemap_dir in
+    let base =
+      open_archive ~sw ~fs ~basemap_dir (file_of (if world then World else Detail))
+    in
     guard_compression ~h base;
     let units, depths = units_of ~budget ~header:h reqs in
     let fetch = ref 0 and fresh = ref 0 and any_tiles = ref false in
@@ -661,9 +691,10 @@ let prune_cache t ~fs ~basemap_dir ~regions =
    skips it after the planning cost alone. The price is that each unit
    rewrites the archive it grows -- recorded on the roadmap, not hidden. *)
 let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
-    ~refresh ~replaces (reqs : Basemap_job.request list) =
+    ~refresh ~replaces ~target (reqs : Basemap_job.request list) =
   let dir = Eio.Path.(fs / basemap_dir) in
-  let part_path = Eio.Path.(dir / "map.pmtiles.part") in
+  let archive_file = file_of target in
+  let part_path = Eio.Path.(dir / (archive_file ^ ".part")) in
   let discard_part () = try Eio.Path.unlink part_path with _ -> () in
   (* Every unit renamed into the archive owns its region from that moment,
      even when the run then stops early: cancel and failure must prune the
@@ -745,7 +776,7 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
            the old inode alive for the open reader, and every base read of
            this part completes before the rename. *)
         Eio.Switch.run @@ fun usw ->
-        let base = open_base ~sw:usw ~fs ~basemap_dir in
+        let base = open_archive ~sw:usw ~fs ~basemap_dir archive_file in
         guard_compression ~h base;
         let base_meta, base_led = base_ledger base in
         let plans =
@@ -826,7 +857,7 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
                  [bytes] is what the network delivered -- the number the
                  estimate quoted -- not the archive bytes copied merging. *)
               let metadata =
-                if part < parts_total then base_meta
+                if part < parts_total || target = World then base_meta
                 else begin
                   let e =
                     entry ~completed:(now ())
@@ -846,7 +877,7 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
                 (Pmtiles.Merge.write ~metadata mp h ~min_zoom:min_zoom'
                    ~max_zoom:max_zoom' ~min_lon ~min_lat ~max_lon ~max_lat
                    ~append ~copy));
-          Eio.Path.rename part_path Eio.Path.(dir / "map.pmtiles");
+          Eio.Path.rename part_path Eio.Path.(dir / archive_file);
           wrote_any := true;
           published := true;
           written_total := !written_total + total;
@@ -860,7 +891,14 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
        one metadata-only rewrite -- including an archive from before the
        ledger existed, which is adopted with completion time zero, meaning
        "age unknown, treat as stale". *)
-    if not !entry_written then begin
+    (* The overview keeps no record, so there is nothing to publish and
+       nothing to adopt -- but "you already have this" is still the honest
+       answer when the merge found every tile already on disk, which is what
+       a user gets who asks for the shipped depth again. *)
+    if target = World then begin
+      if not !wrote_any then failwith "you already have the maps for that area"
+    end
+    else if not !entry_written then begin
       Eio.Switch.run @@ fun usw ->
       let base = open_base ~sw:usw ~fs ~basemap_dir in
       let base_meta, base_led = base_ledger base in
@@ -1369,12 +1407,30 @@ let clear_cache t ~fs ~basemap_dir =
 
 (* ------------------------------------------------------------- lifecycle *)
 
-let start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now reqs =
-  if not (claim t) then Error "a download is already running"
+(* The overview covers the planet or it is not one.
+
+   Checked rather than trusted because the client says which kind of download
+   this is, and a half-planet written to world.pmtiles would be a file whose
+   name is a lie -- the floor measurement would still be honest, since it
+   counts tiles rather than reading the name, but every later reader of that
+   file would be wrong about it. The world offer sends exactly this box. *)
+let covers_the_planet (reqs : Basemap_job.request list) =
+  match reqs with
+  | [ r ] ->
+      r.Basemap_job.min_lon <= -180. && r.Basemap_job.max_lon >= 180.
+      && r.Basemap_job.min_lat <= -85. && r.Basemap_job.max_lat >= 85.
+  | _ -> false
+
+let start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~world ~now
+    reqs =
+  let target = if world then World else Detail in
+  if world && not (covers_the_planet reqs) then
+    Error "a world overview has to cover the whole world"
+  else if not (claim t) then Error "a download is already running"
   else begin
     Eio.Fiber.fork ~sw (fun () ->
         run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
-          ~refresh:false ~replaces:None reqs);
+          ~refresh:false ~replaces:None ~target reqs);
     Ok ()
   end
 
@@ -1395,9 +1451,11 @@ let start_update t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now ~id =
         with
         | None -> set t (Basemap_job.Failed "no such downloaded map")
         | Some e ->
+            (* Updates come from ledger entries, and only the detail
+               archive has one. *)
             run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
               ~name:(Some e.Ledger.name) ~now ~refresh:true ~replaces:(Some id)
-              e.Ledger.regions
+              ~target:Detail e.Ledger.regions
         | exception e -> set t (Basemap_job.Failed (friendly e)));
     Ok ()
   end
@@ -1588,11 +1646,13 @@ let coverage ~fs ~basemap_dir (req : Basemap_job.request) =
 
 let ops t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now =
   {
-    estimate = (fun reqs -> estimate ~fs ~net ~source ~basemap_dir ~budget reqs);
+    estimate =
+      (fun ~world reqs ->
+        estimate ~fs ~net ~source ~basemap_dir ~budget ~world reqs);
     start =
-      (fun ~name reqs ->
-        start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
-          reqs);
+      (fun ~name ~world reqs ->
+        start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~world
+          ~now reqs);
     cancel = (fun () -> cancel t);
     status = (fun () -> status t);
     ledger = (fun () -> ledger_json ~fs ~basemap_dir);

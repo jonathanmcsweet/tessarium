@@ -97,7 +97,6 @@
   "map_loading_detail": "Cargando los detalles del mapa…",
   "map_name_many": "{first} + {count} más",
   "map_name_view": "Vista del mapa",
-  "map_name_world": "Vista mundial",
   "map_removed_done": "Mapas eliminados — {size} liberados.",
   "map_removed_none": "Mapa eliminado de la lista. Sus teselas se comparten con otras descargas y se conservan.",
   "map_removing_progress": "Eliminando — {done} de {total}",

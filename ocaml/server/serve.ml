@@ -1162,8 +1162,12 @@ let handle_basemap cfg (ops : Basemap_download.ops)
           match parse_regions json with
           | Error e -> bad e
           | Ok reqs ->
+              (* Which archive this download would join. An estimate has to
+                 be quoted against the same one, or the number the user is
+                 shown is not the number they will pay. *)
+              let world = json_field "world" json = Some (`Bool true) in
               if String.equal endpoint "basemap-estimate" then
-                match ops.estimate reqs with
+                match ops.estimate ~world reqs with
                 | Ok payload -> respond_json cfg ~status:`OK payload
                 | Error e ->
                     (* The failure is upstream of this server -- the tile
@@ -1171,13 +1175,15 @@ let handle_basemap cfg (ops : Basemap_download.ops)
                        should say so rather than blame the request. *)
                     error cfg ~status:`Bad_gateway e
               else
-                (* The ledger displays whatever name the picker sends, so it
-                   is bounded and printable or the request dies here. *)
+                (* The world overview keeps no ledger entry, so a name sent
+                   with one has nowhere to go; it is ignored rather than
+                   refused, because the client sends the same shape either
+                   way. *)
                 match json_field "name" json with
                 | Some (`String s) when Ledger.valid_name s ->
-                    started (ops.start ~name:(Some s) reqs)
+                    started (ops.start ~name:(Some s) ~world reqs)
                 | Some _ -> bad "name must be 1-120 bytes of printable UTF-8"
-                | None -> started (ops.start ~name:None reqs)))
+                | None -> started (ops.start ~name:None ~world reqs)))
   | _ -> error cfg ~status:`Not_found "no such endpoint"
 
 (* Whether a request declared a body. Both mistakes around this are real and
