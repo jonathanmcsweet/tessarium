@@ -21,6 +21,36 @@ than a git log.
 
 ---
 
+### 2026-08-25 — Shipped builds carry no source maps
+
+**Phase:** 4 · **Branches:** build/no-sourcemaps
+
+**What:** `vite.config.ts` set `sourcemap: true`, so two `.map` files were
+compiled into the server binary and travelled in every package. No visitor
+ever downloaded one — a browser fetches a source map only with developer
+tools open — so this was package weight rather than load time. Now off.
+
+| | before | after |
+|---|---|---|
+| `ui/dist` | 9.3 MB | 3.3 MB |
+| server binary | 24.4 MB | 23.1 MB |
+| tarball | 29 MB | 28 MB |
+| .deb | 23 MB | 22 MB |
+
+**Rationale:** The decision the old roadmap item asked for is whether a
+shipped build should be debuggable at all. It should not: debugging happens
+against a development build, where `vite dev` emits maps whatever this
+setting says, and anyone who wants a debuggable release has the source and
+one line to change.
+
+Worth recording that the saving is smaller than the raw figures suggested.
+The maps were 6.1 MB of 8.1 MB of raw assets — three quarters — but they are
+gzipped into the binary and source maps compress extremely well, so the
+binary lost 1.3 MB rather than 6. The roadmap item quoted the raw share,
+which was true and misleading; the compressed number is the one a user pays.
+
+---
+
 ### 2026-08-25 — The map follows the interface language
 
 **Phase:** 6 · **Branches:** fix/map-follows-language
