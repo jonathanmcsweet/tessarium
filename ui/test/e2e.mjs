@@ -2461,8 +2461,41 @@ check(
 /* The explainer by name, not "the first paragraph in the footer" -- a
    warning was added above it and silently became what this read. */
 const englishFooter = await page.locator(".panel-explainer").textContent();
+
+/* The map has to follow too. Its labels are asked for in the interface
+   language, and the style reads that language once, when it is built -- so
+   switching afterwards used to translate the controls and leave an English
+   map underneath until a download happened to rebuild the style. Asserted on
+   the style the map is actually holding, not on pixels: the fixture's tiles
+   carry no labels to read. */
+const labelLang = (lang) =>
+  page.evaluate(
+    (l) =>
+      JSON.stringify(window.__tessarium_map?.getStyle()?.layers ?? [])
+        .includes(`name:${l}`),
+    lang,
+  );
+/* The absence is what is checkable. Protomaps keeps `name:en` in every style
+   as the fallback for a place with no name in the chosen language, so its
+   presence says nothing; the language actually asked for is the one that
+   appears alongside it. */
+check(
+  "the map is not asking for French before French is chosen",
+  !(await labelLang("fr")),
+);
+
 await chooseFrom(".language", "fr-FR");
 await page.waitForTimeout(400);
+const mapFollowed = await page
+  .waitForFunction(
+    () =>
+      JSON.stringify(window.__tessarium_map?.getStyle()?.layers ?? [])
+        .includes("name:fr"),
+    null,
+    { timeout: 15_000 },
+  )
+  .then(() => true, () => false);
+check("and switching language rebuilds the map for the new one", mapFollowed);
 const frenchFooter = await page.locator(".panel-explainer").textContent();
 check(
   "switching to French translates the interface",

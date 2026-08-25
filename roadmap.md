@@ -518,14 +518,6 @@ not cover.
       overview moves the floor to zoom 4-6 and makes the case rare, which is
       why the setup docs put it first. (Adversarial review, 2026-08-22.)
 
-- [ ] **A locale switch does not rebuild the map style.** `buildStyle` reads
-      `getLocale()` and asks Protomaps for labels in that language, but it is
-      only called on map creation and on a download or removal. Nothing calls
-      `setStyle` when the interface language changes, so the map keeps its
-      old labels until the next archive change. The comment above
-      `basemapLayers` describes the intent rather than the behaviour. Found
-      by adversarial review of the floor work, which did not cause it.
-
 - [ ] **The server's messages are still English, and one of them reaches a
       user.** Refusals from the core and the worker now carry codes and are
       said in the interface language (ledger, 2026-08-22), but nothing was

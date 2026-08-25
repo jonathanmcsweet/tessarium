@@ -21,6 +21,31 @@ than a git log.
 
 ---
 
+### 2026-08-25 — The map follows the interface language
+
+**Phase:** 6 · **Branches:** fix/map-follows-language
+
+**What:** Choosing French translated the controls and left the map in English
+until something else happened to rebuild the style — a download or a removal.
+The style asks Protomaps for labels in the interface language, and it reads
+that language once, when it is built. A language change now rebuilds it, the
+same way a download does.
+
+**Rationale:** Skipped on the first render, because the map was created with
+the current language already and rebuilding on mount would throw away the
+style it just loaded. The comment above `basemapLayers` promising that place
+names follow the interface language now describes the behaviour rather than
+the intent.
+
+**Falsified**, and the first attempt was wrong in an instructive way. It
+checked that the style stopped asking for English after the switch; Protomaps
+keeps `name:en` in every style as the fallback for a place with no name in the
+chosen language, so that assertion was about the library rather than about
+this project. The check is now the absence of French before the switch and its
+presence after, which fails with the rebuild removed.
+
+---
+
 ### 2026-08-25 — The README and the FE1 write-up are true again
 
 **Phase:** 6 · **Branches:** docs/refresh-readme-and-fe1
