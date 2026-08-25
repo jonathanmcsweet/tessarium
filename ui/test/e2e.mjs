@@ -9,7 +9,7 @@
    The addresses it expects come from `vectors/vectors.json`, so a UI that
    renders beautifully and computes the wrong answer still fails. */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import http, { createServer } from "node:http";
 import { chromium } from "playwright";
 
@@ -3526,6 +3526,94 @@ check(
     === 404,
 );
 await post4("basemap-settings", { browse_cache: false });
+
+/* --------------- a promised content-length is a promise --------------------
+
+   `serve_file` writes the status line and `content-length` first and the body
+   afterwards. It used to open the file in the body callback, so a file that
+   was renamed in between produced `200 OK, content-length: N` followed by a
+   closed socket with nothing in it -- and a truncated body against a promised
+   length is the one failure a client cannot tell from a network fault. The
+   application opens that window itself: the downloader renames `map.pmtiles`
+   into place under the very root this endpoint serves.
+
+   Driven the way it was measured. A file under the basemap root is moved away
+   and back while the same file is fetched in a loop, and the rule is that
+   every 200 delivers exactly what it promised. A 404 is a fine answer -- the
+   name really is absent for part of each cycle -- and so is any other status;
+   what is not fine is a 200 that under-delivers.
+
+   The counts are reported whether or not it passes, because "0 truncated" is
+   only worth reading next to how many 200s actually happened. */
+const racyRoot = new URL("../../_build/e2e-basemap/", import.meta.url);
+const racyPath = new URL("racy.bin", racyRoot);
+const racyAside = new URL("racy.bin.aside", racyRoot);
+const racyBytes = Buffer.alloc(128 * 1024, 7);
+writeFileSync(racyPath, racyBytes);
+
+let racyComplete = 0, racyTruncated = 0, racyMissing = 0, racyOther = 0;
+/* 600 rather than a round hundred, and the reason is worth stating: the
+   window this opens is narrow. Measured against the unfixed server, 2 of 300
+   requests truncated -- so a short loop would clear a broken build about one
+   run in eight. 600 puts that under 2%. It is still a probabilistic check,
+   which is why the fix is a structural one and this only watches it. */
+const ROUNDS = 600;
+
+/* Away and back, so the name is genuinely absent for part of every cycle.
+   Replacing it in place would not do: the old code would open the
+   replacement, stream a file of the same length, and look correct. */
+const flipper = (async () => {
+  for (let i = 0; i < ROUNDS; i++) {
+    try {
+      renameSync(racyPath, racyAside);
+      renameSync(racyAside, racyPath);
+    } catch { /* lost a race with ourselves; the next round re-tries */ }
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+})();
+
+for (let i = 0; i < ROUNDS; i++) {
+  let res;
+  try {
+    res = await fetch(`${base}/basemap/racy.bin`);
+  } catch {
+    racyOther += 1;
+    continue;
+  }
+  if (res.status === 404) {
+    racyMissing += 1;
+    await res.arrayBuffer().catch(() => {});
+    continue;
+  }
+  if (res.status !== 200) {
+    racyOther += 1;
+    await res.arrayBuffer().catch(() => {});
+    continue;
+  }
+  const promised = Number(res.headers.get("content-length"));
+  /* undici rejects the body when it is shorter than the length that was
+     promised, which is exactly the failure being looked for -- so the throw
+     counts as a truncation rather than as an error in this harness. */
+  const got = await res.arrayBuffer().then((b) => b.byteLength, () => -1);
+  if (got === promised && promised === racyBytes.length) racyComplete += 1;
+  else racyTruncated += 1;
+}
+await flipper;
+rmSync(racyPath, { force: true });
+rmSync(racyAside, { force: true });
+
+check(
+  `a file renamed mid-flight never truncates a promised body `
+    + `(${racyComplete} complete, ${racyTruncated} truncated, `
+    + `${racyMissing} absent, ${racyOther} other, of ${ROUNDS})`,
+  racyTruncated === 0,
+);
+/* Guards the check above from passing because nothing was ever served: if the
+   loop only ever saw 404s it has proved nothing about promised bodies. */
+check(
+  `and the loop actually served the file (${racyComplete} times)`,
+  racyComplete > 0,
+);
 
 slowProxy.close();
 
