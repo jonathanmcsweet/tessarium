@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # Build a .deb. The binaries are self-contained (libgmp is linked
 # statically), so the package depends on nothing beyond libc, and the payload
-# is the same two executables the tarball ships plus the menu integration a
-# tarball cannot give: a desktop entry and an icon.
+# is the same two executables the tarball ships, the same world overview they
+# open on, and the menu integration a tarball cannot give: a desktop entry
+# and an icon.
+#
+# The map is installed read-only under /usr/share, which is not where the app
+# can write. `tessarium` -- the launcher the menu entry runs -- points the
+# server at a directory under the user's own data home, and the server seeds
+# that from the installed bundle the first time it finds it empty. Running
+# `tessarium-server` directly keeps its documented default of ./basemap, so a
+# terminal user gets exactly what the tarball gives them.
 #
 # Deterministic: fixed mtimes and root ownership, so rebuilding the same
 # commit yields the same .deb.
@@ -46,8 +54,19 @@ mkdir -p \
 
 install -m 755 _build/default/ocaml/server/bin/main.exe "$stage/usr/bin/tessarium-server"
 install -m 755 _build/default/ocaml/pmtiles/bin/main.exe "$stage/usr/bin/tessarium-basemap"
-install -m 644 packaging/tessarium.desktop "$stage/usr/share/applications/"
+install -m 755 packaging/tessarium-launcher "$stage/usr/bin/tessarium"
 install -m 644 packaging/tessarium.svg "$stage/usr/share/icons/hicolor/scalable/apps/"
+# The shared desktop entry runs `tessarium-server`, which is right for the
+# tarball, where the map sits beside the binary. An installed copy has to go
+# through the launcher instead, and this is the one line of difference.
+sed 's/^Exec=tessarium-server$/Exec=tessarium/' packaging/tessarium.desktop \
+  > "$stage/usr/share/applications/tessarium.desktop"
+chmod 644 "$stage/usr/share/applications/tessarium.desktop"
+grep -q '^Exec=tessarium$' "$stage/usr/share/applications/tessarium.desktop" \
+  || { echo "error: the desktop entry's Exec= was not rewritten." >&2; exit 1; }
+
+echo "==> map"
+tools/stage-bundle.sh "$stage/usr/share/tessarium/basemap"
 # The application is Apache-2.0; the binaries also embed GNU GMP
 # statically, and conveying it obliges naming its licence and where its
 # source lives.
@@ -60,6 +79,23 @@ These binaries statically link the GNU Multiple Precision Arithmetic
 Library (GMP), which is dual-licensed LGPLv3+ / GPLv2+. GMP source:
 https://gmplib.org/. Relinking against a modified GMP: rebuild from this
 package's full corresponding source, https://github.com/tessarium/tessarium.
+
+----------------------------------------------------------------------
+This package also carries a map, which is not this project's work and is
+conveyed under its own terms.
+
+/usr/share/tessarium/basemap/world.pmtiles contains OpenStreetMap data,
+(c) OpenStreetMap contributors, licensed under the Open Database Licence
+(ODbL) v1.0: https://opendatacommons.org/licenses/odbl/1-0/ and
+https://www.openstreetmap.org/copyright. It was cut into vector tiles by
+the Protomaps project.
+
+/usr/share/tessarium/basemap/fonts holds the Noto fonts, licensed under the
+SIL Open Font License v1.1. The full licence is installed beside them at
+/usr/share/tessarium/basemap/fonts/OFL.txt.
+
+/usr/share/tessarium/basemap/sprites holds map icons from the Protomaps
+basemaps-assets project, conveyed under that project's own terms.
 GMP
 } > "$stage/usr/share/doc/tessarium/copyright"
 chmod 644 "$stage/usr/share/doc/tessarium/copyright"
@@ -84,8 +120,9 @@ Homepage: https://github.com/tessarium/tessarium
 Description: private three-word addresses for every ~3 m square on Earth
  Three BIP-39 words plus a number address every ~3 m square on Earth,
  under a mapping that is private to each user's seed phrase. Runs a
- loopback-only server and opens the system browser; works fully offline
- once a basemap is downloaded in-app.
+ loopback-only server and opens the system browser. A world overview is
+ included, so it works offline from the first run; detail for a region is
+ downloaded in-app.
 CTRL
 
 (cd "$stage" && find usr -type f -exec md5sum {} +) > "$stage/DEBIAN/md5sums"

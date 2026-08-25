@@ -237,8 +237,28 @@ jobs:
           cd ..
           opam exec -- make test-ui
 
+      # Every package ships a world overview and the glyphs its labels are
+      # drawn from, so packaging needs a map to cut one out of. Kept outside
+      # the tree and cached under a fixed key: it is 21 MB of somebody else's
+      # bandwidth, it changes upstream every day, and a package built from a
+      # different day's planet is a different package for no reason anyone
+      # asked for.
+      - name: Cache the map packages ship
+        id: mapsrc-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/mapsrc
+          key: mapsrc-world4-v1
+
+      - name: Fetch the map packages ship
+        if: steps.mapsrc-cache.outputs.cache-hit != 'true'
+        run: opam exec -- tools/fetch-basemap.sh -o "$HOME/mapsrc" -z "" -W 4
+
       - name: Package
-        run: opam exec -- tools/package.sh
+        run: |
+          export WORLD_SOURCE="$HOME/mapsrc/world.pmtiles"
+          export ASSETS_DIR="$HOME/mapsrc"
+          opam exec -- tools/package.sh
 
       - uses: actions/upload-artifact@v4
         with:
@@ -287,9 +307,27 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # Outside the working tree on purpose: `git clean` below wipes
+      # basemap/, and both builds have to cut their world overview out of
+      # the SAME source archive or the two packages differ over a map that
+      # changed upstream between them rather than over anything this
+      # repository did.
+      - name: Cache the map packages ship
+        id: mapsrc-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/mapsrc
+          key: mapsrc-world4-v1
+
+      - name: Fetch the map packages ship
+        if: steps.mapsrc-cache.outputs.cache-hit != 'true'
+        run: opam exec -- tools/fetch-basemap.sh -o "$HOME/mapsrc" -z "" -W 4
+
       - name: Build and package twice from clean, compare
         run: |
           export PATH="$HOME/toolchain/fstar/bin:$PATH"
+          export WORLD_SOURCE="$HOME/mapsrc/world.pmtiles"
+          export ASSETS_DIR="$HOME/mapsrc"
           build_all() {
             opam exec -- dune build
             opam exec -- make ui

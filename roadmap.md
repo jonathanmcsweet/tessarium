@@ -506,14 +506,16 @@ not cover.
       `basemap_download`'s .part/rename/compaction paths, which is a wider
       change than the fix that motivated it.
 
-- [ ] **The release tarball ships no world overview.** `tools/package.sh`
-      keeps its "no basemap in the tarball" policy and README.txt now makes
-      fetching one step 1 of 3. That is a defensible first run for a
-      command-line tool and a poor one for the desktop packages, where the
-      app opens on a blank world until someone reads the README. Bundling
-      ~6 MB into the .deb and the AppImage is the obvious answer; it was not
-      done here because it changes what those packages are for, and the
-      Android plan (Phase 9) will want the same decision made once.
+- [ ] **The sprites ship under terms nobody has read.** Packages now carry
+      `basemap/sprites`, which comes from the Protomaps basemaps-assets
+      repository. The glyphs beside them are covered — the Noto fonts are
+      OFL 1.1 and upstream's own `OFL.txt` travels inside the payload — and
+      the tiles are OpenStreetMap data under ODbL, named in the .deb's
+      copyright file and in the tarball's README. The sprites are conveyed
+      as "under that project's own terms", which is true and is not a
+      licence. Read upstream's licence file, name it, and copy its text in
+      beside the OFL as the fonts do. A release must not go out before this;
+      redistribution is exactly what a package does.
 
 - [ ] **The floor re-asks its deepest tile once per integer camera zoom.**
       MapLibre keys an overzoomed vector tile by `overscaledZ`, so stepping

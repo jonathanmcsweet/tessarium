@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Build an AppImage, or at least its AppDir.
 #
-# The AppDir is always produced and is a complete, runnable layout — that
-# part is testable anywhere. Squashing it into a .AppImage needs
+# The AppDir is always produced and is a complete, runnable layout — binaries,
+# icon, desktop entry and the map it opens on — that part is testable
+# anywhere. Squashing it into a .AppImage needs
 # `appimagetool`, which is a separate download; when it is absent this
 # script says so and leaves the AppDir, rather than failing the build for a
 # tool most CI images do not carry.
@@ -28,10 +29,19 @@ install -m 755 _build/default/ocaml/pmtiles/bin/main.exe "$appdir/usr/bin/tessar
 install -m 644 packaging/tessarium.desktop "$appdir/tessarium.desktop"
 install -m 644 packaging/tessarium.svg "$appdir/tessarium.svg"
 
+# The map ships inside the image, which is read-only; AppRun points the
+# server at the user's data home and the server seeds that from here on the
+# first run that finds it empty.
+echo "==> map"
+tools/stage-bundle.sh "$appdir/usr/share/tessarium/basemap"
+
 cat > "$appdir/AppRun" <<'RUN'
 #!/bin/sh
 # The basemap lives beside the user's data, not inside the read-only image
-# -- unless the user names their own; the flag cannot be repeated.
+# -- unless the user names their own; the flag cannot be repeated. The
+# world overview inside the image is copied into that directory by the
+# server the first time it finds it missing, so a first run opens on a map
+# without having fetched anything.
 here="$(dirname "$0")"
 case " $* " in
   *" --basemap "*|*" --basemap="*)

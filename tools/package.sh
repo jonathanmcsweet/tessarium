@@ -2,13 +2,14 @@
 # Build a release tarball.
 #
 # The UI is compiled into the server binary, so what ships is two executables
-# and nothing else — no asset directory to keep alongside them, no runtime to
-# install. The basemap is deliberately not bundled: it is tens of megabytes and
-# region-specific, and `tessarium-basemap` fetches whichever part of the
-# world the user actually wants. That includes the world overview, which is
-# small and global but still a download — README.txt below makes it the first
-# step rather than an option, because without one the map is blank everywhere
-# outside the region you fetched.
+# and the map they open on: a world overview at country level, the glyphs its
+# labels are drawn from and the sprites its icons come from. No runtime to
+# install, and nothing to fetch before the first run.
+#
+# A REGION in detail is still a download — it is region-specific and tens of
+# megabytes, and the app offers it where the user is looking. What is bundled
+# is the floor underneath that, which is what the difference between a map
+# application and a blank window turns on.
 
 set -euo pipefail
 
@@ -49,6 +50,11 @@ cp _build/default/ocaml/pmtiles/bin/main.exe "$out/tessarium-basemap"
 cp LICENSE "$out/"
 chmod +x "$out"/tessarium-*
 
+# The tarball keeps its map where the server looks by default, so an
+# extracted directory runs with no arguments and no seeding.
+echo "==> map"
+tools/stage-bundle.sh "$out/basemap"
+
 cat > "$out/README.txt" <<'TXT'
 Tessarium
 ===========
@@ -59,39 +65,37 @@ mapping private to your seed phrase.
 Quick start
 -----------
 
-  1. Fetch the world overview. This is the map you see everywhere you have
-     not downloaded in detail, and without it the map is blank outside the
-     region you fetch in step 2. About 6 MB:
-
-       ./tessarium-basemap latest \
-         --bbox=-180,-85,180,85 --max-zoom 4 --out basemap/world.pmtiles
-
-     Deeper is better: zoom 5 is about 14 MB and zoom 6 about 43 MB, which
-     is as deep as the map will ever stand. A shallower overview is not
-     wasted — the map stands on whichever level the file covers the whole
-     planet at, so zoom 3 simply gives a coarser floor than zoom 6.
-
-  2. Fetch a basemap for wherever you care about in detail:
-
-       ./tessarium-basemap latest \
-         --bbox=-0.25,51.45,0.0,51.55 --max-zoom 15 --out basemap/map.pmtiles
-
-     ("latest" is the newest Protomaps daily planet build; an https:// URL
-     or a local .pmtiles path works there too.) More regions can be added
-     later from inside the app, and they merge rather than replace.
-
-     You also need glyphs and sprites, once:
-
-       curl -fsSL https://codeload.github.com/protomaps/basemaps-assets/tar.gz/refs/heads/main \
-         | tar -xz --strip-components=1 -C basemap \
-           --wildcards '*/fonts' '*/sprites'
-
-  3. Run it:
+  1. Run it:
 
        ./tessarium-server
 
      It serves http://127.0.0.1:7373 and opens your browser. Loopback only —
      it never binds a public interface.
+
+That is the whole of it. The basemap/ directory beside these binaries holds
+a world overview at country level, so the map is drawn the moment it opens,
+and anywhere you want in street detail is a download offered inside the app
+for the area you are looking at.
+
+Adding map without the app
+--------------------------
+
+Detail for a region, if you would rather not use the download card:
+
+  ./tessarium-basemap latest \
+    --bbox=-0.25,51.45,0.0,51.55 --max-zoom 15 --out basemap/map.pmtiles
+
+("latest" is the newest Protomaps daily planet build; an https:// URL or a
+local .pmtiles path works there too.) Downloads merge rather than replace,
+so nothing already held is fetched twice.
+
+A deeper world overview, if you want a better floor everywhere:
+
+  ./tessarium-basemap latest \
+    --bbox=-180,-85,180,85 --max-zoom 6 --out basemap/world.pmtiles
+
+The shipped one stops at zoom 4, which is about 6 MB. Zoom 5 is about 14 MB
+and zoom 6 about 43 MB, which is as deep as the map ever stands.
 
 Your seed phrase
 ----------------
@@ -112,8 +116,8 @@ web UI never uses it.
 Working offline
 ---------------
 
-Everything is served locally — map tiles, fonts and icons included. Once the
-basemap is fetched, no network is needed.
+Everything is served locally — map tiles, fonts and icons included. Nothing
+is fetched at all unless you ask for more map than the overview holds.
 
 Zooming past what you downloaded does not go blank: the world overview keeps
 drawing underneath, stretched, and a note offers to download the area you are
@@ -136,7 +140,18 @@ of tessarium-server first).
 Source and licence
 ------------------
 
-Apache-2.0. See LICENSE. https://github.com/tessarium/tessarium
+The application is Apache-2.0. See LICENSE.
+https://github.com/tessarium/tessarium
+
+The map under basemap/ is not ours and travels under its own terms:
+
+  Tiles    OpenStreetMap data, © OpenStreetMap contributors, under the Open
+           Database Licence (ODbL). Cut into vector tiles by Protomaps.
+           https://www.openstreetmap.org/copyright
+  Glyphs   The Noto fonts, SIL Open Font License 1.1. The licence travels
+           with them, at basemap/fonts/OFL.txt.
+  Sprites  Map icons from the Protomaps basemaps-assets project, under that
+           project's own terms.
 TXT
 
 cp packaging/tessarium.desktop packaging/tessarium.svg "$out/"
