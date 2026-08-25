@@ -728,6 +728,24 @@ export function MapView() {
     map.setStyle(buildStyle(styleVersion.current));
   }, []);
 
+  /* The map's labels are asked for in the interface language, and
+     `basemapLayers` reads that language once, when the style is built. So a
+     language chosen after the map exists reached the panel and left the map
+     in the old one until something else happened to rebuild the style -- a
+     download, or a removal. Rebuilding here is what makes the comment above
+     `basemapLayers` describe the behaviour rather than the intent.
+
+     Skipped on the first run: the map was created with the current language
+     already, and rebuilding it on mount would throw away the style the map
+     just loaded. */
+  const locale = useAppStore((s) => s.locale);
+  const styledFor = useRef(locale);
+  useEffect(() => {
+    if (!ready || styledFor.current === locale) return;
+    styledFor.current = locale;
+    rebuildBasemap();
+  }, [locale, ready, rebuildBasemap]);
+
   /* ------------------------------------------------------ browse cache */
 
   /* When the user has opted in and is online, a settled pan fetches the
