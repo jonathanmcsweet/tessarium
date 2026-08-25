@@ -385,6 +385,58 @@ let () =
      with
     | Ok (`Assoc fields) -> List.assoc_opt "entries" fields = Some (`List [])
     | _ -> false);
+  (* --------------------------------------------- how deep the answer is *)
+  (* The question a viewport asks is the camera zoom, and the answer has to
+     be about the zoom MapLibre will really REQUEST -- which past an
+     archive's own depth is that depth, because the map overzooms the
+     deepest tiles it has rather than asking for more. Clamping that in the
+     browser is what used to force `/tiles.json` to advertise a depth it
+     did not have.
+
+     This archive stops at zoom 12. *)
+  (match
+     query ~fs ~dir:dir_name ~min_lon:(-0.2) ~min_lat:51.45 ~max_lon:(-0.05)
+       ~max_lat:51.55 ~zoom:15
+   with
+  | Error e -> check ("a view past the archive's depth answers: " ^ why e) false
+  | Ok json ->
+      check "a question deeper than the archive is answered at its depth"
+        (int_field "zoom" json = 12);
+      check "and the tiles there are the ones that were downloaded"
+        (String.for_all (fun c -> c = '1') (string_field "present" json)));
+  (match
+     query ~fs ~dir:dir_name ~min_lon:(-0.2) ~min_lat:51.45 ~max_lon:(-0.05)
+       ~max_lat:51.55 ~zoom:9
+   with
+  | Error e -> check ("a shallower view answers: " ^ why e) false
+  | Ok json ->
+      check "a question inside the archive's depth is answered where it asked"
+        (int_field "zoom" json = 9));
+
+  (* With an overview and no downloaded detail, nothing clamps: there is no
+     detail at any zoom, and dragging the question down to the overview's
+     own depth would answer "present" and silence the offer to download
+     the area being looked at. That is the state every fresh install starts
+     in, so it is the one that matters most. *)
+  let overview_only = Filename.concat root "overview-only" in
+  Eio.Path.mkdir ~perm:0o755 Eio.Path.(fs / overview_only);
+  write Eio.Path.(fs / overview_only) "world.pmtiles"
+    (archive_of ~max_zoom:2 world);
+  (match
+     query ~fs ~dir:overview_only ~min_lon:(-0.2) ~min_lat:51.45
+       ~max_lon:(-0.05) ~max_lat:51.55 ~zoom:15
+   with
+  | Error e -> check ("an overview-only view answers: " ^ why e) false
+  | Ok json ->
+      check "with no detail downloaded the question is answered where it asked"
+        (int_field "zoom" json = 15);
+      check "and says the detail is not there"
+        (String.for_all (fun c -> c = '0') (string_field "present" json));
+      check "while still reporting the overview underneath"
+        (bool_field "floor" json = Some true));
+  Eio.Path.unlink Eio.Path.(fs / overview_only / "world.pmtiles");
+  Eio.Path.rmdir Eio.Path.(fs / overview_only);
+
   (* ------------------------------------------------------------- the floor *)
   (* The floor's depth is the deepest zoom the archives cover the WHOLE
      planet at, and it has to be measured rather than read off a header.

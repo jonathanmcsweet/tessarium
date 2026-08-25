@@ -21,6 +21,51 @@ than a git log.
 
 ---
 
+### 2026-08-25 — The detail source stops asking for tiles nobody has
+
+**Phase:** 6 · **Branches:** fix/detail-source-asks-honestly
+
+**What:** `/tiles.json`'s `maxzoom` was answering two questions at once. It
+tells MapLibre how deep to request, and the browser was clamping the coverage
+query to it as well — so an archive holding no detail had to advertise depth
+15, and the cost was a viewport of empty tile fetches on every pan. Measured
+at 11 across three street-level pans in the test's small viewport.
+
+The clamp moved to the server, where it is taken against the archives that
+actually hold detail rather than against a number the client reads off a
+document. `/tiles.json` can then say what is true: with nothing downloaded it
+advertises an empty range, which is a source that requests nothing at all.
+The browser sends the zoom it is really looking at and stops inspecting the
+source.
+
+**Rationale:** The clamp itself is real and had to stay somewhere — past an
+archive's depth MapLibre overzooms the deepest tiles it has instead of asking
+for more, so a query at the camera zoom would report a blank that is not on
+screen. What was wrong was where it lived. Only the server knows how deep the
+downloaded archives go, and making the browser derive it from a served
+document forced that document to lie.
+
+The clamp counts the DETAIL archives only. Counting the world overview too is
+the obvious-looking version of this change and is wrong: it drags every
+question down to the overview's own zoom, where the answer is "present" and
+the offer to download the area on screen never appears — in the one state
+where offering it is the entire point.
+
+Urgent because of the packaging work earlier the same day: every fresh
+install now starts with an overview and no region, so what used to need a
+deliberate command-line fetch to reach became the state every new user began
+in.
+
+**Falsified** four ways. Restoring the advertised 0-15 fetches 11 empty tiles
+across three pans. Removing the clamp entirely answers a street-zoom question
+about tiles no archive holds. Clamping against every archive rather than the
+detail ones — the naive version of this fix — passes every other check in the
+suite and fails exactly one: the note offering to download the area
+disappears. And the same substitution fails the two server checks about an
+overview-only directory.
+
+---
+
 ### 2026-08-25 — The icons ship with the licence they are under
 
 **Phase:** 6 · **Branches:** docs/sprite-licence
