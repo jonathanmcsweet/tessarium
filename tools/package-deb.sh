@@ -95,7 +95,10 @@ SIL Open Font License v1.1. The full licence is installed beside them at
 /usr/share/tessarium/basemap/fonts/OFL.txt.
 
 /usr/share/tessarium/basemap/sprites holds map icons from the Protomaps
-basemaps-assets project, conveyed under that project's own terms.
+basemaps-assets project, which states that they are derived from the
+MIT-licensed tangrams/icons project, (c) 2017 Mapzen. Neither project ships
+a licence file beside the icons, so the MIT notice is installed with them at
+/usr/share/tessarium/basemap/sprites/LICENSE.txt.
 GMP
 } > "$stage/usr/share/doc/tessarium/copyright"
 chmod 644 "$stage/usr/share/doc/tessarium/copyright"
