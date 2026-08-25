@@ -380,24 +380,22 @@ The theorem set is complete and in the ledger. What is left is narrower.
       earns more. Rerun
       the deep sweep after any change to the extraction pipeline or the
       toolchain: `tools/differential-deep.sh` (about 50 minutes).
-- [ ] **`Tessarium.UrlPath` and `Tessarium.Words` are extracted but not
-      cross-examined.** `fstar/check/` holds answers computed by the extracted
-      binary and has F\*'s own evaluator recompute them from the proved source;
-      `CHECK_MODULES` is derived from that directory, so a module with no Check
-      counterpart is silently not covered. Both are now such modules. CI's
-      `ocaml/extracted` diff shows their extraction is deterministic, not that
-      it is faithful. A `Tessarium.Check.UrlPath` replaying a few dozen targets
-      and a `Tessarium.Check.Words` replaying a few dozen lookups through the
-      evaluator would close it.
+- [ ] **`Tessarium.UrlPath` is extracted but not cross-examined.**
+      `fstar/check/` holds answers computed by the extracted binary and has
+      F\*'s own evaluator recompute them from the proved source;
+      `CHECK_MODULES` is derived from that directory, so a module with no
+      Check counterpart is silently not covered. UrlPath is now the only such
+      module -- `Tessarium.Check.Words` landed 2026-08-25 (ledger). CI's
+      `ocaml/extracted` diff shows the extraction is deterministic, not that
+      it is faithful. A `Tessarium.Check.UrlPath` replaying a few dozen
+      targets through the evaluator would close it.
 
-      Not equally urgent for the two. UrlPath has a runtime check in
-      `test_server.ml` holding the extracted resolver to the extracted claim
-      over 40,562 targets, which catches drift between them even though both
-      come out of the same extraction. Words has nothing of that shape: three
-      spellings in `test_server.ml` and whatever the js oracle happens to
-      agree with. Its theorem is about ALL inputs and the extracted code is
-      checked on three, which is the widest gap between what is proved and
-      what is exercised anywhere in the tree.
+      Less urgent than Words was, which is why it is what is left. UrlPath
+      has a runtime check in `test_server.ml` holding the extracted resolver
+      to the extracted claim over 40,562 targets, which catches drift between
+      them even though both come out of the same extraction. Words had
+      nothing of that shape, and now has two things: the evaluator leg, and
+      `ocaml/test/test_words.ml` over the whole shipped list.
 
 - [ ] **Two more server modules are shaped like the path resolver.**
       `ocaml/server/url_path.ml`'s `resolve` is now extracted from proved F\*

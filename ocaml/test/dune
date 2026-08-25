@@ -16,3 +16,11 @@
  (name test_argon2)
  (modules test_argon2)
  (libraries tessarium_argon2))
+
+; The shipped word lookup against the proved one, over the whole real
+; wordlist: the fast path is not the proof, and this is what holds them
+; together. See test_words.ml's header.
+(test
+ (name test_words)
+ (modules test_words)
+ (libraries tessarium tessarium_extracted zarith))
