@@ -29,6 +29,13 @@ install -m 755 _build/default/ocaml/pmtiles/bin/main.exe "$appdir/usr/bin/tessar
 install -m 644 packaging/tessarium.desktop "$appdir/tessarium.desktop"
 install -m 644 packaging/tessarium.svg "$appdir/tessarium.svg"
 
+# The format with no dependency metadata: a host below the floor gets a
+# launch that dies rather than an install that refuses, so the number is
+# checked here even though nothing in the image can carry it.
+echo "==> system floor"
+tools/check-glibc-floor.sh \
+  "$appdir/usr/bin/tessarium-server" "$appdir/usr/bin/tessarium-basemap"
+
 # The map ships inside the image, which is read-only; AppRun points the
 # server at the user's data home and the server seeds that from here on the
 # first run that finds it empty.

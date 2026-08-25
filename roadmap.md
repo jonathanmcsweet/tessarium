@@ -812,35 +812,24 @@ not cover.
       because it exists, not because it is wanted; do not spend on it until
       someone asks.
 
-- [ ] **Whether an AppImage runs on all major distros is decided by the build
-      machine, not by anything in this repository.** A binary asks for the
-      newest symbol version its build host offers, and that version becomes
-      the floor for every machine that then runs it. The build host is Debian
-      12, so the binaries demand glibc 2.35 or newer — `hypot@GLIBC_2.35`,
-      `pthread_*@2.34`, `__libc_start_main@2.34` — none of which comes from
-      anything this project wrote. That floor excludes RHEL 9 and its
-      rebuilds (2.34), Debian 11 (2.31) and Ubuntu 20.04 (2.31).
+- [ ] **The binaries still demand glibc 2.35, and only a different build host
+      can lower that.** A binary asks for the newest symbol version its build
+      host offers, and that version becomes the floor for every machine that
+      then runs it. The build host is Debian 12, so the floor is 2.35 —
+      `hypot@GLIBC_2.35`, `pthread_*@2.34`, `__libc_start_main@2.34`, none of
+      it from anything this project wrote. That excludes RHEL 9 and its
+      rebuilds (2.34), Debian 11 and Ubuntu 20.04 (2.31).
 
-      No flag fixes this after the fact. The only fix is to build on
-      something old and let the result run forward; Debian 11 as the build
-      base gives a 2.31 floor and covers everything still supported. The
-      check belongs in the packaging script rather than in a comment: read
-      the symbol versions back out of the built binaries with `objdump -T`
-      and fail if any exceeds the declared floor, so the claim is tested
-      instead of asserted.
-
-      Which formats this decides, and which it does not:
-
-      | Format | Whose glibc it runs against | If the host's is too old |
-      | --- | --- | --- |
-      | Flatpak | the runtime's | unaffected |
-      | Snap | the base snap's | unaffected |
-      | `.deb`, `.rpm` | the host's | refuses to install — visible |
-      | AppImage, tarball | the host's | crashes on launch — silent |
-
-      The last row is why this matters most where it is claimed loudest:
-      AppImage is the format with no dependency metadata to catch the
-      mistake, and the one whose whole point is that it runs anywhere.
+      The floor is now MEASURED and stated rather than assumed
+      (`tools/check-glibc-floor.sh`, ledger): every package build reads it
+      back out of the binaries, fails if it has drifted above what the
+      project declares, and prints what it excludes; the tarball's README
+      names the number and the .deb depends on it. What none of that can do
+      is lower it. The only fix is to build on something older and let the
+      result run forward — Debian 11 as the base gives 2.31 and covers
+      everything still supported — and this repository has no such host. It
+      needs a container or a second machine, which is the same thing the
+      unbuilt packaging formats below need.
 
 - [ ] **Nothing in `packaging/` has ever been executed, and CI does not build
       any of it.** No `flatpak-builder`, no `snapcraft`, no `rpmbuild`, no

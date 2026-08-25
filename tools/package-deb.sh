@@ -105,7 +105,13 @@ GMP
 chmod 644 "$stage/usr/share/doc/tessarium/copyright"
 
 # The true glibc floor, read off the binaries rather than guessed: a
-# hardcoded value rots the day the build image's glibc grows a symbol.
+# hardcoded value rots the day the build image's glibc grows a symbol. The
+# .deb is the format that can say this out loud, so it does -- and the shared
+# check fails the build if the number moved, which is the part the AppImage
+# and the tarball have no way to tell anyone.
+echo "==> system floor"
+tools/check-glibc-floor.sh \
+  "$stage/usr/bin/tessarium-server" "$stage/usr/bin/tessarium-basemap"
 glibc_floor="$(objdump -T \
   "$stage/usr/bin/tessarium-server" "$stage/usr/bin/tessarium-basemap" \
   | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)"

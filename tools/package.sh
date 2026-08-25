@@ -50,6 +50,16 @@ cp _build/default/ocaml/pmtiles/bin/main.exe "$out/tessarium-basemap"
 cp LICENSE "$out/"
 chmod +x "$out"/tessarium-*
 
+# A tarball has nowhere to declare a dependency, so a host below the floor
+# gets a binary that will not start. The number goes in README.txt below and
+# is read back out of the binaries here.
+echo "==> system floor"
+floor_report="$(tools/check-glibc-floor.sh \
+  "$out/tessarium-server" "$out/tessarium-basemap")"
+printf '%s\n' "$floor_report"
+glibc_floor="$(printf '%s' "$floor_report" \
+  | sed -n 's/.*glibc floor \([0-9.]*\).*/\1/p')"
+
 # The tarball keeps its map where the server looks by default, so an
 # extracted directory runs with no arguments and no seeding.
 echo "==> map"
@@ -126,11 +136,14 @@ looking at.
 Requirements
 ------------
 
-A 64-bit Linux system. Nothing else: libgmp is linked in statically (GMP
-is LGPLv3+/GPLv2+; source at https://gmplib.org/, relink by rebuilding
-from this project's source), and there is no runtime, no Node, no browser
-engine bundled. The map opens in
-whichever browser you already use.
+A 64-bit Linux system with GNU C library __GLIBC_FLOOR__ or newer. That rules
+out RHEL 9 and its rebuilds, Debian 11 and Ubuntu 20.04; a tarball cannot
+check, so on those the binaries will not start at all.
+
+Nothing else is needed: libgmp is linked in statically (GMP is LGPLv3+/GPLv2+;
+source at https://gmplib.org/, relink by rebuilding from this project's
+source), and there is no runtime, no Node and no browser engine bundled. The
+map opens in whichever browser you already use.
 
 To add Tessarium to your application menu, copy tessarium.desktop to
 ~/.local/share/applications/ and tessarium.svg to
@@ -155,6 +168,12 @@ The map under basemap/ is not ours and travels under its own terms:
            The MIT notice travels with them, at
            basemap/sprites/LICENSE.txt.
 TXT
+
+sed -i "s/__GLIBC_FLOOR__/${glibc_floor}/" "$out/README.txt"
+if grep -q '__GLIBC_FLOOR__' "$out/README.txt"; then
+  echo "error: README.txt still names no glibc floor." >&2
+  exit 1
+fi
 
 cp packaging/tessarium.desktop packaging/tessarium.svg "$out/"
 

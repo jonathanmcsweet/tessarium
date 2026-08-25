@@ -21,6 +21,39 @@ than a git log.
 
 ---
 
+### 2026-08-25 — The system floor is measured, not assumed
+
+**Phase:** 6 · **Branches:** build/glibc-floor-check
+
+**What:** Which systems the binaries will actually run on was decided by the
+build host and written down nowhere a release builder would see.
+`tools/check-glibc-floor.sh` now reads the floor back out of the finished
+binaries, fails the build if it exceeds what the project declares, and prints
+what that floor excludes. All three packagers call it.
+
+The tarball's README used to say "a 64-bit Linux system. Nothing else", which
+was false — it needs glibc 2.35. It now names the version and the distributions
+that are therefore out, with the number substituted from the measurement rather
+than typed, and the build fails if the substitution did not happen.
+
+**Rationale:** The check cannot lower the floor; only a different build host
+can. What it prevents is the floor drifting upward unnoticed when a build image
+is updated, and that matters most for the one format that cannot warn anybody:
+a .deb refuses to install and says why, while an AppImage or a tarball simply
+dies on launch. "Runs anywhere" is the whole of what an AppImage is for, and it
+carries no metadata that could catch the mistake.
+
+**Falsified** twice, on exit codes rather than on messages. Declaring a floor
+of 2.30 while the binaries need 2.35 stops packaging with exit 1. Pointing the
+check at a file objdump cannot read stops it too — that one first died at the
+assignment with only objdump's own complaint, because `pipefail` swallowed the
+branch that explains it; it now reaches its own message.
+
+**Follow-on:** the roadmap item is narrowed to what is left, which is a build
+host old enough to lower the floor.
+
+---
+
 ### 2026-08-25 — Shipped builds carry no source maps
 
 **Phase:** 4 · **Branches:** build/no-sourcemaps
