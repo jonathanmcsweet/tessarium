@@ -380,17 +380,24 @@ The theorem set is complete and in the ledger. What is left is narrower.
       earns more. Rerun
       the deep sweep after any change to the extraction pipeline or the
       toolchain: `tools/differential-deep.sh` (about 50 minutes).
-- [ ] **`Tessarium.UrlPath` is extracted but not cross-examined.**
-      `fstar/check/` holds answers computed by the extracted binary and has
-      F\*'s own evaluator recompute them from the proved source; `CHECK_MODULES`
-      is derived from that directory, so a module with no Check counterpart is
-      silently not covered. UrlPath is now such a module. CI's
-      `ocaml/extracted` diff shows its extraction is deterministic, not that it
-      is faithful. A `Tessarium.Check.UrlPath` replaying a few dozen targets
-      through the evaluator would close it; the reason it is not urgent is that
-      the runtime check in `test_server.ml` holds the extracted resolver to the
-      extracted claim over 40,562 targets, which catches drift between the two
-      even though both come out of the same extraction.
+- [ ] **`Tessarium.UrlPath` and `Tessarium.Words` are extracted but not
+      cross-examined.** `fstar/check/` holds answers computed by the extracted
+      binary and has F\*'s own evaluator recompute them from the proved source;
+      `CHECK_MODULES` is derived from that directory, so a module with no Check
+      counterpart is silently not covered. Both are now such modules. CI's
+      `ocaml/extracted` diff shows their extraction is deterministic, not that
+      it is faithful. A `Tessarium.Check.UrlPath` replaying a few dozen targets
+      and a `Tessarium.Check.Words` replaying a few dozen lookups through the
+      evaluator would close it.
+
+      Not equally urgent for the two. UrlPath has a runtime check in
+      `test_server.ml` holding the extracted resolver to the extracted claim
+      over 40,562 targets, which catches drift between them even though both
+      come out of the same extraction. Words has nothing of that shape: three
+      spellings in `test_server.ml` and whatever the js oracle happens to
+      agree with. Its theorem is about ALL inputs and the extracted code is
+      checked on three, which is the widest gap between what is proved and
+      what is exercised anywhere in the tree.
 
 - [ ] **Two more server modules are shaped like the path resolver.**
       `ocaml/server/url_path.ml`'s `resolve` is now extracted from proved F\*
@@ -931,20 +938,6 @@ not cover.
       body, which means threading a switch into `serve_file` — a resource
       ownership change, not a guard, which is why it was not folded into the
       connection-drop fix.
-
-- [ ] **CI runs the browser suite against one server; the suite expects
-      five.** `make test-ui` starts servers on 7373–7377 and a proxy on 7378,
-      and passes four base URLs. `.github/workflows/ci.yml`'s "Browser
-      end-to-end" step starts only 7373 and passes only its URL;
-      `ui/test/e2e.mjs` then defaults `fixtureBase` to 7374 and `base3`/`base4`/
-      `base5` to 7375–7377, none of which CI starts, and there is no skip path
-      for an unreachable one. Verified by reading both, not by watching a CI
-      run — so what happens there is unconfirmed, and it is worth looking at a
-      recent run before deciding what to do. If the suite is dying early, every
-      check past the region-downloader section is local-only, which includes
-      the payload and path-safety ones added this week. The cheap fix either
-      way is for the script to fail loudly and by name when a base URL does not
-      answer, rather than at whatever request happens to reach it first.
 
 - [ ] **RESEARCH: can this ride inside an existing map app rather than being
       one?** Worth asking because the hard part of this project is the proved
