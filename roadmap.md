@@ -494,18 +494,6 @@ not cover.
       glyphs must keep revalidating either way. Worth doing when the worker's
       own loading is next touched, not on its own.
 
-- [ ] **The in-app world overview merges into `map.pmtiles`.** The download
-      card offers "the whole world at zoom 6" as the recommended first
-      download, and it lands in the same archive as every region. That still
-      produces a floor — the depth is measured across all archives, so an
-      archive that really does hold the world floors at 6 — but it is a floor
-      a later removal can take away, and the ledger has no way to say "this
-      part is not a region". Writing it to `world.pmtiles` instead would make
-      it un-removable by construction and make `floor_depth` cheap to cache.
-      Left alone because it means a second merge target through
-      `basemap_download`'s .part/rename/compaction paths, which is a wider
-      change than the fix that motivated it.
-
 - [ ] **The sprites ship under terms nobody has read.** Packages now carry
       `basemap/sprites`, which comes from the Protomaps basemaps-assets
       repository. The glyphs beside them are covered — the Noto fonts are
@@ -535,11 +523,19 @@ not cover.
       download note at every zoom, which is the one state where offering the
       download is the whole point, and reporting 15 means the detail source
       asks for a viewport of tiles nobody holds on every pan. The honest 15
-      is what ships, so the cost is those misses — header-only 204s, in a
-      state that ends the moment anything is downloaded. The fix is to stop
-      overloading the field: let the coverage query carry the camera zoom and
-      have the server clamp it against the detail archives' own depth, which
-      is where that fact lives. (Adversarial review, 2026-08-22.)
+      is what ships, so the cost is those misses — header-only 204s. The fix
+      is to stop overloading the field: let the coverage query carry the
+      camera zoom and have the server clamp it against the detail archives'
+      own depth, which is where that fact lives. (Adversarial review,
+      2026-08-22.)
+
+      **This is now the state every fresh install starts in.** Packages ship
+      a world overview and no region (ledger, 2026-08-25), so the detail
+      source asks for a viewport of tiles nobody holds on every pan until
+      the first region is downloaded — where before it took a deliberate
+      command-line fetch to reach this state at all. That moves it from a
+      curiosity to something every new user pays, and round trips are the
+      cost that shows over a forwarded port.
 
 - [ ] **Far past the floor's depth the map is one stretched polygon.** The
       floor is complete, so it always draws — but an archive holding a single

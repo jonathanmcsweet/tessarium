@@ -45,11 +45,11 @@ const Estimate = z.object({
 });
 export type Estimate = z.infer<typeof Estimate>;
 
-/* The whole world at country level -- the recommended first download, and
-   what makes every later choice visible instead of a grey guess. Measured
-   against the Protomaps planet build: zoom 6 is about 45 MB; zoom 7 would
-   quadruple it. Downloads merge, so detail added later never re-pays for
-   this. */
+/* The whole world, deeper than the zoom 4 overview every package ships.
+   Measured against the Protomaps planet build: zoom 6 is about 45 MB; zoom 7
+   would quadruple it. It merges with the shipped overview rather than
+   replacing it, so what this costs is the levels in between, and it goes to
+   world.pmtiles, where no region removal can reach it. */
 export const WORLD: Region = {
   min_lon: -180,
   min_lat: -85,
@@ -195,13 +195,21 @@ export function useBasemapPresent() {
    dedups overlapping picks by tile id, so the answer is the real price of
    the set, not the sum of its parts. Short staleTime rather than Infinity:
    the answer changes when the source archive does, which is rare but real. */
-export function useBasemapEstimate(regions: Region[] | null) {
+export function useBasemapEstimate(regions: Region[] | null, world = false) {
   return useQuery({
-    queryKey: ["basemap-estimate", regions],
+    /* `world` is part of the key: the same box priced against the overview
+       and against the detail archive are two different answers. */
+    queryKey: ["basemap-estimate", regions, world],
     /* Five minutes, not two: a Brazil-sized selection plans some twenty
        million tile ids server-side, exactly and cooperatively, and honest
        slowness beats a timeout that aborts a working estimate. */
-    queryFn: () => post(Estimate, "basemap-estimate", { regions }, 300_000),
+    queryFn: () =>
+      post(
+        Estimate,
+        "basemap-estimate",
+        { regions, ...(world ? { world: true } : {}) },
+        300_000,
+      ),
     enabled: regions !== null && regions.length > 0,
     staleTime: 5 * 60_000,
     retry: false,
@@ -224,11 +232,24 @@ export function useBasemapDownload() {
   const client = useQueryClient();
   return useMutation({
     /* The name is what the ledger will call this download; the server
-       validates it, so the picker never invents one it cannot store. */
-    mutationFn: ({ regions, name }: { regions: Region[]; name?: string; }) =>
+       validates it, so the picker never invents one it cannot store.
+
+       `world` says which archive this joins. The overview is its own file
+       and keeps no ledger entry -- it belongs to no place, and it is what
+       the map falls back to everywhere -- so a region download must not be
+       able to take it away, and the server checks that a download claiming
+       to be one really covers the planet. */
+    mutationFn: (
+      { regions, name, world }: {
+        regions: Region[];
+        name?: string;
+        world?: boolean;
+      },
+    ) =>
       post(z.object({ ok: z.boolean() }), "basemap-download", {
         regions,
         ...(name !== undefined ? { name } : {}),
+        ...(world ? { world: true } : {}),
       }),
     /* Refetch immediately so the poll loop sees the running state and starts
        ticking; without this it would sleep until something else asked. */

@@ -97,7 +97,6 @@
   "map_loading_detail": "Chargement des détails de la carte…",
   "map_name_many": "{first} + {count} autres",
   "map_name_view": "Vue de la carte",
-  "map_name_world": "Vue mondiale",
   "map_removed_done": "Cartes supprimées — {size} libérés.",
   "map_removed_none": "Carte retirée de la liste. Ses tuiles sont partagées avec d'autres téléchargements et sont conservées.",
   "map_removing_progress": "Suppression — {done} sur {total}",

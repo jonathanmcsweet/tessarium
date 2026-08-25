@@ -21,6 +21,48 @@ than a git log.
 
 ---
 
+### 2026-08-25 — The world overview gets its own archive
+
+**Phase:** 6 · **Branches:** feat/world-own-archive
+
+**What:** The in-app "whole world" download merged into `map.pmtiles`
+alongside every region, so the floor the map falls back to everywhere was
+reachable by a Remove button meant for a city. It now writes `world.pmtiles`,
+merging with whatever overview is already there — which after the packaging
+work is the shipped zoom 4, so deepening it to zoom 6 costs only the levels
+in between.
+
+A download now says which archive it joins (`"world": true`), and the server
+checks the claim: a box short of the edges is a region however large it is.
+The estimate carries the same flag, because a quote taken against the wrong
+archive would price a planet the user already mostly has, and would then
+report it uncovered forever — an offer that never goes away however often it
+is accepted.
+
+**Rationale:** No ledger entry, which is what makes it un-removable by
+construction rather than by a rule someone has to remember. The ledger is a
+list of regions you downloaded, each with a name and a Remove button; the
+overview belongs to no place, and half of it now arrives in the package. An
+overview with no entry was always possible — the extraction tool writes none
+— so nothing downstream needed teaching.
+
+The cost is that it no longer appears in the downloaded-maps list. That is
+the right trade: a row you cannot act on is worse than no row, and `held`
+already counts the overview, so the "no basemap" banner stays correct.
+
+**Falsified.** Routing world downloads back to `map.pmtiles` fails four
+browser checks, including that a region removal leaves the overview alone —
+a removal rewrites the detail archive end to end, which is exactly the loss
+this prevents. Loosening the whole-planet guard to +/-170 deg / +/-80 deg
+fails the server check that a large region is still a region.
+
+**Follow-on:** `map_name_world` is gone from the six catalogues; nothing
+names an entry that is never written. The "one field, two jobs" roadmap item
+is now the state every fresh install starts in rather than a rare one, and
+says so.
+
+---
+
 ### 2026-08-25 — Every package ships the map it opens on
 
 **Phase:** 6 · **Branches:** feat/bundled-world-map

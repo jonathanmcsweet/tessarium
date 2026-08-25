@@ -168,20 +168,24 @@ function ledgerName(labels: string[]): string | undefined {
    the current view, and the picker's selection, so the three cannot
    drift. */
 function Offer(
-  { regions, names, ledgerLabel, describe, confirmLabel, className }: {
+  { regions, names, ledgerLabel, describe, confirmLabel, className, world }: {
     regions: Region[] | null;
+    /* Whether this offer is the world overview, which lives in its own
+       archive and keeps no ledger entry. */
+    world?: boolean;
     /* Aligned with regions. Lets the depth warning name the picks that are
      too big for street level; the world and the view have no names worth
      saying and get the generic wording. */
     names?: string[];
-    /* What the downloaded-maps list will call this, in the user's locale. */
+    /* What the downloaded-maps list will call this, in the user's locale.
+       Undefined for the world overview, which is not listed there. */
     ledgerLabel: string | undefined;
     describe: (size: string) => string;
     confirmLabel: string;
     className: string;
   },
 ) {
-  const estimate = useBasemapEstimate(regions);
+  const estimate = useBasemapEstimate(regions, world);
   const download = useBasemapDownload();
   /* The picks granted less depth than they asked for. */
   const clamped = estimate.isSuccess && regions !== null
@@ -237,6 +241,7 @@ function Offer(
             && download.mutate({
               regions,
               ...(ledgerLabel !== undefined ? { name: ledgerLabel } : {}),
+              ...(world ? { world: true } : {}),
             }, loudly)}
           disabled={regions === null || !estimate.isSuccess
             || (estimate.data.tiles === 0 && !estimate.data.covered)
@@ -594,9 +599,10 @@ export function DownloadCard({ region, job }: {
      has no use for), ask the estimate whether the overview is still
      missing (its incremental cost is ~zero once merged in) and keep
      offering until it isn't. React Query dedups this with the Offer's own
-     estimate. */
+     estimate, which asks about the same archive and so shares its key. */
   const worldEstimate = useBasemapEstimate(
     present.data === true && !running ? [WORLD] : null,
+    true,
   );
   const worldMissing = present.data === true
     && worldEstimate.isSuccess
@@ -634,7 +640,8 @@ export function DownloadCard({ region, job }: {
             {worldFirst && (
               <Offer
                 regions={[WORLD]}
-                ledgerLabel={m.map_name_world()}
+                world
+                ledgerLabel={undefined}
                 describe={(size) => m.map_download_world_estimate({ size })}
                 confirmLabel={m.map_download_world_confirm()}
                 className="download-world"
@@ -650,7 +657,8 @@ export function DownloadCard({ region, job }: {
             {worldMissing && (
               <Offer
                 regions={[WORLD]}
-                ledgerLabel={m.map_name_world()}
+                world
+                ledgerLabel={undefined}
                 describe={(size) => m.map_download_world_add({ size })}
                 confirmLabel={m.map_download_world_confirm()}
                 className="download-world"

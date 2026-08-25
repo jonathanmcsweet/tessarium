@@ -97,7 +97,6 @@
   "map_loading_detail": "Loading map detail…",
   "map_name_many": "{first} + {count} more",
   "map_name_view": "Map view",
-  "map_name_world": "World overview",
   "map_removed_done": "Maps removed — {size} freed.",
   "map_removed_none": "Map removed from the list. Its tiles are shared with other downloads and stay.",
   "map_removing_progress": "Removing — {done} of {total}",

@@ -709,30 +709,56 @@ const gridRefilled = await page
   .then(() => true, () => false);
 check("and the grid refills after the swap", gridRefilled);
 
-/* The archive holds the world at z6 and the map sits at street zoom, so
-   everything on screen is overzoomed -- and MapLibre only overzooms past
-   the SOURCE's stated maxzoom. The source must therefore carry the archive
-   header's depth, not a hardcoded number: a source pinned at 15 requested
-   z15 tiles nobody held and rendered a blank basemap over data the archive
-   had. (The fixture's tiles carry no styled layers, so this is asserted on
-   the source itself rather than on rendered features.) */
-const sourceDepth = await page
+/* The overview is all there is, the map sits at street zoom, and everything
+   on screen is therefore overzoomed -- and MapLibre only overzooms past the
+   SOURCE's stated maxzoom. The floor source must carry the depth the
+   archives really cover the planet at, not a hardcoded number: a source
+   pinned at 15 asked for z15 tiles nobody held and rendered a blank basemap
+   over data that was there. That depth is MEASURED, and for this fixture it
+   is the single zoom-0 tile. (The fixture's tiles carry no styled layers, so
+   this is asserted on the source itself rather than on rendered features.) */
+const floorDepth = await page
   .waitForFunction(
-    () => window.__tessarium_map?.getSource("protomaps")?.maxzoom === 6,
+    () => window.__tessarium_map?.getSource("protomaps-floor")?.maxzoom === 0,
     null,
     { timeout: 30_000 },
   )
   .then(() => true, () => false);
-check("the map source takes its depth from the archive header", sourceDepth);
+check(
+  "the floor source takes its depth from what is really covered",
+  floorDepth,
+);
 
 /* From here on, basemap errors are real: the tiles on disk came from the
    fixture and MapLibre must parse every one of them cleanly. */
 basemapReady = true;
 
+/* Which file the world went into, which is the whole point of it having its
+   own. A region removal rewrites map.pmtiles; anything in there is reachable
+   by a Remove button, and the floor must not be. */
 check(
-  "the downloaded archive is served",
-  (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
+  "the world overview is served from its own archive",
+  (await fetch(`${base}/basemap/world.pmtiles`, { method: "HEAD" })).status
     === 200,
+);
+check(
+  "and the detail archive was not created for it",
+  (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
+    === 404,
+);
+/* It is not a region, so nothing lists it and nothing offers to remove it. */
+const ledgerAfterWorld = await (await fetch(`${base}/api/basemap-ledger`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: "{}",
+})).json();
+check(
+  "the world overview writes no ledger entry",
+  ledgerAfterWorld.entries?.length === 0,
+);
+check(
+  "and still counts as a map being on disk",
+  ledgerAfterWorld.held === true,
 );
 const worldTile = await fetch(`${base}/tiles/0/0/0.mvt`);
 check(
@@ -743,9 +769,15 @@ check(
 );
 const tilejson = await (await fetch(`${base}/tiles.json`)).json();
 const worldjson = await (await fetch(`${base}/world.json`)).json();
+/* With an overview and no region, the detail source describes an archive
+   that does not exist yet. It says 15 rather than 0 because the coverage
+   note clamps its question to this number, and a 0 here would silence the
+   download offer in the one state where offering it is the entire point --
+   the cost is a viewport of header-only misses per pan, which is the
+   "one field, two jobs" item in the roadmap. */
 check(
-  "tiles.json states the archive's real depth and bounds",
-  tilejson.maxzoom === 6 && Array.isArray(tilejson.bounds)
+  "with no region downloaded the detail source still states a depth",
+  tilejson.maxzoom === 15 && Array.isArray(tilejson.bounds)
     && tilejson.bounds.length === 4,
 );
 /* The floor is the whole planet or it is not a floor -- and only as deep as
@@ -1652,12 +1684,16 @@ check(
 
 /* ------------------------- the download ledger ----------------------------
 
-   Every download above was recorded inside the archive itself -- name,
-   date, size -- and the list, the reminder setting, and Remove are all
-   driven through the real card. First, adoption: covered tiles with no
-   entry (here, a patch inside the world download; in the field, an archive
-   from before the ledger existed) are claimed by re-requesting them, and
-   the entry lands with "age unknown", which counts as stale. */
+   Every REGION download above was recorded inside the detail archive
+   itself -- name, date, size -- and the list, the reminder setting, and
+   Remove are all driven through the real card. The world overview is not
+   among them: it went to its own file and wrote no entry, which is what
+   makes it un-removable.
+
+   First, adoption: covered tiles with no entry (here, a patch inside a
+   downloaded region; in the field, an archive from before the ledger
+   existed) are claimed by re-requesting them, and the entry lands with
+   "age unknown", which counts as stale. */
 await postJson("basemap-download", {
   name: "Adopted patch",
   regions: [{
@@ -1674,15 +1710,14 @@ check(
 );
 const ledger1 = await (await postJson("basemap-ledger")).json();
 check(
-  "the archive records every download by name",
-  ledger1.entries?.length === 4
-    && [
-      "World overview",
-      "Map view",
-      "United Kingdom and London",
-      "Adopted patch",
-    ]
+  "the archive records every region download by name",
+  ledger1.entries?.length === 3
+    && ["Map view", "United Kingdom and London", "Adopted patch"]
       .every((n) => ledger1.entries.some((e) => e.name === n)),
+);
+check(
+  "and does not record the world overview among them",
+  !ledger1.entries?.some((e) => e.name === "World overview"),
 );
 const adoptedEntry = ledger1.entries?.find((e) => e.name === "Adopted patch");
 check(
@@ -1691,21 +1726,21 @@ check(
 );
 check(
   "real downloads record when and how much",
-  ledger1.entries?.filter((e) => e.completed > 0 && e.bytes > 0).length === 3,
+  ledger1.entries?.filter((e) => e.completed > 0 && e.bytes > 0).length === 2,
 );
 
 await openButton.click();
 await page.waitForSelector(".download-ledger", { timeout: 10_000 });
 /* The list refetches on mount; wait for the adoption to be visible rather
    than racing the request. */
-const fourRows = await page
+const listedRows = await page
   .waitForFunction(
-    () => document.querySelectorAll(".ledger-row").length === 4,
+    () => document.querySelectorAll(".ledger-row").length === 3,
     null,
     { timeout: 30_000 },
   )
   .then(() => true, () => false);
-check("the card lists the downloaded maps", fourRows);
+check("the card lists the downloaded maps", listedRows);
 check(
   "only the age-unknown entry is flagged for update",
   (await page.locator(".ledger-stale").count()) === 1
@@ -1714,7 +1749,7 @@ check(
 );
 check(
   "a fresh download names its date",
-  ((await page.locator(".ledger-row").filter({ hasText: "World overview" })
+  ((await page.locator(".ledger-row").filter({ hasText: "Map view" })
     .locator(".hint").textContent()) ?? "").includes("updated"),
 );
 
@@ -1765,7 +1800,7 @@ check(
 await viewRow.locator("button").nth(1).click();
 const rowGone = await page
   .waitForFunction(
-    () => document.querySelectorAll(".ledger-row").length === 3,
+    () => document.querySelectorAll(".ledger-row").length === 2,
     null,
     { timeout: 30_000 },
   )
@@ -1787,8 +1822,15 @@ check("removal announces what it freed", removedToast);
 const ledger2 = await (await postJson("basemap-ledger")).json();
 check(
   "the archive agrees the entry is gone",
-  ledger2.entries?.length === 3
+  ledger2.entries?.length === 2
     && !ledger2.entries.some((e) => e.name === "Map view"),
+);
+/* And the floor is untouched by a removal, which is the reason the overview
+   has its own file: this rewrote map.pmtiles from end to end. */
+check(
+  "removing a region leaves the world overview alone",
+  (await fetch(`${base}/basemap/world.pmtiles`, { method: "HEAD" })).status
+    === 200,
 );
 check(
   "the shared tiles survived the removal",
@@ -3458,9 +3500,11 @@ check(
 );
 const prunedLedger = await (await postJson("basemap-ledger")).json();
 check(
-  "the download is recorded; the browses never were",
+  `the download is recorded; the browses never were (${
+    (prunedLedger.entries ?? []).map((e) => e.name).join(", ")
+  })`,
   prunedLedger.entries?.some((e) => e.name === "London borrowed back")
-    && prunedLedger.entries?.length === 3,
+    && prunedLedger.entries?.length === 2,
 );
 await postJson("basemap-settings", { browse_cache: false });
 
