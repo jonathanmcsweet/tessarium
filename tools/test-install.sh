@@ -27,6 +27,7 @@ checks=0
 failures=0
 server_pid=""
 work=""
+arch_naming=""
 
 check() { # name, then a command whose exit status is the verdict
   local name="$1"
@@ -68,6 +69,8 @@ test_deb() {
   command -v dpkg-deb > /dev/null \
     || { echo "error: $pkg was built but dpkg-deb is not installed, so it" \
       "cannot be verified." >&2; exit 1; }
+  arch_naming=debian
+  package_arch() { dpkg-deb -f "$1" Architecture; }
   dpkg-deb -x "$pkg" "$work/root"
 }
 
@@ -87,6 +90,17 @@ install_and_run() {
     test -s "$fs/usr/share/tessarium/basemap/world.pmtiles"
   check "the licence terms are installed" \
     test -s "$fs/usr/share/doc/tessarium/copyright"
+
+  # A package whose declared architecture disagrees with the binaries inside
+  # it installs perfectly and then cannot execute a byte. Only a check that
+  # opens the package can see that, and only once it is built for more than
+  # one architecture does it become possible at all.
+  local declared actual
+  declared="$(package_arch "$pkg")"
+  actual="$("$root/tools/target-arch.sh" --"$arch_naming" \
+    "$fs/usr/bin/tessarium-server")"
+  check "it declares ${declared:-?} and the binaries in it are ${actual:-?}" \
+    test "$declared" = "$actual"
 
   # A desktop entry that names a command or an icon the package does not
   # ship is a menu item that does nothing, which no other check would catch.
