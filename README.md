@@ -34,7 +34,7 @@ side-by-side wall, so the two are compared on every build.
 | HTTP server | Done — Eio, range requests, opt-in API |
 | Web UI | Done — enter a phrase, click a square, get its address |
 | Offline basemap | Done — PMTiles reader and region extractor in OCaml |
-| Desktop | Done — one binary with the UI embedded, shipped with a world map; tarball, `.deb`, AppImage |
+| Desktop | Done — one binary with the UI embedded, shipped with a world map; tarball, `.deb`, `.rpm`, AppImage |
 | Theorems | Done — containment, injectivity, round-trip, end to end |
 | JavaScript cross-check | Independent implementation; agrees on 10,061,490 points, re-run under the shipping constants |
 
@@ -192,15 +192,21 @@ make run                     # serves http://127.0.0.1:7373 and opens a browser
 on, and no runtime to install — the UI is compiled into the binary. It does
 link `libgmp` through Zarith, which is the one thing a target machine needs.
 
-Every package — tarball, `.deb`, AppImage — carries a world overview at zoom
+Every package — tarball, `.deb`, `.rpm`, AppImage — carries a world overview at zoom
 4, the glyphs its labels are drawn from and the sprites its icons come from,
 so a fresh install opens on a drawn planet rather than a blank one and needs
 no network at all. Detail for a region is still a download, offered in the app
 for wherever the user is looking. `tools/stage-bundle.sh` assembles that
 payload and refuses to build a package without one, which is what stops a
-release going out with no map in it. The .deb installs it read-only under
-`/usr/share/tessarium/basemap`; the server copies it into the user's own data
-directory the first time it finds one missing.
+release going out with no map in it. The `.deb` and `.rpm` install it
+read-only under `/usr/share/tessarium/basemap`; the server copies it into the
+user's own data directory the first time it finds one missing.
+
+`make test-install` unpacks each built package into a throwaway root and runs
+it the way a desktop menu entry would — from an empty directory, with a
+private data home — then checks it serves the application, a world tile,
+label glyphs and map icons from the packaged map alone. It is the only check
+that sees a package rather than the source tree.
 
 `tools/fetch-basemap.sh -b min_lon,min_lat,max_lon,max_lat -z 15` fetches
 anywhere else. Tiles come out of the newest Protomaps daily planet build over

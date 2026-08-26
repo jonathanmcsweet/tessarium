@@ -10,7 +10,7 @@
 # this is the only check that can see them.
 #
 #   tools/test-install.sh                   # every package in dist/
-#   tools/test-install.sh dist/foo.deb      # just this one
+#   tools/test-install.sh dist/foo.rpm      # just this one
 #
 # The app runs from an EMPTY working directory, because that is what a menu
 # entry gives it and it is how a relative default path gets caught, and with
@@ -74,6 +74,21 @@ test_deb() {
   dpkg-deb -x "$pkg" "$work/root"
 }
 
+test_rpm() {
+  local pkg="$1"
+  command -v rpm2cpio > /dev/null && command -v cpio > /dev/null \
+    || { echo "error: $pkg was built but rpm2cpio and cpio are not both" \
+      "installed, so it cannot be verified." >&2; exit 1; }
+  arch_naming=gnu
+  # --qf so this is the architecture field alone, not a whole header to parse.
+  package_arch() { rpm -qp --qf '%{ARCH}' "$1" 2> /dev/null; }
+  mkdir -p "$work/root"
+  # `cpio -D`: rpm2cpio writes paths relative to /, and cpio must be told
+  # where that root is rather than being run from inside it, so a package
+  # with an absolute path in it cannot escape into the real filesystem.
+  rpm2cpio "$pkg" | (cd "$work/root" && cpio -idm --quiet)
+}
+
 install_and_run() {
   local pkg="$1" fs="$work/root"
 
@@ -88,8 +103,11 @@ install_and_run() {
     test -x "$fs/usr/bin/tessarium-basemap"
   check "a world map is installed with the package" \
     test -s "$fs/usr/share/tessarium/basemap/world.pmtiles"
+  # Each format's own convention: dpkg puts it under doc/, rpm under
+  # licenses/. Either satisfies this; neither being present does not.
   check "the licence terms are installed" \
-    test -s "$fs/usr/share/doc/tessarium/copyright"
+    test -s "$fs/usr/share/doc/tessarium/copyright" \
+      -o -s "$fs/usr/share/licenses/tessarium/LICENSE"
 
   # A package whose declared architecture disagrees with the binaries inside
   # it installs perfectly and then cannot execute a byte. Only a check that
@@ -163,12 +181,13 @@ if [ ${#packages[@]} -eq 0 ]; then
   # No globstar assumptions and no `ls`: an empty dist/ must reach the error
   # below rather than expanding to a literal pattern.
   while IFS= read -r p; do packages+=("$p"); done < <(
-    find dist -maxdepth 1 -name '*.deb' | sort
+    find dist -maxdepth 1 \( -name '*.deb' -o -name '*.rpm' \) | sort
   )
 fi
 
 if [ ${#packages[@]} -eq 0 ]; then
-  echo "error: no packages found in dist/ -- run 'make package-deb' first." >&2
+  echo "error: no packages found in dist/ -- run 'make package-deb' or" \
+    "'make package-rpm' first." >&2
   exit 1
 fi
 
@@ -183,6 +202,7 @@ for pkg in "${packages[@]}"; do
   work="$(mktemp -d)"
   case "$pkg" in
     *.deb) test_deb "$pkg" ;;
+    *.rpm) test_rpm "$pkg" ;;
     *) echo "error: no installer known for $pkg" >&2; exit 1 ;;
   esac
   install_and_run "$pkg"

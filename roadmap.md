@@ -764,8 +764,8 @@ not cover.
       from the binaries (60 such strings today; -ffile-prefix-map and
       OCAMLPARAM equivalents are the tools). Steps 2-4 wait on the key.
 
-- [ ] **Four more distribution formats, none of them built yet.** The tarball
-      and the `.deb` ship today. In priority order:
+- [ ] **Three more distribution formats, none of them built yet.** The
+      tarball, the `.deb` and the `.rpm` ship today. In priority order:
 
       **Flatpak** — the top desktop target, because Fedora Silverblue and
       Kinoite have no comfortable way to install an rpm: it has to be layered
@@ -797,15 +797,6 @@ not cover.
       any more. Neither is hard. The item below is the part that actually
       decides whether "works everywhere" is a true sentence.
 
-      **`.rpm`** — for conventional Fedora Workstation, RHEL and its
-      rebuilds, and openSUSE. It does **not** serve the top target: on an
-      immutable Fedora the Flatpak is the supported path and an rpm is the
-      awkward one. Shape is `tools/package-deb.sh` with a different wrapper —
-      same two binaries, same desktop entry and icon, a `.spec` in place of a
-      control file, `rpmbuild -bb` with `%_topdir` inside the tree so it needs
-      no root. Determinism needs the same care the `.deb` got, plus one more:
-      rpm records the build hostname unless `%_buildhost` is pinned.
-
       **Snap** — lowest priority. It duplicates Flatpak's job for an audience
       that largely has Flatpak already. `packaging/snap/snapcraft.yaml` is
       written and validated and, like the Flatpak, has never been built. Kept
@@ -831,13 +822,20 @@ not cover.
       needs a container or a second machine, which is the same thing the
       unbuilt packaging formats below need.
 
-- [ ] **Nothing in `packaging/` has ever been executed, and CI does not build
-      any of it.** No `flatpak-builder`, no `snapcraft`, no `rpmbuild`, no
-      `appimagetool`, and no container runtime to supply them. Every file
-      there is unexecuted text and should be read that way until a release
-      workflow builds each format and a job installs the result on a clean
-      system and launches it. Per-release rather than per-push: these builds
-      are slow and none of them gates correctness.
+- [ ] **`packaging/flatpak/` and `packaging/snap/` have never been executed.**
+      No `flatpak-builder`, no `snapcraft`, and no container runtime to supply
+      them. Every file in those two directories is unexecuted text and should
+      be read that way until a release workflow builds each format and a job
+      installs the result on a clean system and launches it. Per-release
+      rather than per-push: these builds are slow and none of them gates
+      correctness.
+
+      The tarball, `.deb` and `.rpm` are past this: CI builds all three twice
+      and compares, then unpacks each and runs it
+      (`tools/test-install.sh`). What that still cannot see is a real
+      `dpkg -i` or `dnf install` on a clean system — the scriptlets, the
+      desktop database refresh, the icon cache — which needs a container this
+      repository does not have.
 
 ## Phase 8 — Later, unscheduled
 

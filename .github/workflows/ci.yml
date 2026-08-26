@@ -307,6 +307,13 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # rpmbuild, and the two things rpm needs to recognise a binary as ELF:
+      # without file(1) and its magic database rpm builds a package that
+      # declares no library dependencies at all, which package-rpm.sh now
+      # refuses to hand over.
+      - name: Install rpm build tools
+        run: sudo apt-get update && sudo apt-get install -y rpm file
+
       # Outside the working tree on purpose: `git clean` below wipes
       # basemap/, and both builds have to cut their world overview out of
       # the SAME source archive or the two packages differ over a map that
@@ -334,16 +341,17 @@ jobs:
             opam exec -- dune build
             opam exec -- tools/package.sh
             opam exec -- tools/package-deb.sh
+            opam exec -- tools/package-rpm.sh
           }
           build_all
-          sha256sum dist/*.tar.gz dist/*.deb > /tmp/first.sum
+          sha256sum dist/*.tar.gz dist/*.deb dist/*.rpm > /tmp/first.sum
           cat /tmp/first.sum
           # -e _opam: the local switch is the toolchain, not build output.
           # -e ocaml/fstarlib: vendored once above; cleaning it would make
           # the second build fail on Unbound module Prims.
           git clean -xfd -e _opam -e ocaml/fstarlib
           build_all
-          sha256sum dist/*.tar.gz dist/*.deb > /tmp/second.sum
+          sha256sum dist/*.tar.gz dist/*.deb dist/*.rpm > /tmp/second.sum
           cat /tmp/second.sum
           diff /tmp/first.sum /tmp/second.sum
           echo "bit-identical across clean builds"

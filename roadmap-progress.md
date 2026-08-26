@@ -21,6 +21,81 @@ than a git log.
 
 ---
 
+### 2026-08-26 — Built packages are installed and run before they ship
+
+**Phase:** 6 · **Branches:** test/install-smoke, build/arch-from-binary
+
+**What:** `tools/test-install.sh` unpacks a built package into a throwaway
+root, launches it through the installed launcher from an empty directory with
+a private data home, and checks it serves the application, a world tile,
+label glyphs and map icons from the packaged map alone. Wired into
+`make test-install` and into the CI job that already produces packages.
+`tools/target-arch.sh` reads the ELF machine type out of the built binary, so
+the tarball, `.deb` and AppImage name the architecture they were actually
+built for instead of `uname -m`, `amd64` and `x86_64` respectively.
+
+**Rationale:** Every other test in this project runs against the source tree.
+The failures that matter after installation cannot be seen from there: the
+map installs read-only under `/usr`, the launcher is the only thing that
+redirects the app somewhere writable, and a menu entry starts it in an
+arbitrary directory. A package could pass every existing check, build
+bit-identically, and still open on a blank planet.
+
+Architecture had the same shape of hole. All three packagers were correct
+until the first cross-compile and then silently wrong: a package labelled
+amd64 that installs cleanly and cannot execute a byte of what is inside it.
+Reading it from the binary is right for native and cross builds alike, and an
+architecture the helper does not know is an error rather than a guess.
+
+**Falsified:** five broken packages — map removed, launcher stripped of its
+redirect, desktop entry naming a command not shipped, icons removed,
+architecture field rewritten. Each failed exactly the checks that name it.
+The helper was falsified against a synthetic aarch64 header, a RISC-V one and
+a non-ELF file; the last exposed the same `pipefail` trap
+`check-glibc-floor.sh` hit, where the script dies at the assignment and the
+explanation is never reached.
+
+**Follow-on:** The check pulls a package apart rather than installing it. A
+real `dpkg -i` or `dnf install` — scriptlets, desktop database, icon cache —
+still needs a container.
+
+---
+
+### 2026-08-26 — An .rpm, built and verified
+
+**Phase:** 6 · **Branches:** feat/package-rpm
+
+**What:** `tools/package-rpm.sh` builds the same payload the `.deb` installs,
+for Fedora, RHEL and its rebuilds, and openSUSE. `%_topdir` inside the tree
+so it needs no root. 18 MB, and byte-identical across rebuilds. The install
+check reads `.rpm` as well as `.deb`, and CI installs `rpm` and `file` and
+builds it alongside the other two.
+
+**Rationale:** Three settings decide determinism and none of them defaults
+usefully: `%_buildhost` (rpm records the machine's hostname),
+`use_source_date_epoch_as_buildtime` (rpm stamps wall-clock time and defaults
+this off), and `%_binary_payload`. xz for the payload rather than rpm's
+newer zstd default, which RHEL 8 and older cannot read — and it is also the
+smallest of the three tried, 18 MB against 24 for zstd and 28 for gzip.
+
+Unlike the `.deb`, the glibc requirement is not written down: rpm derives it
+per symbol version from the binaries. That is finer than a single floor, and
+it fails in a way a written number cannot — if rpm does not recognise the
+binaries as ELF it says nothing and produces a package declaring no
+dependencies at all, which installs happily on a system far too old to run
+it. So the packager reads its own output back and refuses to hand over an
+rpm with no glibc requirement. `check-glibc-floor.sh` still runs, because its
+job is to catch the floor DRIFTING, which a dependency generated from
+whatever it was handed cannot notice.
+
+**Falsified:** dependency generation switched off with rpmbuild still
+succeeding — the packager refused, naming the likely cause. An rpm built
+with `--target aarch64` around x86_64 binaries — the install check caught the
+mismatch. rpm refuses to mislabel this way without `--target`, which is why
+the end-to-end tamper for the shared architecture check is the `.deb` one.
+
+**Follow-on:** None.
+
 ### 2026-08-25 — The system floor is measured, not assumed
 
 **Phase:** 6 · **Branches:** build/glibc-floor-check
