@@ -803,6 +803,31 @@ not cover.
       because it exists, not because it is wanted; do not spend on it until
       someone asks.
 
+- [ ] **64-bit ARM: the code is ready, and only a machine is missing.**
+      Everything shipped compiles architecture-neutrally. Nothing under
+      `ocaml/c_core/` or `ocaml/argon2/` contains an x86 intrinsic or an
+      inline assembly block; the one `__m128i` path in the KaRaMeL runtime is
+      reachable only under MSVC, and the type it defines is not used by this
+      project's core at all. Byte order goes through `__BYTE_ORDER__`, and
+      aarch64 is little-endian like the current target. OCaml 5.3 supports
+      aarch64 natively. Packaging already names the architecture it was
+      built for by reading it out of the binary, so nothing there has to
+      change either.
+
+      **Cross-compiling is not the route.** The only OCaml aarch64
+      cross-compilers in opam target unikernels — Solo5 and Unikraft —
+      which are freestanding environments with no Linux userland, no
+      threads and no io_uring, so they cannot build this. A general
+      linux-aarch64 cross switch would mean building the compiler with
+      `--target` and then cross-building every dependency with C stubs
+      behind it, which is a project rather than a task. Native is the
+      supported path: an ARM CI runner, an ARM machine, or emulation slow
+      enough to be a last resort.
+
+      What cannot be inferred from an x86 pass, and must actually run on
+      ARM before any claim is made: the 231 vector checks, the side-by-side
+      wall against the extracted core, and the Argon2 differential.
+
 - [ ] **The binaries still demand glibc 2.35, and only a different build host
       can lower that.** A binary asks for the newest symbol version its build
       host offers, and that version becomes the floor for every machine that
