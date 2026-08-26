@@ -23,7 +23,7 @@ CANCEL_PORT ?= 7377
 # The delaying proxy itself, run by the e2e script.
 PROXY_PORT ?= 7378
 
-.PHONY: all env verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run package package-deb package-appimage clean
+.PHONY: all env verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run package package-deb package-appimage test-install clean
 
 # The wall's stages share files (gen_check outputs, .checked caches, the
 # port 737x range); they are cheap to run in order and wrong to interleave.
@@ -282,6 +282,11 @@ package-deb: build
 
 package-appimage: build
 	tools/package-appimage.sh
+
+# Deliberately not part of `make test`: it needs a package to have been
+# built, and building one is slower than the whole test suite.
+test-install: package-deb
+	tools/test-install.sh
 
 clean:
 	dune clean
