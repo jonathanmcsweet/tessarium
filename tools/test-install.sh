@@ -76,16 +76,21 @@ test_deb() {
 
 test_rpm() {
   local pkg="$1"
-  command -v rpm2cpio > /dev/null && command -v cpio > /dev/null \
-    || { echo "error: $pkg was built but rpm2cpio and cpio are not both" \
-      "installed, so it cannot be verified." >&2; exit 1; }
+  # `rpm` as well as the two unpackers: the architecture check below reads
+  # the package header, and without it that check would compare an empty
+  # string against a real answer and fail for the wrong reason.
+  for tool in rpm rpm2cpio cpio; do
+    command -v "$tool" > /dev/null \
+      || { echo "error: $pkg was built but $tool is not installed, so it" \
+        "cannot be verified." >&2; exit 1; }
+  done
   arch_naming=gnu
   # --qf so this is the architecture field alone, not a whole header to parse.
   package_arch() { rpm -qp --qf '%{ARCH}' "$1" 2> /dev/null; }
   mkdir -p "$work/root"
-  # `cpio -D`: rpm2cpio writes paths relative to /, and cpio must be told
-  # where that root is rather than being run from inside it, so a package
-  # with an absolute path in it cannot escape into the real filesystem.
+  # Extracted from inside the destination: cpio writes member names relative
+  # to the working directory, and strips any leading slash as it goes, so a
+  # package carrying an absolute path cannot write outside this root.
   rpm2cpio "$pkg" | (cd "$work/root" && cpio -idm --quiet)
 }
 
@@ -113,10 +118,14 @@ install_and_run() {
   # it installs perfectly and then cannot execute a byte. Only a check that
   # opens the package can see that, and only once it is built for more than
   # one architecture does it become possible at all.
+  # `|| true` on both: without it a reader that cannot open the package
+  # kills the script at the assignment under `set -e`, and the run ends
+  # mid-list with no failing check to point at. An empty answer here has to
+  # become a visible FAIL, not a silent stop.
   local declared actual
-  declared="$(package_arch "$pkg")"
+  declared="$(package_arch "$pkg" || true)"
   actual="$("$root/tools/target-arch.sh" --"$arch_naming" \
-    "$fs/usr/bin/tessarium-server")"
+    "$fs/usr/bin/tessarium-server" || true)"
   check "it declares ${declared:-?} and the binaries in it are ${actual:-?}" \
     test "$declared" = "$actual"
 
