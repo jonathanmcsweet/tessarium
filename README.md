@@ -20,14 +20,14 @@ pair.social.april.9605          # the exact same spot, under someone else's
 ## Why build this?
 
 This adds a layer of privacy for those who
-1. Already using encryption who want even more security
-2. For those who, for whatever reason, can't use a trusted secure communication medium
-3. For those at risk of their primary communications device being compromised
+1. Are already using encryption who want even more security
+2. For whatever reason, can't use a trusted secure communication medium to communicate their location
+3. Are at risk of their primary communications device being compromised
 
 ## What's proven?
 
 Most of the address math here isn't just tested. It's mathematically
-proven, using a formal verification programming language that checks every step of the logic rather than trusting a programmer got it right. That buys three guarantees:
+proven, using a formal verification programming language that checks every step of the logic rather than trusting that a programmer got it right. That buys three guarantees:
 
 1. Every point on Earth maps to exactly one square and no other
 2. Converting an address back to a location always lands exactly where it started
@@ -35,7 +35,7 @@ proven, using a formal verification programming language that checks every step 
 
 ## What's not proven?
 
-1. That the scrambling is actually unguessable without your phrase rests on an
+1. That the scrambling is actually un-guessable without your phrase rests on an
 assumption about the hash function it uses (BLAKE2s) behaving
 unpredictably. This is the same kind of assumption almost all cryptography rests
 on, not a weak point specific to this project.
