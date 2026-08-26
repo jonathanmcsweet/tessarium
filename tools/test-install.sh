@@ -56,6 +56,13 @@ served() {
   [ "${out% *}" = "200" ] && [ "${out#* }" -ge "$min" ]
 }
 
+# A check that talks to a port someone else is serving passes without ever
+# starting the package. Refuse rather than report a result about the wrong
+# process.
+port_is_free() {
+  ! (exec 3<> "/dev/tcp/127.0.0.1/${port}") 2> /dev/null
+}
+
 test_deb() {
   local pkg="$1"
   command -v dpkg-deb > /dev/null \
@@ -97,13 +104,14 @@ install_and_run() {
   # Launched the way the desktop launches it: through the installed
   # launcher, on the installed PATH, from a directory holding nothing.
   mkdir -p "$work/cwd" "$work/home"
+  # `exec` in the subshell so $! is the server itself and not a shell that
+  # holds the port open after the kill below.
   (
-    cd "$work/cwd"
-    PATH="$fs/usr/bin:$PATH" XDG_DATA_HOME="$work/home" \
-      "$fs/usr/bin/tessarium" --port "$port" --no-open > "$work/log" 2>&1 &
-    echo $! > "$work/pid"
-  )
-  server_pid="$(cat "$work/pid")"
+    cd "$work/cwd" \
+      && PATH="$fs/usr/bin:$PATH" XDG_DATA_HOME="$work/home" \
+        exec "$fs/usr/bin/tessarium" --port "$port" --no-open
+  ) > "$work/log" 2>&1 &
+  server_pid=$!
   curl -s --retry-connrefused --retry 30 --retry-delay 1 \
     -o /dev/null "http://127.0.0.1:${port}/" || true
 
@@ -132,6 +140,7 @@ install_and_run() {
   check "it reports the map coverage it actually has" served "/world.json" 50
 
   kill "$server_pid" 2> /dev/null || true
+  wait "$server_pid" 2> /dev/null || true
   server_pid=""
 }
 
@@ -151,6 +160,11 @@ fi
 
 for pkg in "${packages[@]}"; do
   [ -f "$pkg" ] || { echo "error: no such package: $pkg" >&2; exit 1; }
+  if ! port_is_free; then
+    echo "error: something is already listening on port $port; set" \
+      "TESSARIUM_INSTALL_TEST_PORT to a free one." >&2
+    exit 1
+  fi
   echo "==> $pkg"
   work="$(mktemp -d)"
   case "$pkg" in
