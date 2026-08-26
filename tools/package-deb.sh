@@ -23,7 +23,7 @@ set -euo pipefail
 umask 022
 
 # dpkg-deb stamps its ar members and tars with this; without it every build
-# differs by build time alone. The value spells 2026-08-19 00:00 UTC -- it is
+# differs by build time alone. The value spells 2026-08-18 00:00 UTC -- it is
 # what the number MEANS, not a note about when anything changed.
 export SOURCE_DATE_EPOCH=1787011200
 
