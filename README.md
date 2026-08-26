@@ -17,7 +17,7 @@ dream.tourist.creek.2703        # this spot, under your seed phrase
 pair.social.april.9605          # the exact same spot, under someone else's
 ```
 
-## Why build this?
+## Why use this?
 
 This adds a layer of privacy for those who
 1. Are already using encryption who want even more security
