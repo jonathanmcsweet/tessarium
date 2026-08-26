@@ -61,11 +61,13 @@ esac
 RUN
 chmod 755 "$appdir/AppRun"
 
+arch="$(tools/target-arch.sh --gnu "$appdir/usr/bin/tessarium-server")"
+
 if command -v appimagetool > /dev/null 2>&1; then
-  ARCH=x86_64 appimagetool "$appdir" "dist/Tessarium-${version}-x86_64.AppImage"
-  echo "dist/Tessarium-${version}-x86_64.AppImage"
+  ARCH="$arch" appimagetool "$appdir" "dist/Tessarium-${version}-${arch}.AppImage"
+  echo "dist/Tessarium-${version}-${arch}.AppImage"
 else
   echo "AppDir ready at $appdir"
   echo "appimagetool not found: get it from https://github.com/AppImage/appimagetool"
-  echo "then run: ARCH=x86_64 appimagetool $appdir"
+  echo "then run: ARCH=$arch appimagetool $appdir"
 fi

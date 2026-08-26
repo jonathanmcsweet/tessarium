@@ -21,7 +21,9 @@ cd "$root"
 
 version="$(sed -n 's/.*~version:"\([^"]*\)".*/\1/p' ocaml/server/bin/main.ml | head -1)"
 version="${version:-0.0.0}"
-arch="$(uname -m)"
+# From the binary, not from `uname -m`: the build host is only the same
+# machine as the target until someone cross-compiles.
+arch="$(tools/target-arch.sh --gnu _build/default/ocaml/server/bin/main.exe)"
 name="tessarium-${version}-linux-${arch}"
 out="dist/${name}"
 

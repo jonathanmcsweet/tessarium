@@ -32,7 +32,7 @@ cd "$root"
 
 version="$(sed -n 's/.*~version:"\([^"]*\)".*/\1/p' ocaml/server/bin/main.ml | head -1)"
 version="${version:-0.0.0}"
-arch=amd64
+arch="$(tools/target-arch.sh --debian _build/default/ocaml/server/bin/main.exe)"
 name="tessarium_${version}_${arch}"
 stage="dist/${name}"
 
