@@ -271,7 +271,7 @@ jobs:
   # difference here is nondeterminism creeping into the pipeline -- the thing
   # that would make published checksums unverifiable.
   reproducible:
-    name: Double-build reproducibility
+    name: Packages build twice identically, and install
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -347,3 +347,9 @@ jobs:
           cat /tmp/second.sum
           diff /tmp/first.sum /tmp/second.sum
           echo "bit-identical across clean builds"
+
+      # Here rather than in its own job because this is the only job that
+      # produces packages, and the toolchain needed to produce them is ten
+      # minutes of setup that would otherwise be paid twice.
+      - name: Install the packages and run them
+        run: opam exec -- tools/test-install.sh
