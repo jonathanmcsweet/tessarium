@@ -1835,11 +1835,73 @@ let start_import t ~sw ~fs ~net ~basemap_dir ~budget ~now =
                 (List.hd l).Ledger.source )
         with
         | name, regions, labels, origin ->
-            run_download t ~fs ~net ~source:(staged_source ~basemap_dir)
-              ~origin
-              (* No glyph fetch: see [fetch_assets]. *)
-              ~assets:"" ~basemap_dir ~budget ~name ~now ~refresh:false
-              ~replaces:None ~target:Detail ~labels:(Some labels) regions;
+            (* One record means this file already IS a region file: it is
+               what a download writes and what an export hands over, and the
+               way to import it is to put it where the others are.
+
+               A rename, so importing a country is instant and costs no
+               second copy of it -- which on the machine most likely to be
+               short of disk is what matters. It also lands under the name
+               its own record gives it, so a file imported here and a file
+               downloaded here are the same file with the same name, and one
+               carried on to a third machine is the same again.
+
+               Anything else takes the long way. An archive with no record
+               is nobody's region and would be unlistable and unremovable
+               under a region's name; one with several records would answer
+               a request to remove one of them by unlinking all of them. Both
+               are read tile by tile into a file of their own instead. *)
+            let placed =
+              match
+                Eio.Switch.run @@ fun usw ->
+                let path = staged_path ~fs ~basemap_dir in
+                let archive =
+                  Pmtiles.Archive.open_
+                    (Pmtiles_source.file_source (Eio.Path.open_in ~sw:usw path))
+                in
+                match Ledger.of_metadata (Pmtiles.Archive.metadata archive) with
+                | Ok [ e ] ->
+                    let file = region_filename ~entry:e ~id:(Ledger.id e) in
+                    let bytes =
+                      Optint.Int63.to_int
+                        (Eio.Path.stat ~follow:true path).Eio.File.Stat.size
+                    in
+                    Some (e, file, bytes)
+                | _ -> None
+              with
+              | v -> v
+              | exception _ -> None
+            in
+            (match placed with
+            | Some (e, file, bytes) -> (
+                match
+                  Eio.Path.rename
+                    (staged_path ~fs ~basemap_dir)
+                    Eio.Path.(fs / basemap_dir / file)
+                with
+                | () ->
+                    (* Same tail a download has, for the same reasons: a
+                       browsed copy of a tile this file now holds would
+                       shadow it forever, and the names it can offer are only
+                       findable once it is on disk. *)
+                    (try prune_cache t ~fs ~basemap_dir ~regions:e.Ledger.regions
+                     with err ->
+                       Logs.warn (fun m ->
+                           m "browse cache prune failed: %s"
+                             (Printexc.to_string err)));
+                    (try reindex t ~fs ~basemap_dir
+                     with err ->
+                       Logs.warn (fun m ->
+                           m "search index build failed: %s"
+                             (Printexc.to_string err)));
+                    set t (Basemap_job.Done { total_bytes = bytes; parts = 1 })
+                | exception err -> set t (Basemap_job.Failed (friendly err)))
+            | None ->
+                run_download t ~fs ~net ~source:(staged_source ~basemap_dir)
+                  ~origin
+                  (* No glyph fetch: see [fetch_assets]. *)
+                  ~assets:"" ~basemap_dir ~budget ~name ~now ~refresh:false
+                  ~replaces:None ~target:Detail ~labels:(Some labels) regions);
             (* The staged file has done its job either way. Left behind it is
                a second copy of a country sitting in the user's data
                directory, which on the machine most likely to be short of

@@ -260,6 +260,45 @@ let () =
   check "and leaves the other one alone" (List.length (listing ()) = 1);
   check "and the list agrees" (List.length (entries ()) = 1);
 
+  (* ----------------------------------------------------------- carrying in *)
+
+  (* The other end of the trip: the file that was handed over lands on a
+     machine with no internet. It is already a region file -- one archive,
+     one record -- so importing it is putting it where the others are, and
+     the proof of that is that the bytes do not change. Anything that read
+     it tile by tile into a new archive would produce a different file. *)
+  let carried_name = match listing () with f :: _ -> f | [] -> "" in
+  let carried = Eio.Path.load Eio.Path.(dir / carried_name) in
+  let away_dir = Filename.concat root "carried" in
+  let away = Eio.Path.(fs / away_dir) in
+  Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 Eio.Path.(away / "import");
+  Eio.Path.save ~create:(`Or_truncate 0o644)
+    Eio.Path.(away / "import" / "staged.pmtiles") carried;
+  let t2 = D.create () in
+  Eio.Switch.run (fun sw ->
+      match
+        D.start_import t2 ~sw ~fs ~net ~basemap_dir:away_dir
+          ~budget:D.default_budget ~now
+      with
+      | Ok () -> ()
+      | Error e -> failwith e);
+  let away_files = List.filter Tile_set.is_region (Eio.Path.read_dir away) in
+  check "an imported region lands under the name it was carried under"
+    (away_files = [ carried_name ]);
+  check "byte for byte, because it was put in place rather than rebuilt"
+    (match Eio.Path.load Eio.Path.(away / carried_name) with
+     | got -> got = carried
+     | exception _ -> false);
+  check "and the staged copy does not stay behind"
+    (not (Eio.Path.is_file Eio.Path.(away / "import" / "staged.pmtiles")));
+  check "the machine that received it can name what it was given"
+    (match D.ledger_json ~fs ~basemap_dir:away_dir with
+     | Ok (`Assoc fields) -> (
+         match List.assoc_opt "entries" fields with
+         | Some (`List [ e ]) -> str "file" e = carried_name
+         | _ -> false)
+     | _ -> false);
+
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1;
   print_endline "regions are files"
