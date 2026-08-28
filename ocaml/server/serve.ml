@@ -302,7 +302,7 @@ let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which =
                let size = Optint.Int63.to_int stat.Eio.File.Stat.size in
                if Basemap_download.data_is_whole ~size a then Some a else None
            | exception Eio.Io _ -> None)
-         (open_tile_archives ~basemap_root ~sw Basemap_download.tile_files))
+         (open_tile_archives ~basemap_root ~sw (Tile_set.names ~dir:basemap_root)))
   in
   match which with
   | `Floor ->
@@ -315,7 +315,10 @@ let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which =
       let headers =
         List.map
           (fun (_, a) -> a.Pmtiles.Archive.header)
-          (open_tile_archives ~basemap_root ~sw Basemap_download.detail_files)
+          (open_tile_archives ~basemap_root ~sw
+             (List.filter
+                (fun n -> n <> Tile_set.world_file)
+                (Tile_set.names ~dir:basemap_root)))
       in
       let e7f v = float_of_int v /. 1e7 in
       let min_zoom, max_zoom, bounds =
@@ -375,22 +378,32 @@ let serve_tile cfg ~basemap_root ~meth ~client_headers ~z ~x ~y =
   let id = Pmtiles.Tile_id.of_zxy ~z ~x ~y in
   let found =
     Eio.Switch.run @@ fun sw ->
-    (* Opened one at a time and only as far as the answer: the list grew a
-       third entry for the world floor, and a tile the browse cache already
-       holds must not pay to open the two archives behind it. *)
+    (* Two filters before any file is opened, and then opened one at a time
+       and only as far as the answer.
+
+       The list is a directory listing now -- one file per downloaded region
+       -- so it is as long as the user has regions, and a lookup that opened
+       all of them would make the map slower with every region kept. It does
+       not: [Tile_set.may_hold] reads each archive's remembered header and
+       drops the ones whose zoom range or bounding box cannot contain this
+       tile, which for a viewport tile is nearly all of them. What is left
+       is usually one file, sometimes two, the same work the fixed list of
+       three used to do. *)
     List.find_map
-      (fun name ->
-        match open_tile_archive ~basemap_root ~sw name with
-        | None -> None
-        | Some archive -> (
-            match Pmtiles.Archive.tile archive id with
-            | v -> Option.map (fun b -> (b, archive.Pmtiles.Archive.header)) v
-            | exception e ->
-                Logs.warn (fun m ->
-                    m "tile %d/%d/%d: unreadable %s: %s" z x y name
-                      (Printexc.to_string e));
-                None))
-      Basemap_download.tile_files
+      (fun (e : Tile_set.entry) ->
+        if not (Tile_set.may_hold e.Tile_set.header ~z ~x ~y) then None
+        else
+          match open_tile_archive ~basemap_root ~sw e.Tile_set.name with
+          | None -> None
+          | Some archive -> (
+              match Pmtiles.Archive.tile archive id with
+              | v -> Option.map (fun b -> (b, archive.Pmtiles.Archive.header)) v
+              | exception exn ->
+                  Logs.warn (fun m ->
+                      m "tile %d/%d/%d: unreadable %s: %s" z x y
+                        e.Tile_set.name (Printexc.to_string exn));
+                  None))
+      (Tile_set.entries ~dir:basemap_root)
   in
   match found with
   | None ->

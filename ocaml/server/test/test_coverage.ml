@@ -449,7 +449,7 @@ let () =
     Tessarium_server.Basemap_download.floor_depth
       (Tessarium_server.Basemap_download.whole_archives ~sw ~fs
          ~basemap_dir:dir_name
-         Tessarium_server.Basemap_download.tile_files)
+         (Tessarium_server.Basemap_download.tile_files ~fs ~basemap_dir:dir_name))
   in
   (* Two, not the twelve the header claims: a floor cut to twelve would ask
      for tiles that exist over London and nowhere else. *)

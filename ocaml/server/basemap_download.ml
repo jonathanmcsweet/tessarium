@@ -37,34 +37,26 @@ type t = {
   mutable clear_requested : bool;
 }
 
-(* The tile archives, in the order a lookup tries them. Named once because
-   three readers have to agree: the tile endpoint serves from them, the
-   coverage query answers questions ABOUT them, and the downloader writes
-   them. A list that drifted apart here would have the map drawing tiles a
-   coverage query had just called missing.
+(* The tile archives, in the order a lookup tries them -- [Tile_set]'s
+   answer, restated here because three readers have to agree: the tile
+   endpoint serves from them, the coverage query answers questions ABOUT
+   them, and the downloader writes them. A list that drifted apart here
+   would have the map drawing tiles a coverage query had just called
+   missing.
 
-   Newest first. [cache_file] is what browsing picked up, [base_file] is
-   what was downloaded on purpose, and [world_file] is an optional world
-   overview -- a shallow pyramid of the whole planet, dropped in beside the
-   others and never written by the downloader. It is last because it is the
-   coarsest: anything the other two hold is better.
-
-   It is not special-cased anywhere. Its only job is to make the floor's
-   depth measure deeper, and that measurement counts every archive
-   together, so an archive that already holds the world needs no such
-   file. *)
-let cache_file = "cache.pmtiles"
-let base_file = "map.pmtiles"
-let world_file = "world.pmtiles"
-
-(* What a tile lookup searches, in order. *)
-let tile_files = [ cache_file; base_file; world_file ]
+   It is a directory listing now rather than three names, because a region
+   is its own file: see [Tile_set] for why. *)
+let cache_file = Tile_set.cache_file
+let base_file = Tile_set.base_file
+let world_file = Tile_set.world_file
+let tile_files ~fs ~basemap_dir = Tile_set.names ~dir:Eio.Path.(fs / basemap_dir)
 
 (* What "downloaded" means. The world overview is not a download and must
    not be counted as one: it is nobody's region, and the detail source's
    bounds come from these so that the map does not ask about a planet nobody
    fetched. *)
-let detail_files = [ cache_file; base_file ]
+let detail_files ~fs ~basemap_dir =
+  List.filter (fun n -> n <> world_file) (tile_files ~fs ~basemap_dir)
 
 (* Which archive a download writes, and the only thing that differs between
    the two kinds of download this server runs.
@@ -2139,7 +2131,10 @@ let max_coverage_tiles = 4096
    This one answers "how deep does detail go", and it is the question the
    coverage clamp below needs. *)
 let detail_depth ~sw ~fs ~basemap_dir =
-  match List.filter_map (open_readable ~sw ~fs ~basemap_dir) detail_files with
+  match
+    List.filter_map (open_readable ~sw ~fs ~basemap_dir)
+      (detail_files ~fs ~basemap_dir)
+  with
   | [] -> None
   | archives ->
       Some
@@ -2204,7 +2199,8 @@ let coverage ~fs ~basemap_dir (req : Basemap_job.request) =
          calling it absent would wash a drawn map grey and offer a download
          for something already on screen. *)
       let archives =
-        List.filter_map (open_readable ~sw ~fs ~basemap_dir) tile_files
+        List.filter_map (open_readable ~sw ~fs ~basemap_dir)
+          (tile_files ~fs ~basemap_dir)
       in
       let held ~z ~x ~y =
         let id = Pmtiles.Tile_id.of_zxy ~z ~x ~y in
@@ -2259,7 +2255,9 @@ let coverage ~fs ~basemap_dir (req : Basemap_job.request) =
          view. Told only the depth, the client would promise "this is the
          wider map" over ground with no wider map on it. *)
       let floor_here =
-        floor_depth (whole_archives ~sw ~fs ~basemap_dir tile_files) >= 0
+        floor_depth
+          (whole_archives ~sw ~fs ~basemap_dir (tile_files ~fs ~basemap_dir))
+        >= 0
       in
       `Assoc
         [

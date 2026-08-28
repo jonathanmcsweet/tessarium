@@ -26,6 +26,7 @@ suites=(
   "independent js implementation|checks passed, 0 failed"
   "server decisions|server decisions hold"
   "coverage answers|coverage answers (hold|FAILED)"
+  "tile set|tile set (holds|FAILED)"
   "bundle seeding|bundle seeding (holds|FAILED)"
   "shipped word lookup|the shipped word lookup agrees with the proved one"
   "runtime laws|proved laws hold at runtime over [1-9][0-9]*"
