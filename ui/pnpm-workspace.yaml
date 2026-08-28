@@ -1,0 +1,13 @@
+# pnpm refuses to run a dependency's install scripts unless it is named here,
+# which is the right default: a postinstall script is arbitrary code from the
+# network running at install time. These two genuinely need theirs, and both
+# fail loudly rather than subtly without them.
+#
+#   esbuild  fetches the platform binary vite builds with
+#   dprint   fetches the formatter binary `pnpm run format:check` drives
+#
+# Declared rather than approved interactively, so CI installs exactly what a
+# developer's checkout does.
+allowBuilds:
+  dprint: true
+  esbuild: true

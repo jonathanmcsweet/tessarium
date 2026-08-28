@@ -9,6 +9,14 @@ import { defineConfig } from "vite";
 // the kind of difference that only shows up after a release.
 const backend = process.env.TESSARIUM_SERVER ?? "http://127.0.0.1:7373";
 
+// Vite's own default is 5173, which is the port every other Vite project on a
+// machine also wants. This one sits in the block the rest of the project
+// already uses -- 7373 is the app, 7374-7378 are the servers the end-to-end
+// suite starts -- so a second Vite service somewhere else is not a collision.
+// TESSARIUM_UI_PORT overrides it, the same way TESSARIUM_SERVER overrides the
+// backend above.
+const uiPort = Number(process.env.TESSARIUM_UI_PORT ?? 7380);
+
 // Baked in at build time from package.json -- the one version field npm
 // already requires -- so the footer cannot disagree with the package.
 const { version } = JSON.parse(readFileSync("./package.json", "utf8"));
@@ -59,6 +67,12 @@ export default defineConfig({
     chunkSizeWarningLimit: 1024,
   },
   server: {
+    port: uiPort,
+    // Fail rather than drift. Vite's default is to take the next free port
+    // when the one it asked for is busy, which is how a dev server ends up
+    // somewhere other than where the person running it is looking -- exactly
+    // the confusion this port exists to end.
+    strictPort: true,
     proxy: {
       "/basemap": backend,
       "/api": backend,
@@ -70,5 +84,12 @@ export default defineConfig({
       "/argon2.wasm": backend,
       "/core.wasm": backend,
     },
+  },
+  // `vite preview` serves the built app and defaults to 4173, which is the
+  // same story as 5173. It proxies nothing: a preview is checking what the
+  // build produced, and the built app is served by the OCaml binary.
+  preview: {
+    port: uiPort + 1,
+    strictPort: true,
   },
 });

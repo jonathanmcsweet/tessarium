@@ -169,7 +169,7 @@ build:
 # compiles it into the server binary. ui/dist itself is not depended on
 # directly: that would put ui/node_modules in dune's view.
 ui:
-	cd ui && npm ci --no-audit --no-fund && npm run build
+	cd ui && pnpm install --frozen-lockfile && pnpm run build
 	cp wasm/argon2.wasm ui/dist/argon2.wasm
 	cp wasm/core.wasm ui/dist/core.wasm
 	rm -rf ocaml/server/ui_dist
@@ -183,11 +183,11 @@ test: test-core test-static test-extraction test-lowstar test-ui
 # differential check once stopped running for several commits.
 #
 # check-doc-constants.mjs is here rather than in test-static because it needs
-# no browser and no npm install. It holds the prose to the code: the message
+# no browser and no package install. It holds the prose to the code: the message
 # length is transcribed BY HAND into the Low* module, so nothing else can
 # catch a document that still describes the shape before a constant moved --
 # which is exactly what the project rename left behind in two files.
-# check-deps.sh is here for the same reason: no browser, no npm, no switch.
+# check-deps.sh is here for the same reason: no browser, no packages, no switch.
 # It holds dune-project to the dune files, which nothing else can -- a
 # dependency that is only ever satisfied transitively builds fine on the
 # machine that already has it and fails on a fresh `opam install . --deps-only`,
@@ -202,9 +202,9 @@ test-core:
 # message a locale is missing, a placeholder a translator dropped, an
 # accessibility rule broken, a bundle that quietly grew by a megabyte. Needs
 # `dune build` first -- payload.mjs measures the bundle where dune writes it --
-# and `npm ci` in ui/, which `make ui` does.
+# and `pnpm install` in ui/, which `make ui` does.
 test-static:
-	@cd ui && npm run check
+	@cd ui && pnpm run check
 
 # The browser test needs both halves running, so it starts the server it is
 # about to drive rather than assuming one is up. No --ui: this exercises the
@@ -276,7 +276,7 @@ test-ui: ui
 	      http://127.0.0.1:$(CANCEL_PORT) )
 
 # No --ui: the binary serves the UI it was built with. Pass --ui to override
-# with a directory, which is what `npm run dev` wants.
+# with a directory, which is what `pnpm run dev` wants.
 run: build
 	./_build/default/ocaml/server/bin/main.exe --port $(PORT) --basemap basemap
 

@@ -186,6 +186,11 @@ jobs:
             exit 1
           fi
 
+      # Before setup-node, which wants a package manager present to key its
+      # cache on. The version comes from the `packageManager` field in
+      # package.json, so CI and a developer's checkout cannot drift.
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -193,7 +198,7 @@ jobs:
       # The differential oracle's one dependency (keyed BLAKE2s -- see
       # package.json at the root). Locked install, no scripts.
       - name: Oracle dependencies
-        run: npm ci --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build
         run: opam exec -- dune build
@@ -233,7 +238,7 @@ jobs:
       # tested.
       - name: Browser end-to-end
         run: |
-          cd ui && npx playwright install chromium
+          cd ui && pnpm exec playwright install chromium
           cd ..
           opam exec -- make test-ui
 
@@ -302,6 +307,8 @@ jobs:
         run: |
           export PATH="$HOME/toolchain/fstar/bin:$PATH"
           opam exec -- make -C fstar fstarlib
+
+      - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
         with:
