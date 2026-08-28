@@ -36,7 +36,6 @@ import { formatBytes, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
 import { toastError } from "../toast";
-import { DownloadCard } from "./DownloadCard";
 import { IconButton } from "./IconButton";
 import { PlaceSearch } from "./PlaceSearch";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -851,16 +850,20 @@ export function MapView() {
   ]);
 
   /* The region is frozen when the card opens. Panning while it is open
-     changes the next download, not the one being confirmed. */
-  const [region, setRegion] = useState<Region | null>(null);
+     changes the next download, not the one being confirmed.
+
+     Published to the store rather than held here: the card itself now draws
+     in the side panel, which has no map to ask. This is the only thing the
+     map has to hand over for that to work. */
+  const setDownloadRegion = useAppStore((s) => s.setDownloadRegion);
   useEffect(() => {
     if (!downloadOpen) {
-      setRegion(null);
+      setDownloadRegion(null);
       return;
     }
     const map = mapRef.current;
-    if (map) setRegion(regionOf(map));
-  }, [downloadOpen]);
+    if (map) setDownloadRegion(regionOf(map));
+  }, [downloadOpen, setDownloadRegion]);
 
   /* Watched here rather than in the card so a download the user closed the
      card on still finishes loudly: the toast fires and the map refreshes
@@ -1163,9 +1166,6 @@ export function MapView() {
           onClick={() => (downloadOpen ? closeDownload() : openDownload())}
         />
       </div>
-      {downloadOpen && region && (
-        <DownloadCard region={region} job={basemapJob.data?.job} />
-      )}
       {
         /* One column, because these are not mutually exclusive: a view can
           be outside coverage AND too far out for the grid, and two notes

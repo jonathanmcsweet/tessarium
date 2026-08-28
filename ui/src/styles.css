@@ -246,7 +246,10 @@ button:disabled {
 
 .app {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  /* auto is the drag handle; --panel-w is set on this element by App.tsx
+     from the store. The fallback keeps the layout honest if it is ever
+     rendered without one. */
+  grid-template-columns: 1fr auto var(--panel-w, 340px);
   height: 100%;
 }
 
@@ -341,6 +344,46 @@ button:disabled {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+}
+
+/* The drag handle between map and panel.
+
+   24px wide because that is the WCAG 2.5.8 minimum for a pointer target,
+   and a splitter people cannot hit is a splitter people cannot use. Nearly
+   all of that width is transparent: what is drawn is a hairline down the
+   middle, so it reads as the panel's border rather than as a gutter. The
+   line thickens and takes the accent on hover and on keyboard focus.
+
+   `touch-action: none` matters more than it looks -- without it a touch
+   drag here scrolls the page instead of moving the handle, and the control
+   simply does not work on a phone. */
+.panel-resizer {
+  width: 24px;
+  cursor: col-resize;
+  background: none;
+  border: none;
+  padding: 0;
+  position: relative;
+  touch-action: none;
+  /* The handle is a line, not a box: no outline, the line itself answers. */
+  outline: none;
+}
+
+.panel-resizer::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1px;
+  background: var(--line);
+  transition: width 120ms ease, background 120ms ease;
+}
+
+.panel-resizer:hover::before,
+.panel-resizer:focus-visible::before {
+  width: 3px;
+  background: var(--accent);
 }
 
 .panel-head {
@@ -496,6 +539,11 @@ button:disabled {
   .app {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr auto;
+  }
+  /* The panel is a sheet under the map here, not a column beside it, so
+     there is no vertical edge to drag and the width is the viewport's. */
+  .panel-resizer {
+    display: none;
   }
   .panel {
     border-left: none;
@@ -886,18 +934,16 @@ button:disabled {
   box-shadow: var(--shadow);
 }
 
+/* A section of the side panel, not a card over the map. It used to float in
+   the top-left corner, where it covered the tiles it was talking about and
+   could never grow past the viewport; here it scrolls with the panel and is
+   as tall as it needs to be. Padding matches .panel-head so its heading
+   lines up with the panel's own. */
 .download-card {
-  position: absolute;
-  top: 112px;
-  left: 10px;
-  width: min(380px, calc(100% - 20px));
-  max-height: calc(100% - 126px);
-  overflow-y: auto;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
-  padding: 12px 14px 14px;
+  border-top: 1px solid var(--line);
+  padding: 14px 18px;
+  /* Nothing inside may push the drawer wider than the user set it. */
+  min-width: 0;
 }
 
 .download-card label {
@@ -1071,12 +1117,18 @@ button:disabled {
   padding: 0;
 }
 
+/* Wraps, and that is the whole fix. Unwrapped, three buttons -- Update,
+   Export to a file, Remove -- took the full width and left the name column
+   a few pixels, which `overflow-wrap: anywhere` below then honoured by
+   breaking "Map view" one letter per line. The text keeps a real basis and
+   the buttons drop to their own line when they no longer fit beside it. */
 .ledger-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 0;
+  padding: 8px 0;
 }
 
 .ledger-row + .ledger-row {
@@ -1085,20 +1137,27 @@ button:disabled {
 
 .ledger-row .download-actions {
   margin-top: 0;
-  flex: none;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
 }
 
 .ledger-row-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  /* A basis wide enough to read a name on, and free to take the whole row
+     when the buttons have wrapped below it. */
+  flex: 1 1 160px;
   min-width: 0;
 }
 
 .ledger-name {
   font-size: 13px;
   font-weight: 600;
-  overflow-wrap: anywhere;
+  /* break-word, not anywhere: this only has to rescue a single unbroken
+     name too long for the column, and `anywhere` is what let a normal name
+     be shredded the moment the column got tight. */
+  overflow-wrap: break-word;
 }
 
 /* The staleness nudge is text, not a traffic light: --accent-text holds
@@ -1435,4 +1494,11 @@ button:disabled {
 .download-import:has(.visually-hidden:focus-visible) .file-input {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.download-pending {
+  border-top: 1px solid var(--line);
+  padding: 14px 18px;
+  color: var(--muted);
+  font-size: 13px;
 }

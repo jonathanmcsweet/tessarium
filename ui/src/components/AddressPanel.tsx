@@ -9,11 +9,14 @@
    -- and the eye toggle here takes that to none. */
 
 import { Eye, EyeOff } from "lucide-react";
+import { lazy, Suspense } from "react";
+import { useBasemapStatus } from "../core/basemap";
 import { useCoreVersions, useLock } from "../core/queries";
 import { formatCoord } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
 import { CopyButton } from "./CopyButton";
+import { loadDownloadCard } from "./downloadChunk";
 import { IconButton } from "./IconButton";
 import { LanguagePicker } from "./LanguagePicker";
 import { LockDialog } from "./LockDialog";
@@ -24,6 +27,14 @@ import { MapProgress } from "./MapProgress";
 const MASK = "••••••.••••••.••••••.••••";
 /* And the same idea for a coordinate. */
 const COORD_MASK = "••.•••••••";
+
+/* Not a static import: see components/downloadChunk.ts. `lazy` wants a
+   default export and DownloadCard is a named one, so the promise is
+   reshaped here rather than the card growing a default it has no other
+   use for -- the same shape App uses for MapView. */
+const DownloadCard = lazy(() =>
+  loadDownloadCard().then((mod) => ({ default: mod.DownloadCard }))
+);
 
 export function AddressPanel() {
   const selection = useAppStore((s) => s.selection);
@@ -37,6 +48,15 @@ export function AddressPanel() {
 
   const lock = useLock();
   const versions = useCoreVersions();
+
+  /* The offline-maps card lives here rather than over the map. It used to
+     float in the top-left corner, where it covered the very tiles it was
+     about and had nowhere to grow; in the panel it can be as tall as it
+     needs and the map stays whole. The button that opens it stays on the
+     map, because that is where someone is looking when they notice a gap. */
+  const downloadOpen = useAppStore((s) => s.downloadOpen);
+  const downloadRegion = useAppStore((s) => s.downloadRegion);
+  const basemapJob = useBasemapStatus();
 
   return (
     <aside className="panel">
@@ -193,6 +213,18 @@ export function AddressPanel() {
           and must not push the thing the user came here for off the top. */
       }
       <MapProgress />
+
+      {downloadOpen && downloadRegion && (
+        <Suspense
+          fallback={
+            <p className="download-pending" role="status">
+              {m.map_download_loading()}
+            </p>
+          }
+        >
+          <DownloadCard region={downloadRegion} job={basemapJob.data?.job} />
+        </Suspense>
+      )}
 
       <footer className="panel-foot">
         <LanguagePicker />

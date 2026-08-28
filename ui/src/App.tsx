@@ -1,7 +1,8 @@
-import { lazy, Suspense } from "react";
+import { type CSSProperties, lazy, Suspense } from "react";
 import { AddressPanel } from "./components/AddressPanel";
 import { Banner } from "./components/Banner";
 import { loadMapView } from "./components/mapChunk";
+import { PanelResizer } from "./components/PanelResizer";
 import { PhraseEntry } from "./components/PhraseEntry";
 import { useBackendDown } from "./core/health";
 import { m } from "./paraglide/messages";
@@ -18,6 +19,7 @@ export function App() {
   const unlocked = useAppStore((s) => s.unlocked);
   const basemapFailed = useAppStore((s) => s.basemapFailed);
   const openDownload = useAppStore((s) => s.openDownload);
+  const panelWidth = useAppStore((s) => s.panelWidth);
   /* Subscribed to here, and read nowhere, on purpose.
 
      Paraglide's messages are plain functions that read the current locale when
@@ -67,7 +69,10 @@ export function App() {
           action={{ label: m.banner_basemap_action(), onClick: openDownload }}
         />
       )}
-      <div className="app">
+      <div
+        className="app"
+        style={{ "--panel-w": `${panelWidth}px` } as CSSProperties}
+      >
         {
           /* The gap between the gate opening and the map engine arriving.
             Usually not seen -- PhraseEntry starts that download when the
@@ -88,6 +93,7 @@ export function App() {
         >
           <MapView />
         </Suspense>
+        <PanelResizer />
         <AddressPanel />
       </div>
     </div>

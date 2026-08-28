@@ -826,6 +826,32 @@ check(
   (await page.locator(".panel").count()) === 1,
 );
 
+/* The drawer resizes, and from the KEYBOARD, which is the half a splitter
+   usually misses. Left widens, because the key moves the separator and the
+   panel is what is to its right. */
+const panelWidth = async () =>
+  (await page.locator(".panel").boundingBox())?.width ?? 0;
+const widthBefore = await panelWidth();
+await page.locator(".panel-resizer").focus();
+await page.keyboard.press("Shift+ArrowLeft");
+const widthAfter = await panelWidth();
+check(
+  `the drawer widens from the keyboard (${Math.round(widthBefore)} -> ${
+    Math.round(widthAfter)
+  })`,
+  widthAfter > widthBefore,
+);
+/* Changed is not enough: a separator that does not carry its value announces
+   nothing to anyone not watching the pixels move. */
+check(
+  "and the separator announces the new width",
+  Number(
+    await page.locator(".panel-resizer").getAttribute("aria-valuenow"),
+  ) === Math.round(widthAfter),
+);
+/* Back to the default, so nothing downstream inherits a resized layout. */
+await page.locator(".panel-resizer").dblclick();
+
 /* An overview and no region is the state every fresh install starts in, and
    two things have to be true of it at once. */
 
@@ -1856,6 +1882,20 @@ check(
    The view download's tiles sit inside the United Kingdom pick, so removing
    it must keep the archive intact -- entries own records, not tiles. */
 const viewRow = page.locator(".ledger-row").filter({ hasText: "Map view" });
+
+/* The name has to have a column to sit in. Unwrapped, the row's three
+   buttons took the full width and left the name a few pixels, which
+   `overflow-wrap` then honoured by breaking "Map view" one letter per line --
+   a tall thin stack of characters. Wider than it is tall is the cheap way to
+   say "this is a line of text", and it fails loudly on the broken layout. */
+const nameBox = await viewRow.locator(".ledger-name").boundingBox();
+check(
+  `the ledger name reads as a line, not a column (${
+    Math.round(nameBox?.width ?? 0)
+  }x${Math.round(nameBox?.height ?? 0)})`,
+  nameBox !== null && nameBox.width > nameBox.height,
+);
+
 await viewRow.locator(".ledger-remove").click();
 check(
   "remove asks to be sure",
