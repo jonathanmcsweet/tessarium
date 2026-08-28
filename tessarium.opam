@@ -17,13 +17,25 @@ depends: [
   "yojson"
   "js_of_ocaml"
   "js_of_ocaml-ppx"
+  "uunf"
+  "stdint"
+  "ppx_deriving"
+  "ppx_deriving_yojson"
   "cohttp-eio"
   "eio_main"
+  "eio"
+  "tls-eio"
+  "mirage-crypto-rng"
+  "ca-certs-nss"
+  "domain-name"
+  "uri"
   "cmdliner"
   "logs"
   "fmt"
   "base64"
   "decompress"
+  "bigstringaf"
+  "http" {with-test}
   "odoc" {with-doc}
 ]
 build: [

@@ -187,9 +187,15 @@ test: test-core test-static test-extraction test-lowstar test-ui
 # length is transcribed BY HAND into the Low* module, so nothing else can
 # catch a document that still describes the shape before a constant moved --
 # which is exactly what the project rename left behind in two files.
+# check-deps.sh is here for the same reason: no browser, no npm, no switch.
+# It holds dune-project to the dune files, which nothing else can -- a
+# dependency that is only ever satisfied transitively builds fine on the
+# machine that already has it and fails on a fresh `opam install . --deps-only`,
+# and CI cannot see the difference because its switch comes from cache.
 test-core:
 	tools/check-suites.sh
 	node tools/check-doc-constants.mjs
+	tools/check-deps.sh
 
 # Lint, types, message catalogues and the browser payload budgets. Fast, needs
 # no server, and catches the class of mistake the browser test cannot see: a

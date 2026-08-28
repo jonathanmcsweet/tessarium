@@ -18,6 +18,12 @@
  ; extracted core's bignum arithmetic work in a browser, requires it. Eio wants
  ; 5.2+. The development switch is 5.3.0, matching the compiler F* itself was
  ; built with, so extraction can link its shipped support objects directly.
+ ; Everything a `dune` file names in (libraries) or (pps) belongs here, even
+ ; when some other package would drag it in anyway. A dependency that is only
+ ; ever satisfied transitively is satisfied by accident: it disappears the day
+ ; the package that happened to pull it drops it, and until then a fresh
+ ; `opam install . --deps-only` produces a switch that cannot build this
+ ; project -- which is invisible to CI, whose switch is restored from cache.
  (depends
   (ocaml (>= 5.2.0))
   zarith
@@ -26,10 +32,31 @@
   yojson
   js_of_ocaml
   js_of_ocaml-ppx
+  ; The word lookup folds and compares Unicode.
+  uunf
+  ; F*'s support modules, built from source here rather than linked from the
+  ; release: they carry ppx_deriving attributes and stdint's fixed widths.
+  stdint
+  ppx_deriving
+  ppx_deriving_yojson
   cohttp-eio
   eio_main
+  ; Reading a planet build over HTTP range requests: bare eio for the source
+  ; itself, and TLS with compiled-in Mozilla trust anchors, because the
+  ; desktop build is one binary and cannot assume a system certificate store
+  ; exists where it lands.
+  eio
+  tls-eio
+  mirage-crypto-rng
+  ca-certs-nss
+  domain-name
+  uri
   cmdliner
   logs
   fmt
   base64
-  decompress))
+  decompress
+  ; decompress's bigarray buffers, handled directly in ocaml/gzip.
+  bigstringaf
+  ; The pmtiles suite builds its own responses to drive the range reader.
+  (http :with-test)))

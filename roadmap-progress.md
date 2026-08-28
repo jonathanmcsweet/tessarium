@@ -21,7 +21,30 @@ than a git log.
 
 ---
 
-### 2026-08-27 — Maps can be carried to a machine with no internet
+### 2026-08-28 — dune-project declares what the dune files actually use
+
+**Phase:** 6
+
+**What:** Twelve libraries were named in a `dune` file and absent from
+`(depends)`: `uunf`, `stdint`, `ppx_deriving`, `ppx_deriving_yojson`, `eio`,
+`tls-eio`, `mirage-crypto-rng`, `ca-certs-nss`, `domain-name`, `uri`,
+`bigstringaf`, and `http` (tests only). `tools/check-deps.sh` compares the two
+lists and now runs in `make test-core`.
+
+**Rationale:** Found by building this project on a machine that had never
+built it: `tools/setup.sh` completes, reports everything present, and then
+`dune build` fails on four separate missing libraries. Some of the twelve were
+being satisfied transitively and so worked by accident; the rest had simply
+never been needed by anyone whose switch was old enough.
+
+CI cannot see this. Its switch is restored from cache, so it holds whatever an
+earlier solve happened to install, and `opam install . --deps-only` is a no-op
+against it. The only person who meets the bug is someone setting up from
+nothing -- which is exactly the audience `tools/setup.sh` exists for. A check
+that diffs the two lists costs no network and no switch, and catches the whole
+class rather than these twelve.
+
+### 2026-08-28 — Maps can be carried to a machine with no internet
 
 **Phase:** 6
 
