@@ -3128,6 +3128,73 @@ const cleared = await page
   .then(() => true, () => false);
 check("and it clears once the server answers again", cleared);
 
+/* One download, described once.
+
+   The card used to render its own progress bar and its own cancel button
+   while a job ran, and MapProgress renders both -- per region, which is the
+   richer report -- one section up the same panel. While the card floated
+   over the map those were two places; once both were in the panel they were
+   the same download said twice, with two ways to cancel it.
+
+   The job is faked rather than started: a real one against the fixture
+   server finishes between polls, so there is no running state to look at.
+   What is under test is what the panel DRAWS for a running job, which is
+   exactly what the fake supplies. Installed before the reload because the
+   status query stops polling once a job is idle -- the fetch on mount is
+   the one that has to see it.
+
+   Last in this browser on purpose: it reloads, which costs the key. */
+await page.route("**/api/basemap-status", (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      generation: 4242,
+      job: {
+        state: "fetching",
+        done_bytes: 33_000_000,
+        total_bytes: 668_000_000,
+        part: 1,
+        parts: 1,
+        regions: [{
+          label: "Georgia",
+          done_bytes: 31_000_000,
+          total_bytes: 665_000_000,
+          planned: true,
+        }],
+      },
+    }),
+  }));
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.locator("#phrase").fill(mnemonic);
+await page.waitForSelector(".valid", { timeout: 30_000 });
+await page.locator("button[type=submit]").click();
+await page.waitForSelector(".map-wrap", { timeout: 60_000 });
+await page.locator(".panel-download").click();
+await page.waitForSelector(".download-card", { timeout: 10_000 });
+
+const reportedOnce = await page
+  .waitForFunction(
+    () => document.querySelectorAll(".downloads progress").length > 0,
+    null,
+    { timeout: 20_000 },
+  )
+  .then(() => true, () => false);
+check("a running download is reported once, by MapProgress", reportedOnce);
+check(
+  "and the card does not report it a second time",
+  (await page.locator(".download-card progress").count()) === 0,
+);
+/* Two cancel buttons for one download is the worse half of it: whichever is
+   pressed, the other stays on screen offering to do it again. */
+check(
+  "nor offers a second way to cancel it",
+  (await page.locator(".download-card").getByRole("button").filter({
+    hasText: /cancel/i,
+  }).count()) === 0,
+);
+await page.unroute("**/api/basemap-status");
+
 await browser.close();
 
 /* ----------------------------- coming back --------------------------------

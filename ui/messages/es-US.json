@@ -116,6 +116,7 @@
   "map_loading_detail": "Cargando los detalles del mapa…",
   "map_name_many": "{first} + {count} más",
   "map_name_view": "Vista del mapa",
+  "map_progress_export_title": "Exportando un mapa",
   "map_progress_overall": "{done} de {total} escritos",
   "map_progress_overall_part": "{done} de {total} escritos, parte {part} de {parts}",
   "map_progress_region_a11y": "{region}: {done} de {total} descargados",

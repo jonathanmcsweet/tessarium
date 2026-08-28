@@ -134,7 +134,16 @@ export function MapProgress() {
       aria-labelledby="downloads-title"
     >
       <div className="downloads-head">
-        <h2 id="downloads-title">{m.map_progress_title()}</h2>
+        {
+          /* An export is not a download, and this section said "Map
+            downloads" over "Writing the file" while one ran. Same bars,
+            honest heading. */
+        }
+        <h2 id="downloads-title">
+          {job.state === "exporting"
+            ? m.map_progress_export_title()
+            : m.map_progress_title()}
+        </h2>
         <IconButton
           label={m.map_download_cancel()}
           icon={<X size={16} aria-hidden />}

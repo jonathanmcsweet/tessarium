@@ -34,7 +34,6 @@ import {
   type Job,
   type LedgerEntry,
   type Region,
-  useBasemapCancel,
   useBasemapDownload,
   useBasemapEstimate,
   useBasemapExport,
@@ -74,89 +73,6 @@ const loudly = {
   onError: (e: unknown) =>
     toastError(e instanceof Error ? e.message : String(e)),
 };
-
-function Progress({ job }: { job: Job; }) {
-  if (job.state === "planning") {
-    return <p className="hint">{m.map_download_planning()}</p>;
-  }
-  if (job.state === "assets") {
-    return <p className="hint">{m.map_download_assets()}</p>;
-  }
-  if (job.state === "compacting") {
-    const text = m.map_compacting_progress({
-      done: formatBytes(job.done_bytes),
-      total: formatBytes(job.total_bytes),
-    });
-    return (
-      <>
-        <progress
-          value={job.done_bytes}
-          max={Math.max(1, job.total_bytes)}
-          aria-label={text}
-        />
-        <p className="hint">{text}</p>
-      </>
-    );
-  }
-  if (job.state === "indexing") {
-    /* Tiles, not bytes: what is being read is the archive's labels, and a
-       byte count of that would mean nothing to anyone. */
-    const text = m.map_indexing_progress({
-      done: job.done_tiles.toLocaleString(),
-      total: job.total_tiles.toLocaleString(),
-    });
-    return (
-      <>
-        <progress
-          value={job.done_tiles}
-          max={Math.max(1, job.total_tiles)}
-          aria-label={text}
-        />
-        <p className="hint">{text}</p>
-      </>
-    );
-  }
-  if (job.state === "removing") {
-    const text = m.map_removing_progress({
-      done: formatBytes(job.done_bytes),
-      total: formatBytes(job.total_bytes),
-    });
-    return (
-      <>
-        <progress
-          value={job.done_bytes}
-          max={Math.max(1, job.total_bytes)}
-          aria-label={text}
-        />
-        <p className="hint">{text}</p>
-      </>
-    );
-  }
-  if (job.state !== "fetching") return null;
-  const done = formatBytes(job.done_bytes);
-  const total = formatBytes(job.total_bytes);
-  /* The bar tracks the CURRENT part -- part sizes are not known up front,
-     and a bar that restarts per labelled part is more honest than one
-     guessing at a total it cannot know. */
-  const text = job.parts > 1
-    ? m.map_download_progress_part({
-      part: job.part,
-      parts: job.parts,
-      done,
-      total,
-    })
-    : m.map_download_progress({ done, total });
-  return (
-    <>
-      <progress
-        value={job.done_bytes}
-        max={Math.max(1, job.total_bytes)}
-        aria-label={text}
-      />
-      <p className="hint">{text}</p>
-    </>
-  );
-}
 
 /* What the ledger will call a download. The server caps names at 120 bytes
    of printable UTF-8; a selection of many picks is clamped to "first + N"
@@ -781,7 +697,6 @@ export function DownloadCard({ region, job }: {
   /* Only certainty leads with the world offer: while the HEAD is in flight
      the card shows the other options rather than guessing. */
   const worldFirst = present.data === false;
-  const cancel = useBasemapCancel();
 
   const running = job !== undefined && isRunning(job);
   /* The world overview used to be offered ONLY on an empty map, so anyone
@@ -812,57 +727,56 @@ export function DownloadCard({ region, job }: {
         />
       </header>
 
-      {running
-        ? (
-          <>
-            <Progress job={job} />
-            <div className="download-actions">
-              <button
-                type="button"
-                onClick={() => cancel.mutate(undefined, loudly)}
-                disabled={cancel.isPending}
-              >
-                {m.map_download_cancel()}
-              </button>
-            </div>
-          </>
-        )
-        : (
-          <>
-            {worldFirst && (
-              <Offer
-                regions={[WORLD]}
-                world
-                ledgerLabel={undefined}
-                describe={(size) => m.map_download_world_estimate({ size })}
-                confirmLabel={m.map_download_world_confirm()}
-                className="download-world"
-              />
-            )}
+      {
+        /* No progress bar and no cancel here, deliberately. Both live in
+          MapProgress, one section up the same panel, which reports per
+          REGION rather than as one total and stays put when this card is
+          closed. When the card floated over the map the two were in
+          different places and merely doubled up; in one panel they were the
+          same download, described twice, with two cancel buttons. */
+      }
+      {
+        /* What is hidden while a download runs is only the ways to start
+          another one. Everything below stays, disabled through `busy` --
+          which is what that prop was always for, and could never be true
+          before, because this branch replaced the whole body. */
+      }
+      {!running && (
+        <>
+          {worldFirst && (
             <Offer
-              regions={[region]}
-              ledgerLabel={m.map_name_view()}
-              describe={(size) => m.map_download_estimate({ size })}
-              confirmLabel={m.map_download_confirm()}
-              className="download-view"
+              regions={[WORLD]}
+              world
+              ledgerLabel={undefined}
+              describe={(size) => m.map_download_world_estimate({ size })}
+              confirmLabel={m.map_download_world_confirm()}
+              className="download-world"
             />
-            {worldMissing && (
-              <Offer
-                regions={[WORLD]}
-                world
-                ledgerLabel={undefined}
-                describe={(size) => m.map_download_world_add({ size })}
-                confirmLabel={m.map_download_world_confirm()}
-                className="download-world"
-              />
-            )}
-            <RegionPicker />
-            <DownloadedMaps busy={running} />
-            <ExportedFiles busy={running} />
-            <ImportFromFile busy={running} />
-            <BrowseToggle />
-          </>
-        )}
+          )}
+          <Offer
+            regions={[region]}
+            ledgerLabel={m.map_name_view()}
+            describe={(size) => m.map_download_estimate({ size })}
+            confirmLabel={m.map_download_confirm()}
+            className="download-view"
+          />
+          {worldMissing && (
+            <Offer
+              regions={[WORLD]}
+              world
+              ledgerLabel={undefined}
+              describe={(size) => m.map_download_world_add({ size })}
+              confirmLabel={m.map_download_world_confirm()}
+              className="download-world"
+            />
+          )}
+          <RegionPicker />
+        </>
+      )}
+      <DownloadedMaps busy={running} />
+      <ExportedFiles busy={running} />
+      <ImportFromFile busy={running} />
+      <BrowseToggle />
     </section>
   );
 }
