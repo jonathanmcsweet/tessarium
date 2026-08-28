@@ -3,6 +3,7 @@
   "a11y_dismiss_banner": "Dismiss this message",
   "a11y_language": "Language",
   "app_name": "Tessarium",
+  "banner_backend_down": "Cannot reach the server. Opening your map, searching and downloading maps will not work until it is back.",
   "banner_basemap_action": "Download maps",
   "err_address_no_location": "That address does not correspond to any location. About 35% of word combinations do not, which is what makes a typo obvious.",
   "err_address_not_a_word": "'{word}' is not a BIP-39 word",

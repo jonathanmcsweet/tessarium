@@ -132,6 +132,11 @@ const expected = (url) => url.includes("/basemap/");
    exactly what this suite must fail on. */
 let basemapReady = false;
 
+/* Flipped for the one test that takes the server away on purpose. Both
+   handlers below would otherwise record the refusal as a real failure, which
+   is exactly what they are for every other second of this run. */
+let healthzDown = false;
+
 page.on("console", (msg) => {
   if (msg.type() !== "error") return;
   const text = msg.text();
@@ -155,11 +160,13 @@ page.on("requestfailed", (req) => {
   ) {
     return;
   }
+  if (healthzDown && req.url().includes("/healthz")) return;
   if (!expected(req.url())) {
     problems.push(`requestfailed: ${req.url()} ${req.failure()?.errorText}`);
   }
 });
 page.on("response", (res) => {
+  if (healthzDown && res.url().includes("/healthz")) return;
   if (res.status() >= 400 && !expected(res.url())) {
     problems.push(`http ${res.status()}: ${res.url()}`);
   }
@@ -2942,6 +2949,67 @@ check(
   `zooming past what was downloaded keeps it (${deepDrawn} features rendered)`,
   deepDrawn > 0,
 );
+
+/* ------------------------ the server going away --------------------------
+
+   The failure this answers, which cost an afternoon: with no server the gate
+   still renders, the phrase still validates and the checksum still goes
+   green -- all three run in the browser -- so the app looks fine right up
+   until "Open my map", which fails with "Could not open the map." That
+   blames the phrase. Nothing said the server was missing.
+
+   It is not an exotic state either: it is what `pnpm run dev` is in, every
+   time, without the backend behind it, because the two wasm modules the key
+   is derived with are embedded in the server binary rather than served from
+   public/.
+
+   /healthz is refused rather than the whole origin, because the page itself
+   has to keep loading for there to be anywhere to put a banner. */
+
+const bannerSays = (text, timeout = 30_000) =>
+  page
+    .waitForFunction(
+      (t) =>
+        [...document.querySelectorAll(".banner p")].some((p) =>
+          (p.textContent ?? "").includes(t)
+        ),
+      text,
+      { timeout },
+    )
+    .then(() => true, () => false);
+
+healthzDown = true;
+await page.route(
+  "**/healthz",
+  (route) => route.fulfill({ status: 503, body: "" }),
+);
+/* Reloading drops the key with it, so this lands on the gate -- which is the
+   screen that matters: it is the one a person is looking at when they cannot
+   get in. */
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.waitForSelector("#phrase", { timeout: 30_000 });
+check(
+  "an unreachable server is reported in a banner, at the gate",
+  await bannerSays("Cannot reach the server"),
+);
+
+await page.unroute("**/healthz");
+healthzDown = false;
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.waitForSelector("#phrase", { timeout: 30_000 });
+/* And it goes away by itself: a banner that outlives its cause teaches
+   people to ignore banners. */
+const cleared = await page
+  .waitForFunction(
+    () =>
+      ![...document.querySelectorAll(".banner p")].some((p) =>
+        (p.textContent ?? "").includes("Cannot reach the server")
+      ),
+    null,
+    { timeout: 30_000 },
+  )
+  .then(() => true, () => false);
+check("and it clears once the server answers again", cleared);
 
 await browser.close();
 

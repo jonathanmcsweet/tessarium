@@ -3,6 +3,7 @@
   "a11y_dismiss_banner": "Cerrar este mensaje",
   "a11y_language": "Idioma",
   "app_name": "Tessarium",
+  "banner_backend_down": "No se puede conectar con el servidor. Abrir tu mapa, buscar y descargar mapas no funcionará hasta que vuelva.",
   "banner_basemap_action": "Descargar mapas",
   "err_address_no_location": "Esa dirección no corresponde a ninguna ubicación. Cerca del 35 % de las combinaciones de palabras no lo hacen, y eso es lo que vuelve evidente un error de escritura.",
   "err_address_not_a_word": "«{word}» no es una palabra BIP-39",

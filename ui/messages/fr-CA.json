@@ -3,6 +3,7 @@
   "a11y_dismiss_banner": "Ignorer ce message",
   "a11y_language": "Langue",
   "app_name": "Tessarium",
+  "banner_backend_down": "Serveur injoignable. L’ouverture de votre carte, la recherche et le téléchargement de cartes ne fonctionneront pas tant qu’il n’est pas rétabli.",
   "banner_basemap_action": "Télécharger les cartes",
   "err_address_no_location": "Cette adresse ne correspond à aucun lieu. Environ 35 % des combinaisons de mots n’en désignent aucun, et c’est ce qui rend une faute de frappe évidente.",
   "err_address_not_a_word": "« {word} » n’est pas un mot BIP-39",

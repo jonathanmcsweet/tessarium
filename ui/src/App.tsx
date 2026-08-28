@@ -3,6 +3,7 @@ import { AddressPanel } from "./components/AddressPanel";
 import { Banner } from "./components/Banner";
 import { loadMapView } from "./components/mapChunk";
 import { PhraseEntry } from "./components/PhraseEntry";
+import { useBackendDown } from "./core/health";
 import { m } from "./paraglide/messages";
 import { useAppStore } from "./store";
 
@@ -29,16 +30,38 @@ export function App() {
      the end-to-end language check is what will say so. */
   useAppStore((s) => s.locale);
 
-  if (!unlocked) return <PhraseEntry />;
+  /* The gate is where a missing server hurts most: the phrase validates, the
+     checksum goes green, and unlocking then fails with a message that blames
+     the phrase. So this banner has to sit ABOVE the gate as well as inside
+     the shell, which is why it is built here and rendered in both returns. */
+  const serverDown = useBackendDown();
+  const serverBanner = serverDown
+    ? <Banner message={m.banner_backend_down()} />
+    : null;
+
+  if (!unlocked) {
+    return (
+      <>
+        {serverBanner}
+        <PhraseEntry />
+      </>
+    );
+  }
 
   return (
     <div className="shell">
+      {serverBanner}
       {
         /* A missing basemap affects the whole application rather than any one
           action, and it stays true until someone downloads tiles, so it is a
-          banner and not a toast. */
+          banner and not a toast.
+
+          Suppressed while the server is unreachable, though: of course there
+          is no basemap when nothing is answering, and a Download maps button
+          that cannot work is worse than saying nothing. One banner, naming
+          the cause rather than a symptom of it. */
       }
-      {basemapFailed && (
+      {basemapFailed && !serverDown && (
         <Banner
           message={m.map_basemap_missing()}
           action={{ label: m.banner_basemap_action(), onClick: openDownload }}
