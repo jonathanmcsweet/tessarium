@@ -1,6 +1,7 @@
 (tests
- (names test_server test_coverage test_bundled test_tile_set)
+ (names test_server test_coverage test_bundled test_tile_set test_regions)
  ; tessarium_extracted and zarith: test_server holds Url_path's answers to
  ; the proved module's own predicates, and converts byte lists to do it.
- (libraries tessarium_server tessarium_extracted zarith pmtiles eio_main
+ (libraries tessarium_server tessarium_extracted zarith pmtiles
+  pmtiles_source eio_main
   unix yojson))

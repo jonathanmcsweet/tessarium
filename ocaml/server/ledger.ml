@@ -1,10 +1,17 @@
 (* The download ledger: which regions this archive was asked to hold, so
    each can be listed, brought up to date, or removed later.
 
-   It lives inside map.pmtiles itself, in the archive's metadata section, so
-   the one atomic rename that publishes tiles publishes their record in the
-   same instant -- there is no sidecar file to drift, and no crash window in
+   It lives inside the archive itself, in the metadata section, so the one
+   atomic rename that publishes tiles publishes their record in the same
+   instant -- there is no sidecar file to drift, and no crash window in
    which the ledger describes tiles that are not on disk.
+
+   A region's archive is its own file, so its ledger is one entry long and
+   travels with it: a machine handed nothing but the file can say what it
+   was handed. The list a user sees is the union of every such file. Only
+   the old merged map.pmtiles, which installs from before the split still
+   have, holds several entries at once -- which is why this is a list rather
+   than a record.
 
    Everything here is pure and deterministic, deliberately: serialization
    uses a fixed key order and compact form so the same ledger is the same

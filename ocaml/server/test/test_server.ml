@@ -1398,7 +1398,7 @@ let () =
      lost by that, it rides inside the file's own ledger. *)
   let module D = Tessarium_server.Basemap_download in
   let fname ?name id =
-    D.export_filename
+    D.region_filename
       ~entry:(entry ?name [ france ])
       ~id
   in
@@ -1420,7 +1420,7 @@ let () =
      machine says when its tiles came from the planet build, and exporting
      the same map tomorrow does not make a second copy. *)
   check "the file is dated by when the tiles were fetched"
-    (D.export_filename ~entry:(entry ~completed:1_709_164_800 [ france ])
+    (D.region_filename ~entry:(entry ~completed:1_709_164_800 [ france ])
        ~id:"abcdef0123456789"
     = "France-2024-02-29-abcdef01.pmtiles");
 
@@ -1580,9 +1580,9 @@ let () =
   in
   let seen_progress = ref (0, 0) in
   ignore
-    (P.build ~max_zoom:2
+    (P.build_many ~max_zoom:2
        ~on_tile:(fun done_ total -> seen_progress := (done_, total))
-       (run_archive ~tile_id:20 ~run_length:4 ()));
+       [ run_archive ~tile_id:20 ~run_length:4 () ]);
   check "a run spanning the zoom edge does not leave the total unreachable"
     (fst !seen_progress = snd !seen_progress && fst !seen_progress = 1);
 
@@ -1595,7 +1595,7 @@ let () =
   let archive = run_archive ~reads ~tile_id:21 ~run_length:4 () in
   let visited = ref 0 in
   reads := 0;
-  ignore (P.build ~max_zoom:3 ~on_tile:(fun d _ -> visited := d) archive);
+  ignore (P.build_many ~max_zoom:3 ~on_tile:(fun d _ -> visited := d) [ archive ]);
   check "the walk visited every id in the run" (!visited = 4);
   check "and read the run's blob once, not once per id" (!reads = 1);
 
