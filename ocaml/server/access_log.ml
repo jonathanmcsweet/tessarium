@@ -48,6 +48,7 @@ let describe (r : Route.t) =
   | Route.Tile { z; x; y } -> Printf.sprintf "tile %d/%d/%d" z x y
   | Route.Tile_json { floor } -> if floor then "world.json" else "tiles.json"
   | Route.Api endpoint -> "api " ^ endpoint
+  | Route.Import -> "import"
   | Route.Not_found -> "not-found"
   | Route.Method_not_allowed -> "method-not-allowed"
 

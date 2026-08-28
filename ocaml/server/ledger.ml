@@ -205,6 +205,16 @@ let drops ~(removed : entry) ~(kept : t) =
     List.exists (fun p -> fetches p ~z ~x ~y) gone
     && not (List.exists (fun p -> fetches p ~z ~x ~y) stays)
 
+(* The mirror of [drops], for export rather than removal: [drops] answers
+   "is this tile leaving with the entry being removed", this answers "is this
+   tile no business of the entry being written out". Both are phrased as
+   DROP predicates because that is what [Merge.prune] takes, so exporting one
+   region is the same machine as removing every other one -- without touching
+   the archive the user actually uses. *)
+let outside ~(entry : entry) =
+  let mine = List.map prepare entry.regions in
+  fun ~z ~x ~y -> not (List.exists (fun p -> fetches p ~z ~x ~y) mine)
+
 (* -------------------------------------------------------------- to JSON *)
 
 let json_of_region (r : Basemap_job.request) : Yojson.Safe.t =

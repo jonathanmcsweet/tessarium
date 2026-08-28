@@ -1012,6 +1012,30 @@ let handle_basemap cfg (ops : Basemap_download.ops)
           match parse_id json with
           | Error e -> bad e
           | Ok id -> started (ops.remove ~id))
+  | "basemap-export" ->
+      with_json body (fun json ->
+          match parse_id json with
+          | Error e -> bad e
+          | Ok id -> started (ops.export ~id))
+  | "basemap-exports" -> respond_json cfg ~status:`OK (ops.exports ())
+  | "basemap-staged" -> respond_json cfg ~status:`OK (ops.staged ())
+  | "basemap-import" -> started (ops.import ())
+  | "basemap-import-discard" -> (
+      match ops.discard_import () with
+      | Ok () -> respond_json cfg ~status:`OK (`Assoc [ ("ok", `Bool true) ])
+      | Error e -> bad e)
+  | "basemap-export-delete" ->
+      with_json body (fun json ->
+          (* A file name, not a path. [Url_path] guards the route that
+             SERVES these; this is the one that deletes, so the name is
+             checked against the directory listing downstream rather than
+             pattern-matched here. *)
+          match json_field "file" json with
+          | Some (`String file) -> (
+              match ops.delete_export ~file with
+              | Ok () -> respond_json cfg ~status:`OK (`Assoc [ ("ok", `Bool true) ])
+              | Error e -> bad e)
+          | _ -> bad "file must be the name of an export")
   | "basemap-browse" ->
       (* Gated on the opt-in setting server-side, not just in the UI: the
          page must not be able to make this server fetch from the network
@@ -1186,11 +1210,36 @@ let handle_basemap cfg (ops : Basemap_download.ops)
                    with one has nowhere to go; it is ignored rather than
                    refused, because the client sends the same shape either
                    way. *)
-                match json_field "name" json with
-                | Some (`String s) when Ledger.valid_name s ->
-                    started (ops.start ~name:(Some s) ~world reqs)
-                | Some _ -> bad "name must be 1-120 bytes of printable UTF-8"
-                | None -> started (ops.start ~name:None ~world reqs)))
+                (* Per-region display labels, so the progress view can name
+                   its bars. Optional, and refused rather than trimmed when
+                   they do not line up with the regions: a labels array off
+                   by one would put every name against the wrong bar, which
+                   is worse than no names at all. *)
+                let labels =
+                  match json_field "labels" json with
+                  | None | Some `Null -> Ok None
+                  | Some (`List l) when List.length l = List.length reqs ->
+                      let rec collect acc = function
+                        | [] -> Ok (Some (List.rev acc))
+                        | `String s :: rest when Ledger.valid_name s ->
+                            collect (s :: acc) rest
+                        | _ -> Error ()
+                      in
+                      collect [] l
+                  | Some _ -> Error ()
+                in
+                match labels with
+                | Error () ->
+                    bad
+                      "labels must be one name per region, each 1-120 bytes \
+                       of printable UTF-8"
+                | Ok labels -> (
+                    match json_field "name" json with
+                    | Some (`String s) when Ledger.valid_name s ->
+                        started (ops.start ~name:(Some s) ~labels ~world reqs)
+                    | Some _ ->
+                        bad "name must be 1-120 bytes of printable UTF-8"
+                    | None -> started (ops.start ~name:None ~labels ~world reqs))))
   | _ -> error cfg ~status:`Not_found "no such endpoint"
 
 (* Whether a request declared a body. Both mistakes around this are real and
@@ -1226,13 +1275,16 @@ let refused cfg (r : Api_guard.refusal) (d : Api_guard.disposal) =
   | Api_guard.Too_large ->
       error ~close cfg ~status:`Request_entity_too_large
         "that request body is too large"
+  | Api_guard.Not_binary ->
+      error ~close cfg ~status:`Unsupported_media_type
+        "this endpoint takes application/octet-stream"
 
 (* ---------------------------------------------------------------- handler *)
 
 let status_code s = Http.Status.to_int s
 
-let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
-    ~basemap_ops ~settings_ops =
+let handler cfg ~sw ~fs ~ui_root ~basemap_root ~sessions ~limiter ~clock
+    ~random ~basemap_ops ~settings_ops =
   (* The status the log records travels WITH the response. It used to be a
      literal beside each call, and both /api/ branches passed `OK for every
      answer their handler could give -- a 500 from an unreadable ledger, a 403
@@ -1286,6 +1338,28 @@ let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
                 simple
                   (handle_api cfg sessions limiter random ~endpoint
                      ~request:checked ~now))
+      (* The one route whose body is not read into memory. It carries a map
+         archive -- gigabytes -- so it is streamed to disk as it arrives.
+         [Api_guard.check_stream] runs the same cross-origin check every
+         /api/ endpoint gets; what it does not do is read the body, which is
+         the entire reason this is not an /api/ endpoint. *)
+      | Route.Import -> (
+          match
+            Api_guard.check_stream ~header
+              ~declares_body:(declares_body (Http.Request.headers request))
+          with
+          | Error r -> simple (refused cfg r Api_guard.Connection_must_close)
+          | Ok stream -> (
+              match
+                Basemap_download.receive_import ~fs
+                  ~basemap_dir:cfg.basemap_dir
+                  ~expected:(Api_guard.declared_length stream)
+                  ~src:body
+              with
+              | Ok () ->
+                  simple
+                    (respond_json cfg ~status:`OK (basemap_ops.staged ()))
+              | Error e -> simple (error cfg ~status:`Bad_request e)))
       | Route.Tile { z; x; y } ->
           serve_tile cfg ~basemap_root ~meth
             ~client_headers:(Http.Request.headers request) ~z ~x ~y
@@ -1398,8 +1472,8 @@ let run env ~sw ~port cfg =
   in
   let settings_ops = Settings.ops ~fs ~basemap_dir:cfg.basemap_dir in
   let callback =
-    handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
-      ~basemap_ops ~settings_ops
+    handler cfg ~sw ~fs ~ui_root ~basemap_root ~sessions ~limiter ~clock
+      ~random ~basemap_ops ~settings_ops
   in
   let server = Cohttp_eio.Server.make_response_action ~callback () in
   (* Loopback only. This binary is the desktop app as well as the self-hosted

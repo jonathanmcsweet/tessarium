@@ -1838,13 +1838,13 @@ check(
    The view download's tiles sit inside the United Kingdom pick, so removing
    it must keep the archive intact -- entries own records, not tiles. */
 const viewRow = page.locator(".ledger-row").filter({ hasText: "Map view" });
-await viewRow.locator("button").nth(1).click();
+await viewRow.locator(".ledger-remove").click();
 check(
   "remove asks to be sure",
-  ((await viewRow.locator("button").nth(1).textContent()) ?? "")
+  ((await viewRow.locator(".ledger-remove").textContent()) ?? "")
     .includes("Really"),
 );
-await viewRow.locator("button").nth(1).click();
+await viewRow.locator(".ledger-remove").click();
 const rowGone = await page
   .waitForFunction(
     () => document.querySelectorAll(".ledger-row").length === 2,
@@ -1891,8 +1891,7 @@ check(
 await page
   .locator(".ledger-row")
   .filter({ hasText: "United Kingdom" })
-  .locator("button")
-  .nth(0)
+  .locator(".ledger-update")
   .click();
 check("an update of a clipped region completes", await awaitDone(6));
 await page.waitForFunction(

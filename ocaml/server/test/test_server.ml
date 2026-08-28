@@ -337,19 +337,66 @@ let () =
   check "no second download while fetching"
     (not
        (J.can_start
-          (J.Fetching { done_bytes = 0; total_bytes = 9; part = 1; parts = 1 })));
+          (J.Fetching
+             { done_bytes = 0; total_bytes = 9; part = 1; parts = 1; regions = [] })));
   check "no second download while assets fetch" (not (J.can_start J.Assets));
   check "progress is clamped to the total"
-    (J.progress ~done_bytes:120 ~total_bytes:100 ~part:1 ~parts:1
-     = J.Fetching { done_bytes = 100; total_bytes = 100; part = 1; parts = 1 });
+    (J.progress ~done_bytes:120 ~total_bytes:100 ~part:1 ~parts:1 ()
+     = J.Fetching
+         { done_bytes = 100; total_bytes = 100; part = 1; parts = 1; regions = [] });
   check "progress cannot be negative"
-    (J.progress ~done_bytes:(-5) ~total_bytes:100 ~part:1 ~parts:1
-     = J.Fetching { done_bytes = 0; total_bytes = 100; part = 1; parts = 1 });
+    (J.progress ~done_bytes:(-5) ~total_bytes:100 ~part:1 ~parts:1 ()
+     = J.Fetching
+         { done_bytes = 0; total_bytes = 100; part = 1; parts = 1; regions = [] });
   check "part is clamped into 1..parts"
-    (J.progress ~done_bytes:0 ~total_bytes:1 ~part:9 ~parts:4
-     = J.Fetching { done_bytes = 0; total_bytes = 1; part = 4; parts = 4 }
-    && J.progress ~done_bytes:0 ~total_bytes:1 ~part:0 ~parts:0
-       = J.Fetching { done_bytes = 0; total_bytes = 1; part = 1; parts = 1 });
+    (J.progress ~done_bytes:0 ~total_bytes:1 ~part:9 ~parts:4 ()
+     = J.Fetching
+         { done_bytes = 0; total_bytes = 1; part = 4; parts = 4; regions = [] }
+    && J.progress ~done_bytes:0 ~total_bytes:1 ~part:0 ~parts:0 ()
+       = J.Fetching
+           { done_bytes = 0; total_bytes = 1; part = 1; parts = 1; regions = [] });
+  (* Per-region rows get the same clamping as the aggregate: the download
+     credits regions from a raw counter, and a row reading past its own total
+     is the same bug as a bar past 100%. *)
+  check "a region's progress is clamped to its own total"
+    (J.progress ~done_bytes:0 ~total_bytes:100 ~part:1 ~parts:1
+       ~regions:
+         [
+           { J.label = "France"; done_bytes = 90; total_bytes = 40; planned = true };
+           { J.label = "Tokyo"; done_bytes = -3; total_bytes = 60; planned = false };
+         ]
+       ()
+     = J.Fetching
+         {
+           done_bytes = 0;
+           total_bytes = 100;
+           part = 1;
+           parts = 1;
+           regions =
+             [
+               { J.label = "France"; done_bytes = 40; total_bytes = 40; planned = true };
+               { J.label = "Tokyo"; done_bytes = 0; total_bytes = 60; planned = false };
+             ];
+         });
+  check "region rows survive into the status JSON in request order"
+    (match
+       J.to_json
+         (J.progress ~done_bytes:1 ~total_bytes:2 ~part:1 ~parts:1
+            ~regions:
+              [
+                { J.label = "France"; done_bytes = 1; total_bytes = 2; planned = true };
+                { J.label = "Tokyo"; done_bytes = 0; total_bytes = 5; planned = false };
+              ]
+            ())
+     with
+    | `Assoc fields -> (
+        match List.assoc_opt "regions" fields with
+        | Some (`List [ `Assoc a; `Assoc b ]) ->
+            List.assoc_opt "label" a = Some (`String "France")
+            && List.assoc_opt "label" b = Some (`String "Tokyo")
+            && List.assoc_opt "planned" b = Some (`Bool false)
+        | _ -> false)
+    | _ -> false);
   check "a reversed box is refused"
     (Result.is_error (J.validate ~min_lon:1. ~min_lat:0. ~max_lon:0. ~max_lat:1. ~max_zoom:15 ()));
   check "an out-of-range box is refused"
@@ -582,8 +629,8 @@ let () =
           calls := `Estimate (world, req) :: !calls;
           Ok (`Assoc []));
       start =
-        (fun ~name ~world req ->
-          calls := `Start (name, world, req) :: !calls;
+        (fun ~name ~labels ~world req ->
+          calls := `Start (name, labels, world, req) :: !calls;
           Ok ());
       cancel =
         (fun () ->
@@ -604,6 +651,30 @@ let () =
       remove =
         (fun ~id ->
           calls := `Remove id :: !calls;
+          Ok ());
+      export =
+        (fun ~id ->
+          calls := `Export id :: !calls;
+          Ok ());
+      exports =
+        (fun () ->
+          calls := `Exports :: !calls;
+          `List []);
+      delete_export =
+        (fun ~file ->
+          calls := `Delete_export file :: !calls;
+          Ok ());
+      staged =
+        (fun () ->
+          calls := `Staged :: !calls;
+          `Assoc [ ("staged", `Bool false) ]);
+      import =
+        (fun () ->
+          calls := `Import :: !calls;
+          Ok ());
+      discard_import =
+        (fun () ->
+          calls := `Discard_import :: !calls;
           Ok ());
       browse =
         (fun req ->
@@ -680,7 +751,7 @@ let () =
   let box = {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15}|} in
   let wrap boxes = {|{"regions":[|} ^ String.concat "," boxes ^ "]}" in
   (match run ~endpoint:"basemap-download" ~body:(wrap [ box ]) with
-  | [ `Start (_, _, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
+  | [ `Start (_, _, _, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
       check "a good box starts a download with the parsed values"
         (req.min_lon = -0.25 && req.max_lat = 51.55 && req.max_zoom = 15);
       (* max_lon arrived as the JSON integer 0 and must still be a number. *)
@@ -692,7 +763,7 @@ let () =
   (* Several regions ride in one request, in order: the picker sends its
      whole selection at once and reads the depths back by position. *)
   (match run ~endpoint:"basemap-download" ~body:(wrap [ box; paris ]) with
-  | [ `Start (_, _, [ (a : Tessarium_server.Basemap_job.request); b ]) ] ->
+  | [ `Start (_, _, _, [ (a : Tessarium_server.Basemap_job.request); b ]) ] ->
       check "two regions arrive as one download, in order"
         (a.min_lon = -0.25 && b.min_lon = 2.1)
   | _ -> check "two regions arrive as one download, in order" false);
@@ -721,7 +792,7 @@ let () =
     {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15,"polygon":[[[-0.2,51.46],[-0.05,51.46],[-0.1,51.54]]]}|}
   in
   (match run ~endpoint:"basemap-download" ~body:(wrap [ with_polygon ]) with
-  | [ `Start (_, _, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
+  | [ `Start (_, _, _, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
       check "a polygon rides in with its region"
         (match req.polygon with
         | Some [| ring |] -> Array.length ring = 3 && fst ring.(0) = -0.2
@@ -820,11 +891,11 @@ let () =
        run ~endpoint:"basemap-download"
          ~body:({|{"name":"France","regions":[|} ^ box ^ "]}")
      with
-    | [ `Start (Some "France", false, _) ] -> true
+    | [ `Start (Some "France", _, false, _) ] -> true
     | _ -> false);
   check "a download without a name still starts"
     (match run ~endpoint:"basemap-download" ~body:(wrap [ box ]) with
-    | [ `Start (None, false, _) ] -> true
+    | [ `Start (None, _, false, _) ] -> true
     | _ -> false);
   check "a name with control characters reaches nothing"
     (run ~endpoint:"basemap-download"
@@ -838,7 +909,7 @@ let () =
        run ~endpoint:"basemap-download"
          ~body:({|{"world":true,"regions":[|} ^ box ^ "]}")
      with
-    | [ `Start (_, true, _) ] -> true
+    | [ `Start (_, _, true, _) ] -> true
     | _ -> false);
   (* And its estimate is quoted against the same one. A quote taken against
      the detail archive would price a world overview the user mostly has. *)
@@ -849,12 +920,65 @@ let () =
      with
     | [ `Estimate (true, _) ] -> true
     | _ -> false);
+  (* Per-region labels. They exist so the progress view can name its bars,
+     which means a labels array that does not line up with the regions is
+     worse than none: every bar would carry its neighbour's name. Refused,
+     not trimmed. *)
+  check "labels ride along with the regions they name"
+    (match
+       run ~endpoint:"basemap-download"
+         ~body:({|{"labels":["France"],"regions":[|} ^ box ^ "]}")
+     with
+    | [ `Start (_, Some [ "France" ], false, _) ] -> true
+    | _ -> false);
+  check "a download without labels still starts"
+    (match run ~endpoint:"basemap-download" ~body:(wrap [ box ]) with
+    | [ `Start (_, None, false, _) ] -> true
+    | _ -> false);
+  check "labels that do not match the regions reach nothing"
+    (run ~endpoint:"basemap-download"
+       ~body:({|{"labels":["France","Spain"],"regions":[|} ^ box ^ "]}")
+     = []
+    && run ~endpoint:"basemap-download"
+         ~body:({|{"labels":[7],"regions":[|} ^ box ^ "]}")
+       = []
+    && run ~endpoint:"basemap-download"
+         ~body:({|{"labels":"France","regions":[|} ^ box ^ "]}")
+       = []);
+  check "a label with control characters reaches nothing"
+    (run ~endpoint:"basemap-download"
+       ~body:({|{"labels":["a\nb"],"regions":[|} ^ box ^ "]}")
+     = []);
+
+  (* Carrying maps by hand. Export names its entry the same way remove does;
+     an export file name is checked downstream against the directory, so what
+     matters here is that a request without one reaches nothing. *)
+  check "export names its entry by id"
+    (run ~endpoint:"basemap-export" ~body:{|{"id":"abc123"}|}
+    = [ `Export "abc123" ]);
+  check "an export without a usable id reaches nothing"
+    (run ~endpoint:"basemap-export" ~body:"{}" = []
+    && run ~endpoint:"basemap-export" ~body:{|{"id":""}|} = []);
+  check "the export list needs no arguments"
+    (run ~endpoint:"basemap-exports" ~body:"{}" = [ `Exports ]);
+  check "deleting an export names the file"
+    (run ~endpoint:"basemap-export-delete" ~body:{|{"file":"France-ab12.pmtiles"}|}
+    = [ `Delete_export "France-ab12.pmtiles" ]);
+  check "deleting an export without a name reaches nothing"
+    (run ~endpoint:"basemap-export-delete" ~body:"{}" = []
+    && run ~endpoint:"basemap-export-delete" ~body:{|{"file":42}|} = []);
+  check "the staged import is asked for plainly"
+    (run ~endpoint:"basemap-staged" ~body:"{}" = [ `Staged ]);
+  check "committing and discarding an import take no arguments"
+    (run ~endpoint:"basemap-import" ~body:"{}" = [ `Import ]
+    && run ~endpoint:"basemap-import-discard" ~body:"{}" = [ `Discard_import ]);
+
   check "and is a region download unless it says otherwise"
     (match
        run ~endpoint:"basemap-download"
          ~body:({|{"world":"yes","regions":[|} ^ box ^ "]}")
      with
-    | [ `Start (_, false, _) ] -> true
+    | [ `Start (_, _, false, _) ] -> true
     | _ -> false);
 
   (* And what the server does with that claim. A box that does not reach the
@@ -1250,6 +1374,47 @@ let () =
        (-5.1, 41.3, 9.6, 51.1));
   check "drops = covering, clipped to the padded quad"
     (agrees ~polygon:quad ~z:4 (tl -. pad, tb -. pad, tr +. pad, tt +. pad));
+
+  (* [outside] is what an export prunes with, and it has to be the EXACT
+     complement of the entry's own covering. Too eager and the file arrives
+     on the other machine with holes in the middle of the country; too shy
+     and it carries tiles belonging to regions the user did not export. With
+     [kept] empty, [drops] is precisely "this tile is in the entry", so the
+     two must disagree on every tile in the universe and agree on none. *)
+  let complements ?polygon ~z:max_zoom (a, b, c, d) =
+    let e = entry [ reg ?polygon ~z:max_zoom (a, b, c, d) ] in
+    let drops = L.drops ~removed:e ~kept:[] in
+    let outside = L.outside ~entry:e in
+    universe (fun ~z ~x ~y -> outside ~z ~x ~y = not (drops ~z ~x ~y))
+  in
+  check "outside is exactly the complement of what an entry covers"
+    (complements ~z:4 (-5.1, 41.3, 9.6, 51.1));
+  check "outside complements a polygon-clipped entry too"
+    (complements ~polygon:quad ~z:4
+       (tl -. pad, tb -. pad, tr +. pad, tt +. pad));
+
+  (* Export file names. The string reaches a filesystem, a URL path and a
+     save dialog, so it is deliberately narrow -- and the real name is not
+     lost by that, it rides inside the file's own ledger. *)
+  let module D = Tessarium_server.Basemap_download in
+  let fname ?name id =
+    D.export_filename
+      ~entry:(entry ?name [ france ])
+      ~id
+  in
+  check "an ordinary name slugs to itself"
+    (fname "abcdef0123456789" = "France-abcdef01.pmtiles");
+  check "spaces and punctuation collapse to single dashes"
+    (fname ~name:"Cote d'Ivoire (north)" "abcdef0123456789"
+    = "Cote-d-Ivoire-north-abcdef01.pmtiles");
+  check "a name with nothing safe in it falls back rather than emptying"
+    (fname ~name:"東京" "abcdef0123456789" = "map-abcdef01.pmtiles");
+  check "the same entry exports to the same file, so a repeat replaces"
+    (fname "abcdef0123456789" = fname "abcdef0123456789");
+  check "different entries do not collide on a shared name"
+    (fname "aaaaaaaa1111" <> fname "bbbbbbbb2222");
+  check "a short id is used whole rather than read past its end"
+    (fname "abc" = "France-abc.pmtiles");
 
   (* Signed zero is the same bound: one region, one identity, and ties in
      the sort cannot reorder the bytes. *)

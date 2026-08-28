@@ -862,6 +862,59 @@ not cover.
       desktop database refresh, the icon cache — which needs a container this
       repository does not have.
 
+- [ ] **Nothing publishes an installable package.** The packaging scripts for
+      the tarball, `.deb`, `.rpm` and the AppImage all work, and the Flatpak
+      manifest is written; CI runs only `tools/package.sh` and uploads the
+      tarball as an Actions artifact, which expires and needs a GitHub login
+      to fetch. So a person who wants to put this on a machine with no
+      internet has nothing to download. A tagged release job should build all
+      four, publish `SHA256SUMS` beside them, and attach them to a GitHub
+      release.
+
+      One thing that job cannot paper over: a single-file `.flatpak` bundle
+      installs offline only when `org.freedesktop.Platform//24.08` is already
+      on the target. For a genuinely bare machine the honest instruction is
+      `flatpak create-usb`, which carries the runtime too, and that belongs in
+      the offline documentation rather than in the build.
+
+- [ ] **`tessarium-basemap` replaces its output rather than merging into it.**
+      `Pmtiles.Merge` exists and is what the in-app downloader uses; the CLI
+      never got a path to it, so fetching a second region over an existing
+      file discards the first. The release tarball's `README.txt` says the
+      opposite — "Downloads merge rather than replace" — under a heading about
+      the CLI, which is true of the app and false of the tool it is describing.
+      Fix the tool, then the sentence.
+
+- [ ] **An archive copied in by hand has no search index.** `search.idx` is
+      built by the downloader when the archive changes, which now covers
+      import as well. Someone who sidesteps both and copies `map.pmtiles`
+      into place themselves gets working tiles and a search box that finds
+      nothing. A startup check — index missing, or older than the archive —
+      would close it, and would also repair an index lost to a crash mid-build.
+
+- [ ] **An export duplicates its region on disk, and nothing checks there is
+      room.** Exporting a downloaded country writes a second copy of it into
+      `basemap/export/`, on the machine most likely to be short of disk. The
+      write fails cleanly and leaves a `.part` behind, but the user finds out
+      after waiting. Eio exposes no portable `statvfs`, which is why this is
+      recorded rather than done; the estimate is already known before the
+      write starts, so only the free-space number is missing.
+
+- [ ] **An imported file is trusted on its face.** A download over HTTPS is
+      checked against compiled-in NSS trust anchors. A file that arrived on a
+      USB stick gets none of that, and the confirm step describes what the
+      file claims to hold without offering anything to check it against. The
+      archive is hashed end to end while being received anyway, so showing
+      that digest at the confirm step — and writing it beside the file at
+      export — is a small change that closes the asymmetry.
+
+- [ ] **Exports go one region to a file, one at a time.** Which is the right
+      default — the person on the other end may want only Tokyo — but someone
+      moving a whole map library makes one round trip per region and gets no
+      way to say "all of it". A multi-select over the downloaded list, writing
+      either several files or one combined archive, is the obvious follow-on
+      and was deliberately left until the single-region path had been used.
+
 ## Phase 8 — Later, unscheduled
 
 - [ ] **RESEARCH: can this ride inside an existing map app rather than being

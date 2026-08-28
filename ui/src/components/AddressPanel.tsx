@@ -17,6 +17,7 @@ import { CopyButton } from "./CopyButton";
 import { IconButton } from "./IconButton";
 import { LanguagePicker } from "./LanguagePicker";
 import { LockDialog } from "./LockDialog";
+import { MapProgress } from "./MapProgress";
 
 /* Same shape as an address, so the panel does not change width when it is
    concealed and the layout does not jump on every toggle. */
@@ -186,6 +187,12 @@ export function AddressPanel() {
           )
           : <p className="hint">{m.panel_no_selection()}</p>}
       </section>
+
+      {
+        /* Below the address, above the footer: a download is background work
+          and must not push the thing the user came here for off the top. */
+      }
+      <MapProgress />
 
       <footer className="panel-foot">
         <LanguagePicker />

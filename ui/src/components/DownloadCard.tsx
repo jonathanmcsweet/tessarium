@@ -29,6 +29,7 @@ import {
   DisclosurePanel,
 } from "react-aria-components";
 import {
+  exportUrl,
   isRunning,
   type Job,
   type LedgerEntry,
@@ -36,14 +37,22 @@ import {
   useBasemapCancel,
   useBasemapDownload,
   useBasemapEstimate,
+  useBasemapExport,
+  useBasemapExports,
   useBasemapLedger,
   useBasemapPresent,
   useBasemapRemove,
   useBasemapSettings,
   useBasemapUpdate,
+  useCommitImport,
+  useDeleteExport,
+  useDiscardImport,
   useSaveBasemapSettings,
+  useStagedImport,
+  useUploadImport,
   WORLD,
 } from "../core/basemap";
+import type { StagedReady } from "../core/basemap";
 import { formatBytes, formatList, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import {
@@ -55,7 +64,7 @@ import {
   toRegion,
 } from "../regions";
 import { useAppStore } from "../store";
-import { toastError } from "../toast";
+import { toastError, toastSuccess } from "../toast";
 import { Dropdown } from "./Dropdown";
 import { IconButton } from "./IconButton";
 
@@ -241,6 +250,9 @@ function Offer(
             && download.mutate({
               regions,
               ...(ledgerLabel !== undefined ? { name: ledgerLabel } : {}),
+              /* Already aligned with regions for the depth warning, and
+                 exactly what the progress rows need to name themselves. */
+              ...(names !== undefined ? { labels: names } : {}),
               ...(world ? { world: true } : {}),
             }, loudly)}
           disabled={regions === null || !estimate.isSuccess
@@ -467,6 +479,7 @@ function LedgerRow({ entry, days, busy }: {
 }) {
   const update = useBasemapUpdate();
   const remove = useBasemapRemove();
+  const exportMap = useBasemapExport();
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
     if (!confirming) return;
@@ -499,9 +512,16 @@ function LedgerRow({ entry, days, busy }: {
           )}
         </span>
       </div>
+      {
+        /* Classed, not just ordered. What each button DOES is the stable
+           thing about it; its position in the row is not, and a fourth verb
+           added here should not silently retarget anything that reaches for
+           one of these -- which is exactly what adding the third did. */
+      }
       <div className="download-actions">
         <button
           type="button"
+          className="ledger-update"
           onClick={() => update.mutate(entry.id, loudly)}
           disabled={busy || update.isPending || remove.isPending}
         >
@@ -509,6 +529,16 @@ function LedgerRow({ entry, days, busy }: {
         </button>
         <button
           type="button"
+          className="ledger-export"
+          onClick={() => exportMap.mutate(entry.id, loudly)}
+          disabled={busy || update.isPending || remove.isPending
+            || exportMap.isPending}
+        >
+          {m.map_export_action()}
+        </button>
+        <button
+          type="button"
+          className="ledger-remove"
           onClick={() => {
             if (!confirming) setConfirming(true);
             else remove.mutate(entry.id, loudly);
@@ -519,6 +549,168 @@ function LedgerRow({ entry, days, busy }: {
         </button>
       </div>
     </li>
+  );
+}
+
+/* Files waiting to be carried away.
+
+   Saving is an ordinary link to an ordinary GET on this server, not a blob
+   the page built: the file is on disk already, and a country-sized download
+   assembled in JavaScript would be several gigabytes on the heap for no
+   reason. The link streams and resumes; the heap never sees it. */
+function ExportedFiles({ busy }: { busy: boolean; }) {
+  const exports = useBasemapExports();
+  const remove = useDeleteExport();
+  if (!exports.isSuccess || exports.data.length === 0) return null;
+  return (
+    <div className="download-option download-exports">
+      <p className="region-group">{m.map_export_title()}</p>
+      <p className="hint">{m.map_export_hint()}</p>
+      <ul className="ledger-rows">
+        {exports.data.map((f) => (
+          <li className="ledger-row" key={f.file}>
+            <div className="ledger-row-text">
+              <span className="ledger-name">{f.file}</span>
+              <span className="hint">{formatBytes(f.bytes)}</span>
+            </div>
+            <div className="download-actions">
+              {
+                /* `download` names the saved file rather than navigating to
+                  it; same origin, so the CSP is untroubled. */
+              }
+              <a
+                className="button-link"
+                href={exportUrl(f.file)}
+                download={f.file}
+              >
+                {m.map_export_save()}
+              </a>
+              <button
+                type="button"
+                onClick={() => remove.mutate(f.file, loudly)}
+                disabled={busy || remove.isPending}
+              >
+                {m.map_export_delete()}
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* Adding maps from a file, which is the whole offline story in one control.
+
+   A file input, not a path box: the operating system's own picker is what
+   reaches a USB stick, a phone, a network share or the downloads folder
+   without this app knowing anything about any of them -- and it is the only
+   thing that works under Flatpak, where the app is sandboxed away from the
+   filesystem entirely but the browser is not.
+
+   Two steps. The file goes up and is DESCRIBED first -- what it holds, how
+   deep, how big -- and only a second press merges it. A gigabyte of the
+   wrong country should cost a glance, not a merge. */
+function ImportFromFile({ busy }: { busy: boolean; }) {
+  const staged = useStagedImport();
+  const upload = useUploadImport();
+  const commit = useCommitImport();
+  const discard = useDiscardImport();
+  const [sent, setSent] = useState<{ done: number; total: number; } | null>(
+    null,
+  );
+
+  /* Annotated rather than inferred: a conditional expression widens back to
+     the whole union, so the narrowing done here would be lost by the time
+     the fields are read below. */
+  const stagedData = staged.data;
+  const waiting: StagedReady | null = stagedData?.staged ? stagedData : null;
+
+  return (
+    <div className="download-option download-import">
+      <p className="region-group">{m.map_import_title()}</p>
+      <p className="hint">{m.map_import_hint()}</p>
+
+      {waiting === null && (
+        <>
+          {
+            /* A real file input, labelled: an icon or a bare button here
+              would leave the control unnamed for assistive technology and
+              unreachable by keyboard on some platforms. */
+          }
+          <label className="button-link file-input" htmlFor="import-file">
+            {m.map_import_choose()}
+          </label>
+          <input
+            id="import-file"
+            className="visually-hidden"
+            type="file"
+            accept=".pmtiles,application/octet-stream"
+            disabled={busy || upload.isPending}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              /* Cleared so choosing the same file twice fires again --
+                 which happens when the first attempt failed. */
+              e.target.value = "";
+              if (!file) return;
+              setSent({ done: 0, total: file.size });
+              upload.mutate({
+                file,
+                onProgress: (done, total) => setSent({ done, total }),
+              }, {
+                ...loudly,
+                onSettled: () => setSent(null),
+              });
+            }}
+          />
+          {upload.isPending && sent !== null && (
+            <p className="hint" role="status">
+              {m.map_import_uploading({
+                done: formatBytes(sent.done),
+                total: formatBytes(sent.total),
+              })}
+            </p>
+          )}
+        </>
+      )}
+
+      {waiting !== null && (
+        <>
+          <p className="hint">
+            {waiting.name !== null
+              ? m.map_import_staged_named({
+                name: waiting.name,
+                size: formatBytes(waiting.bytes),
+                zoom: waiting.max_zoom,
+              })
+              : m.map_import_staged_unnamed({
+                size: formatBytes(waiting.bytes),
+                zoom: waiting.max_zoom,
+              })}
+          </p>
+          <div className="download-actions">
+            <button
+              type="button"
+              onClick={() =>
+                commit.mutate(undefined, {
+                  ...loudly,
+                  onSuccess: () => toastSuccess(m.map_import_added()),
+                })}
+              disabled={busy || commit.isPending}
+            >
+              {m.map_import_confirm()}
+            </button>
+            <button
+              type="button"
+              onClick={() => discard.mutate(undefined, loudly)}
+              disabled={busy || commit.isPending || discard.isPending}
+            >
+              {m.map_import_discard()}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -666,6 +858,8 @@ export function DownloadCard({ region, job }: {
             )}
             <RegionPicker />
             <DownloadedMaps busy={running} />
+            <ExportedFiles busy={running} />
+            <ImportFromFile busy={running} />
             <BrowseToggle />
           </>
         )}

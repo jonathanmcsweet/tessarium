@@ -21,6 +21,66 @@ than a git log.
 
 ---
 
+### 2026-08-27 — Maps can be carried to a machine with no internet
+
+**Phase:** 6
+
+**What:** Three things, which together make an offline machine's map library
+maintainable without ever giving it a network.
+
+A downloaded region can be written out as a file (`basemap-export`), listed
+and saved from the download card, and deleted when it has been copied away.
+The exported archive carries a ledger of its own holding just that entry, so
+the far side reads the region, the granted depth and the name out of the file
+rather than having them typed in.
+
+A map file can be added through the browser's own file picker
+(`POST /import`, then `basemap-import`). The upload streams to disk under a
+new route, is described back to the user before anything is merged, and is
+then handed to the ordinary download path as its source — so the merge, the
+ledger entry, the browse-cache prune and the search-index rebuild are the
+same code that a networked download runs.
+
+Download progress is now per region. `Merge.write` hands the blob index to
+its copy callback, the download attributes each fresh blob to the pick that
+asked for it, and `Basemap_job.Fetching` carries a row per region. The rows
+live in the side panel rather than the download card, so closing the card
+does not hide an hour of work.
+
+**Rationale:** Import is deliberately not a new kind of download.
+`Pmtiles_source.open_url` already falls through to a plain file, and
+`run_download` already merges from whatever source it is given, so pointing
+it at an uploaded file reuses every downstream guarantee instead of growing a
+second path that would drift. The machine using this feature is the one with
+no way to fetch a fix, which makes "no second path" worth more here than
+anywhere else in the project.
+
+The upload gets its own route rather than an `/api/` endpoint because every
+`/api/` body is read whole under a 4 MiB bound. That bound is right for every
+other endpoint and wrong for a country. `Api_guard.check_stream` keeps the
+same-origin check and requires `application/octet-stream`, which is off the
+CORS safelist for the same reason `application/json` is — a form post cannot
+reach it.
+
+A browser file picker rather than a path box or a server-side file browser:
+it is the only one of the three that works under Flatpak, where the app has
+no filesystem permission at all and the browser is outside the sandbox. It is
+also the only one that reaches a USB stick without this app knowing what a
+USB stick is.
+
+Per-region bytes count what the network delivered, not archive bytes written.
+A merge copies the whole base archive forward, and crediting Tokyo with the
+gigabyte of London already on disk would read as Tokyo downloading a gigabyte
+it never asked for. A tile two picks both wanted is charged to the earlier
+one, so the rows cannot sum past what was fetched.
+
+**Follow-on:** Six items in roadmap.md, Phase 6: no release job publishes the
+packages any of this assumes someone can install; the `tessarium-basemap` CLI
+still replaces rather than merges, and the shipped `README.txt` claims
+otherwise; a hand-copied archive still gets no search index; an export
+duplicates its region with no free-space check; an imported file is trusted on
+its face where a download is not; and exports are one region at a time.
+
 ### 2026-08-26 — Built packages are installed and run before they ship
 
 **Phase:** 6 · **Branches:** test/install-smoke, build/arch-from-binary

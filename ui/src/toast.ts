@@ -10,3 +10,9 @@ import { toast } from "sonner";
 export const toastError = (message: string): void => {
   toast.error(message, { duration: Number.POSITIVE_INFINITY });
 };
+
+/* Successes keep sonner's default duration: they are one short statement,
+   and unlike an error there is nothing to re-read. */
+export const toastSuccess = (message: string): void => {
+  toast.success(message);
+};
