@@ -232,6 +232,75 @@ let prune ?(on_entry = fun () -> ()) ~(base : Archive.t) ~drop () =
     },
     !dropped_tiles )
 
+(* The same plan, narrowed to the tiles [keep] names.
+
+   This is what lets ONE pass over the network write two archives. The
+   download writes the whole merged archive; a caller that also wants the
+   downloaded region as a file of its own selects it out of the same plan,
+   and every blob the smaller archive needs goes past exactly once while the
+   big one is being written. Without this the region has to be extracted
+   afterwards, which reads the whole archive back to write a fraction of it.
+
+   Returns the narrowed plan and a map from the parent's blob index to the
+   child's, or -1 where the child does not want that blob. The caller uses it
+   to answer "does this blob belong to the small archive, and where" while
+   the bytes are in its hand.
+
+   Blob sharing is honoured as in [plan] and [prune]: a blob survives while
+   any kept tile still references it. Child blob indices follow first
+   reference in kept-tile order, which is what keeps the child `clustered` --
+   its data section is ordered by tile id, exactly as the parent's is. That
+   order is NOT the parent's, and deliberately so: deduplication lets a later
+   tile reference an earlier blob, so the child's sequence is not a
+   subsequence of the parent's. A caller writing both at once must place
+   blobs by offset rather than by appending in arrival order. *)
+let select ?(on_entry = fun () -> ()) ~keep (p : plan) =
+  let parent_blobs = Array.length p.blobs in
+  let mapping = Array.make (max 1 parent_blobs) (-1) in
+  let blobs = ref [] in
+  let blob_count = ref 0 in
+  let tiles = Array.make (max 1 (Array.length p.tiles)) (0, 0) in
+  let out = ref 0 in
+  Array.iter
+    (fun (id, parent_index) ->
+      on_entry ();
+      let z, x, y = Tile_id.to_zxy id in
+      if keep ~z ~x ~y then begin
+        let index =
+          if mapping.(parent_index) >= 0 then mapping.(parent_index)
+          else begin
+            let i = !blob_count in
+            mapping.(parent_index) <- i;
+            blobs := p.blobs.(parent_index) :: !blobs;
+            incr blob_count;
+            i
+          end
+        in
+        tiles.(!out) <- (id, index);
+        incr out
+      end)
+    p.tiles;
+  let tiles = Array.sub tiles 0 !out in
+  let blobs = Array.of_list (List.rev !blobs) in
+  let total_bytes =
+    Array.fold_left (fun acc (_, _, length) -> acc + length) 0 blobs
+  in
+  let fetch_bytes =
+    Array.fold_left
+      (fun acc (origin, _, length) ->
+        match origin with Fresh -> acc + length | Base -> acc)
+      0 blobs
+  in
+  let fresh_tiles =
+    Array.fold_left
+      (fun acc (_, index) ->
+        let origin, _, _ = blobs.(index) in
+        match origin with Fresh -> acc + 1 | Base -> acc)
+      0 tiles
+  in
+  ( { blobs; tiles; fetch_bytes; total_bytes; fresh_tiles; refreshed_tiles = 0 },
+    mapping )
+
 (* [copy] is handed [index], the blob's position in [p.blobs], as well as
    where to read it from. The index is what lets a caller attribute bytes to
    whatever it decided that blob belongs to -- the download uses it to say
