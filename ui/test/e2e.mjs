@@ -379,7 +379,7 @@ check("map opens after derivation", true);
 const mapBox = await page.locator(".map").boundingBox();
 const wrapBox = await page.locator(".map-wrap").boundingBox();
 check(
-  `the map fills its half of the window (${Math.round(mapBox?.width ?? 0)}x${
+  `the map fills its wrapper (${Math.round(mapBox?.width ?? 0)}x${
     Math.round(mapBox?.height ?? 0)
   })`,
   mapBox !== null && wrapBox !== null
@@ -852,6 +852,45 @@ check(
 /* Back to the default, so nothing downstream inherits a resized layout. */
 await page.locator(".panel-resizer").dblclick();
 
+/* The drawer is OVER the map, and this is the assertion that says so: the
+   map's own box must not change when the drawer opens, shuts or is dragged.
+   As a grid column it did change, every time, which meant MapLibre re-laid
+   out and the view moved under whoever was reading it. */
+const mapWrapWidth = async () =>
+  (await page.locator(".map-wrap").boundingBox())?.width ?? 0;
+const mapBefore = await mapWrapWidth();
+await page.locator(".panel-hide").click();
+const collapsed = await page
+  .waitForFunction(
+    () => document.querySelector(".panel")?.classList.contains("collapsed"),
+    null,
+    { timeout: 10_000 },
+  )
+  .then(() => true, () => false);
+check("the drawer collapses", collapsed);
+check(
+  `and the map does not move when it does (${Math.round(mapBefore)}px)`,
+  (await mapWrapWidth()) === mapBefore,
+);
+/* Shut means gone from the tab order too, not merely off-screen. */
+check(
+  "a collapsed drawer is out of the accessibility tree",
+  !(await page.locator(".panel").isVisible()),
+);
+check(
+  "and offers a way back",
+  (await page.locator(".panel-reopen button").count()) === 1,
+);
+await page.locator(".panel-reopen button").click();
+const reopened = await page
+  .waitForFunction(
+    () => !document.querySelector(".panel")?.classList.contains("collapsed"),
+    null,
+    { timeout: 10_000 },
+  )
+  .then(() => true, () => false);
+check("and reopens from it", reopened);
+
 /* An overview and no region is the state every fresh install starts in, and
    two things have to be true of it at once. */
 
@@ -900,7 +939,7 @@ check(
 /* Second download: detail for the current view, MERGED over the world map.
    The card must no longer offer the world, and afterwards every tile from
    both downloads has to be in one archive. */
-const openButton = page.locator(".map-actions .icon-button");
+const openButton = page.locator(".panel-download");
 check(
   "the map carries its own download button",
   (await openButton.count()) === 1,
@@ -1637,7 +1676,7 @@ check(
   await page.waitForSelector(".download-card", { timeout: 10_000 })
     .then(() => true, () => false),
 );
-await page.locator(".map-actions button").click();
+await page.locator(".panel-download").click();
 await page.waitForFunction(
   () => !document.querySelector(".download-card"),
   null,
@@ -2219,7 +2258,7 @@ await worldPage.locator("#phrase").fill(sampleMnemonic);
 await worldPage.waitForSelector(".valid", { timeout: 30_000 });
 await worldPage.locator("button[type=submit]").click();
 await worldPage.waitForSelector(".map-wrap", { timeout: 60_000 });
-await worldPage.locator(".map-actions .icon-button").click();
+await worldPage.locator(".panel-download").click();
 await worldPage.waitForSelector(".download-card", { timeout: 10_000 });
 await worldPage.waitForSelector(".download-world", { timeout: 30_000 });
 check("with maps on disk but no world overview, the offer is back", true);

@@ -2,7 +2,6 @@
 
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import { useQueryClient } from "@tanstack/react-query";
-import { Download } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import {
   useCallback,
@@ -36,7 +35,6 @@ import { formatBytes, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
 import { toastError } from "../toast";
-import { IconButton } from "./IconButton";
 import { PlaceSearch } from "./PlaceSearch";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -1156,14 +1154,6 @@ export function MapView() {
              selects that square, which a place pick does not: a town is a
              place to look at, an address is a square to be told about. */
           onPickAddress={(lon, lat) => requestFlyTo(lat, lon)}
-        />
-      </div>
-      <div className="map-actions">
-        <IconButton
-          label={m.map_download_open()}
-          icon={<Download size={18} aria-hidden />}
-          pressed={downloadOpen}
-          onClick={() => (downloadOpen ? closeDownload() : openDownload())}
         />
       </div>
       {

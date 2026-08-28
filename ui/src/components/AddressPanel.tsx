@@ -8,7 +8,7 @@
    squares, so a screenshot or a shared screen gives away one address at most
    -- and the eye toggle here takes that to none. */
 
-import { Eye, EyeOff } from "lucide-react";
+import { Download, Eye, EyeOff, PanelRightClose } from "lucide-react";
 import { lazy, Suspense } from "react";
 import { useBasemapStatus } from "../core/basemap";
 import { useCoreVersions, useLock } from "../core/queries";
@@ -55,11 +55,15 @@ export function AddressPanel() {
      needs and the map stays whole. The button that opens it stays on the
      map, because that is where someone is looking when they notice a gap. */
   const downloadOpen = useAppStore((s) => s.downloadOpen);
+  const openDownload = useAppStore((s) => s.openDownload);
+  const closeDownload = useAppStore((s) => s.closeDownload);
+  const togglePanel = useAppStore((s) => s.togglePanel);
+  const panelCollapsed = useAppStore((s) => s.panelCollapsed);
   const downloadRegion = useAppStore((s) => s.downloadRegion);
   const basemapJob = useBasemapStatus();
 
   return (
-    <aside className="panel">
+    <aside className={panelCollapsed ? "panel collapsed" : "panel"}>
       <header className="panel-head">
         <span className="brand">{m.app_name()}</span>
         <div className="panel-head-actions">
@@ -83,11 +87,29 @@ export function AddressPanel() {
                 : <Eye size={18} aria-hidden />}
             />
           )}
+          {
+            /* The way in to the offline maps. It used to sit over the map's
+              top-left corner, under the search box; it belongs with the
+              thing it opens, which is now this panel. */
+          }
+          <IconButton
+            className="panel-download"
+            label={m.map_download_open()}
+            icon={<Download size={18} aria-hidden />}
+            pressed={downloadOpen}
+            onClick={() => (downloadOpen ? closeDownload() : openDownload())}
+          />
           <LockDialog
             onConfirm={() => {
               lock.mutate();
               setLocked();
             }}
+          />
+          <IconButton
+            className="panel-hide"
+            label={m.panel_hide()}
+            icon={<PanelRightClose size={18} aria-hidden />}
+            onClick={togglePanel}
           />
         </div>
       </header>

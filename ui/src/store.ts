@@ -69,6 +69,10 @@ type AppState = {
      at the top of this file; a remembered width is not worth being the
      exception that makes "persists nothing" untrue. */
   panelWidth: number;
+  /* Collapsed is not width 0. The width someone dragged to is theirs and is
+     kept while the drawer is shut, so reopening returns it rather than
+     resetting to the default. */
+  panelCollapsed: boolean;
   /* Whether the offline-maps card is open. In the store rather than local to
      the map because the missing-basemap banner opens it from outside. */
   downloadOpen: boolean;
@@ -87,6 +91,7 @@ type AppState = {
   toggleAllConcealed: () => void;
   setDownloadRegion: (region: ViewRegion | null) => void;
   setPanelWidth: (width: number) => void;
+  togglePanel: () => void;
   setBasemapFailed: () => void;
   clearBasemapFailed: () => void;
   openDownload: () => void;
@@ -103,6 +108,7 @@ export const useAppStore = create<AppState>()((set) => ({
   downloadOpen: false,
   downloadRegion: null,
   panelWidth: PANEL_DEFAULT,
+  panelCollapsed: false,
   locale: getLocale() as Locale,
 
   setLocale: (locale) => {
@@ -146,6 +152,8 @@ export const useAppStore = create<AppState>()((set) => ({
     set({
       panelWidth: Math.min(PANEL_MAX, Math.max(PANEL_MIN, Math.round(width))),
     }),
+  togglePanel: () =>
+    set((state) => ({ panelCollapsed: !state.panelCollapsed })),
   setBasemapFailed: () => set({ basemapFailed: true }),
   clearBasemapFailed: () => set({ basemapFailed: false }),
   openDownload: () => set({ downloadOpen: true }),

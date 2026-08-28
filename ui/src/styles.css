@@ -244,18 +244,23 @@ button:disabled {
 
 /* ------------------------------------------------------------ the app */
 
+/* The drawer sits OVER the map rather than beside it. As a grid column it
+   took width away from the map, so every drag resized the map with it --
+   MapLibre re-laid out, tiles re-rendered, and the view you were looking at
+   moved under you. Overlaid, the map is the full width of the shell and
+   stays exactly where it is whatever the drawer does.
+
+   --panel-w and --panel-offset are set on this element by App.tsx; the
+   fallbacks keep the layout honest if it is ever rendered without them. */
 .app {
-  display: grid;
-  /* auto is the drag handle; --panel-w is set on this element by App.tsx
-     from the store. The fallback keeps the layout honest if it is ever
-     rendered without one. */
-  grid-template-columns: 1fr auto var(--panel-w, 340px);
+  position: relative;
   height: 100%;
+  overflow: hidden;
 }
 
 .map-wrap {
-  position: relative;
-  height: 100%;
+  position: absolute;
+  inset: 0;
 }
 
 /* Specificity on purpose, and it must stay. MapLibre puts its own
@@ -277,9 +282,24 @@ button:disabled {
 /* The notes over the map, stacked from the bottom up. The container is
    what is positioned; the notes themselves are ordinary blocks in it, so
    two showing at once cannot land on each other. */
+/* MapLibre draws its controls and attribution against the map's own edges,
+   and the map is now the full width of the shell -- so without this they sit
+   UNDER the drawer. They track the covered width instead, and slide with it.
+
+   Not `!important` and not a deep selector: MapLibre sets `right: 0` on
+   these in its own stylesheet, and ours loads after it for the same reason
+   documented at `.map-wrap > .map` above. */
+.maplibregl-ctrl-top-right,
+.maplibregl-ctrl-bottom-right {
+  right: var(--panel-offset, 340px);
+  transition: right 180ms ease;
+}
+
 .map-notes {
   position: absolute;
-  left: 50%;
+  /* Centred on the uncovered part of the map, not on the map, or the note
+     drifts under the drawer as it widens. */
+  left: calc((100% - var(--panel-offset, 340px)) / 2);
   bottom: 28px;
   transform: translateX(-50%);
   display: flex;
@@ -339,11 +359,31 @@ button:disabled {
 }
 
 .panel {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  width: var(--panel-w, 340px);
+  max-width: 100%;
   border-left: 1px solid var(--line);
   background: var(--card);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  /* What makes it read as a panel over the map rather than a pale stripe
+     beside it: it casts a shadow on what it covers. */
+  box-shadow: -10px 0 28px rgb(15 23 42 / 0.14);
+  z-index: 5;
+  transition: transform 180ms ease;
+}
+
+/* Shut, not zero-width: sliding it out keeps its contents laid out at their
+   real width, so reopening does not reflow a squashed column back into
+   shape. `visibility` is what takes it out of the tab order and off the
+   screen reader's map -- a drawer someone can still tab into is worse than
+   one that never closed. */
+.panel.collapsed {
+  transform: translateX(100%);
+  visibility: hidden;
 }
 
 /* The drag handle between map and panel.
@@ -358,12 +398,15 @@ button:disabled {
    drag here scrolls the page instead of moving the handle, and the control
    simply does not work on a phone. */
 .panel-resizer {
+  position: absolute;
+  inset-block: 0;
+  right: var(--panel-offset, 340px);
+  z-index: 6;
   width: 24px;
   cursor: col-resize;
   background: none;
   border: none;
   padding: 0;
-  position: relative;
   touch-action: none;
   /* The handle is a line, not a box: no outline, the line itself answers. */
   outline: none;
@@ -536,19 +579,24 @@ button:disabled {
 }
 
 @media (max-width: 820px) {
-  .app {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
-  }
-  /* The panel is a sheet under the map here, not a column beside it, so
-     there is no vertical edge to drag and the width is the viewport's. */
-  .panel-resizer {
-    display: none;
-  }
+  /* A sheet across the bottom rather than a column at the side. There is no
+     vertical edge to drag here, so the handle goes and the width is the
+     viewport's. */
   .panel {
+    inset-inline: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
     border-left: none;
     border-top: 1px solid var(--line);
+    box-shadow: 0 -10px 28px rgb(15 23 42 / 0.14);
     max-height: 45vh;
+  }
+  .panel.collapsed {
+    transform: translateY(100%);
+  }
+  .panel-resizer {
+    display: none;
   }
 }
 
@@ -917,19 +965,15 @@ button:disabled {
   min-height: 44px;
 }
 
-/* The offline-maps entry point and its card, over the map's top-left corner.
-   MapLibre's own controls keep the right edge. */
-.map-actions {
+/* The tab that brings the drawer back, where the drawer's own edge was. */
+.panel-reopen {
   position: absolute;
-  /* Under the search box, not beside it: the right edge is MapLibre's own
-     controls, and stacking down the left keeps both reachable at any width. */
-  top: 60px;
-  left: 10px;
-  display: flex;
-  gap: 8px;
+  top: 14px;
+  right: 10px;
+  z-index: 6;
 }
 
-.map-actions .icon-button {
+.panel-reopen .icon-button {
   background: var(--card);
   box-shadow: var(--shadow);
 }

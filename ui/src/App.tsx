@@ -1,6 +1,8 @@
+import { PanelRightOpen } from "lucide-react";
 import { type CSSProperties, lazy, Suspense } from "react";
 import { AddressPanel } from "./components/AddressPanel";
 import { Banner } from "./components/Banner";
+import { IconButton } from "./components/IconButton";
 import { loadMapView } from "./components/mapChunk";
 import { PanelResizer } from "./components/PanelResizer";
 import { PhraseEntry } from "./components/PhraseEntry";
@@ -20,6 +22,8 @@ export function App() {
   const basemapFailed = useAppStore((s) => s.basemapFailed);
   const openDownload = useAppStore((s) => s.openDownload);
   const panelWidth = useAppStore((s) => s.panelWidth);
+  const panelCollapsed = useAppStore((s) => s.panelCollapsed);
+  const togglePanel = useAppStore((s) => s.togglePanel);
   /* Subscribed to here, and read nowhere, on purpose.
 
      Paraglide's messages are plain functions that read the current locale when
@@ -69,9 +73,20 @@ export function App() {
           action={{ label: m.banner_basemap_action(), onClick: openDownload }}
         />
       )}
+      {
+        /* Two widths, and they are not the same thing. --panel-w is the
+          drawer's own width, kept while it is shut so reopening returns what
+          was dragged to. --panel-offset is how much of the RIGHT EDGE is
+          covered, which is zero while it is shut -- it is what MapLibre's
+          own controls and attribution keep clear of, so none of them ends up
+          underneath the drawer. */
+      }
       <div
         className="app"
-        style={{ "--panel-w": `${panelWidth}px` } as CSSProperties}
+        style={{
+          "--panel-w": `${panelWidth}px`,
+          "--panel-offset": panelCollapsed ? "0px" : `${panelWidth}px`,
+        } as CSSProperties}
       >
         {
           /* The gap between the gate opening and the map engine arriving.
@@ -93,8 +108,22 @@ export function App() {
         >
           <MapView />
         </Suspense>
-        <PanelResizer />
+        {!panelCollapsed && <PanelResizer />}
         <AddressPanel />
+        {
+          /* The way back in. The drawer's own hide button leaves with it, so
+            the control that reopens it has to live outside the drawer --
+            over the map, at the edge the drawer just gave back. */
+        }
+        {panelCollapsed && (
+          <div className="panel-reopen">
+            <IconButton
+              label={m.panel_show()}
+              icon={<PanelRightOpen size={18} aria-hidden />}
+              onClick={togglePanel}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
