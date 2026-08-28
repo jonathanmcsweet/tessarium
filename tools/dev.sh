@@ -91,4 +91,7 @@ fi
 
 echo "dev: starting Vite on $ui_port -- http://localhost:$ui_port"
 cd ui
-TESSARIUM_UI_PORT="$ui_port" TESSARIUM_SERVER="http://127.0.0.1:$port" pnpm run dev
+# dev:ui, not dev: ui/'s `dev` is this script, so that `pnpm run dev` brings
+# the stack up from whichever directory someone is standing in. Calling it
+# here would recurse.
+TESSARIUM_UI_PORT="$ui_port" TESSARIUM_SERVER="http://127.0.0.1:$port" pnpm run dev:ui
