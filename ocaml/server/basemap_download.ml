@@ -1241,6 +1241,33 @@ let export_dir_name = "export"
    that one of those three will mangle. The real name is not lost by this:
    it rides inside the file, in the ledger, and is what the importing
    machine displays. *)
+(* Epoch seconds to YYYY-MM-DD, UTC, in integer arithmetic.
+
+   Written out rather than taken from a library because there is no calendar
+   dependency here and this is the only date the server ever formats: `unix`
+   is not in (depends), and adding it for one conversion would be a whole
+   package to keep declared and installed for eleven lines. Hinnant's
+   civil-from-days, which is exact for every day this can be handed -- the
+   leap rule is arithmetic, not a table, so 2000 and 2100 come out right
+   without either being a special case.
+
+   UTC, not local: the name travels with the file to another machine in
+   another timezone, and a date that changes depending on who is reading it
+   is worse than one that is merely not local. *)
+let iso_date_of_epoch (secs : int) : string =
+  let days = if secs >= 0 then secs / 86_400 else ((secs + 1) / 86_400) - 1 in
+  let z = days + 719_468 in
+  let era = (if z >= 0 then z else z - 146_096) / 146_097 in
+  let doe = z - (era * 146_097) in
+  let yoe = (doe - (doe / 1_460) + (doe / 36_524) - (doe / 146_096)) / 365 in
+  let y = yoe + (era * 400) in
+  let doy = doe - ((365 * yoe) + (yoe / 4) - (yoe / 100)) in
+  let mp = ((5 * doy) + 2) / 153 in
+  let d = doy - (((153 * mp) + 2) / 5) + 1 in
+  let m = mp + if mp < 10 then 3 else -9 in
+  let y = if m <= 2 then y + 1 else y in
+  Printf.sprintf "%04d-%02d-%02d" y m d
+
 let export_filename ~(entry : Ledger.entry) ~id =
   let buf = Buffer.create 32 in
   let last_dash = ref false in
@@ -1275,7 +1302,13 @@ let export_filename ~(entry : Ledger.entry) ~id =
      export idempotent: the same entry written twice is the same file, not a
      second copy filling the disk. *)
   let short = if String.length id <= 8 then id else String.sub id 0 8 in
-  Printf.sprintf "%s-%s.pmtiles" slug short
+  (* The date the TILES were fetched, not the date they were exported: it is
+     what someone holding the file wants to know, and taking it from the
+     entry rather than from the clock is what keeps a re-export idempotent --
+     exporting the same map twice is still the same file. ISO order so a
+     directory of these sorts chronologically. *)
+  let date = iso_date_of_epoch entry.Ledger.completed in
+  Printf.sprintf "%s-%s-%s.pmtiles" slug date short
 
 let export_path ~fs ~basemap_dir name =
   Eio.Path.(fs / basemap_dir / export_dir_name / name)

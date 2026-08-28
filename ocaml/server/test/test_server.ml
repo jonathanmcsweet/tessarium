@@ -1403,18 +1403,38 @@ let () =
       ~id
   in
   check "an ordinary name slugs to itself"
-    (fname "abcdef0123456789" = "France-abcdef01.pmtiles");
+    (fname "abcdef0123456789" = "France-2026-08-17-abcdef01.pmtiles");
   check "spaces and punctuation collapse to single dashes"
     (fname ~name:"Cote d'Ivoire (north)" "abcdef0123456789"
-    = "Cote-d-Ivoire-north-abcdef01.pmtiles");
+    = "Cote-d-Ivoire-north-2026-08-17-abcdef01.pmtiles");
   check "a name with nothing safe in it falls back rather than emptying"
-    (fname ~name:"東京" "abcdef0123456789" = "map-abcdef01.pmtiles");
+    (fname ~name:"東京" "abcdef0123456789" = "map-2026-08-17-abcdef01.pmtiles");
   check "the same entry exports to the same file, so a repeat replaces"
     (fname "abcdef0123456789" = fname "abcdef0123456789");
   check "different entries do not collide on a shared name"
     (fname "aaaaaaaa1111" <> fname "bbbbbbbb2222");
   check "a short id is used whole rather than read past its end"
-    (fname "abc" = "France-abc.pmtiles");
+    (fname "abc" = "France-2026-08-17-abc.pmtiles");
+
+  (* The date is the download's, not today's -- so a file carried to another
+     machine says when its tiles came from the planet build, and exporting
+     the same map tomorrow does not make a second copy. *)
+  check "the file is dated by when the tiles were fetched"
+    (D.export_filename ~entry:(entry ~completed:1_709_164_800 [ france ])
+       ~id:"abcdef0123456789"
+    = "France-2024-02-29-abcdef01.pmtiles");
+
+  (* Every one of these is a day the arithmetic gets wrong if the leap rule
+     is a table rather than a computation: 2000 is a leap year, 2100 is not,
+     and both ends of the range have to land on the right day. *)
+  let d = D.iso_date_of_epoch in
+  check "the epoch itself" (d 0 = "1970-01-01");
+  check "the last second of a day stays on that day" (d 86_399 = "1970-01-01");
+  check "the next second rolls over" (d 86_400 = "1970-01-02");
+  check "a leap day divisible by 400" (d 951_782_400 = "2000-02-29");
+  check "a leap day divisible by 4" (d 1_709_164_800 = "2024-02-29");
+  check "2100 is not a leap year" (d 4_107_542_400 = "2100-03-01");
+  check "the far end of the range" (d 253_402_300_799 = "9999-12-31");
 
   (* Signed zero is the same bound: one region, one identity, and ties in
      the sort cannot reorder the bytes. *)
