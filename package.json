@@ -2,7 +2,10 @@
   "name": "tessarium-differential-oracle",
   "private": true,
   "packageManager": "pnpm@11.24.0",
-  "description": "Dependency of js/tessarium.mjs, the independent differential oracle: @noble/hashes supplies keyed BLAKE2s, which node's OpenSSL binding does not expose. Lives at the root because dune runs the oracle from _build/default/js and node resolution walks up to here.",
+  "description": "Repository-level scripts, and the dependency of js/tessarium.mjs -- the independent differential oracle: @noble/hashes supplies keyed BLAKE2s, which node's OpenSSL binding does not expose. Lives at the root because dune runs the oracle from _build/default/js and node resolution walks up to here.",
+  "scripts": {
+    "dev": "tools/dev.sh"
+  },
   "dependencies": {
     "@noble/hashes": "2.3.0"
   }

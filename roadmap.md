@@ -930,6 +930,21 @@ not cover.
       application, not the toolchain that builds it. Worth revisiting if
       anyone actually has to develop disconnected.
 
+- [ ] **`make dev` and `make test-ui` cannot both be up.** The end-to-end
+      suite starts its own server on $(PORT), which is 7373, and so does the
+      development stack. Leaving `make dev` running makes the whole browser
+      suite die on `Address already in use` -- and it dies partway through, so
+      what you see is four unrelated download checks failing rather than a
+      port conflict. That is a bad half-hour for anyone who does not already
+      know.
+
+      The e2e's other five servers are on 7374-7378 precisely so they cannot
+      collide; the app under test kept the default and is the one that does.
+      Giving it a port of its own would close it. Left out because the port
+      appears in the suite, the Makefile and the fixture wiring, and
+      renumbering all three deserves its own change rather than riding along
+      with a development-stack script.
+
 ## Phase 8 — Later, unscheduled
 
 - [ ] **RESEARCH: can this ride inside an existing map app rather than being

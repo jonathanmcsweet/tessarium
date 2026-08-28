@@ -23,7 +23,7 @@ CANCEL_PORT ?= 7377
 # The delaying proxy itself, run by the e2e script.
 PROXY_PORT ?= 7378
 
-.PHONY: all env verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run package package-deb package-rpm package-appimage test-install clean
+.PHONY: all env dev verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run package package-deb package-rpm package-appimage test-install clean
 
 # The wall's stages share files (gen_check outputs, .checked caches, the
 # port 737x range); they are cheap to run in order and wrong to interleave.
@@ -277,7 +277,20 @@ test-ui: ui
 
 # No --ui: the binary serves the UI it was built with. Pass --ui to override
 # with a directory, which is what `pnpm run dev` wants.
-run: build
+# The whole stack, for development: the server, and Vite in front of it with
+# hot reload. `pnpm run dev` in ui/ is only the UI half -- Vite proxies the
+# api, the basemap and both wasm modules to the server, so on its own it
+# renders a gate that cannot open. tools/dev.sh starts both and stops both.
+dev:
+	tools/dev.sh
+
+# Same world overview the packages ship. A file target, so it is fetched once
+# and never again -- and so `make run` cannot open on the empty-map state that
+# no installed copy is ever in.
+basemap/world.pmtiles:
+	tools/fetch-basemap.sh -z ""
+
+run: build basemap/world.pmtiles
 	./_build/default/ocaml/server/bin/main.exe --port $(PORT) --basemap basemap
 
 package: build
