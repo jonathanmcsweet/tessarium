@@ -132,13 +132,21 @@ const expected = (url) => url.includes("/basemap/");
    exactly what this suite must fail on. */
 let basemapReady = false;
 
-/* Flipped for the one test that takes the server away on purpose. Both
-   handlers below would otherwise record the refusal as a real failure, which
-   is exactly what they are for every other second of this run. */
-let healthzDown = false;
+/* Flipped for the one test that takes the server away on purpose. Every
+   handler below would otherwise record the refusal as a real failure, which
+   is exactly what they are for every other second of this run.
+
+   It covers argon2.wasm as well as /healthz: the KDF module is what makes
+   unlocking genuinely fail, rather than merely look like it might. And while
+   it is set, console errors and page errors are ignored wholesale -- the app
+   is SUPPOSED to be complaining, loudly, for those few seconds. */
+let serverGone = false;
+const refusedOnPurpose = (url) =>
+  serverGone && (url.includes("/healthz") || url.includes("/argon2.wasm"));
 
 page.on("console", (msg) => {
   if (msg.type() !== "error") return;
+  if (serverGone) return;
   const text = msg.text();
   /* A failed resource is already recorded from the response, with its URL
      attached; the console version has none and is pure noise. */
@@ -149,7 +157,10 @@ page.on("console", (msg) => {
   ) return;
   problems.push(`console: ${text}`);
 });
-page.on("pageerror", (err) => problems.push(`pageerror: ${err.message}`));
+page.on("pageerror", (err) => {
+  if (serverGone) return;
+  problems.push(`pageerror: ${err.message}`);
+});
 page.on("requestfailed", (req) => {
   /* MapLibre aborts its own in-flight tile requests whenever a tile leaves
      the view or the style swaps; the client cancelling itself is not a
@@ -160,13 +171,13 @@ page.on("requestfailed", (req) => {
   ) {
     return;
   }
-  if (healthzDown && req.url().includes("/healthz")) return;
+  if (refusedOnPurpose(req.url())) return;
   if (!expected(req.url())) {
     problems.push(`requestfailed: ${req.url()} ${req.failure()?.errorText}`);
   }
 });
 page.on("response", (res) => {
-  if (healthzDown && res.url().includes("/healthz")) return;
+  if (refusedOnPurpose(res.url())) return;
   if (res.status() >= 400 && !expected(res.url())) {
     problems.push(`http ${res.status()}: ${res.url()}`);
   }
@@ -2978,7 +2989,7 @@ const bannerSays = (text, timeout = 30_000) =>
     )
     .then(() => true, () => false);
 
-healthzDown = true;
+serverGone = true;
 await page.route(
   "**/healthz",
   (route) => route.fulfill({ status: 503, body: "" }),
@@ -2993,8 +3004,35 @@ check(
   await bannerSays("Cannot reach the server"),
 );
 
+/* And pressing the button anyway must not blame the phrase. argon2.wasm is
+   refused too, so unlocking genuinely fails -- which is the case that used
+   to answer "Could not open the map" over a phrase whose checksum had gone
+   green one second earlier. */
+await page.route(
+  "**/argon2.wasm",
+  (route) => route.fulfill({ status: 503, body: "" }),
+);
+await page.locator("#phrase").fill(mnemonic);
+await page.waitForSelector(".valid", { timeout: 30_000 });
+await page.locator("button[type=submit]").click();
+const toastNamesServer = await page
+  .waitForFunction(
+    () =>
+      [...document.querySelectorAll("[data-sonner-toast]")].some((t) =>
+        (t.textContent ?? "").includes("Cannot reach the server")
+      ),
+    null,
+    { timeout: 30_000 },
+  )
+  .then(() => true, () => false);
+check(
+  "and Open my map then blames the server, not the phrase",
+  toastNamesServer,
+);
+await page.unroute("**/argon2.wasm");
+
 await page.unroute("**/healthz");
-healthzDown = false;
+serverGone = false;
 await page.reload({ waitUntil: "domcontentloaded" });
 await page.waitForSelector("#phrase", { timeout: 30_000 });
 /* And it goes away by itself: a banner that outlives its cause teaches

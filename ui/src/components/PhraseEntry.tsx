@@ -20,6 +20,7 @@
 import { ChevronRight, Dices } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Button, Disclosure, DisclosurePanel } from "react-aria-components";
+import { useBackendDown } from "../core/health";
 import {
   useGeneratePhrase,
   useUnlock,
@@ -94,6 +95,13 @@ export function PhraseEntry() {
     });
   }
 
+  /* Unlocking derives the key in a worker against argon2.wasm, which the
+     SERVER supplies -- so with no server it fails, and "Could not open the
+     map" then blames a phrase that is perfectly good. Say which it is. */
+  const serverDown = useBackendDown();
+  const unlockFailed = () =>
+    serverDown ? m.banner_backend_down() : m.gate_unlock_failed();
+
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!ready || unlock.isPending) return;
@@ -105,7 +113,7 @@ export function PhraseEntry() {
             toastError(
               result.error
                 ? sayRefusal(result.error)
-                : m.gate_unlock_failed(),
+                : unlockFailed(),
             );
             return;
           }
@@ -117,7 +125,7 @@ export function PhraseEntry() {
           setGenerated(null);
           setUnlocked();
         },
-        onError: () => toastError(m.gate_unlock_failed()),
+        onError: () => toastError(unlockFailed()),
       },
     );
   }
