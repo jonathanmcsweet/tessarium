@@ -752,15 +752,15 @@ check(
 basemapReady = true;
 
 /* Which file the world went into, which is the whole point of it having its
-   own. A region removal rewrites map.pmtiles; anything in there is reachable
-   by a Remove button, and the floor must not be. */
+   own. Every region is its own file and every region file is reachable by a
+   Remove button; the floor must not be one of them. */
 check(
   "the world overview is served from its own archive",
   (await fetch(`${base}/basemap/world.pmtiles`, { method: "HEAD" })).status
     === 200,
 );
 check(
-  "and the detail archive was not created for it",
+  "and no region archive was created for it",
   (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
     === 404,
 );
@@ -1100,18 +1100,31 @@ const settled = await page
 check("the bar hides once the map settles", settled);
 await page.evaluate(() => window.__barWatch?.disconnect());
 
-/* Merged, not replaced: bytes 100-101 of a PMTiles header are its min and
-   max zoom, and only the union of both downloads spans 0 to 15. */
-const zoomBytes = await fetch(`${base}/basemap/map.pmtiles`, {
+/* Beside, not merged. The world went to world.pmtiles and the region to a
+   file of its own, and neither one spans zoom 0 to 15 by itself -- the union
+   is a fact about the directory, which is what the map is told.
+
+   Bytes 100-101 of a PMTiles header are its min and max zoom, so the region's
+   own file is asked directly: it must reach 15, because a file carried to
+   another machine has to hold what it claims without anything beside it. */
+const ledgerFiles = await (await postJson("basemap-ledger")).json();
+const regionFile = ledgerFiles.entries?.[0]?.file ?? "";
+check("a downloaded region has a file of its own", regionFile !== "");
+const zoomBytes = await fetch(`${base}/basemap/${regionFile}`, {
   headers: { range: "bytes=100-101" },
 });
 const zooms = new Uint8Array(await zoomBytes.arrayBuffer());
 check(
-  `the merged archive spans zoom 0 to 15 (got ${zooms[0]}-${zooms[1]})`,
-  zooms[0] === 0 && zooms[1] === 15,
+  `the region's own file reaches zoom 15 (got ${zooms[0]}-${zooms[1]})`,
+  zooms[1] === 15,
 );
 check(
-  "tiles.json follows the archive's growth",
+  "and nothing was merged into a shared archive",
+  (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
+    === 404,
+);
+check(
+  "tiles.json spans the union of every archive on disk",
   (await (await fetch(`${base}/tiles.json`)).json()).maxzoom === 15,
 );
 
@@ -1217,9 +1230,16 @@ check(
    sharing one border polygon. (Not Russia: its clipped land now genuinely
    affords full depth, and honestly planning it takes minutes -- the fixture
    deserves the small antimeridian country.) Its only fixture tile is the
-   world-spanning z0, already on disk from the world download, so the honest
-   answer -- and the assertion -- is "covered": the two-box polygon request
-   survived validation, planning and the merge arithmetic end to end. */
+   world-spanning z0. It used to answer "covered", because the estimate diffed
+   against the one archive everything merged into and the world download had
+   already put that tile there. It quotes a price now, and that is the change
+   working: a region is diffed against ITS OWN file, so it fetches its own
+   shallow tiles rather than borrowing the overview's. A file carried to a
+   machine with no overview has to draw on its own.
+
+   What is being proved either way is that the two-box polygon request
+   survived validation, planning and the merge arithmetic end to end -- so
+   the assertion is that a real answer arrived, not which one. */
 await page.locator("#region-filter").fill("Fiji");
 await page
   .locator(".region-tree .region-disclosure")
@@ -1229,8 +1249,9 @@ await page
   .click();
 await page.waitForFunction(
   () =>
-    (document.querySelector(".download-region-offer .hint")?.textContent ?? "")
-      .includes("already have"),
+    /already have|About /.test(
+      document.querySelector(".download-region-offer .hint")?.textContent ?? "",
+    ),
   null,
   { timeout: 30_000 },
 );
@@ -1820,12 +1841,14 @@ check(
    among them: it went to its own file and wrote no entry, which is what
    makes it un-removable.
 
-   First, adoption: covered tiles with no entry (here, a patch inside a
-   downloaded region; in the field, an archive from before the ledger
-   existed) are claimed by re-requesting them, and the entry lands with
-   "age unknown", which counts as stale. */
+   A patch inside an already-downloaded region used to be ADOPTED: the tiles
+   were in the one shared archive, nothing was fetched, and an entry landed
+   claiming them with "age unknown". There is no shared archive to adopt out
+   of any more. The patch is its own region with its own file, so it is its
+   own download -- which is the trade this layout makes, and the reason a
+   file can be carried away on its own. */
 await postJson("basemap-download", {
-  name: "Adopted patch",
+  name: "Overlapping patch",
   regions: [{
     min_lon: -0.2,
     min_lat: 51.46,
@@ -1835,28 +1858,30 @@ await postJson("basemap-download", {
   }],
 });
 check(
-  "re-requesting covered tiles records them instead of failing",
+  "a region inside another is downloaded rather than refused",
   await awaitDone(4),
 );
 const ledger1 = await (await postJson("basemap-ledger")).json();
 check(
   "the archive records every region download by name",
   ledger1.entries?.length === 3
-    && ["Map view", "United Kingdom and London", "Adopted patch"]
+    && ["Map view", "United Kingdom and London", "Overlapping patch"]
       .every((n) => ledger1.entries.some((e) => e.name === n)),
 );
 check(
   "and does not record the world overview among them",
   !ledger1.entries?.some((e) => e.name === "World overview"),
 );
-const adoptedEntry = ledger1.entries?.find((e) => e.name === "Adopted patch");
+const patchEntry = ledger1.entries?.find((e) => e.name === "Overlapping patch");
 check(
-  "adopted tiles admit their age is unknown",
-  adoptedEntry?.completed === 0 && adoptedEntry?.bytes === 0,
+  "it gets a file of its own, not a share of somebody else's",
+  (patchEntry?.file ?? "") !== ""
+    && ledger1.entries.every((e) => e.file !== "")
+    && new Set(ledger1.entries.map((e) => e.file)).size === 3,
 );
 check(
-  "real downloads record when and how much",
-  ledger1.entries?.filter((e) => e.completed > 0 && e.bytes > 0).length === 2,
+  "every download records when and how much",
+  ledger1.entries?.filter((e) => e.completed > 0 && e.bytes > 0).length === 3,
 );
 
 await openButton.click();
@@ -1872,10 +1897,28 @@ const listedRows = await page
   .then(() => true, () => false);
 check("the card lists the downloaded maps", listedRows);
 check(
-  "only the age-unknown entry is flagged for update",
-  (await page.locator(".ledger-stale").count()) === 1
-    && (await page.locator(".ledger-row").filter({ hasText: "Adopted patch" })
-        .locator(".ledger-stale").count()) === 1,
+  "nothing just downloaded is flagged for update",
+  (await page.locator(".ledger-stale").count()) === 0,
+);
+/* Every row offers its file directly. Nothing is built and nothing is
+   waited on: the download already wrote the file this points at, which is
+   what the export step used to spend minutes producing. */
+check(
+  "each row hands over its own file",
+  (await page.locator(".ledger-row .ledger-export").count()) === 3
+    && (await page.locator(".ledger-row a.ledger-export").count()) === 3,
+);
+const saveHref = await page.locator(".ledger-row").filter({
+  hasText: "Overlapping patch",
+}).locator("a.ledger-export").getAttribute("href");
+check(
+  `the link points at the archive on disk (got ${saveHref})`,
+  (saveHref ?? "").startsWith("/basemap/")
+    && (saveHref ?? "").endsWith(".pmtiles"),
+);
+check(
+  "and it is really there",
+  (await fetch(`${base}${saveHref}`, { method: "HEAD" })).status === 200,
 );
 check(
   "a fresh download names its date",
@@ -1970,16 +2013,23 @@ check(
     && !ledger2.entries.some((e) => e.name === "Map view"),
 );
 /* And the floor is untouched by a removal, which is the reason the overview
-   has its own file: this rewrote map.pmtiles from end to end. */
+   has its own file. */
 check(
   "removing a region leaves the world overview alone",
   (await fetch(`${base}/basemap/world.pmtiles`, { method: "HEAD" })).status
     === 200,
 );
+/* The other regions are untouched too, and now that is a fact about files
+   rather than about a rewrite: a removal unlinks one archive and cannot
+   reach into the others. */
+const survivors = await Promise.all(
+  (ledger2.entries ?? []).map(async (e) =>
+    (await fetch(`${base}/basemap/${e.file}`, { method: "HEAD" })).status
+  ),
+);
 check(
-  "the shared tiles survived the removal",
-  (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
-    === 200,
+  "every region that was not removed still has its file",
+  survivors.length > 0 && survivors.every((s) => s === 200),
 );
 
 /* Update through the card, on the clipped country pick: the one deliberate
@@ -2109,14 +2159,23 @@ check(
   (await post3("basemap-settings", { update_reminder_days: 9999 })).status
     === 400,
 );
-/* Removing the only entry removes the archive itself: an empty archive and
-   a missing one are the same state, spelled the honest way. */
+/* Removing an entry removes the archive itself: the record lives inside the
+   file it describes, so the two leave together and there is nothing left
+   behind holding tiles nobody can name. */
+const led3file = (await (await post3("basemap-ledger")).json()).entries
+  ?.find((e) => e.id === id3)?.file ?? "";
+check("the region under test has a file of its own", led3file !== "");
+check(
+  "and it is on disk before the removal",
+  (await fetch(`${base3}/basemap/${led3file}`, { method: "HEAD" })).status
+    === 200,
+);
 await post3("basemap-remove", { id: id3 });
 const rem3 = await finalJob3(4);
 check(
-  "removing the last region deletes the archive",
+  "removing the last region deletes its archive",
   rem3?.state === "removed"
-    && (await fetch(`${base3}/basemap/map.pmtiles`, { method: "HEAD" }))
+    && (await fetch(`${base3}/basemap/${led3file}`, { method: "HEAD" }))
         .status === 404,
 );
 const led3c = await (await post3("basemap-ledger")).json();
@@ -3888,11 +3947,15 @@ await post5("basemap-download", {
     max_zoom: 12,
   }],
 });
-/* The archive file appearing IS a part having landed, which is the only
-   thing that makes the run own a region. */
+/* A part having landed is what makes the run own a region, and now it can be
+   asked directly: the record is published with every part, not only the last,
+   so an entry appearing IS a part on disk. That is the property that makes a
+   cancelled download resumable -- and it is why this no longer waits on a
+   file name it had to know in advance. */
 let landed = false;
 for (let i = 0; i < 600 && !landed; i++) {
-  landed = (await cancelHas("map.pmtiles")) === 200;
+  landed = ((await (await post5("basemap-ledger")).json()).entries ?? [])
+    .length > 0;
   if (!landed) await new Promise((r) => setTimeout(r, 25));
 }
 check("a part of the download reached the archive", landed);
@@ -3916,16 +3979,53 @@ check(
   "a cancelled download still prunes the region it published",
   (await cancelHas("cache.pmtiles")) === 404,
 );
+/* What it leaves behind, which used to be nothing anyone could name. The
+   parts that landed are in a file of the region's own and the record inside
+   it says so, because the record is published with every part rather than
+   only the last. Tiles from a cancelled download used to sit in the shared
+   archive claimed by no entry: unlistable, unremovable, and invisible to
+   everything except the map drawing them. */
+const cancelLedger = await (await post5("basemap-ledger")).json();
+const partial = cancelLedger.entries?.[0];
+check(
+  "a cancelled download leaves a region that can be named",
+  (partial?.file ?? "") !== "",
+);
+check(
+  "and its tiles really are on disk under that name",
+  (await cancelHas(partial?.file ?? "nothing")) === 200,
+);
+/* And it is removable, which is the part that was impossible before. */
+await post5("basemap-remove", { id: partial?.id });
+let removedPartial = "";
+for (let i = 0; i < 300; i++) {
+  removedPartial = (await (await post5("basemap-status")).json()).job?.state
+    ?? "";
+  if (["removed", "failed"].includes(removedPartial)) break;
+  await new Promise((r) => setTimeout(r, 100));
+}
+check(
+  `an interrupted download can be removed (got ${removedPartial})`,
+  removedPartial === "removed"
+    && (await cancelHas(partial?.file ?? "nothing")) === 404,
+);
 await post5("basemap-settings", { browse_cache: false });
 
 /* ------------------ a source that changed compression ---------------------
 
    Tile bytes are copied verbatim and the header says how to read them, so
-   an archive built from a gzipped source and then merged with an
+   an archive built from a gzipped source and then MERGED with an
    uncompressed one would relabel every tile it already held. Unreadable,
    silently, and only at render time. This server's source disagrees with
    the archive seeded beside it, so every path that would merge them has to
-   refuse instead. */
+   refuse instead.
+
+   Which is now fewer paths, and that is the point. A region download merges
+   with nothing: it writes its own file, and the tile endpoint reads every
+   file through that file's own header, so two regions in two compressions
+   are two files that both draw. Refusing there would be refusing on behalf
+   of a merge that cannot happen. A browse still writes into the cache, and
+   the cache is still folded into map.pmtiles, so that one still refuses. */
 const base4 = process.argv[4] ?? "http://127.0.0.1:7376";
 const post4 = async (endpoint, body) =>
   await fetch(`${base4}/api/${endpoint}`, {
@@ -3937,11 +4037,9 @@ const post4 = async (endpoint, body) =>
 const mismatchEstimate = await post4("basemap-estimate", {
   regions: [{ ...lb, max_zoom: 15 }],
 });
-const mismatchBody = await mismatchEstimate.json();
 check(
-  "an estimate against a differently compressed source is refused",
-  mismatchEstimate.status === 502
-    && (mismatchBody.error ?? "").includes("compression"),
+  "an estimate for a region of its own is answered, not refused",
+  mismatchEstimate.status === 200,
 );
 await post4("basemap-settings", { browse_cache: true });
 const mismatchBrowse = await post4("basemap-browse", { ...lb, zoom: 15 });
@@ -3965,8 +4063,8 @@ await post4("basemap-settings", { browse_cache: false });
    was renamed in between produced `200 OK, content-length: N` followed by a
    closed socket with nothing in it -- and a truncated body against a promised
    length is the one failure a client cannot tell from a network fault. The
-   application opens that window itself: the downloader renames `map.pmtiles`
-   into place under the very root this endpoint serves.
+   application opens that window itself: the downloader renames every region
+   archive into place under the very root this endpoint serves.
 
    Driven the way it was measured. A file under the basemap root is moved away
    and back while the same file is fetched in a loop, and the rule is that

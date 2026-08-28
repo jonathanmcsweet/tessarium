@@ -886,20 +886,23 @@ not cover.
       Fix the tool, then the sentence.
 
 - [ ] **An archive copied in by hand has no search index.** `search.idx` is
-      built by the downloader when the archive changes, which now covers
-      import as well. Someone who sidesteps both and copies `map.pmtiles`
-      into place themselves gets working tiles and a search box that finds
-      nothing. A startup check — index missing, or older than the archive —
+      built by the downloader when the archives change, which now covers
+      import as well. Someone who sidesteps both and drops a region file into
+      `basemap/` themselves — which is the whole point of one file per region,
+      and the plainest way to carry one — gets working tiles and a search box
+      that finds nothing. A startup check — index missing, or older than the archive —
       would close it, and would also repair an index lost to a crash mid-build.
 
-- [ ] **An export duplicates its region on disk, and nothing checks there is
-      room.** Exporting a downloaded country writes a second copy of it into
-      `basemap/export/`, on the machine most likely to be short of disk. The
-      write fails cleanly and leaves a `.part` behind, but the user finds out
-      after waiting. Eio exposes no portable `statvfs`, which is why this is
-      recorded rather than done; the estimate is already known before the
-      write starts, so only the free-space number is missing.
-
+- [ ] **A region still inside `map.pmtiles` costs a copy to export.** Every
+      region downloaded since downloads stopped merging has a file of its own,
+      and handing it over is handing over that file. An install from before
+      the split has its regions inside one shared archive, and taking one out
+      still writes a second copy into `basemap/export/` — on the machine most
+      likely to be short of disk, with no check that there is room, and the
+      user finds out after waiting. Eio exposes no portable `statvfs`, which
+      is why this is recorded rather than done. A migration that split the
+      shared archive into region files once, on first run, would retire the
+      export path along with it.
 - [ ] **An imported file is trusted on its face.** A download over HTTPS is
       checked against compiled-in NSS trust anchors. A file that arrived on a
       USB stick gets none of that, and the confirm step describes what the

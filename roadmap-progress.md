@@ -21,6 +21,51 @@ than a git log.
 
 ---
 
+### 2026-08-28 — One file per region
+
+**Phase:** 6
+
+**What:** A download writes its own archive rather than merging into
+`map.pmtiles`. `Tile_set` lists the basemap directory instead of naming three
+files, remembers each archive's header, and opens only the ones whose bounds
+could hold the tile asked for. Each region file carries its own one-entry
+ledger, so the list the user sees is the union of what is on disk; removing a
+region is an unlink, and exporting one is handing over a file that already
+exists. The search index is built across every archive, sharing one table so a
+city held by two overlapping regions resolves to one row.
+
+**Rationale:** Asked how CoMaps and Organic Maps handle this. They do not
+stream and they do not merge: one file per country, downloaded whole, read
+alongside the others. The tile path here was already generic over a list of
+archives — `open_tile_archives` took names and `serve_tile` walked them with
+`find_map` — so the list being a directory rather than three constants was a
+smaller change than the merge it replaces. What it buys is that export stops
+existing as work: the wait between "downloaded" and "can I have the file" was
+the cost of undoing a merge. What it costs is dedup across regions, which is
+the trade Organic Maps makes too.
+
+Two decisions were reversed while writing it. The record is published with
+every part rather than only the last, so a cancelled download leaves a region
+that can be named and removed instead of tiles stranded in the shared archive.
+But dating it only on the last part — so an unfinished download would read as
+"age unknown" — was wrong: parts overlap at their seams and the last part of a
+finished download routinely writes nothing, so it dated finished downloads as
+unfinished. Every part dates the entry; what an interrupted region is missing
+is a question the map's coverage shading already answers.
+
+An estimate for a region no longer refuses a source whose compression differs
+from what is on disk, because nothing merges them: each archive is read
+through its own header, so two regions in two compressions are two files that
+both draw. A browse still refuses — it writes into the cache, and the cache is
+folded into `map.pmtiles`.
+
+**Follow-on:** `map.pmtiles` is read but no longer written by the downloader.
+A migration that split it into region files on first run would retire the
+export path, the prune-on-remove path, and the last reason `Merge.prune`
+exists. Recorded in `roadmap.md`.
+
+---
+
 ### 2026-08-28 — The end-to-end suite gets its own port
 
 **Phase:** 6

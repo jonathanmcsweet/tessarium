@@ -479,8 +479,7 @@ let downloaded_files ~fs ~basemap_dir =
 
    [base_file] keeps the old contract: a metadata blob it cannot read stops
    whatever asked, because that file can hold every region a user ever
-   downloaded and quietly reading it as empty would offer to delete
-   nothing.
+   downloaded and quietly reading it as empty would forget all of them.
 
    A region file is different, and deliberately. It arrives on a USB stick
    as often as it arrives from a download, so it is far likelier to be
@@ -1202,6 +1201,18 @@ let run_download t ~fs ~net ~source ?origin ~assets ~basemap_dir ~budget ~name
                  starting a second copy of the same country. It is also what
                  makes it removable, which tiles stranded in map.pmtiles by a
                  cancelled download never were.
+
+                 Every part also DATES it, which is not the same choice.
+                 Leaving the date off until the last part looked better --
+                 an unfinished download would say "age unknown" and the UI
+                 already draws that as "needs updating" -- but the last part
+                 of a finished download routinely writes nothing at all: the
+                 parts overlap at their seams, and by the time the last one
+                 is planned its tiles are already on disk. It would have
+                 dated finished downloads as unfinished, which is the wrong
+                 lie of the two. What is missing from an interrupted region
+                 is a question the map already answers, in the coverage
+                 shading over the ground it does not have.
 
                  One entry, because one file is one region -- there is no
                  other record in here to merge with. [bytes] is what the
@@ -2039,11 +2050,18 @@ let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
                 (downloaded_files ~fs ~basemap_dir)
             in
             let cache = open_cache ~sw:bsw ~fs ~basemap_dir in
-            (* Same refusal as a download's: a source whose compression no
-               longer matches what is on disk must not write a single blob.
-               The cache matters as much as the archives here -- its header
-               is what compaction later stamps over everything. *)
-            List.iter (fun a -> guard_compression ~h (Some a)) downloaded;
+            (* Same refusal as a download's, and against the same two files:
+               a source whose compression no longer matches what a browse
+               would WRITE into must not write a single blob. That is the
+               cache, whose header compaction later stamps over everything,
+               and map.pmtiles, which is what compaction folds it into.
+
+               Not the region files. Nothing merges those with anything, and
+               each one is read through its own header, so two regions in two
+               compressions are two files that both draw. Refusing a browse
+               over that would be refusing on behalf of a merge that cannot
+               happen. *)
+            guard_compression ~h (open_base ~sw:bsw ~fs ~basemap_dir);
             guard_compression ~h cache;
             let held_in a id = Pmtiles.Archive.locate a id <> None in
             let held id =

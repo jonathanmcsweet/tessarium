@@ -34,6 +34,7 @@ import {
   type Job,
   type LedgerEntry,
   type Region,
+  regionUrl,
   useBasemapDownload,
   useBasemapEstimate,
   useBasemapExport,
@@ -443,15 +444,38 @@ function LedgerRow({ entry, days, busy }: {
         >
           {m.map_ledger_update()}
         </button>
-        <button
-          type="button"
-          className="ledger-export"
-          onClick={() => exportMap.mutate(entry.id, loudly)}
-          disabled={busy || update.isPending || remove.isPending
-            || exportMap.isPending}
-        >
-          {m.map_export_action()}
-        </button>
+        {
+          /* A link, not a button, when the region has a file of its own --
+             which is every region downloaded since downloads stopped
+             merging. There is nothing to build: the file the download wrote
+             IS the file to carry, so this saves it directly and there is no
+             job to wait on and no second copy on disk.
+
+             A region still inside the old merged archive keeps the button.
+             That one really does have to be extracted first, and the wait
+             is the extraction. */
+          entry.file
+            ? (
+              <a
+                className="button-link ledger-export"
+                href={regionUrl(entry.file)}
+                download={entry.file}
+              >
+                {m.map_ledger_save()}
+              </a>
+            )
+            : (
+              <button
+                type="button"
+                className="ledger-export"
+                onClick={() => exportMap.mutate(entry.id, loudly)}
+                disabled={busy || update.isPending || remove.isPending
+                  || exportMap.isPending}
+              >
+                {m.map_export_action()}
+              </button>
+            )
+        }
         <button
           type="button"
           className="ledger-remove"

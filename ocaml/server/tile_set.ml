@@ -23,11 +23,17 @@
    rewritten constantly, and first in the order because it is the freshest
    thing on disk. [world] is the shipped overview, a shallow pyramid of the
    whole planet, and it is last because it is the coarsest: anything any
-   other archive holds is better. [base] is the old merged archive. Nothing
-   writes it any more, but installs that predate this change have one, it
-   may hold every region they ever downloaded, and deleting someone's map
-   because the layout changed is not an upgrade. It is read like any other
-   region, below them and above the world. *)
+   other archive holds is better.
+
+   [base] is the shared archive. Downloads no longer write it -- that is the
+   change -- but three things still put tiles there: the tessarium-basemap
+   CLI writes it, tools/fetch-basemap.sh runs that CLI, and folding the
+   browse cache goes into it. Installs from before the split also have one
+   holding every region they ever downloaded, and deleting someone's map
+   because the layout changed is not an upgrade. So it is read like any
+   region, below them and above the world; what makes it different is that
+   it can hold many records at once, which is why removing one of them still
+   means rewriting the file. *)
 let cache_file = "cache.pmtiles"
 let base_file = "map.pmtiles"
 let world_file = "world.pmtiles"

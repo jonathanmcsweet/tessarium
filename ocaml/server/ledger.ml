@@ -31,9 +31,15 @@ type entry = {
   completed : int;
       (** when the download that made or refreshed this entry finished, in
           epoch seconds; zero when the tiles predate the ledger and their
-          age is unknown. Tiles already held were deliberately not
-          re-fetched then -- their age belongs to the entries that fetched
-          them -- and a resumed download records the resuming run. *)
+          age is unknown, which the UI draws as "needs updating". Every
+          download dates itself, including one that is interrupted -- what
+          an interrupted region is missing is a question the map's coverage
+          shading already answers, and dating it by the last part to write
+          would have called finished downloads unfinished, since the parts
+          overlap at their seams and the last one routinely writes nothing.
+          Tiles already held were deliberately not re-fetched -- their age
+          belongs to the entries that fetched them -- and a resumed download
+          records the resuming run. *)
   source : string;  (** the resolved archive it was fetched from *)
   bytes : int;
       (** bytes actually fetched from the source by the download that made

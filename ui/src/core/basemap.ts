@@ -141,12 +141,18 @@ export const isRunning = (job: Job): boolean =>
   || job.state === "exporting";
 
 /* One row of the download ledger: a region the archive was asked to hold,
-   as recorded inside the archive itself. `completed` is epoch seconds;
-   zero means the tiles predate the ledger and their age is unknown --
-   which the UI treats as "probably stale" rather than "fresh". */
+   as recorded inside the archive itself. `completed` is epoch seconds; zero
+   means the tiles predate the ledger and their age is unknown -- which the
+   UI treats as "probably stale" rather than "fresh". */
 const LedgerEntry = z.object({
   id: z.string(),
   name: z.string(),
+  /* The file holding this region's tiles, which is the file to carry away:
+     a download writes its own archive, so there is nothing to build and
+     nothing to wait for. Empty for a region still living inside the old
+     merged map.pmtiles, which has to be extracted out of it first -- the
+     export flow below, which exists for exactly that case. */
+  file: z.string(),
   completed: z.number().int().nonnegative(),
   source: z.string(),
   bytes: z.number().int().nonnegative(),
@@ -365,6 +371,12 @@ export function useDeleteExport() {
    and nothing leaves this machine. */
 export const exportUrl = (file: string) =>
   `/basemap/export/${encodeURIComponent(file)}`;
+
+/* And where it saves a downloaded region from: the archive the download
+   itself wrote, served from the basemap directory it already lives in. No
+   copy is made anywhere -- this URL is the file. */
+export const regionUrl = (file: string) =>
+  `/basemap/${encodeURIComponent(file)}`;
 
 const Staged = z.discriminatedUnion("staged", [
   z.object({ staged: z.literal(false) }),
