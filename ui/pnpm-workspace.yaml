@@ -1,13 +1,21 @@
-# pnpm refuses to run a dependency's install scripts unless it is named here,
-# which is the right default: a postinstall script is arbitrary code from the
-# network running at install time. These two genuinely need theirs, and both
-# fail loudly rather than subtly without them.
+# pnpm refuses to run a dependency's install scripts unless it is named here.
+# Both of these are declined, because neither is needed and the reason is worth
+# writing down: the postinstall does NOT fetch the binary.
 #
-#   esbuild  fetches the platform binary vite builds with
-#   dprint   fetches the formatter binary `pnpm run format:check` drives
+# esbuild and dprint both ship their native binary as an optionalDependencies
+# package (@esbuild/linux-x64, @dprint/linux-x64-glibc). pnpm downloads those
+# like any other dependency -- pinned in pnpm-lock.yaml, sha512 checked on
+# every install. The postinstall only hardlinks that already-present binary
+# into place to save a few milliseconds of node startup per invocation.
+# Declining it costs that, and nothing else:
 #
-# Declared rather than approved interactively, so CI installs exactly what a
-# developer's checkout does.
+#   esbuild  vite drives it through the JS API, which resolves the platform
+#            package at runtime. Only the rarely-used CLI keeps a shim.
+#   dprint   bin.cjs does the same hardlink on first run if install did not.
+#
+# Their download-from-the-registry paths exist only for `--omit=optional`
+# installs, which this project never does, and verify a sha256 baked into the
+# package even then.
 allowBuilds:
-  dprint: true
-  esbuild: true
+  dprint: false
+  esbuild: false

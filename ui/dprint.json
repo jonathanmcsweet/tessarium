@@ -16,7 +16,7 @@
     "messages/*.json"
   ],
   "plugins": [
-    "https://plugins.dprint.dev/typescript-0.95.11.wasm",
-    "https://plugins.dprint.dev/json-0.20.0.wasm"
+    "https://plugins.dprint.dev/typescript-0.95.11.wasm@6b35c03c4c257be55e28559e5a8a0d9fb74fbf40c3eb368a7abd2676bd4af482",
+    "https://plugins.dprint.dev/json-0.20.0.wasm@b857052e2f5a62c06b02a92116683d188f8b2a2575f4bc5d363c50f39107f53a"
   ]
 }

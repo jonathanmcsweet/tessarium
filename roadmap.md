@@ -915,6 +915,21 @@ not cover.
       either several files or one combined archive, is the obvious follow-on
       and was deliberately left until the single-region path had been used.
 
+- [ ] **`pnpm run check` needs the network on a cold cache.** dprint resolves
+      its TypeScript and JSON formatters as WASM plugins fetched from
+      `plugins.dprint.dev`. Both URLs now carry a `@sha256` pin, so what
+      arrives is verified rather than trusted — but it still has to arrive,
+      and on the air-gapped machine this phase exists to serve, the formatter
+      check cannot run at all. The cache lives in `~/.cache/dprint`, outside
+      the tree, so it survives a clean checkout but not a fresh machine.
+
+      Vendoring the two `.wasm` files and pointing the plugin entries at
+      local paths would close it. Left out because that is ~15 MB of binary
+      in git to spare a developer a one-time download, and the offline
+      requirement this phase is built around is about the shipped
+      application, not the toolchain that builds it. Worth revisiting if
+      anyone actually has to develop disconnected.
+
 ## Phase 8 — Later, unscheduled
 
 - [ ] **RESEARCH: can this ride inside an existing map app rather than being
