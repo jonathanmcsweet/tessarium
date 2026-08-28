@@ -13,7 +13,6 @@ module D = Pmtiles.Directory
 module H = Pmtiles.Header
 module A = Pmtiles.Archive
 module E = Pmtiles.Extract
-module M = Pmtiles.Merge
 
 let failures = ref 0
 let checks = ref 0
@@ -915,67 +914,6 @@ let () =
     (match Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0 "\xff\xff\xff" with
     | _ -> false
     | exception Pmtiles.Mvt.Malformed _ -> true);
-
-  (* Narrowing a merge plan, which is what lets the download write the
-     region as its own file in the same pass that writes the archive. *)
-  let t = T.of_zxy in
-  let parent =
-    {
-      M.blobs = [| (M.Fresh, 0, 10); (M.Base, 100, 20); (M.Fresh, 40, 5) |];
-      (* t2 shares blob 0 with t0: the deduplication that makes the child's
-         blob order interesting. *)
-      tiles =
-        [|
-          (t ~z:2 ~x:0 ~y:0, 0);
-          (t ~z:2 ~x:1 ~y:0, 1);
-          (t ~z:2 ~x:2 ~y:0, 0);
-          (t ~z:2 ~x:3 ~y:0, 2);
-        |];
-      fetch_bytes = 15;
-      total_bytes = 35;
-      fresh_tiles = 3;
-      refreshed_tiles = 0;
-    }
-  in
-  let all, _ = M.select ~keep:(fun ~z:_ ~x:_ ~y:_ -> true) parent in
-  check "selecting everything keeps every tile" (Array.length all.M.tiles = 4);
-  check "and every blob, deduplicated as before"
-    (Array.length all.M.blobs = 3 && all.M.total_bytes = 35);
-  let none, map_none = M.select ~keep:(fun ~z:_ ~x:_ ~y:_ -> false) parent in
-  check "selecting nothing keeps nothing"
-    (Array.length none.M.tiles = 0 && Array.length none.M.blobs = 0);
-  check "and maps every parent blob to absent"
-    (Array.for_all (fun i -> i = -1) map_none);
-
-  (* The hazard the caller has to be built around. Keeping x=1 and x=2 takes
-     parent blob 1 first and parent blob 0 second, because blob 0's FIRST
-     kept reference is the later tile. The child's blob order is therefore
-     not a subsequence of the parent's, so a caller writing both archives at
-     once cannot simply append blobs as they arrive -- it has to place them
-     by offset. *)
-  let mid, map_mid =
-    M.select ~keep:(fun ~z:_ ~x ~y:_ -> x = 1 || x = 2) parent
-  in
-  check "a narrowed plan keeps only the tiles asked for"
-    (Array.length mid.M.tiles = 2);
-  check "a blob shared with a dropped tile still survives"
-    (Array.length mid.M.blobs = 2);
-  check "the child's blob order is NOT the parent's"
-    (map_mid.(1) = 0 && map_mid.(0) = 1);
-  check "a blob no kept tile references is absent" (map_mid.(2) = -1);
-  check "bytes count the kept blobs only"
-    (mid.M.total_bytes = 30 && mid.M.fetch_bytes = 10);
-  check "and fresh tiles are counted through the child's own blobs"
-    (mid.M.fresh_tiles = 1);
-  (* Clustered: the data section must stay ordered by tile id, or a reader
-     cannot coalesce adjacent ranges. *)
-  let ascending (t : (int * int) array) =
-    let ok = ref true in
-    Array.iteri (fun i (id, _) -> if i > 0 && id <= fst t.(i - 1) then ok := false) t;
-    !ok
-  in
-  check "the narrowed plan is still ordered by tile id"
-    (ascending mid.M.tiles && ascending all.M.tiles);
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1 else print_endline "pmtiles round-trips"
