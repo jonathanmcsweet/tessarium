@@ -11,7 +11,7 @@ const backend = process.env.TESSARIUM_SERVER ?? "http://127.0.0.1:7373";
 
 // Vite's own default is 5173, which is the port every other Vite project on a
 // machine also wants. This one sits in the block the rest of the project
-// already uses -- 7373 is the app, 7374-7378 are the servers the end-to-end
+// already uses -- 7373 is the app, 7374-7379 are the servers the end-to-end
 // suite starts -- so a second Vite service somewhere else is not a collision.
 // TESSARIUM_UI_PORT overrides it, the same way TESSARIUM_SERVER overrides the
 // backend above.

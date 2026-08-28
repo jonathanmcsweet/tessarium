@@ -13,7 +13,7 @@ import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import http, { createServer } from "node:http";
 import { chromium } from "playwright";
 
-const base = process.argv[2] ?? "http://127.0.0.1:7373";
+const base = process.argv[2] ?? "http://127.0.0.1:7379";
 const vectors = JSON.parse(
   readFileSync(new URL("../../vectors/vectors.json", import.meta.url), "utf8"),
 );

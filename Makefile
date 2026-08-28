@@ -11,6 +11,11 @@
 FSTAR_BIN := $(HOME)/toolchain/fstar/bin
 SWITCH    := tessarium
 PORT      ?= 7373
+# The app under test. Its own port, NOT $(PORT): the e2e used to reuse 7373,
+# which meant leaving `make dev` running made the whole browser suite die on
+# "Address already in use" -- partway through, so it read as four unrelated
+# download checks failing rather than as a port conflict.
+E2E_PORT ?= 7379
 # A second server instance the e2e downloads its basemap from.
 FIXTURE_PORT ?= 7374
 MULTIPART_PORT ?= 7375
@@ -235,7 +240,7 @@ test-ui: ui
 	  --port $(FIXTURE_PORT) --basemap _build/e2e-fixture --no-open & \
 	  echo $$! > .fixture.pid; \
 	  ./_build/default/ocaml/server/bin/main.exe \
-	  --port $(PORT) --basemap _build/e2e-basemap --no-open \
+	  --port $(E2E_PORT) --basemap _build/e2e-basemap --no-open \
 	  --basemap-source http://127.0.0.1:$(FIXTURE_PORT)/basemap/map.pmtiles \
 	  --basemap-assets http://127.0.0.1:$(FIXTURE_PORT)/basemap/assets.tar.gz & \
 	  echo $$! > .server.pid; \
@@ -262,7 +267,7 @@ test-ui: ui
 	    rm -f .server.pid .fixture.pid .multipart.pid .mismatch.pid \
 	      .cancel.pid' EXIT; \
 	  for i in $$(seq 40); do \
-	    curl -sf -o /dev/null http://127.0.0.1:$(PORT)/healthz \
+	    curl -sf -o /dev/null http://127.0.0.1:$(E2E_PORT)/healthz \
 	    && curl -sf -o /dev/null http://127.0.0.1:$(FIXTURE_PORT)/healthz \
 	    && curl -sf -o /dev/null http://127.0.0.1:$(MULTIPART_PORT)/healthz \
 	    && curl -sf -o /dev/null http://127.0.0.1:$(MISMATCH_PORT)/healthz \
@@ -271,7 +276,7 @@ test-ui: ui
 	  done; \
 	  ( cd ui && E2E_PROXY_PORT=$(PROXY_PORT) \
 	      E2E_FIXTURE=http://127.0.0.1:$(FIXTURE_PORT) \
-	      node test/e2e.mjs http://127.0.0.1:$(PORT) \
+	      node test/e2e.mjs http://127.0.0.1:$(E2E_PORT) \
 	      http://127.0.0.1:$(MULTIPART_PORT) http://127.0.0.1:$(MISMATCH_PORT) \
 	      http://127.0.0.1:$(CANCEL_PORT) )
 

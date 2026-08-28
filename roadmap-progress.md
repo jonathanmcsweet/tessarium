@@ -21,6 +21,23 @@ than a git log.
 
 ---
 
+### 2026-08-28 — The end-to-end suite gets its own port
+
+**Phase:** 6
+
+**What:** The app under test moved off `$(PORT)` (7373) onto `$(E2E_PORT)`
+(7379). Every other server the suite starts already had a port of its own --
+fixture, multipart, mismatch, cancel, proxy, 7374-7378 -- and this one shared
+with `make run` and the new `make dev`.
+
+**Rationale:** Found by leaving the development stack up and running the
+suite. The collision does not announce itself: the server dies on bind, the
+run continues against nothing, and what surfaces is four unrelated map
+download checks failing. A conflict that reads as a product bug costs more
+than one that stops the run outright.
+
+---
+
 ### 2026-08-28 — dune-project declares what the dune files actually use
 
 **Phase:** 6
