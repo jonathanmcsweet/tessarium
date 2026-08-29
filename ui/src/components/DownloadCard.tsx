@@ -137,7 +137,7 @@ function Offer(
         <p className="hint">{m.map_download_estimating()}</p>
       )}
       {estimate.isError && (
-        <p className="hint invalid">
+        <p className="hint invalid text-danger">
           {estimate.error instanceof Error
             ? estimate.error.message
             : String(estimate.error)}
@@ -159,9 +159,10 @@ function Offer(
             : m.map_download_depth_hint()}
         </p>
       )}
-      <div className="download-actions">
+      <div className="download-actions mt-2.5 flex flex-wrap gap-2">
         <button
           type="button"
+          className="btn btn-primary"
           onClick={() =>
             regions
             && download.mutate({
@@ -221,12 +222,22 @@ function CheckRow({ text, checked, onChange, disabled }: {
 }) {
   return (
     <Checkbox
-      className="region-check"
+      className="region-check group/check flex cursor-pointer items-center gap-2 disabled:cursor-default disabled:opacity-55"
       isSelected={checked}
       onChange={onChange}
       isDisabled={disabled ?? false}
     >
-      <span className="checkbox-box" aria-hidden="true">
+      {
+        /* React Aria renders a real input, visually hidden, and hands the
+          appearance over -- so this span is the box, and `selected` on the
+          label is what fills it. The tick inside is scaled to nothing until
+          then rather than mounted and unmounted, so it cannot reflow the
+          row. */
+      }
+      <span
+        className="checkbox-box flex h-4.5 w-4.5 flex-none items-center justify-center rounded border border-line-strong bg-card text-white group-selected/check:border-accent group-selected/check:bg-accent [&>svg]:scale-0 group-selected/check:[&>svg]:scale-100"
+        aria-hidden="true"
+      >
         <Check size={14} />
       </span>
       <span>{text}</span>
@@ -270,16 +281,25 @@ function RegionPicker() {
 
   return (
     <div className="download-option download-region">
-      <label htmlFor="region-filter">{m.map_download_region_label()}</label>
+      <label
+        htmlFor="region-filter"
+        className="mt-0.5 mb-1.5 block text-sm font-semibold"
+      >
+        {m.map_download_region_label()}
+      </label>
       <input
         id="region-filter"
-        className="region-filter"
+        className="region-filter field min-h-10 px-2.5 py-2"
         type="search"
         placeholder={m.map_download_region_filter()}
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
       />
-      <ul className="region-tree">
+      {
+        /* The picker's tree. It scrolls inside the card so the selection's
+          estimate and its download button stay in reach below the list. */
+      }
+      <ul className="region-tree my-2 max-h-[min(45vh,21rem)] divide-y divide-line overflow-y-auto rounded-lg border border-line">
         {list.map(({ country, label }) => {
           const code = country.code ?? country.name;
           const subs = subdivisionsOf(country);
@@ -302,7 +322,7 @@ function RegionPicker() {
                   no filter the browser owns the disclosure state. */
               }
               <Disclosure
-                className="region-disclosure"
+                className="region-disclosure group/disclosure"
                 isExpanded={needle !== "" || opened.has(code)}
                 onExpandedChange={(open) =>
                   setOpened((previous) => {
@@ -312,8 +332,15 @@ function RegionPicker() {
                     return next;
                   })}
               >
-                <Button slot="trigger" className="region-summary">
-                  <ChevronRight size={14} aria-hidden="true" />
+                <Button
+                  slot="trigger"
+                  className="region-summary focus-ring flex min-h-10 w-full cursor-pointer items-center gap-1.5 p-2.5 text-left text-sm group-expanded/disclosure:font-semibold"
+                >
+                  <ChevronRight
+                    size={14}
+                    aria-hidden="true"
+                    className="flex-none text-ink-soft transition-transform group-expanded/disclosure:rotate-90"
+                  />
                   {label}
                 </Button>
                 <DisclosurePanel>
@@ -323,7 +350,7 @@ function RegionPicker() {
                     onChange={() => toggle(whole)}
                   />
                   {subs.length > 0 && (
-                    <p className="region-group">
+                    <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-[0.06em] text-ink-soft uppercase">
                       {m.map_download_region_sub_label()}
                     </p>
                   )}
@@ -343,7 +370,7 @@ function RegionPicker() {
                     );
                   })}
                   {cities.length > 0 && (
-                    <p className="region-group">
+                    <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-[0.06em] text-ink-soft uppercase">
                       {m.map_download_region_cities()}
                     </p>
                   )}
@@ -415,16 +442,36 @@ function LedgerRow({ entry, days, busy }: {
       date: new Intl.DateTimeFormat(getLocale(), { dateStyle: "medium" })
         .format(new Date(entry.completed * 1000)),
     });
+  /* Wraps, and that is the whole fix. Unwrapped, three buttons took the full
+     width and left the name column a few pixels, which the name's own
+     wrapping then honoured by breaking "Map view" one letter per line. The
+     text keeps a real basis and the buttons drop to their own line when they
+     no longer fit beside it. */
   return (
-    <li className="ledger-row">
-      <div className="ledger-row-text">
-        <span className="ledger-name">{entry.name}</span>
+    <li className="ledger-row flex flex-wrap items-center justify-between gap-2 py-2">
+      <div className="ledger-row-text flex min-w-0 flex-1 basis-40 flex-col gap-0.5">
+        {
+          /* break-words, not anywhere: this only has to rescue a single
+            unbroken name too long for the column, and `anywhere` is what
+            let a normal name be shredded the moment the column got
+            tight. */
+        }
+        <span className="ledger-name text-sm font-semibold break-words">
+          {entry.name}
+        </span>
         <span className="hint">
           {meta}
           {stale && (
             <>
               {" "}
-              <span className="ledger-stale">{m.map_ledger_stale()}</span>
+              {
+                /* The staleness nudge is text, not a traffic light:
+                  accent-text holds 4.5:1 on the card, where the brighter
+                  accent would not. */
+              }
+              <span className="ledger-stale font-semibold text-accent-text">
+                {m.map_ledger_stale()}
+              </span>
             </>
           )}
         </span>
@@ -435,10 +482,10 @@ function LedgerRow({ entry, days, busy }: {
            added here should not silently retarget anything that reaches for
            one of these -- which is exactly what adding the third did. */
       }
-      <div className="download-actions">
+      <div className="download-actions flex flex-shrink flex-wrap gap-2">
         <button
           type="button"
-          className="ledger-update"
+          className="ledger-update btn btn-quiet border-line-strong"
           onClick={() => update.mutate(entry.id, loudly)}
           disabled={busy || update.isPending || remove.isPending}
         >
@@ -457,7 +504,7 @@ function LedgerRow({ entry, days, busy }: {
           entry.file
             ? (
               <a
-                className="button-link ledger-export"
+                className="button-link ledger-export btn btn-quiet border-line-strong hover:border-accent"
                 href={regionUrl(entry.file)}
                 download={entry.file}
               >
@@ -467,7 +514,7 @@ function LedgerRow({ entry, days, busy }: {
             : (
               <button
                 type="button"
-                className="ledger-export"
+                className="ledger-export btn btn-quiet border-line-strong"
                 onClick={() => exportMap.mutate(entry.id, loudly)}
                 disabled={busy || update.isPending || remove.isPending
                   || exportMap.isPending}
@@ -478,7 +525,7 @@ function LedgerRow({ entry, days, busy }: {
         }
         <button
           type="button"
-          className="ledger-remove"
+          className="ledger-remove btn btn-quiet border-line-strong"
           onClick={() => {
             if (!confirming) setConfirming(true);
             else remove.mutate(entry.id, loudly);
@@ -504,22 +551,29 @@ function ExportedFiles({ busy }: { busy: boolean; }) {
   if (!exports.isSuccess || exports.data.length === 0) return null;
   return (
     <div className="download-option download-exports">
-      <p className="region-group">{m.map_export_title()}</p>
+      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-[0.06em] text-ink-soft uppercase">
+        {m.map_export_title()}
+      </p>
       <p className="hint">{m.map_export_hint()}</p>
-      <ul className="ledger-rows">
+      <ul className="ledger-rows divide-y divide-line">
         {exports.data.map((f) => (
-          <li className="ledger-row" key={f.file}>
-            <div className="ledger-row-text">
-              <span className="ledger-name">{f.file}</span>
+          <li
+            className="ledger-row flex flex-wrap items-center justify-between gap-2 py-2"
+            key={f.file}
+          >
+            <div className="ledger-row-text flex min-w-0 flex-1 basis-40 flex-col gap-0.5">
+              <span className="ledger-name text-sm font-semibold break-words">
+                {f.file}
+              </span>
               <span className="hint">{formatBytes(f.bytes)}</span>
             </div>
-            <div className="download-actions">
+            <div className="download-actions flex flex-shrink flex-wrap gap-2">
               {
                 /* `download` names the saved file rather than navigating to
                   it; same origin, so the CSP is untroubled. */
               }
               <a
-                className="button-link"
+                className="button-link btn btn-quiet border-line-strong hover:border-accent"
                 href={exportUrl(f.file)}
                 download={f.file}
               >
@@ -527,6 +581,7 @@ function ExportedFiles({ busy }: { busy: boolean; }) {
               </a>
               <button
                 type="button"
+                className="btn btn-quiet border-line-strong"
                 onClick={() => remove.mutate(f.file, loudly)}
                 disabled={busy || remove.isPending}
               >
@@ -568,7 +623,9 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
 
   return (
     <div className="download-option download-import">
-      <p className="region-group">{m.map_import_title()}</p>
+      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-[0.06em] text-ink-soft uppercase">
+        {m.map_import_title()}
+      </p>
       <p className="hint">{m.map_import_hint()}</p>
 
       {waiting === null && (
@@ -576,14 +633,19 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
           {
             /* A real file input, labelled: an icon or a bare button here
               would leave the control unnamed for assistive technology and
-              unreachable by keyboard on some platforms. */
+              unreachable by keyboard on some platforms. The picker's own
+              control is hidden, not removed -- it stays in the
+              accessibility tree and keeps its keyboard behaviour, and the
+              visible label drives it.
+
+              The input comes FIRST in the DOM, which is the only reason the
+              label can show its focus: the thing actually focused is the
+              input, and the input is off screen. As a later sibling the
+              label reads the focus sideways with `peer`. */
           }
-          <label className="button-link file-input" htmlFor="import-file">
-            {m.map_import_choose()}
-          </label>
           <input
             id="import-file"
-            className="visually-hidden"
+            className="peer sr-only"
             type="file"
             accept=".pmtiles,application/octet-stream"
             disabled={busy || upload.isPending}
@@ -603,6 +665,12 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
               });
             }}
           />
+          <label
+            className="button-link file-input btn btn-quiet mt-2.5 border-line-strong hover:border-accent peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent"
+            htmlFor="import-file"
+          >
+            {m.map_import_choose()}
+          </label>
           {upload.isPending && sent !== null && (
             <p className="hint" role="status">
               {m.map_import_uploading({
@@ -628,9 +696,10 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
                 zoom: waiting.max_zoom,
               })}
           </p>
-          <div className="download-actions">
+          <div className="download-actions mt-2.5 flex flex-wrap gap-2">
             <button
               type="button"
+              className="btn btn-primary"
               onClick={() =>
                 commit.mutate(undefined, {
                   ...loudly,
@@ -642,6 +711,7 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
             </button>
             <button
               type="button"
+              className="btn btn-quiet border-line-strong"
               onClick={() => discard.mutate(undefined, loudly)}
               disabled={busy || commit.isPending || discard.isPending}
             >
@@ -665,14 +735,16 @@ function DownloadedMaps({ busy }: { busy: boolean; }) {
   const days = settings.data?.update_reminder_days ?? 90;
   return (
     <div className="download-option download-ledger">
-      <p className="region-group">{m.map_ledger_title()}</p>
-      <ul className="ledger-rows">
+      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-[0.06em] text-ink-soft uppercase">
+        {m.map_ledger_title()}
+      </p>
+      <ul className="ledger-rows divide-y divide-line">
         {ledger.data.entries.map((entry) => (
           <LedgerRow key={entry.id} entry={entry} days={days} busy={busy} />
         ))}
       </ul>
       <Dropdown
-        className="ledger-reminder"
+        className="ledger-reminder mt-2.5 text-sm [&>.dropdown-button]:w-auto [&>.dropdown-button]:flex-none"
         label={m.map_ledger_reminder()}
         value={String(days)}
         onChange={(value) =>
@@ -740,10 +812,21 @@ export function DownloadCard({ region, job }: {
     && !worldEstimate.data.covered
     && worldEstimate.data.tiles > 0;
 
+  /* A section of the side panel, not a card over the map. It used to float in
+     the top-left corner, where it covered the tiles it was talking about and
+     could never grow past the viewport; here it scrolls with the panel and is
+     as tall as it needs to be. The padding matches the panel head so its
+     heading lines up with the panel's own, and nothing inside may push the
+     drawer wider than the user set it. */
   return (
-    <section className="download-card" aria-labelledby="download-title">
-      <header>
-        <h2 id="download-title">{m.map_download_title()}</h2>
+    <section
+      className="download-card min-w-0 border-t border-line px-4.5 py-3.5"
+      aria-labelledby="download-title"
+    >
+      <header className="flex items-center justify-between gap-2">
+        <h2 id="download-title" className="panel-title">
+          {m.map_download_title()}
+        </h2>
         <IconButton
           label={m.map_download_close()}
           icon={<X size={16} aria-hidden />}

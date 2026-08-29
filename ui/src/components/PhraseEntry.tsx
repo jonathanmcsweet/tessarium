@@ -146,7 +146,7 @@ export function PhraseEntry() {
         </label>
         <textarea
           id="phrase"
-          className="field resize-y"
+          className="field resize-y font-mono"
           ref={input}
           rows={4}
           spellCheck={false}
@@ -258,9 +258,9 @@ export function PhraseEntry() {
             {m.gate_passphrase_summary()}
           </Button>
           <DisclosurePanel>
-            <p className="hint my-1.5">{m.gate_passphrase_what()}</p>
-            <p className="hint my-1.5">{m.gate_passphrase_exact()}</p>
-            <p className="hint my-1.5">{m.gate_passphrase_empty()}</p>
+            <p className="hint">{m.gate_passphrase_what()}</p>
+            <p className="hint">{m.gate_passphrase_exact()}</p>
+            <p className="hint">{m.gate_passphrase_empty()}</p>
             <label
               htmlFor="passphrase"
               className="mb-1 block text-sm font-semibold"
@@ -269,7 +269,7 @@ export function PhraseEntry() {
             </label>
             <input
               id="passphrase"
-              className="field"
+              className="field font-mono"
               type="password"
               autoComplete="off"
               value={passphrase}
@@ -285,9 +285,7 @@ export function PhraseEntry() {
         >
           {unlock.isPending ? m.gate_submit_busy() : m.gate_submit()}
         </button>
-        {unlock.isPending && (
-          <p className="hint my-1.5">{m.gate_deriving_hint()}</p>
-        )}
+        {unlock.isPending && <p className="hint">{m.gate_deriving_hint()}</p>}
 
         {
           /* The wordlist is English BIP-39 in every language: a French reader

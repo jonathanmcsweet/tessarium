@@ -279,7 +279,7 @@ export function AddressPanel() {
         </Suspense>
       )}
 
-      <footer className="panel-foot p-4 px-4.5 text-xs leading-normal text-ink-soft">
+      <footer className="panel-foot px-4.5 py-4 text-xs leading-normal text-ink-soft">
         <LanguagePicker className="mb-2.5" />
         {
           /* Standing, not a toast, and not only in the lock dialog: a reload

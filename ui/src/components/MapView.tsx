@@ -380,6 +380,22 @@ const cellCenter = (cell: {
   },
 });
 
+/* A note over the map: a pill, transparent to the pointer, wide enough for a
+   sentence in any of six languages. */
+const NOTE =
+  "map-note pointer-events-none max-w-full rounded-full border border-line "
+  + "bg-white/95 px-4 py-1.5 text-center text-sm shadow-card";
+
+/* One that offers something to do lays its text and action out in a row,
+   wrapping on a narrow screen rather than pushing the button off the map.
+   The pill itself stays transparent to the pointer and only the button takes
+   it back: on a phone this sits over the bottom of the map, which is exactly
+   where a thumb starts a pan, and a pill that swallowed that drag made the
+   map feel broken. */
+const NOTE_ACTION =
+  "action flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 "
+  + "py-1.5 pr-2 pl-4 text-left";
+
 export function MapView() {
   const container = useRef<HTMLDivElement>(null);
   /* `mapRef`, not `m` -- `m` is the message namespace throughout the UI. */
@@ -1131,12 +1147,19 @@ export function MapView() {
         /* Marks the square Enter will take, so keyboard use has the same
           "which one am I about to pick" feedback the pointer gets. */
       }
-      <div className="reticle" aria-hidden />
+      {
+        /* Small, low-contrast, and transparent to the pointer: it is a
+          keyboard aid, not a control. */
+      }
+      <div
+        className="reticle pointer-events-none absolute top-1/2 left-1/2 z-2 -mt-[9px] -ml-[9px] h-[18px] w-[18px] rounded-[3px] border-[1.5px] border-[rgba(18,33,47,0.55)]"
+        aria-hidden
+      />
       {
         /* Search sits over the map rather than in the panel: it moves the
           map, and the panel is about the square already chosen. */
       }
-      <div className="map-search">
+      <div className="map-search absolute top-2.5 left-2.5 z-2 w-[min(22rem,calc(100%-5.5rem))]">
         <PlaceSearch
           center={() => {
             const c = mapRef.current?.getCenter();
@@ -1161,14 +1184,23 @@ export function MapView() {
           be outside coverage AND too far out for the grid, and two notes
           pinned to the same corner would sit on top of each other. */
       }
-      <div className="map-notes" ref={notesRef}>
+      {
+        /* Centred on the uncovered part of the map, not on the map, or a
+          note drifts under the drawer as it widens. The container spans the
+          map and only the notes inside it take the pointer, or it would
+          swallow clicks meant for the map itself. */
+      }
+      <div
+        className="map-notes pointer-events-none absolute bottom-7 left-[calc((100%-var(--panel-offset,340px))/2)] flex w-max max-w-[80%] -translate-x-1/2 flex-col-reverse items-center gap-2"
+        ref={notesRef}
+      >
         {
           /* Hidden while the card is open: the note's whole purpose is to
             open that card, and leaving it on top of the thing it just
             opened puts a pill over the controls and wins the hit test. */
         }
         {blank && !downloadOpen && (
-          <div className="map-note action" role="status">
+          <div className={`${NOTE} ${NOTE_ACTION}`} role="status">
             {
               /* One message, because there is only one fact the app can
                 state honestly here: the detail is not downloaded. What the
@@ -1183,7 +1215,7 @@ export function MapView() {
             <span>{m.map_coverage_gap()}</span>
             <button
               type="button"
-              className="note-action"
+              className="note-action btn pointer-events-auto rounded-full! px-3.5 text-sm"
               onClick={() =>
                 openDownload()}
             >
@@ -1192,12 +1224,15 @@ export function MapView() {
           </div>
         )}
         {zoom < GRID_MIN_ZOOM && (
-          <div className="map-note" role="status">
+          <div className={NOTE} role="status">
             {m.map_zoom_for_grid()}
           </div>
         )}
         {truncated && (
-          <div className="map-note warn" role="status">
+          <div
+            className={`${NOTE} warn border-[#e6d3a3] bg-[#fffaf0] text-warn`}
+            role="status"
+          >
             {m.map_too_many_squares()}
           </div>
         )}

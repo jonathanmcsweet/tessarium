@@ -42,13 +42,22 @@ function Bar(
 ) {
   return (
     <li className="download-row">
-      <div className="download-row-head">
-        <span className="download-row-label">{label}</span>
-        <span className="download-row-size" aria-hidden="true">
+      <div className="flex items-baseline justify-between gap-2">
+        {
+          /* The name may be a long one in any of six languages; it gets the
+            slack and the size stays put, so a row never reflows as the
+            numbers tick. */
+        }
+        <span className="min-w-0 text-sm break-words">{label}</span>
+        <span
+          className="flex-none text-xs tabular-nums text-ink-soft"
+          aria-hidden="true"
+        >
           {hint ?? `${formatBytes(done)} / ${formatBytes(total)}`}
         </span>
       </div>
       <progress
+        className="mt-1 h-1.5 w-full accent-accent"
         max={Math.max(total, 1)}
         value={done}
         aria-label={m.map_progress_region_a11y({
@@ -130,16 +139,16 @@ export function MapProgress() {
 
   return (
     <section
-      className="downloads"
+      className="downloads border-t border-line px-4 py-3"
       aria-labelledby="downloads-title"
     >
-      <div className="downloads-head">
+      <div className="flex items-center justify-between gap-2">
         {
           /* An export is not a download, and this section said "Map
             downloads" over "Writing the file" while one ran. Same bars,
             honest heading. */
         }
-        <h2 id="downloads-title">
+        <h2 id="downloads-title" className="m-0 text-sm font-semibold">
           {job.state === "exporting"
             ? m.map_progress_export_title()
             : m.map_progress_title()}
