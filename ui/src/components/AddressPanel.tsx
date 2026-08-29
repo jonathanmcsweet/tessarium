@@ -95,7 +95,7 @@ export function AddressPanel() {
   /* Same treatment as the address above, scaled to the smaller type: the
      bullets are not worth selecting, and a selection highlight through a
      blur reads as a rendering fault. */
-  const COORD = `m-0 font-mono tabular-nums${
+  const coordClass = `m-0 font-mono tabular-nums${
     coordsConcealed ? " text-ink-soft blur-[2.5px] select-none" : ""
   }`;
 
@@ -227,7 +227,7 @@ export function AddressPanel() {
                 }
                 <dl className="coords m-0 grid min-w-0 flex-1 grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
                   <dt className="text-ink-soft">{m.panel_latitude()}</dt>
-                  <dd className={COORD}>
+                  <dd className={coordClass}>
                     {coordsConcealed
                       ? (
                         <>
@@ -240,7 +240,7 @@ export function AddressPanel() {
                       : formatCoord(selection.cell.latLo)}
                   </dd>
                   <dt className="text-ink-soft">{m.panel_longitude()}</dt>
-                  <dd className={COORD}>
+                  <dd className={coordClass}>
                     {coordsConcealed
                       ? (
                         <>
