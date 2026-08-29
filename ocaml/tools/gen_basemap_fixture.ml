@@ -82,7 +82,8 @@ let e7 v = int_of_float (Float.round (v *. 1e7))
    stride wider than the reader's readahead window each tile costs its own.
    That is the difference between a download that finishes instantly and one
    that can be watched, and the cancellation test needs the latter. *)
-let pmtiles ?(compression = Pmtiles.Header.Gzip) ?(stride = 0) ~min_lon
+let pmtiles ?(metadata = "{}") ?(compression = Pmtiles.Header.Gzip)
+    ?(stride = 0) ~min_lon
     ~min_lat ~max_lon ~max_lat ~max_zoom () =
   let ids =
     Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom ~min_lon ~min_lat ~max_lon
@@ -123,7 +124,6 @@ let pmtiles ?(compression = Pmtiles.Header.Gzip) ?(stride = 0) ~min_lon
     end
   in
   let root = Pmtiles.Directory.serialize entries in
-  let metadata = "{}" in
   let root_offset = Pmtiles.Header.size in
   let metadata_offset = root_offset + String.length root in
   let data_offset = metadata_offset + String.length metadata in
@@ -206,9 +206,9 @@ let write path content =
 let () =
   let dir = Sys.argv.(1) in
   if not (Sys.file_exists dir) then Sys.mkdir dir 0o755;
-  let london ?compression () =
-    pmtiles ?compression ~min_lon:(-0.20) ~min_lat:51.46 ~max_lon:(-0.05)
-      ~max_lat:51.56 ~max_zoom:15 ()
+  let london ?metadata ?compression () =
+    pmtiles ?metadata ?compression ~min_lon:(-0.20) ~min_lat:51.46
+      ~max_lon:(-0.05) ~max_lat:51.56 ~max_zoom:15 ()
   in
   write (Filename.concat dir "map.pmtiles") (london ());
   (* The same tiles declaring no compression at all. A download or a browse
@@ -235,5 +235,38 @@ let () =
     (Filename.concat dir "map-shallow.pmtiles")
     (pmtiles ~min_lon:(-0.20) ~min_lat:51.46 ~max_lon:(-0.05) ~max_lat:51.56
        ~max_zoom:6 ());
+  (* An archive shaped like an install from before downloads stopped
+     merging: tiles in map.pmtiles with a ledger entry beside them, under
+     whatever the picker called it at the time. Named and shaped like the
+     row that prompted the rule -- a small box over London called "Map
+     view", sitting in the base archive with no file of its own.
+
+     The suite drops this in as a server's map.pmtiles to check that such a
+     row offers nothing that would rewrite that file. Written by
+     [Ledger.to_metadata] rather than by hand, so the fixture cannot drift
+     from the format the server actually reads. *)
+  let legacy_entry =
+    Tessarium_server.Ledger.make ~name:"Map view" ~completed:1787941124
+      ~source:"fixture" ~bytes:3126624
+      ~regions:
+        [
+          (match
+             Tessarium_server.Basemap_job.validate ~min_lon:(-0.20)
+               ~min_lat:51.46 ~max_lon:(-0.05) ~max_lat:51.56 ~max_zoom:15 ()
+           with
+          | Ok r -> r
+          | Error e -> failwith e);
+        ]
+  in
+  write
+    (Filename.concat dir "map-legacy.pmtiles")
+    (london
+       ~metadata:
+         (match
+            Tessarium_server.Ledger.to_metadata [ legacy_entry ] ~previous:"{}"
+          with
+         | Ok m -> m
+         | Error e -> failwith e)
+       ());
   write (Filename.concat dir "assets.tar.gz") (Gzip.compress (assets_tarball ()));
   Printf.printf "basemap fixture written to %s\n" dir

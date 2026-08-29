@@ -115,3 +115,104 @@ export const countryRegions = (country: Country): Region[] =>
 
 export const subdivisionRegions = (sub: Subdivision): Region[] =>
   sub.boxes.map((box) => toRegion(box));
+
+/* ------------------------------------------------------- naming a view */
+
+/* Even-odd ray cast, mirroring ocaml/pmtiles/clip.ml and the check in
+   ui/test/regions.mjs. Rings are simplified outer borders; none of the
+   shipped countries carries a hole, so any ring containing the point means
+   inside. */
+const insideRings = (
+  rings: [number, number][][],
+  lon: number,
+  lat: number,
+): boolean => {
+  let odd = false;
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length; i++) {
+      const [x1, y1] = ring[i] as [number, number];
+      const [x2, y2] = ring[(i + 1) % ring.length] as [number, number];
+      if (
+        y1 > lat !== y2 > lat
+        && lon < ((x2 - x1) * (lat - y1)) / (y2 - y1) + x1
+      ) {
+        odd = !odd;
+      }
+    }
+  }
+  return odd;
+};
+
+const inBox = (
+  [w, s, e, n]: [number, number, number, number],
+  lon: number,
+  lat: number,
+): boolean => lon >= w && lon <= e && lat >= s && lat <= n;
+
+const boxArea = ([w, s, e, n]: [number, number, number, number]): number =>
+  (e - w) * (n - s);
+
+/* What to call a download of whatever the map is showing.
+
+   A download picked from the list is named by what was picked. A download of
+   the current view had nothing picked, and used to be called "Map view" --
+   which says only that a download happened, and in a list beside "Georgia"
+   reads like something the application put there rather than something a
+   person chose. Worse, it is the same phrase whether the view was over
+   London or the Coral Sea.
+
+   So the view is named after where its middle actually is, smallest first: a
+   city if the point is in one, else a state or province, else the country.
+   Cities win ties by area, because their boxes are drawn by prominence and a
+   point in central London is inside a big London box and nothing smaller.
+
+   Undefined when the point is in none of them -- mid-ocean, or the gaps a
+   110m border dataset leaves. The caller then sends no name at all and the
+   server writes one from the box's own corners, which is ugly and true. A
+   made-up nearest city would be neither. */
+export const placeAt = (lon: number, lat: number): string | undefined => {
+  let city: string | undefined;
+  let smallest = Infinity;
+  for (const list of Object.values(catalogue.cities)) {
+    for (const c of list) {
+      if (!inBox(c.bbox, lon, lat)) continue;
+      const area = boxArea(c.bbox);
+      if (area < smallest) {
+        smallest = area;
+        city = c.name;
+      }
+    }
+  }
+  if (city) return city;
+
+  let sub: string | undefined;
+  smallest = Infinity;
+  for (const list of Object.values(catalogue.subdivisions)) {
+    for (const s of list) {
+      for (const box of s.boxes) {
+        if (!inBox(box, lon, lat)) continue;
+        const area = boxArea(box);
+        if (area < smallest) {
+          smallest = area;
+          sub = s.name;
+        }
+      }
+    }
+  }
+  if (sub) return sub;
+
+  /* Polygons rather than boxes, and this is not fussiness: Russia's box
+     reaches the Baltic and Fiji's crosses the Pacific, so a box test would
+     name half of Europe "Russia". A country with no polygon in the dataset
+     falls back to its boxes. */
+  for (const country of catalogue.countries) {
+    if (country.polygon.length > 0) {
+      if (insideRings(country.polygon as [number, number][][], lon, lat)) {
+        return countryName(country);
+      }
+    } else if (country.boxes.some((b) => inBox(b, lon, lat))) {
+      return countryName(country);
+    }
+  }
+  return undefined;
+};

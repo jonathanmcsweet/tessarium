@@ -59,6 +59,7 @@ import {
   citiesOf,
   countries,
   countryRegions,
+  placeAt,
   subdivisionRegions,
   subdivisionsOf,
   toRegion,
@@ -435,6 +436,23 @@ function LedgerRow({ entry, days, busy }: {
     const id = setTimeout(() => setConfirming(false), 5000);
     return () => clearTimeout(id);
   }, [confirming]);
+  /* Whether this row is part of the base map rather than somebody's
+     download, which is the one question that decides if it has verbs.
+
+     An empty `file` means the entry has no archive of its own: its tiles are
+     in map.pmtiles, shared with whatever else merged there. That is the base
+     archive -- what tools/fetch-basemap.sh writes, and what installs from
+     before the one-file-per-region split grew -- and removing an entry from
+     it rewrites the whole file, or unlinks it when the last entry goes.
+
+     Deciding by where the tiles live rather than by what they cover is the
+     correction. Judging by coverage protected a merged world overview and
+     left a merged London box called "Map view" sitting there with Remove
+     beside it, indistinguishable from the base map to anyone reading the
+     panel -- because as far as the file on disk is concerned it IS part of
+     the base map. The base map is removed with a file manager, not from
+     here. */
+  const partOfBaseMap = entry.overview || entry.file === "";
   const ageUnknown = entry.completed === 0;
   /* Never on the overview. It has no recorded date to be old, no verb to
      act on the nudge with, and nagging about a file the user cannot update
@@ -519,8 +537,13 @@ function LedgerRow({ entry, days, busy }: {
 
              Deepening the planet is a world download, and the card already
              offers exactly that above the list whenever the estimate says
-             the overview does not cover what is being asked for. */
-          !entry.overview && (
+             the overview does not cover what is being asked for.
+
+             Off for every base-map row for a second reason: an update lands
+             in a NEW file of its own and leaves the merged row where it is,
+             so following it would leave a duplicate that can never be taken
+             away again. */
+          !partOfBaseMap && (
             <button
               type="button"
               className="ledger-update btn btn-quiet border-line-strong"
@@ -571,13 +594,16 @@ function LedgerRow({ entry, days, busy }: {
             ))
         }
         {
-          /* No Remove on the overview. It is the map underneath every
-            region -- what draws wherever detail was never fetched -- so
-            taking it away empties the whole world rather than one place,
-            and on the machine this is all for there is no getting it back.
-            The server refuses the id as well; this is the half that keeps
-            the button from being there to press. */
-          !entry.overview && (
+          /* No Remove on anything that is part of the base map. The
+            overview is the map underneath every region, and a merged entry
+            shares the one archive with it -- so either way this button
+            would be rewriting or unlinking the file the whole application
+            is drawing from, to take away one row. On the machine this is
+            all for there is no getting it back.
+
+            The server refuses these ids as well; this is the half that
+            keeps the button from being there to press. */
+          !partOfBaseMap && (
             <button
               type="button"
               className="ledger-remove btn btn-quiet border-line-strong"
@@ -851,6 +877,29 @@ export function DownloadCard({ region, job }: {
      the card shows the other options rather than guessing. */
   const worldFirst = present.data === false;
 
+  /* What a download of the current view will be called. Named after where
+     its middle is -- "London", not "Map view" -- because a row in a list has
+     to say which download it is, and the generic phrase said only that a
+     download had happened. It read like something the application had put
+     there rather than something a person chose, which is exactly how it got
+     mistaken for the map underneath everything.
+
+     Undefined over open water, where the catalogue has nothing to offer. The
+     Offer then sends no name and the server writes one from the box's own
+     corners: ugly, and true, which beats a generic phrase that is neither.
+
+     Recomputed only when the view actually moves. The lookup walks 1198 city
+     boxes and up to 177 border polygons, which is nothing next to a render
+     but is pure waste on every unrelated state change. */
+  const viewName = useMemo(
+    () =>
+      placeAt(
+        (region.min_lon + region.max_lon) / 2,
+        (region.min_lat + region.max_lat) / 2,
+      ),
+    [region.min_lon, region.max_lon, region.min_lat, region.max_lat],
+  );
+
   const running = job !== undefined && isRunning(job);
   /* The world overview used to be offered ONLY on an empty map, so anyone
      who started with a region never saw it again -- and flying anywhere
@@ -919,7 +968,7 @@ export function DownloadCard({ region, job }: {
           )}
           <Offer
             regions={[region]}
-            ledgerLabel={m.map_name_view()}
+            ledgerLabel={viewName}
             describe={(size) => m.map_download_estimate({ size })}
             confirmLabel={m.map_download_confirm()}
             className="download-view"

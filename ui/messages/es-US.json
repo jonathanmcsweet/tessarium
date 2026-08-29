@@ -124,7 +124,6 @@
   "map_loading": "Cargando el mapa…",
   "map_loading_detail": "Cargando los detalles del mapa…",
   "map_name_many": "{first} + {count} más",
-  "map_name_view": "Área personalizada",
   "map_name_world": "Mapa mundial",
   "map_progress_export_title": "Exportando un mapa",
   "map_progress_overall": "{done} de {total} escritos",

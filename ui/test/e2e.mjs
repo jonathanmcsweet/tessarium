@@ -9,7 +9,13 @@
    The addresses it expects come from `vectors/vectors.json`, so a UI that
    renders beautifully and computes the wrong answer still fails. */
 
-import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import http, { createServer } from "node:http";
 import { chromium } from "playwright";
 
@@ -2060,10 +2066,21 @@ check(
 );
 const ledger1 = await (await postJson("basemap-ledger")).json();
 const downloads1 = (ledger1.entries ?? []).filter((e) => !e.overview);
+/* The name a download of the current view gets. Nothing was picked from the
+   list, so it is named after where its middle actually is -- which is the
+   whole difference between a row that says which download it is and one
+   that says only that a download happened. The generic phrase this replaced
+   is what got the row mistaken for the map underneath everything. */
+check(
+  `a download of the view is named after where it is (${
+    downloads1.map((e) => e.name).join(", ")
+  })`,
+  downloads1.some((e) => e.name === "London"),
+);
 check(
   "the archive records every region download by name",
   downloads1.length === 3
-    && ["Custom area", "United Kingdom and London", "Overlapping patch"]
+    && ["London", "United Kingdom and London", "Overlapping patch"]
       .every((n) => downloads1.some((e) => e.name === n)),
 );
 /* The overview is in the list and is not one of them: it is flagged, and
@@ -2103,6 +2120,41 @@ check(
   "Remove is on every download and on nothing else",
   (await page.locator(".ledger-row .ledger-remove").count()) === 3,
 );
+/* The rule behind that count, checked against the server's own answer
+   rather than against a number: a row may offer Remove only if its entry
+   has an archive of its own to unlink. An empty `file` means the tiles are
+   in map.pmtiles, shared with the base map, and removing one of those
+   rewrites or unlinks the file the whole application draws from.
+
+   Cross-referenced by name because that is what a person reads off the row.
+   This is the check that would have caught "Map view" -- a merged London
+   box, offering Remove, indistinguishable from the base map in the panel
+   and part of it on disk. */
+const rowVerbs = await page.$$eval(".ledger-row", (els) =>
+  els.map((el) => ({
+    name: el.querySelector(".ledger-name")?.textContent?.trim() ?? "",
+    removable: el.querySelector(".ledger-remove") !== null,
+    updatable: el.querySelector(".ledger-update") !== null,
+  })));
+const ownsFile = new Map(
+  (ledger1.entries ?? []).map((e) => [
+    e.overview ? "World map" : e.name,
+    e.file !== "",
+  ]),
+);
+check(
+  `no row without a file of its own offers to remove or update it (${
+    rowVerbs
+      .filter((r) => (r.removable || r.updatable) && !ownsFile.get(r.name))
+      .map((r) => r.name).join(", ") || "none do"
+  })`,
+  rowVerbs.length === 4
+    && rowVerbs.every((r) =>
+      ownsFile.get(r.name) === true
+        ? r.removable && r.updatable
+        : !r.removable && !r.updatable
+    ),
+);
 check(
   "nothing just downloaded is flagged for update",
   (await page.locator(".ledger-stale").count()) === 0,
@@ -2129,7 +2181,8 @@ check(
 );
 check(
   "a fresh download names its date",
-  ((await page.locator(".ledger-row").filter({ hasText: "Custom area" })
+  ((await page.locator(".ledger-row")
+    .filter({ has: page.locator(".ledger-name", { hasText: /^London$/ }) })
     .locator(".hint").textContent()) ?? "").includes("updated"),
 );
 
@@ -2170,7 +2223,13 @@ check(
 /* Remove is two presses of the same button, because it discards gigabytes.
    The view download's tiles sit inside the United Kingdom pick, so removing
    it must keep the archive intact -- entries own records, not tiles. */
-const viewRow = page.locator(".ledger-row").filter({ hasText: "Custom area" });
+/* Matched on the name cell exactly. "London" is a substring of the pick
+   named "United Kingdom and London", so hasText on the row would find two.
+   Which is the point of the name: it says which download this is. */
+const londonRow = {
+  has: page.locator(".ledger-name", { hasText: /^London$/ }),
+};
+const viewRow = page.locator(".ledger-row").filter(londonRow);
 
 /* The name has to have a column to sit in. Unwrapped, the row's three
    buttons took the full width and left the name a few pixels, which
@@ -2219,7 +2278,7 @@ const downloads2 = (ledger2.entries ?? []).filter((e) => !e.overview);
 check(
   "the archive agrees the entry is gone",
   downloads2.length === 2
-    && !downloads2.some((e) => e.name === "Custom area"),
+    && !downloads2.some((e) => e.name === "London"),
 );
 /* And the floor is untouched by a removal, which is the reason the overview
    has its own file. */
@@ -2240,6 +2299,56 @@ check(
   "every region that was not removed still has its file",
   survivors.length > 0 && survivors.every((s) => s === 200),
 );
+
+/* ---------------- a row that lives in the base archive --------------------
+
+   The shape this rule exists for, and one no download can produce any more:
+   an entry whose tiles are inside map.pmtiles, with no file of its own. That
+   is what an install from before the one-file-per-region split looks like,
+   and what tools/fetch-basemap.sh leaves behind -- the base map the server
+   draws from, carrying a record named whatever the picker said at the time.
+   On the install that prompted this it said "Map view", and it sat there
+   offering Remove.
+
+   Dropped in from the fixture rather than downloaded, because downloading one
+   is exactly what stopped being possible. Taken away again afterwards so the
+   assertions below meet the directory they expect.
+
+   The DOM only. The server's own refusal is driven in
+   ocaml/server/test/test_regions.ml, which can assert the REASON it gives; a
+   refused removal here would still be a job, and every later check on this
+   server counts job generations. */
+const basemapDir = new URL("../../_build/e2e-basemap/", import.meta.url);
+const reopenCard = async () => {
+  const close = page.locator(".download-card header button");
+  if (await close.count()) await close.click();
+  await openButton.click();
+  await page.waitForSelector(".download-ledger", { timeout: 10_000 });
+};
+copyFileSync(
+  new URL("../../_build/e2e-fixture/map-legacy.pmtiles", import.meta.url),
+  new URL("map.pmtiles", basemapDir),
+);
+await reopenCard();
+const legacyRow = page.locator(".ledger-row").filter({ hasText: "Map view" });
+await legacyRow.waitFor({ state: "visible", timeout: 20_000 });
+check(
+  "an entry inside the base archive is listed like anything else",
+  (await legacyRow.count()) === 1,
+);
+check(
+  "and offers nothing that would rewrite the file it shares",
+  (await legacyRow.locator(".ledger-remove").count()) === 0
+    && (await legacyRow.locator(".ledger-update").count()) === 0,
+);
+/* Carrying it away is not deleting it, and extraction is the only way one of
+   these ever reaches another machine. That stays. */
+check(
+  "but can still be carried off, which is how a merged region escapes",
+  (await legacyRow.locator(".ledger-export").count()) === 1,
+);
+rmSync(new URL("map.pmtiles", basemapDir), { force: true });
+await reopenCard();
 
 /* Update through the card, on the clipped country pick: the one deliberate
    way to refresh held tiles, exercised over a polygon region. The card

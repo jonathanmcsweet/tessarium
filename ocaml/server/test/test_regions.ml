@@ -489,6 +489,72 @@ let () =
   check "and the merged archive still holds its tiles"
     (Eio.Path.is_file Eio.Path.(dir / Tile_set.base_file));
 
+  (* The rule the three rounds of "it is still there" were actually about.
+
+     [spans_world] judges what an entry HOLDS, and that is too clever for
+     what a person is looking at. The row they kept pointing to was a small
+     box over London called "Map view" -- not the overview by any reading of
+     its bounds -- and it sat in map.pmtiles offering Remove. Whether it was
+     the shipped map or a download that merged into it is not a distinction
+     the panel can draw and not one a user should have to.
+
+     So the line is drawn by WHERE an entry lives, not what it covers.
+     map.pmtiles is the base archive: it is what fetch-basemap.sh writes,
+     what installs from before the split grew, and the file every merged
+     entry shares. Removing one entry from it rewrites or unlinks the file
+     the rest of the map is standing on. Nothing in it is removable from the
+     UI, whatever it covers and whatever it is called. Downloads made today
+     write their own file and are removable exactly as before -- that is
+     what having a file of your own means. *)
+  let sample =
+    Ledger.make ~name:"Map view" ~completed:1 ~source:"nowhere" ~bytes:1
+      ~regions:
+        [ req ~min_lon:(-0.25) ~min_lat:51.45 ~max_lon:0.0 ~max_lat:51.55
+            ~max_zoom:15 ]
+  in
+  check "a small box over London is not the overview by what it holds"
+    (not (Ledger.spans_world sample));
+  let sample_meta =
+    match Ledger.to_metadata [ sample ] ~previous:"{}" with
+    | Ok m -> m
+    | Error e -> failwith e
+  in
+  Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / Tile_set.base_file)
+    (source_archive ~metadata:sample_meta ~min_zoom:0 ~max_zoom:5
+       ~min_lon:(-0.25) ~min_lat:51.45 ~max_lon:0.0 ~max_lat:51.55 ());
+  let sample_row () =
+    List.find_opt (fun e -> str "id" e = Ledger.id sample) (entries ())
+  in
+  check "it is listed, because its tiles are really there"
+    (sample_row () <> None);
+  check "with no file of its own, which is what says where it lives"
+    (match sample_row () with Some e -> str "file" e = "" | None -> false);
+  check "and it is not flagged as the overview, because it is not one"
+    (match sample_row () with Some e -> not (bool "overview" e) | None -> false);
+  D.run_remove t ~fs ~basemap_dir ~id:(Ledger.id sample);
+  check ("removing it is refused: " ^ outcome ()) (state () = "failed");
+  check "and the base archive still holds its tiles"
+    (Eio.Path.is_file Eio.Path.(dir / Tile_set.base_file));
+  (* Carrying it away is not deleting it, and it is the only way a merged
+     entry ever reaches another machine. That stays. *)
+  D.run_export t ~fs ~basemap_dir ~id:(Ledger.id sample);
+  check ("exporting it still works: " ^ outcome ()) (state () = "exported");
+  (* Updating it is refused too, and not because updates are destructive:
+     one lands in a NEW file and leaves the merged row behind, so following
+     it would duplicate a row that nothing can then remove. *)
+  Eio.Switch.run (fun sw ->
+      match
+        D.start_update t ~sw ~fs ~net ~source ~assets:"" ~basemap_dir
+          ~budget:D.default_budget ~now ~id:(Ledger.id sample)
+      with
+      | Error e -> check ("updating it is refused: " ^ e) false
+      | Ok () -> ());
+  check ("updating it fails rather than duplicating it: " ^ outcome ())
+    (state () = "failed");
+  check "and no second archive was written for it"
+    (List.length (listing ()) = 0);
+  Eio.Path.unlink Eio.Path.(dir / Tile_set.base_file);
+
   (* And the other half of the rule, which the end-to-end suite caught the
      absence of: spanning the planet is NOT on its own disqualifying. A user
      may ask for the whole world as DETAIL -- the scripted download in

@@ -124,7 +124,6 @@
   "map_loading": "Chargement de la carte…",
   "map_loading_detail": "Chargement des détails de la carte…",
   "map_name_many": "{first} + {count} autres",
-  "map_name_view": "Zone personnalisée",
   "map_name_world": "Carte du monde",
   "map_progress_export_title": "Exportation d’une carte",
   "map_progress_overall": "{done} sur {total} écrits",

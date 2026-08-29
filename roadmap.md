@@ -454,6 +454,18 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
+- [ ] **`run_remove`'s merged-archive branch is unreachable.** Nothing inside
+      `map.pmtiles` may be removed, so the path that prunes one entry out of
+      the shared archive — rewriting it, or unlinking it when the last entry
+      goes — can no longer be reached from the API. It is roughly ninety
+      lines, and it is the code that destroys the file the map is drawn from,
+      which is the worst kind to leave lying behind a guard someone might
+      later decide to relax. Deleting it is mechanical but wants its own diff:
+      `Ledger.remove` and `Ledger.drops` are used by nothing else, while
+      `Pmtiles.Merge.prune` is shared with export and stays. Left in place for
+      now because removing it in the same commit as the guard would have meant
+      the guard's test could no longer demonstrate what it prevents.
+
 - [ ] **No response carries a `Date`.** RFC 9110 6.6.1 requires an origin
       server with a clock to send one, and it is what a shared cache computes
       `age` from. Harmless today — everything is either `no-cache`, where the

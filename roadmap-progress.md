@@ -21,6 +21,38 @@ than a git log.
 
 ---
 
+### 2026-08-29 — Name a view after where it is; nothing in the base archive is removable
+
+**Phase:** 6
+
+**What:** A download of the current view is named by reverse lookup against
+the committed region catalogue — "London", not "Map view". New in
+`regions.ts` as `placeAt`: smallest containing city box, else subdivision,
+else the country whose border polygon holds the point; undefined over open
+water, where the server names the download from its box corners instead. The
+generic `map_name_view` message is gone from all six locales. Separately,
+no ledger entry living inside `map.pmtiles` offers Remove or Update any more,
+in the card or on the server.
+
+**Rationale:** Two bugs wearing each other's clothes, and I fixed the wrong
+one twice. The visible complaint was "the default world map still has a
+Remove button", pointing at a row called "Map view" — which was a 600 m box
+over London, not the world map at all. I twice gated removal on what an entry
+COVERS (`Ledger.spans_world`), which protected the overview and sailed past
+the row being pointed at. Both real defects were elsewhere. The naming: a
+generic phrase in a list beside "Georgia" reads as something the application
+put there rather than something a person chose, which is precisely how it got
+mistaken for the map underneath everything. The removal: a test written for
+this found that removing a merged entry deletes `map.pmtiles` outright, so the
+rule is about where an entry LIVES, not what it covers — an entry with no file
+of its own shares the base archive, and the base archive is edited with a file
+manager, not from a panel. Export stays; carrying a copy away is not deleting.
+
+**Follow-on:** Names already written into a ledger keep their old text — an
+existing "Map view" row stays "Map view". `run_remove`'s merged-archive prune
+branch is now unreachable from the API; recorded in roadmap.md.
+
+
 ### 2026-08-29 — The world map is listed, and has no verbs
 
 **Phase:** 6

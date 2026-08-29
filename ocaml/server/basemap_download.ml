@@ -1365,24 +1365,29 @@ let run_remove t ~fs ~basemap_dir ~id =
          be removed";
     match home_of ~sw ~fs ~basemap_dir ~id with
     | None -> failwith "no such downloaded map"
-    (* Ahead of both branches below, because both destroy something and the
-       overview must survive either. Since the split it has its own file and
-       no record, so nothing made today reaches here -- but an install from
-       before it has the overview INSIDE map.pmtiles as an ordinary entry,
-       which is a real record in the real merged archive and looks like a
-       region from every angle except what it holds. Pruning it takes the
-       tiles the whole map falls back to, everywhere, and on the machine
-       with no internet there is no getting them back.
+    (* Nothing in the base archive, whatever it covers and whatever it is
+       called.
 
-       Both halves are needed. Spanning the planet alone is not it: a whole
-       world asked for AS DETAIL goes to a file of its own, sits beside the
-       overview rather than being it, and is the user's to remove.
-       [Ledger.spans_world] reads the regions, never the name -- the row
-       this turned up on was called "Map view". *)
-    | Some (file, e) when file = base_file && Ledger.spans_world e ->
+       This used to ask what the entry HELD -- [Ledger.spans_world] -- so
+       that a merged world overview was protected and a merged region was
+       not. That distinction is invisible from the panel and turned out to
+       be the wrong one anyway. map.pmtiles is not a place downloads live
+       any more; it is the base archive. It is what tools/fetch-basemap.sh
+       writes, what installs from before the one-file-per-region split grew,
+       and the file every merged entry shares tiles with. Taking one entry
+       out of it rewrites the whole file, or unlinks it when the last entry
+       goes -- which is the map the rest of the application is standing on,
+       destroyed to satisfy a Remove button on a row called "Map view".
+
+       So the line is where an entry LIVES. A download made today wrote its
+       own file and is removable by unlinking that file, which touches
+       nothing else; that is the whole point of the split. An entry with no
+       file of its own is part of the base map, and the base map is removed
+       with a file manager, not from here. *)
+    | Some (file, _) when file = base_file ->
         failwith
-          "the world overview is the map underneath every region and cannot \
-           be removed"
+          "that map is part of the base map this server is drawing from and \
+           cannot be removed here"
     (* Not [file <> base_file]. The difference is the world overview: a
        negative test would send it down whichever branch it was not, and
        both branches destroy something. [Tile_set.is_region] is the one
@@ -2371,11 +2376,20 @@ let start_update t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now ~id =
   else begin
     Eio.Fiber.fork ~sw (fun () ->
         match
-          Eio.Switch.run @@ fun usw ->
-          Option.map snd (home_of ~sw:usw ~fs ~basemap_dir ~id)
+          Eio.Switch.run @@ fun usw -> home_of ~sw:usw ~fs ~basemap_dir ~id
         with
         | None -> set t (Basemap_job.Failed "no such downloaded map")
-        | Some e ->
+        (* Same line as removal's, for a reason of its own: an update lands
+           in a NEW file and leaves the merged row where it is, so the row
+           would be duplicated by something that cannot then be undone --
+           the original is in the base archive and nothing removes from
+           there. The button is gone from the card too. *)
+        | Some (file, _) when file = base_file ->
+            set t
+              (Basemap_job.Failed
+                 "that map is part of the base map this server is drawing \
+                  from and is not updated from here")
+        | Some (_, e) ->
             (* Updates come from ledger entries, and only the detail
                archive has one. *)
             run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
