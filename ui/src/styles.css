@@ -1,22 +1,71 @@
-:root {
-  --ink: #12212f;
-  --ink-soft: #5a6b7b;
-  --line: #d9e0e7;
-  --bg: #f4f6f8;
-  --card: #ffffff;
-  --accent: #e8452c;
+/* The design scale, and the app's own rules.
+
+   Tailwind supplies the scale -- one ramp of spacing, one of type, one of
+   radii -- and the components spend it in their own class lists. What is
+   left in this file is the part utilities cannot say: the palette, and the
+   handful of rules that are genuinely about this application rather than
+   about a box on a page.
+
+   Nothing here is fetched. Tailwind runs at build time and emits a plain
+   stylesheet, the type stack is the one already on the device, and the two
+   map dependencies are vendored. The whole app still opens with the network
+   unplugged, which is the point of it. */
+
+@import "tailwindcss";
+
+/* React Aria Components publish their state as data attributes. This turns
+   those into variants, so a focused, selected or dragged state is written
+   the same way a hover is, next to the thing it restyles -- rather than in a
+   `[data-focused]` rule somewhere else in the file. */
+@plugin "tailwindcss-react-aria-components";
+
+/* Scanned for class names, explicitly rather than by Tailwind's automatic
+   detection: the end-to-end suite names classes too, and a utility that
+   exists only because a test asked for it is a class the app is not
+   actually shipping. Paraglide's generated messages are excluded for the
+   opposite reason -- they are translations, they carry no markup, and they
+   are by some way the largest thing under src/. */
+@source "./";
+@source not "./paraglide";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    monospace;
+
+  --color-ink: #12212f;
+  --color-ink-soft: #5a6b7b;
+  --color-line: #d9e0e7;
+  /* Borders that identify a control (inputs, selects) rather than decorate:
+     3.44:1 on white, past the 3:1 non-text minimum. Decorative hairlines
+     stay --color-line. */
+  --color-line-strong: #7f8c98;
+  --color-bg: #f4f6f8;
+  --color-card: #ffffff;
+  /* Fields are a shade off the card so an input reads as somewhere to type
+     before it is focused. Every foreground the contrast test pairs with a
+     field is checked against this, not against white. */
+  --color-field: #fbfcfd;
+  --color-accent: #e8452c;
   /* The accent, dark enough to be TEXT: 4.84:1 on white, so the address
      line passes AA at any size -- the 19px large-text exemption died the
      day a mobile media query set it to 17px. Non-text accent uses (the
-     selection overlay, borders) keep --accent. */
-  --accent-text: #d13a22;
-  /* Borders that identify a control (inputs, selects) rather than decorate:
-     3.44:1 on white, past the 3:1 non-text minimum. Decorative hairlines
-     stay --line. */
-  --line-strong: #7f8c98;
-  --ok: #0f7b4f;
-  --warn: #8a5a00;
-  --shadow: 0 1px 3px rgba(18, 33, 47, 0.12), 0 8px 24px rgba(18, 33, 47, 0.08);
+     selection overlay, borders) keep --color-accent. */
+  --color-accent-text: #d13a22;
+  --color-ok: #0f7b4f;
+  --color-warn: #8a5a00;
+  --color-danger: #b4232a;
+  /* The focus ring. One colour for every control in the app, because a
+     focus ring that changes appearance between controls is a focus ring
+     people stop reading. */
+  --color-focus: #2b6cb0;
+
+  --shadow-card: 0 1px 3px rgba(18, 33, 47, 0.12),
+    0 8px 24px rgba(18, 33, 47, 0.08);
+}
+
+:root {
   color-scheme: light;
 }
 
@@ -34,8 +83,8 @@ body,
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
-  color: var(--ink);
-  background: var(--bg);
+  color: var(--color-ink);
+  background: var(--color-bg);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -56,10 +105,10 @@ code {
 
 .gate-card {
   width: min(560px, 100%);
-  background: var(--card);
-  border: 1px solid var(--line);
+  background: var(--color-card);
+  border: 1px solid var(--color-line);
   border-radius: 14px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-card);
   padding: 28px;
   display: flex;
   flex-direction: column;
@@ -74,7 +123,7 @@ code {
 
 .lede {
   margin: 0 0 6px;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
   line-height: 1.5;
 }
 
@@ -91,16 +140,16 @@ input[type="password"] {
   font-size: 14px;
   line-height: 1.6;
   padding: 10px 12px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--color-line-strong);
   border-radius: 8px;
-  background: #fbfcfd;
-  color: var(--ink);
+  background: var(--color-field);
+  color: var(--color-ink);
   resize: vertical;
 }
 
 textarea:focus,
 input:focus {
-  outline: 2px solid #2b6cb0;
+  outline: 2px solid var(--color-focus);
   outline-offset: 1px;
 }
 
@@ -114,18 +163,18 @@ input:focus {
 }
 
 .count {
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
   font-variant-numeric: tabular-nums;
 }
 .count.ok {
-  color: var(--ok);
+  color: var(--color-ok);
 }
 .valid {
-  color: var(--ok);
+  color: var(--color-ok);
   font-weight: 600;
 }
 .invalid {
-  color: #b4232a;
+  color: var(--color-danger);
 }
 
 /* The disclosure trigger. A `summary` came with a marker triangle the
@@ -147,7 +196,7 @@ input:focus {
 .region-summary svg,
 .passphrase-summary svg {
   flex: none;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
 }
 
 .region-disclosure[data-expanded] > .region-summary svg,
@@ -157,7 +206,7 @@ input:focus {
 
 .region-summary[data-focus-visible],
 .passphrase-summary[data-focus-visible] {
-  outline: 2px solid var(--accent-text);
+  outline: 2px solid var(--color-accent-text);
   outline-offset: -2px;
 }
 
@@ -170,7 +219,7 @@ input:focus {
 .hint {
   margin: 6px 0;
   font-size: 13px;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
   line-height: 1.5;
 }
 
@@ -180,7 +229,7 @@ button {
   padding: 10px 16px;
   border-radius: 8px;
   border: 1px solid transparent;
-  background: var(--ink);
+  background: var(--color-ink);
   color: white;
   cursor: pointer;
 }
@@ -208,8 +257,8 @@ button:disabled {
   gap: 8px;
   min-height: 44px;
   background: transparent;
-  color: var(--ink);
-  border-color: var(--line);
+  color: var(--color-ink);
+  border-color: var(--color-line);
   padding: 8px 14px;
 }
 
@@ -219,7 +268,7 @@ button:disabled {
 
 .generate button:disabled {
   background: transparent;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
 }
 
 .generate .hint {
@@ -227,7 +276,7 @@ button:disabled {
 }
 
 .warning {
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--color-accent);
   background: #fff5f3;
   padding: 12px 14px;
   border-radius: 0 8px 8px 0;
@@ -238,7 +287,7 @@ button:disabled {
 .fineprint {
   margin: 0;
   font-size: 12px;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
   line-height: 1.55;
 }
 
@@ -315,11 +364,11 @@ button:disabled {
 
 .map-note {
   background: rgba(255, 255, 255, 0.94);
-  border: 1px solid var(--line);
+  border: 1px solid var(--color-line);
   border-radius: 999px;
   padding: 7px 16px;
   font-size: 13px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-card);
   pointer-events: none;
   max-width: 100%;
   text-align: center;
@@ -353,7 +402,7 @@ button:disabled {
 }
 
 .map-note.warn {
-  color: var(--warn);
+  color: var(--color-warn);
   border-color: #e6d3a3;
   background: #fffaf0;
 }
@@ -364,8 +413,8 @@ button:disabled {
   right: 0;
   width: var(--panel-w, 340px);
   max-width: 100%;
-  border-left: 1px solid var(--line);
-  background: var(--card);
+  border-left: 1px solid var(--color-line);
+  background: var(--color-card);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -419,14 +468,14 @@ button:disabled {
   left: 50%;
   transform: translateX(-50%);
   width: 1px;
-  background: var(--line);
+  background: var(--color-line);
   transition: width 120ms ease, background 120ms ease;
 }
 
 .panel-resizer:hover::before,
 .panel-resizer:focus-visible::before {
   width: 3px;
-  background: var(--accent);
+  background: var(--color-accent);
 }
 
 .panel-head {
@@ -434,7 +483,7 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   padding: 14px 18px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--color-line);
 }
 
 .brand {
@@ -444,15 +493,15 @@ button:disabled {
 
 .lock {
   background: transparent;
-  color: var(--ink-soft);
-  border: 1px solid var(--line);
+  color: var(--color-ink-soft);
+  border: 1px solid var(--color-line);
   padding: 5px 12px;
   font-size: 13px;
 }
 
 .panel section {
   padding: 18px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--color-line);
 }
 
 .panel h2 {
@@ -460,7 +509,7 @@ button:disabled {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
 }
 
 .address-row {
@@ -478,7 +527,7 @@ button:disabled {
   font-weight: 600;
   line-height: 1.35;
   word-break: break-word;
-  color: var(--accent-text);
+  color: var(--color-accent-text);
 }
 
 /* Muted rather than accented: concealed is a resting state, not an alert.
@@ -495,7 +544,7 @@ button:disabled {
    requires bullets and no digits. A change that put the value back in the
    DOM and blurred it would fail there rather than merely look the same. */
 .address.concealed {
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
   letter-spacing: 0.02em;
   filter: blur(3.5px);
   /* The bullets are not worth selecting, and a selection highlight through a
@@ -506,7 +555,7 @@ button:disabled {
 /* Same treatment, scaled to the smaller type. */
 .coords dd.concealed {
   filter: blur(2.5px);
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
   user-select: none;
 }
 
@@ -521,13 +570,13 @@ button:disabled {
   height: 32px;
   padding: 0;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--color-line);
   background: transparent;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
 }
 
 .icon:hover {
-  color: var(--ink);
+  color: var(--color-ink);
   background: #eef1f4;
 }
 
@@ -535,7 +584,7 @@ button:disabled {
   margin: 6px 0 0;
   min-height: 18px;
   font-size: 12px;
-  color: var(--ok);
+  color: var(--color-ok);
 }
 
 /* Coordinates get the address's own layout: values on the left, the eye and
@@ -558,7 +607,7 @@ button:disabled {
 }
 
 .coords dt {
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
 }
 
 .coords dd {
@@ -570,7 +619,7 @@ button:disabled {
 .panel-foot {
   padding: 16px 18px;
   font-size: 12px;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
   line-height: 1.55;
 }
 
@@ -588,7 +637,7 @@ button:disabled {
     bottom: 0;
     width: auto;
     border-left: none;
-    border-top: 1px solid var(--line);
+    border-top: 1px solid var(--color-line);
     box-shadow: 0 -10px 28px rgb(15 23 42 / 0.14);
     max-height: 45vh;
   }
@@ -628,30 +677,30 @@ button:disabled {
   height: 44px;
   padding: 0;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--color-line);
   background: transparent;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
 }
 
 .icon-button:hover:not(:disabled) {
-  color: var(--ink);
+  color: var(--color-ink);
   background: #eef1f4;
 }
 
 .icon-button[aria-pressed="true"] {
-  color: var(--ink);
-  border-color: var(--ink-soft);
+  color: var(--color-ink);
+  border-color: var(--color-ink-soft);
 }
 
 .tooltip {
   max-width: 260px;
   padding: 6px 9px;
   border-radius: 6px;
-  background: var(--ink);
+  background: var(--color-ink);
   color: white;
   font-size: 12px;
   line-height: 1.4;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-card);
   z-index: 40;
 }
 
@@ -662,7 +711,7 @@ button:disabled {
    rotation. The other three turn. Radix rotated its own arrow; this is the
    part that moved out of the library and into here. */
 .tooltip-arrow {
-  fill: var(--ink);
+  fill: var(--color-ink);
   line-height: 0;
 }
 .tooltip-arrow svg {
@@ -688,7 +737,7 @@ button:disabled {
   padding: 10px 16px;
   background: #fff8e6;
   border-bottom: 1px solid #e8d9a8;
-  color: var(--warn);
+  color: var(--color-warn);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -717,8 +766,8 @@ button:disabled {
   width: min(440px, 100%);
   max-height: 90vh;
   overflow-y: auto;
-  background: var(--card);
-  border: 1px solid var(--line-strong);
+  background: var(--color-card);
+  border: 1px solid var(--color-line-strong);
   border-radius: 12px;
   box-shadow: 0 8px 32px rgb(0 0 0 / 0.3);
 }
@@ -757,21 +806,21 @@ button:disabled {
   padding: 0 16px;
   font-size: 14px;
   border-radius: 8px;
-  border: 1px solid var(--line-strong);
-  background: var(--card);
-  color: var(--ink);
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-card);
+  color: var(--color-ink);
   cursor: pointer;
 }
 
 .modal-actions button.danger {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
   color: white;
   font-weight: 600;
 }
 
 .modal-actions button[data-focus-visible] {
-  outline: 2px solid var(--accent-text);
+  outline: 2px solid var(--color-accent-text);
   outline-offset: 2px;
 }
 
@@ -814,7 +863,7 @@ button:disabled {
 
 .dropdown-label {
   font-size: 13px;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
 }
 
 .dropdown-button {
@@ -826,9 +875,9 @@ button:disabled {
   min-width: 0;
   font: inherit;
   font-size: 13px;
-  color: var(--ink);
-  background: var(--card);
-  border: 1px solid var(--line-strong);
+  color: var(--color-ink);
+  background: var(--color-card);
+  border: 1px solid var(--color-line-strong);
   border-radius: 8px;
   min-height: 44px;
   padding: 0 8px;
@@ -839,11 +888,11 @@ button:disabled {
 
 .dropdown-button svg {
   flex: none;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
 }
 
 .dropdown-button[data-focus-visible] {
-  outline: 2px solid var(--accent-text);
+  outline: 2px solid var(--color-accent-text);
   outline-offset: 1px;
 }
 
@@ -858,8 +907,8 @@ button:disabled {
   width: var(--trigger-width);
   min-width: fit-content;
   z-index: 40;
-  background: var(--card);
-  border: 1px solid var(--line-strong);
+  background: var(--color-card);
+  border: 1px solid var(--color-line-strong);
   border-radius: 0.5rem;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
 }
@@ -891,7 +940,7 @@ button:disabled {
 }
 
 .dropdown-option[data-focus-visible] {
-  outline: 2px solid var(--accent-text);
+  outline: 2px solid var(--color-accent-text);
   outline-offset: -2px;
 }
 
@@ -899,7 +948,7 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
 }
 
 .gate-language {
@@ -942,7 +991,7 @@ button:disabled {
 .versions {
   margin: 10px 0 0;
   font-size: 11px;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
   /* Three identifiers rather than one since the grid epoch joined the app
      version, and they must wrap as units -- a version broken across a line
      is one a reader cannot match against what they wrote down. */
@@ -974,8 +1023,8 @@ button:disabled {
 }
 
 .panel-reopen .icon-button {
-  background: var(--card);
-  box-shadow: var(--shadow);
+  background: var(--color-card);
+  box-shadow: var(--shadow-card);
 }
 
 /* A section of the side panel, not a card over the map. It used to float in
@@ -984,7 +1033,7 @@ button:disabled {
    as tall as it needs to be. Padding matches .panel-head so its heading
    lines up with the panel's own. */
 .download-card {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--color-line);
   padding: 14px 18px;
   /* Nothing inside may push the drawer wider than the user set it. */
   min-width: 0;
@@ -1002,10 +1051,10 @@ button:disabled {
   font-size: 13px;
   padding: 8px 10px;
   min-height: 40px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--color-line-strong);
   border-radius: 8px;
-  background: #fbfcfd;
-  color: var(--ink);
+  background: var(--color-field);
+  color: var(--color-ink);
 }
 
 /* The picker's tree. It scrolls inside the card so the selection's estimate
@@ -1016,12 +1065,12 @@ button:disabled {
   padding: 0;
   max-height: min(45vh, 340px);
   overflow-y: auto;
-  border: 1px solid var(--line);
+  border: 1px solid var(--color-line);
   border-radius: 8px;
 }
 
 .region-tree li + li {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--color-line);
 }
 
 .region-tree .region-summary {
@@ -1039,7 +1088,7 @@ button:disabled {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
 }
 
 /* The checkbox. React Aria renders a real input, visually hidden, and hands
@@ -1060,9 +1109,9 @@ button:disabled {
   width: 18px;
   height: 18px;
   flex: none;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--color-line-strong);
   border-radius: 4px;
-  background: var(--card);
+  background: var(--color-card);
   color: white;
 }
 
@@ -1071,8 +1120,8 @@ button:disabled {
 }
 
 .region-check[data-selected] .checkbox-box {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
 }
 
 .region-check[data-selected] .checkbox-box svg {
@@ -1080,7 +1129,7 @@ button:disabled {
 }
 
 .region-check[data-focus-visible] .checkbox-box {
-  outline: 2px solid var(--accent-text);
+  outline: 2px solid var(--color-accent-text);
   outline-offset: 1px;
 }
 
@@ -1115,14 +1164,14 @@ button:disabled {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
 }
 
 .download-card progress {
   width: 100%;
   height: 8px;
   margin: 8px 0 2px;
-  accent-color: var(--accent);
+  accent-color: var(--color-accent);
 }
 
 /* The card's offers, in order of usefulness: the world map first when there
@@ -1130,7 +1179,7 @@ button:disabled {
 .download-option + .download-option {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--color-line);
 }
 
 .download-actions {
@@ -1150,7 +1199,7 @@ button:disabled {
   font-size: 13px;
   padding: 6px 12px;
   min-height: 40px;
-  background: var(--warn);
+  background: var(--color-warn);
   color: white;
 }
 
@@ -1176,7 +1225,7 @@ button:disabled {
 }
 
 .ledger-row + .ledger-row {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--color-line);
 }
 
 .ledger-row .download-actions {
@@ -1207,7 +1256,7 @@ button:disabled {
 /* The staleness nudge is text, not a traffic light: --accent-text holds
    4.5:1 on the card, where the brighter accent would not. */
 .ledger-stale {
-  color: var(--accent-text);
+  color: var(--color-accent-text);
   font-weight: 600;
 }
 
@@ -1269,7 +1318,7 @@ button:disabled {
 /* Browser-default placeholder grey is marginal against the tinted input
    fill and varies by engine; pin it to the audited hint colour. */
 ::placeholder {
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
   opacity: 1;
 }
 
@@ -1287,12 +1336,12 @@ button:disabled {
   align-items: center;
   gap: 0.5rem;
   padding: 0 0.6rem;
-  background: var(--card);
-  border: 1px solid var(--line-strong);
+  background: var(--color-card);
+  border: 1px solid var(--color-line-strong);
   border-radius: 0.5rem;
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.15);
 }
-.place-search-field svg { color: var(--ink-soft); flex: none; }
+.place-search-field svg { color: var(--color-ink-soft); flex: none; }
 .place-search-field input {
   border: 0;
   background: none;
@@ -1303,7 +1352,7 @@ button:disabled {
 }
 .place-search-field input:focus { outline: none; }
 .place-search-field:focus-within {
-  outline: 2px solid var(--accent-text);
+  outline: 2px solid var(--color-accent-text);
   outline-offset: 1px;
 }
 /* The results card. React Aria renders this in a portal at the end of the
@@ -1314,8 +1363,8 @@ button:disabled {
 .place-results {
   width: var(--trigger-width);
   z-index: 5;
-  background: var(--card);
-  border: 1px solid var(--line-strong);
+  background: var(--color-card);
+  border: 1px solid var(--color-line-strong);
   border-radius: 0.5rem;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
 }
@@ -1332,7 +1381,7 @@ button:disabled {
    keyboard's cursor to look right. */
 .place-option[data-focused] { background: #eef2f6; }
 .place-option[data-focus-visible] {
-  outline: 2px solid var(--accent-text);
+  outline: 2px solid var(--color-accent-text);
   outline-offset: -2px;
 }
 .place-option {
@@ -1352,8 +1401,8 @@ button:disabled {
   cursor: pointer;
 }
 .place-name { font-weight: 600; }
-.place-kind { font-size: 0.8rem; color: var(--ink-soft); }
-.place-empty { padding: 0.5rem 0.6rem; color: var(--ink-soft); font-size: 0.9rem; }
+.place-kind { font-size: 0.8rem; color: var(--color-ink-soft); }
+.place-empty { padding: 0.5rem 0.6rem; color: var(--color-ink-soft); font-size: 0.9rem; }
 
 /* ---------------------------------------------------- map, arriving */
 
@@ -1371,8 +1420,8 @@ button:disabled {
   align-items: center;
   justify-content: center;
   height: 100%;
-  background: var(--bg);
-  color: var(--ink-soft);
+  background: var(--color-bg);
+  color: var(--color-ink-soft);
   font-size: 0.95rem;
 }
 
@@ -1393,8 +1442,8 @@ button:disabled {
     linear-gradient(
       90deg,
       transparent 0%,
-      var(--accent) 35%,
-      var(--accent) 65%,
+      var(--color-accent) 35%,
+      var(--color-accent) 65%,
       transparent 100%
     );
   background-size: 40% 100%;
@@ -1414,7 +1463,7 @@ button:disabled {
 @media (prefers-reduced-motion: reduce) {
   .map-loading {
     animation: none;
-    background: var(--accent);
+    background: var(--color-accent);
     opacity: 0.5;
   }
 }
@@ -1425,7 +1474,7 @@ button:disabled {
    the choosing is done, and six countries fetched over an hour need to
    report somewhere that stays put. */
 .downloads {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--color-line);
   padding: 12px 16px;
 }
 
@@ -1469,7 +1518,7 @@ button:disabled {
 
 .download-row-size {
   font-size: 12px;
-  color: var(--ink-soft);
+  color: var(--color-ink-soft);
   flex: none;
   font-variant-numeric: tabular-nums;
 }
@@ -1478,7 +1527,7 @@ button:disabled {
   width: 100%;
   height: 6px;
   margin: 4px 0 0;
-  accent-color: var(--accent);
+  accent-color: var(--color-accent);
 }
 
 .download-overall {
@@ -1500,16 +1549,16 @@ button:disabled {
   min-height: 44px;
   padding: 8px 14px;
   font-size: 13px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--color-line-strong);
   border-radius: 8px;
-  background: var(--card);
-  color: var(--ink);
+  background: var(--color-card);
+  color: var(--color-ink);
   text-decoration: none;
   cursor: pointer;
 }
 
 .button-link:hover {
-  border-color: var(--accent);
+  border-color: var(--color-accent);
 }
 
 /* The picker's own control is hidden, not removed: it stays in the
@@ -1536,12 +1585,12 @@ button:disabled {
    precedes the input in the DOM, so this reads up from the container rather
    than sideways from the input. */
 .download-import:has(.visually-hidden:focus-visible) .file-input {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 
 .download-pending {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--color-line);
   padding: 14px 18px;
   color: var(--muted);
   font-size: 13px;

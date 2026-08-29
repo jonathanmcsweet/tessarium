@@ -1,4 +1,5 @@
 import { paraglideVitePlugin } from "@inlang/paraglide-js";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
@@ -25,6 +26,11 @@ export default defineConfig({
   define: { __APP_VERSION__: JSON.stringify(version) },
   plugins: [
     react(),
+    // Tailwind compiles at build time and emits a plain stylesheet, so the
+    // shipped app fetches nothing: no CDN, no runtime, no web font. Only the
+    // utilities the source actually mentions survive into that file, which is
+    // why the design scale can be large without the download being.
+    tailwindcss(),
     // Messages are compiled into typed functions rather than looked up from a
     // dictionary at runtime, so a key that does not exist is a build error and
     // an unused message is tree-shaken out.

@@ -8,9 +8,28 @@
    below keep the list honest by failing when a listed colour leaves the
    stylesheet. */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+
+/* Colours no longer live only in the stylesheet. The palette does -- it is
+   the @theme block -- but a one-off shade is now written where it is spent,
+   as a Tailwind arbitrary value in the component's class list. So the
+   literal-presence check below reads the components too; otherwise moving a
+   colour from a CSS rule to the element that uses it would read as deleting
+   it. */
+const srcDir = new URL("../src/", import.meta.url);
+const sources = [css];
+const walk = (dir) => {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.name === "paraglide") continue;
+    const child = new URL(`${e.name}${e.isDirectory() ? "/" : ""}`, dir);
+    if (e.isDirectory()) walk(child);
+    else if (/\.tsx?$/.test(e.name)) sources.push(readFileSync(child, "utf8"));
+  }
+};
+walk(srcDir);
+const rendered = (literal) => sources.some((f) => f.includes(literal));
 
 let checks = 0;
 let failures = 0;
@@ -22,8 +41,12 @@ const check = (name, ok) => {
   }
 };
 
+/* The palette is the @theme block: `--color-ink` and friends, which is both
+   the name Tailwind generates `text-ink` from and the name the app's own
+   rules spend. Reading them here means the audit and the app cannot hold
+   different opinions about what a colour is. */
 const vars = {};
-for (const m of css.matchAll(/--([a-z-]+):\s*(#[0-9a-fA-F]{6});/g)) {
+for (const m of css.matchAll(/--color-([a-z-]+):\s*(#[0-9a-fA-F]{6});/g)) {
   vars[m[1]] = m[2];
 }
 
@@ -41,7 +64,7 @@ const ratio = (a, b) => {
 
 const v = (name) => {
   const value = vars[name];
-  check(`--${name} is defined`, Boolean(value));
+  check(`--color-${name} is defined`, Boolean(value));
   return value ?? "#000000";
 };
 
@@ -54,10 +77,10 @@ const pairs = [
   ["body text on cards", v("ink"), v("card"), 4.5],
   ["hints on the page", v("ink-soft"), v("bg"), 4.5],
   ["hints on cards", v("ink-soft"), v("card"), 4.5],
-  ["hints on inputs", v("ink-soft"), "#fbfcfd", 4.5],
+  ["hints on inputs", v("ink-soft"), v("field"), 4.5],
   ["valid-checksum text", v("ok"), v("card"), 4.5],
-  ["invalid text on cards", "#b4232a", v("card"), 4.5],
-  ["invalid text on inputs", "#b4232a", "#fbfcfd", 4.5],
+  ["invalid text on cards", v("danger"), v("card"), 4.5],
+  ["invalid text on inputs", v("danger"), v("field"), 4.5],
   ["button labels", "#ffffff", v("ink"), 4.5],
   ["disabled button labels", "#4c5b69", "#e3e8ed", 4.5],
   ["banner text", v("warn"), "#fff8e6", 4.5],
@@ -76,8 +99,8 @@ const pairs = [
     3.0,
   ],
   ["input borders on cards (non-text)", v("line-strong"), v("card"), 3.0],
-  ["input borders on their fill (non-text)", v("line-strong"), "#fbfcfd", 3.0],
-  ["placeholder text on inputs", v("ink-soft"), "#fbfcfd", 4.5],
+  ["input borders on their fill (non-text)", v("line-strong"), v("field"), 3.0],
+  ["placeholder text on inputs", v("ink-soft"), v("field"), 4.5],
 ];
 
 for (const [name, fg, bg, min] of pairs) {
@@ -88,12 +111,12 @@ for (const [name, fg, bg, min] of pairs) {
   );
 }
 
-/* The hand-written literals above must still exist in the stylesheet;
-   otherwise the pair silently audits a colour nobody renders. */
+/* The hand-written literals above must still exist somewhere the app
+   renders; otherwise the pair silently audits a colour nobody shows. The
+   palette itself needs no such check -- `v()` fails when a token leaves the
+   theme. */
 for (
   const literal of [
-    "#fbfcfd",
-    "#b4232a",
     "#4c5b69",
     "#e3e8ed",
     "#fff8e6",
@@ -101,7 +124,7 @@ for (
     "#eef1f4",
   ]
 ) {
-  check(`${literal} still appears in styles.css`, css.includes(literal));
+  check(`${literal} is still rendered somewhere`, rendered(literal));
 }
 
 console.log(`\ncontrast: ${checks} checks, ${failures} failures`);
