@@ -468,8 +468,14 @@ let base_ledger = function
 (* ------------------------------------------------- where entries live *)
 
 (* Every downloaded archive on disk: one file per region, plus the old
-   merged one if this install has it. The browse cache is not here -- it is
-   nobody's download -- and neither is the world overview. *)
+   merged one if this install has it.
+
+   The browse cache is not here -- it is nobody's download -- and neither is
+   the world overview. That second exclusion is load-bearing: everything
+   that lists, exports, updates or removes a region finds it through here,
+   so an overview that never appears is an overview with no id to name, no
+   row to press Remove on, and nothing to delete. The refusals at those
+   sites are the second lock on the same door. *)
 let downloaded_files ~fs ~basemap_dir =
   List.filter
     (fun n -> n <> cache_file && n <> world_file)
@@ -1260,7 +1266,7 @@ let run_download t ~fs ~net ~source ?origin ~assets ~basemap_dir ~budget ~name
     | Some old_id when old_id <> entry_id ->
         Eio.Switch.run (fun psw ->
             match home_of ~sw:psw ~fs ~basemap_dir ~id:old_id with
-            | Some (f, _) when f <> base_file -> (
+            | Some (f, _) when Tile_set.is_region f -> (
                 try Eio.Path.unlink Eio.Path.(dir / f)
                 with e ->
                   Logs.warn (fun m ->
@@ -1335,7 +1341,13 @@ let run_remove t ~fs ~basemap_dir ~id =
     Eio.Switch.run @@ fun sw ->
     match home_of ~sw ~fs ~basemap_dir ~id with
     | None -> failwith "no such downloaded map"
-    | Some (file, _) when file <> base_file ->
+    (* Not [file <> base_file]. The difference is the world overview: a
+       negative test would send it down whichever branch it was not, and
+       both branches destroy something. [Tile_set.is_region] is the one
+       place that says what may be deleted, and anything that is not a
+       region and is not the merged archive is refused below rather than
+       guessed at. *)
+    | Some (file, _) when Tile_set.is_region file ->
         let freed =
           match Eio.Path.stat ~follow:true Eio.Path.(dir / file) with
           | st -> Optint.Int63.to_int st.Eio.File.Stat.size
@@ -1343,6 +1355,14 @@ let run_remove t ~fs ~basemap_dir ~id =
         in
         Eio.Path.unlink Eio.Path.(dir / file);
         freed
+    | Some (file, _) when file <> base_file ->
+        (* Unreachable while [homes] reads only the downloaded archives, and
+           written anyway: this is the sentence that has to stay true if that
+           ever changes. A file the map stands on is not a download, and a
+           request to remove one is refused rather than obeyed. *)
+        failwith
+          (Printf.sprintf "%s is part of the basemap and cannot be removed"
+             file)
     | Some _ -> (
     match open_base ~sw ~fs ~basemap_dir with
     | None -> failwith "there is no downloaded map to remove from"
@@ -1482,7 +1502,7 @@ let run_export t ~fs ~basemap_dir ~id =
     Eio.Switch.run @@ fun sw ->
     match home_of ~sw ~fs ~basemap_dir ~id with
     | None -> failwith "no such downloaded map"
-    | Some (file, _) when file <> base_file ->
+    | Some (file, _) when Tile_set.is_region file ->
         (* Nothing to do. The download wrote this file and nothing has
            merged it into anything since, so the file to carry to the other
            machine is already sitting there, already named after the region
@@ -1496,6 +1516,13 @@ let run_export t ~fs ~basemap_dir ~id =
           | exception Eio.Io _ -> 0
         in
         (file, bytes)
+    | Some (file, _) when file <> base_file ->
+        (* Same refusal as removal's, for the same reason: whatever the map
+           stands on is not somebody's download to be handed out under a
+           region's name. *)
+        failwith
+          (Printf.sprintf "%s is part of the basemap, not a downloaded region"
+             file)
     | Some _ -> (
     match open_base ~sw ~fs ~basemap_dir with
     | None -> failwith "there is no downloaded map to export"

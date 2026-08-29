@@ -44,7 +44,17 @@ let extension = ".pmtiles"
    header and its own ledger -- but it is also the thing a person reads off
    a USB stick, so it is worth being able to say what is NOT one. A
    half-written download is [name ^ ".part"], which does not end in
-   .pmtiles and so is skipped here without a special case. *)
+   .pmtiles and so is skipped here without a special case.
+
+   This is also the answer to "may the user delete this file", and every
+   place that unlinks one asks here rather than deciding for itself. The
+   world overview must never be deletable: it is the map under the map,
+   every package ships one, and a user who removed it would be left with
+   holes everywhere they had not downloaded a region -- with no way to get
+   it back on the machine that has no internet, which is the machine this
+   is all for. It is not a region, so it is not removable, and saying that
+   once here is what keeps it true in all four places that could break
+   it. *)
 let is_region name =
   Filename.check_suffix name extension && not (List.mem name reserved)
 

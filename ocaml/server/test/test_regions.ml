@@ -31,7 +31,8 @@ let e7 v = int_of_float (Float.round (v *. 1e7))
 
 (* A source archive: every tile of a box between two zooms, each with its
    own bytes so a merge that mixed two of them up would be visible. *)
-let source_archive ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat =
+let source_archive ?(metadata = "{}") ~min_zoom ~max_zoom ~min_lon ~min_lat
+    ~max_lon ~max_lat () =
   let ids =
     Pmtiles.Tile_id.covering ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
       ~max_lat
@@ -54,7 +55,6 @@ let source_archive ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat =
   in
   let data = Buffer.contents body in
   let root = Pmtiles.Directory.serialize entries in
-  let metadata = "{}" in
   let root_offset = Pmtiles.Header.size in
   let metadata_offset = root_offset + String.length root in
   let data_offset = metadata_offset + String.length metadata in
@@ -107,7 +107,7 @@ let () =
   let source = Filename.concat root "source.pmtiles" in
   Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(fs / source)
     (source_archive ~min_zoom:0 ~max_zoom:5 ~min_lon:(-180.) ~min_lat:(-85.)
-       ~max_lon:180. ~max_lat:85.);
+       ~max_lon:180. ~max_lat:85. ());
 
   let t = D.create () in
   (* Fixed, so the date in every file name below is this one and the test
@@ -298,6 +298,69 @@ let () =
          | Some (`List [ e ]) -> str "file" e = carried_name
          | _ -> false)
      | _ -> false);
+
+  (* ------------------------------------------------- the map under the map *)
+
+  (* The world overview is not a download and must never be removable. It is
+     what draws everywhere a region has not been fetched, every package ships
+     one, and a user who deleted it on the machine with no internet could not
+     get it back -- which is the machine all of this is for.
+
+     Two locks, tested separately, because one of them is an absence and an
+     absence is easy to delete by accident. *)
+
+  D.run_download t ~fs ~net ~source ~assets:"" ~basemap_dir
+    ~budget:D.default_budget ~name:None ~now ~refresh:false ~replaces:None
+    ~target:D.World ~labels:None
+    [ req ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
+        ~max_zoom:3 ];
+  check ("the overview downloaded: " ^ outcome ()) (state () = "done");
+  check "it goes to its own file"
+    (Eio.Path.is_file Eio.Path.(dir / Tile_set.world_file));
+  check "which is not one of the region files"
+    (not (List.mem Tile_set.world_file (listing ())));
+  check "it is still searched for tiles, like every other archive"
+    (List.mem Tile_set.world_file (Tile_set.names ~dir));
+  check "but it is not downloaded detail"
+    (not
+       (List.exists
+          (fun (e : Tile_set.entry) -> e.Tile_set.name = Tile_set.world_file)
+          (Tile_set.detail ~dir)));
+  check "and it writes no record, so nothing lists it and nothing can name it"
+    (List.length (entries ()) = 1);
+
+  (* The second lock. An overview that CLAIMS to be a region -- a file
+     someone built by hand, or an export renamed on a USB stick -- must not
+     become removable by saying so. The record inside it is read by nothing
+     that removes, and the removal itself refuses the name outright. *)
+  let planted = Ledger.make ~name:"Pretending" ~completed:1 ~source:"nowhere"
+      ~bytes:1
+      ~regions:[ req ~min_lon:(-10.) ~min_lat:(-10.) ~max_lon:10. ~max_lat:10.
+                   ~max_zoom:3 ]
+  in
+  let planted_meta =
+    match Ledger.to_metadata [ planted ] ~previous:"{}" with
+    | Ok m -> m
+    | Error e -> failwith e
+  in
+  Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / Tile_set.world_file)
+    (source_archive ~metadata:planted_meta ~min_zoom:0 ~max_zoom:3
+       ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85. ());
+  check "an overview claiming to be a region is still not listed"
+    (List.length (entries ()) = 1);
+  D.run_remove t ~fs ~basemap_dir ~id:(Ledger.id planted);
+  check ("removing it by the id it claims fails: " ^ outcome ())
+    (state () = "failed");
+  check "and the overview is still there"
+    (Eio.Path.is_file Eio.Path.(dir / Tile_set.world_file));
+
+  (* And removing everything that IS removable leaves it standing. *)
+  List.iter
+    (fun e -> D.run_remove t ~fs ~basemap_dir ~id:(str "id" e))
+    (entries ());
+  check "removing every downloaded region leaves the overview alone"
+    (Eio.Path.is_file Eio.Path.(dir / Tile_set.world_file));
+  check "with nothing left to remove" (entries () = []);
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1;
