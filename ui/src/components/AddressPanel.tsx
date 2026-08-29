@@ -28,6 +28,36 @@ const MASK = "••••••.••••••.••••••.•••
 /* And the same idea for a coordinate. */
 const COORD_MASK = "••.•••••••";
 
+/* The drawer sits OVER the map rather than beside it. As a grid column it
+   took width away from the map, so every drag resized the map with it --
+   MapLibre re-laid out, tiles re-rendered, and the view you were looking at
+   moved under you. Overlaid, the map is the full width of the shell and stays
+   exactly where it is whatever the drawer does. It casts a shadow on what it
+   covers, which is what makes it read as a panel over the map rather than a
+   pale stripe beside it.
+
+   Below the drawer breakpoint it is a sheet across the bottom instead: there
+   is no vertical edge to drag there, so PanelResizer hides itself and the
+   width is the viewport's. --panel-w is set on the shell by App.tsx. */
+const DRAWER =
+  "absolute inset-y-0 right-0 z-5 flex w-[var(--panel-w,340px)] max-w-full "
+  + "flex-col overflow-y-auto border-l border-line bg-card "
+  + "shadow-[-10px_0_28px_rgb(15_23_42/0.14)] "
+  + "transition-transform duration-200 ease-out "
+  + "max-drawer:inset-x-0 max-drawer:top-auto max-drawer:bottom-0 "
+  + "max-drawer:max-h-[45vh] max-drawer:w-auto max-drawer:border-t "
+  + "max-drawer:border-l-0 "
+  + "max-drawer:shadow-[0_-10px_28px_rgb(15_23_42/0.14)] "
+  + "max-sm:max-h-[55vh]";
+
+/* Shut, not zero-width: sliding it out keeps its contents laid out at their
+   real width, so reopening does not reflow a squashed column back into shape.
+   `invisible` is what takes it out of the tab order and off the screen
+   reader's map -- a drawer someone can still tab into is worse than one that
+   never closed. */
+const SHUT = "collapsed invisible translate-x-full "
+  + "max-drawer:translate-x-0 max-drawer:translate-y-full";
+
 /* Not a static import: see components/downloadChunk.ts. `lazy` wants a
    default export and DownloadCard is a named one, so the promise is
    reshaped here rather than the card growing a default it has no other
@@ -70,17 +100,7 @@ export function AddressPanel() {
   }`;
 
   return (
-    <aside
-      className={`panel absolute inset-y-0 right-0 z-5 flex w-[var(--panel-w,340px)] max-w-full flex-col overflow-y-auto border-l border-line bg-card shadow-[-10px_0_28px_rgb(15_23_42/0.14)] transition-transform duration-200 ease-out max-drawer:inset-x-0 max-drawer:top-auto max-drawer:bottom-0 max-drawer:max-h-[45vh] max-drawer:w-auto max-drawer:border-t max-drawer:border-l-0 max-drawer:shadow-[0_-10px_28px_rgb(15_23_42/0.14)] max-sm:max-h-[55vh] ${
-        /* Shut, not zero-width: sliding it out keeps its contents laid out
-           at their real width, so reopening does not reflow a squashed
-           column back into shape. `invisible` is what takes it out of the
-           tab order and off the screen reader's map -- a drawer someone can
-           still tab into is worse than one that never closed. */
-        panelCollapsed
-          ? "collapsed invisible translate-x-full max-drawer:translate-x-0 max-drawer:translate-y-full"
-          : ""}`}
-    >
+    <aside className={`panel ${DRAWER} ${panelCollapsed ? SHUT : ""}`}>
       <header className="panel-head flex items-center justify-between border-b border-line px-4.5 py-3.5">
         <span className="font-bold tracking-tight">{m.app_name()}</span>
         <div className="flex items-center gap-2">
@@ -307,16 +327,16 @@ export function AddressPanel() {
             the answer: it cannot make an old code work, but it lets someone
             label the codes they keep with the grid those codes belong to. */
         }
-        <p className="versions mt-2.5 flex flex-wrap gap-x-2 gap-y-1 text-[11px]">
-          <code className="text-[11px] select-all">
+        <p className="versions mt-2.5 flex flex-wrap gap-x-2 gap-y-1 text-xs">
+          <code className="text-xs select-all">
             Tessarium v{__APP_VERSION__}
           </code>
           {versions.data && (
             <>
-              <code className="epoch text-[11px] select-all">
+              <code className="epoch text-xs select-all">
                 {versions.data.grid}
               </code>
-              <code className="epoch text-[11px] select-all">
+              <code className="epoch text-xs select-all">
                 {versions.data.derivation}
               </code>
             </>

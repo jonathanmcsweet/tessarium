@@ -27,6 +27,14 @@ import {
   SelectValue,
 } from "react-aria-components";
 
+/* The closed control. 44px so it is a comfortable touch target rather than
+   the 22px system control it replaced. */
+const TRIGGER =
+  "dropdown-button focus-ring flex min-h-11 max-w-full flex-1 cursor-pointer "
+  + "items-center justify-between gap-2 rounded-lg border border-line-strong "
+  + "bg-card px-2 text-left text-sm text-ink "
+  + "disabled:cursor-default disabled:opacity-55";
+
 type Props<T extends string> = {
   /* Always present. `labelHidden` decides whether it is drawn, never
      whether it exists -- a dropdown with no accessible name is unusable
@@ -61,11 +69,7 @@ export function Dropdown<T extends string>({
       <Label className={labelHidden ? "sr-only" : "text-sm text-ink-soft"}>
         {label}
       </Label>
-      {
-        /* 44px so it is a comfortable touch target rather than the 22px
-          system control it replaced. */
-      }
-      <Button className="dropdown-button focus-ring flex min-h-11 max-w-full flex-1 cursor-pointer items-center justify-between gap-2 rounded-lg border border-line-strong bg-card px-2 text-left text-sm text-ink disabled:cursor-default disabled:opacity-55">
+      <Button className={TRIGGER}>
         <SelectValue />
         <ChevronDown
           size={16}

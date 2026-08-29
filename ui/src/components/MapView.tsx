@@ -1152,7 +1152,7 @@ export function MapView() {
           keyboard aid, not a control. */
       }
       <div
-        className="reticle pointer-events-none absolute top-1/2 left-1/2 z-2 -mt-[9px] -ml-[9px] h-[18px] w-[18px] rounded-[3px] border-[1.5px] border-[rgba(18,33,47,0.55)]"
+        className="reticle pointer-events-none absolute top-1/2 left-1/2 z-2 size-4.5 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 border-[rgba(18,33,47,0.55)]"
         aria-hidden
       />
       {

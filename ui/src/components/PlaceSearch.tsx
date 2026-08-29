@@ -137,6 +137,14 @@ type Placing = ReturnType<typeof placeRows>[number]["at"];
    milliseconds on a city and a few hundred on a country. */
 const DEBOUNCE_MS = 250;
 
+/* The box itself. The ring is on the wrapper rather than the input, because
+   the magnifier sits inside the same border and a ring around only the text
+   would read as two controls. */
+const FIELD = "place-search-field flex items-center gap-2 rounded-lg border "
+  + "border-line-strong bg-card px-2.5 shadow-[0_1px_4px_rgb(0_0_0/0.15)] "
+  + "focus-within:outline-2 focus-within:outline-offset-1 "
+  + "focus-within:outline-accent-text";
+
 export function PlaceSearch(
   { onPick, onPickAddress, center }: {
     onPick: (lon: number, lat: number) => void;
@@ -354,7 +362,7 @@ export function PlaceSearch(
          also what the hand-written version did. */
       allowsCustomValue
     >
-      <div className="place-search-field flex items-center gap-2 rounded-lg border border-line-strong bg-card px-2.5 shadow-[0_1px_4px_rgb(0_0_0/0.15)] focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-accent-text">
+      <div className={FIELD}>
         <Search size={16} aria-hidden className="flex-none text-ink-soft" />
         <Input
           id="place-search-input"

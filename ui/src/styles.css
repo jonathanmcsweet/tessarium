@@ -1,15 +1,19 @@
-/* The design scale, and the app's own rules.
+/* The palette, the scale, and the looks worn by more than one element.
 
-   Tailwind supplies the scale -- one ramp of spacing, one of type, one of
-   radii -- and the components spend it in their own class lists. What is
-   left in this file is the part utilities cannot say: the palette, and the
-   handful of rules that are genuinely about this application rather than
-   about a box on a page.
+   The layout was rough because there was no scale. The stylesheet this
+   replaces held twenty-two distinct spacing values, twelve font sizes and
+   nine border radii, each decided one rule at a time and none of them wrong
+   on its own. Tailwind supplies one ramp of each, and the components spend
+   it in their own class lists, next to the markup it applies to. What is
+   left in this file is what a class list cannot hold -- the palette, the
+   few looks that several different elements have to share, and at the
+   bottom the rules that must outrank a stylesheet this project does not
+   own.
 
    Nothing here is fetched. Tailwind runs at build time and emits a plain
-   stylesheet, the type stack is the one already on the device, and the two
-   map dependencies are vendored. The whole app still opens with the network
-   unplugged, which is the point of it. */
+   stylesheet; the type stack is whatever the device already has. The
+   application still opens with the network unplugged, which is the point of
+   it. */
 
 @import "tailwindcss";
 
@@ -100,14 +104,15 @@ code {
   opacity: 1;
 }
 
-/* ---------------------------------------------------------- the controls
+/* -------------------------------------------------------- shared looks
 
-   Four looks, each said once. Everything else in the application is spent
-   as utilities on the element itself; these are here because more than one
-   element wears them and they must not drift apart -- a save link is an
-   <a> because the browser fetches the file, and the import control is a
-   <label> because an <input type=file> cannot be replaced by something
-   that is not one, and all three still have to read as the same button. */
+   Each said once. Everything else in the application is spent as utilities
+   on the element itself; what is here is here because SEVERAL DIFFERENT
+   ELEMENTS wear it and they must not drift apart. The button is the clearest
+   case: the save control is an <a> because the browser fetches the file, and
+   the import control is a <label> because an <input type=file> cannot be
+   replaced by something that is not one, and all three still have to read as
+   the same button. */
 
 /* The focus ring. One ring for every control in the application: a ring
    that changes appearance between controls is a ring people stop reading.
@@ -178,7 +183,7 @@ code {
    competing with the address, which is the one thing on screen that is
    allowed to be loud. */
 @utility warning {
-  @apply rounded-r-lg border-l-[3px] border-accent bg-[#fff5f3] px-4 py-3
+  @apply rounded-r-lg border-l-4 border-accent bg-[#fff5f3] px-4 py-3
     text-sm leading-normal;
 }
 
@@ -186,7 +191,7 @@ code {
    size: these label regions of a column that is already narrow, and a
    heading that competes with its own content is not a heading. */
 @utility panel-title {
-  @apply m-0 text-xs font-semibold tracking-[0.08em] text-ink-soft uppercase;
+  @apply m-0 text-xs font-semibold tracking-wider text-ink-soft uppercase;
 }
 
 /* A card that hangs off a control -- the dropdown's list, the search

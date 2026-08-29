@@ -68,6 +68,21 @@ import { toastError, toastSuccess } from "../toast";
 import { Dropdown } from "./Dropdown";
 import { IconButton } from "./IconButton";
 
+/* The checkbox. React Aria renders a real input, visually hidden, and hands
+   the appearance over, so this is the box and `selected` on the label is what
+   fills it. The tick inside is scaled to nothing until then rather than
+   mounted and unmounted, so it cannot reflow the row. */
+const BOX = "checkbox-box flex size-4.5 flex-none items-center justify-center "
+  + "rounded border border-line-strong bg-card text-white "
+  + "group-selected/check:border-accent group-selected/check:bg-accent "
+  + "[&>svg]:scale-0 group-selected/check:[&>svg]:scale-100";
+
+/* The save control and the import control have to read as buttons without
+   being one: the first is an <a> because the browser fetches the file, the
+   second a <label> because an <input type=file> cannot be replaced by
+   something that is not one. */
+const LINK_BUTTON = "btn btn-quiet border-line-strong hover:border-accent";
+
 /* A refused start -- another download already running, a server gone away
    -- must be audible, not swallowed. */
 const loudly = {
@@ -227,17 +242,7 @@ function CheckRow({ text, checked, onChange, disabled }: {
       onChange={onChange}
       isDisabled={disabled ?? false}
     >
-      {
-        /* React Aria renders a real input, visually hidden, and hands the
-          appearance over -- so this span is the box, and `selected` on the
-          label is what fills it. The tick inside is scaled to nothing until
-          then rather than mounted and unmounted, so it cannot reflow the
-          row. */
-      }
-      <span
-        className="checkbox-box flex h-4.5 w-4.5 flex-none items-center justify-center rounded border border-line-strong bg-card text-white group-selected/check:border-accent group-selected/check:bg-accent [&>svg]:scale-0 group-selected/check:[&>svg]:scale-100"
-        aria-hidden="true"
-      >
+      <span className={BOX} aria-hidden="true">
         <Check size={14} />
       </span>
       <span>{text}</span>
@@ -350,7 +355,7 @@ function RegionPicker() {
                     onChange={() => toggle(whole)}
                   />
                   {subs.length > 0 && (
-                    <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-[0.06em] text-ink-soft uppercase">
+                    <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
                       {m.map_download_region_sub_label()}
                     </p>
                   )}
@@ -370,7 +375,7 @@ function RegionPicker() {
                     );
                   })}
                   {cities.length > 0 && (
-                    <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-[0.06em] text-ink-soft uppercase">
+                    <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
                       {m.map_download_region_cities()}
                     </p>
                   )}
@@ -504,7 +509,7 @@ function LedgerRow({ entry, days, busy }: {
           entry.file
             ? (
               <a
-                className="button-link ledger-export btn btn-quiet border-line-strong hover:border-accent"
+                className={`button-link ledger-export ${LINK_BUTTON}`}
                 href={regionUrl(entry.file)}
                 download={entry.file}
               >
@@ -551,7 +556,7 @@ function ExportedFiles({ busy }: { busy: boolean; }) {
   if (!exports.isSuccess || exports.data.length === 0) return null;
   return (
     <div className="download-option download-exports">
-      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-[0.06em] text-ink-soft uppercase">
+      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
         {m.map_export_title()}
       </p>
       <p className="hint">{m.map_export_hint()}</p>
@@ -573,7 +578,7 @@ function ExportedFiles({ busy }: { busy: boolean; }) {
                   it; same origin, so the CSP is untroubled. */
               }
               <a
-                className="button-link btn btn-quiet border-line-strong hover:border-accent"
+                className={`button-link ${LINK_BUTTON}`}
                 href={exportUrl(f.file)}
                 download={f.file}
               >
@@ -623,7 +628,7 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
 
   return (
     <div className="download-option download-import">
-      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-[0.06em] text-ink-soft uppercase">
+      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
         {m.map_import_title()}
       </p>
       <p className="hint">{m.map_import_hint()}</p>
@@ -666,7 +671,7 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
             }}
           />
           <label
-            className="button-link file-input btn btn-quiet mt-2.5 border-line-strong hover:border-accent peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent"
+            className={`button-link file-input mt-2.5 ${LINK_BUTTON} peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent`}
             htmlFor="import-file"
           >
             {m.map_import_choose()}
@@ -735,7 +740,7 @@ function DownloadedMaps({ busy }: { busy: boolean; }) {
   const days = settings.data?.update_reminder_days ?? 90;
   return (
     <div className="download-option download-ledger">
-      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-[0.06em] text-ink-soft uppercase">
+      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
         {m.map_ledger_title()}
       </p>
       <ul className="ledger-rows divide-y divide-line">

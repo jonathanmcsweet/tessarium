@@ -21,6 +21,52 @@ than a git log.
 
 ---
 
+### 2026-08-29 — Tailwind for the layout, React Aria kept
+
+**Phase:** 6
+
+**What:** `ui/src/styles.css` goes from 1548 lines to 320. Every component
+carries its own appearance as utility classes; the palette moves into a
+Tailwind `@theme` block, and twelve looks worn by more than one element
+(button, field, hint, warning, popover card, focus ring) are declared once as
+`@utility`. What is left in the file is the two rules that must outrank
+MapLibre's own stylesheet, the loading bar's keyframes, and the reduced-motion
+block. React Aria Components stay exactly where they were — the plugin
+`tailwindcss-react-aria-components` turns their data attributes into variants,
+so `selected:`, `expanded:` and `focus-visible:` are written beside the thing
+they restyle.
+
+**Rationale:** Reverses the React Spectrum adoption of the previous day, at
+the user's instruction: it worked and it shipped offline, but it looked wrong
+for this application. Eight commits were reset rather than reverted (they were
+unpushed) and are kept at the tag `spectrum-attempt`.
+
+The measurement that started the first attempt was right and the remedy was
+wrong. The stylesheet held twenty-two distinct spacing values, twelve font
+sizes and nine border radii — the layout read as rough because nothing lined
+up, not because the controls were homemade. Spectrum replaced the controls and
+left every gap between them untouched, which is why it did not fix the
+complaint. A scale does.
+
+Two things could not be moved to a class list and the reasons are worth
+keeping. `.map-wrap > .map` must stay a two-class CSS selector: MapLibre sets
+`position: relative` with no height on the same element from a stylesheet that
+loads after this one, and a Tailwind utility is one class, so it would lose
+the same race the bare `.map` rule lost. `.maplibregl-ctrl-*` is MapLibre's
+own element — there is nothing of ours to put a class on.
+
+Colour is now a prop rather than a class on `IconButton`, and the concealed
+address is a conditional rather than a modifier class. Two utilities setting
+the same property do not resolve by the order they appear in the markup; they
+resolve by where Tailwind put them in the sheet. A state a control can be in
+must not be decided there.
+
+**Follow-on:** `test/contrast.mjs` reads the `@theme` block and now scans the
+components as well as the stylesheet — a colour written as an arbitrary value
+on an element is still rendered, and the old check would have read that as
+deleting it. The gate payload is 193 KB against 189 before Tailwind and 265
+under Spectrum.
+
 ### 2026-08-28 — One file per region
 
 **Phase:** 6
