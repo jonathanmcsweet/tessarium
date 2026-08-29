@@ -26,7 +26,7 @@ import { m } from "../paraglide/messages";
 export function LockDialog({ onConfirm }: { onConfirm: () => void; }) {
   return (
     <DialogTrigger>
-      <Button className="lock">
+      <Button className="lock btn btn-quiet gap-1.5 px-3 text-ink-soft">
         <Lock size={15} aria-hidden="true" />
         {m.panel_lock()}
       </Button>
@@ -35,21 +35,40 @@ export function LockDialog({ onConfirm }: { onConfirm: () => void; }) {
           press outside should reach it. The destructive one is a button and
           only a button. */
       }
-      <ModalOverlay className="modal-overlay" isDismissable>
-        <Modal className="modal">
-          <Dialog className="modal-dialog">
+      <ModalOverlay
+        className="fixed inset-0 z-60 flex items-center justify-center bg-[rgb(15_23_32/0.45)] p-4"
+        isDismissable
+      >
+        <Modal className="max-h-[90vh] w-[min(27.5rem,100%)] overflow-y-auto rounded-xl border border-line-strong bg-card shadow-[0_8px_32px_rgb(0_0_0/0.3)]">
+          <Dialog className="modal-dialog p-5 outline-none">
             {({ close }) => (
               <>
-                <Heading slot="title">{m.lock_title()}</Heading>
-                <p>{m.lock_body()}</p>
-                <p className="warning">
+                <Heading slot="title" className="mb-2.5 text-lg font-semibold">
+                  {m.lock_title()}
+                </Heading>
+                <p className="mb-3 text-sm leading-relaxed">{m.lock_body()}</p>
+                <p className="warning mb-3">
                   <strong>{m.lock_warning_title()}</strong>{" "}
                   {m.lock_warning_body()}
                 </p>
-                <div className="modal-actions">
-                  <Button onPress={close}>{m.lock_cancel()}</Button>
+                {
+                  /* Cancel first in the DOM, so it is the first thing Tab
+                    reaches and the first thing a screen reader reads out of
+                    the pair -- and first on screen too, with the destructive
+                    one last, where a pointer expects the action it came to
+                    take. `flex-row-reverse` was tried and does the opposite:
+                    it puts the FIRST child on the right, which put "Lock the
+                    map" on the left and Cancel under the thumb. */
+                }
+                <div className="modal-actions mt-4 flex justify-end gap-2">
                   <Button
-                    className="danger"
+                    className="btn btn-quiet border-line-strong"
+                    onPress={close}
+                  >
+                    {m.lock_cancel()}
+                  </Button>
+                  <Button
+                    className="danger btn btn-danger"
                     onPress={() => {
                       close();
                       onConfirm();

@@ -62,11 +62,28 @@ export function AddressPanel() {
   const downloadRegion = useAppStore((s) => s.downloadRegion);
   const basemapJob = useBasemapStatus();
 
+  /* Same treatment as the address above, scaled to the smaller type: the
+     bullets are not worth selecting, and a selection highlight through a
+     blur reads as a rendering fault. */
+  const COORD = `m-0 font-mono tabular-nums${
+    coordsConcealed ? " text-ink-soft blur-[2.5px] select-none" : ""
+  }`;
+
   return (
-    <aside className={panelCollapsed ? "panel collapsed" : "panel"}>
-      <header className="panel-head">
-        <span className="brand">{m.app_name()}</span>
-        <div className="panel-head-actions">
+    <aside
+      className={`panel absolute inset-y-0 right-0 z-5 flex w-[var(--panel-w,340px)] max-w-full flex-col overflow-y-auto border-l border-line bg-card shadow-[-10px_0_28px_rgb(15_23_42/0.14)] transition-transform duration-200 ease-out max-drawer:inset-x-0 max-drawer:top-auto max-drawer:bottom-0 max-drawer:max-h-[45vh] max-drawer:w-auto max-drawer:border-t max-drawer:border-l-0 max-drawer:shadow-[0_-10px_28px_rgb(15_23_42/0.14)] max-sm:max-h-[55vh] ${
+        /* Shut, not zero-width: sliding it out keeps its contents laid out
+           at their real width, so reopening does not reflow a squashed
+           column back into shape. `invisible` is what takes it out of the
+           tab order and off the screen reader's map -- a drawer someone can
+           still tab into is worse than one that never closed. */
+        panelCollapsed
+          ? "collapsed invisible translate-x-full max-drawer:translate-x-0 max-drawer:translate-y-full"
+          : ""}`}
+    >
+      <header className="panel-head flex items-center justify-between border-b border-line px-4.5 py-3.5">
+        <span className="font-bold tracking-tight">{m.app_name()}</span>
+        <div className="flex items-center gap-2">
           {
             /* One press for everything hidden in this panel. Only shown with
               a selection, because with nothing selected there is nothing
@@ -114,12 +131,12 @@ export function AddressPanel() {
         </div>
       </header>
 
-      <section className="selected">
-        <h2>{m.panel_this_square()}</h2>
+      <section className="selected border-b border-line p-4.5">
+        <h2 className="panel-title mb-2.5">{m.panel_this_square()}</h2>
         {selection
           ? (
             <>
-              <div className="address-row">
+              <div className="address-row flex items-start gap-1.5">
                 {
                   /* Concealed means not rendered, not merely styled out of
                   sight. An address hidden with CSS is still in the page for
@@ -135,7 +152,18 @@ export function AddressPanel() {
                     every press. Same information, no layout in it. */
                 }
                 <output
-                  className={concealed ? "address concealed" : "address"}
+                  className={`address block min-w-0 flex-1 font-mono text-lg font-semibold leading-snug break-words ${
+                    /* Muted rather than accented while concealed: hidden is
+                       a resting state, not an alert. And it is worth being
+                       exact about WHAT is blurred -- the mask. The address
+                       is not in the document while it is concealed, so
+                       there is nothing behind this to recover by selecting
+                       the text, opening devtools, or sharpening a
+                       screenshot. This is a picture of twenty-five
+                       bullets. */
+                    concealed
+                      ? "tracking-wide text-ink-soft blur-[3.5px] select-none"
+                      : "text-accent-text"}`}
                   aria-label={concealed ? m.panel_concealed() : undefined}
                 >
                   {concealed ? MASK : selection.address}
@@ -164,7 +192,7 @@ export function AddressPanel() {
                   address does, so they get the same treatment: hidden by
                   default, not rendered while hidden, copyable either way. */
               }
-              <div className="coords-row">
+              <div className="coords-row mt-3 flex items-start gap-1.5">
                 {
                   /* Named the same way as the address above, for the same
                     reason: "Latitude, bullet bullet bullet" is not an
@@ -177,9 +205,9 @@ export function AddressPanel() {
                     hidden span carries the words and the mask is hidden
                     from the tree instead, which works on every element. */
                 }
-                <dl className="coords">
-                  <dt>{m.panel_latitude()}</dt>
-                  <dd className={coordsConcealed ? "concealed" : undefined}>
+                <dl className="coords m-0 grid min-w-0 flex-1 grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
+                  <dt className="text-ink-soft">{m.panel_latitude()}</dt>
+                  <dd className={COORD}>
                     {coordsConcealed
                       ? (
                         <>
@@ -191,8 +219,8 @@ export function AddressPanel() {
                       )
                       : formatCoord(selection.cell.latLo)}
                   </dd>
-                  <dt>{m.panel_longitude()}</dt>
-                  <dd className={coordsConcealed ? "concealed" : undefined}>
+                  <dt className="text-ink-soft">{m.panel_longitude()}</dt>
+                  <dd className={COORD}>
                     {coordsConcealed
                       ? (
                         <>
@@ -239,7 +267,10 @@ export function AddressPanel() {
       {downloadOpen && downloadRegion && (
         <Suspense
           fallback={
-            <p className="download-pending" role="status">
+            <p
+              className="download-pending border-t border-line p-4.5 text-sm text-ink-soft"
+              role="status"
+            >
               {m.map_download_loading()}
             </p>
           }
@@ -248,15 +279,21 @@ export function AddressPanel() {
         </Suspense>
       )}
 
-      <footer className="panel-foot">
-        <LanguagePicker />
+      <footer className="panel-foot p-4 px-4.5 text-xs leading-normal text-ink-soft">
+        <LanguagePicker className="mb-2.5" />
         {
           /* Standing, not a toast, and not only in the lock dialog: a reload
             forgets the key exactly as locking does, and a browser will not
             let a page say anything useful before one. So the one place this
             can be said in time is before it happens. */
         }
-        <p className="warning phrase-note">{m.panel_phrase_note()}</p>
+        {
+          /* Quieter than the gate's warning -- this one is permanent, and a
+            permanent alarm stops being one. */
+        }
+        <p className="warning phrase-note mb-2.5 text-xs">
+          {m.panel_phrase_note()}
+        </p>
         <p className="panel-explainer">{m.panel_footer()}</p>
         {
           /* Names and numbers: nothing to translate, so no message key.
@@ -270,12 +307,18 @@ export function AddressPanel() {
             the answer: it cannot make an old code work, but it lets someone
             label the codes they keep with the grid those codes belong to. */
         }
-        <p className="versions">
-          <code>Tessarium v{__APP_VERSION__}</code>
+        <p className="versions mt-2.5 flex flex-wrap gap-x-2 gap-y-1 text-[11px]">
+          <code className="text-[11px] select-all">
+            Tessarium v{__APP_VERSION__}
+          </code>
           {versions.data && (
             <>
-              <code className="epoch">{versions.data.grid}</code>
-              <code className="epoch">{versions.data.derivation}</code>
+              <code className="epoch text-[11px] select-all">
+                {versions.data.grid}
+              </code>
+              <code className="epoch text-[11px] select-all">
+                {versions.data.derivation}
+              </code>
             </>
           )}
         </p>

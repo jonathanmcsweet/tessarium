@@ -55,7 +55,7 @@ export function App() {
   }
 
   return (
-    <div className="shell">
+    <div className="shell flex h-full min-h-0 flex-col">
       {serverBanner}
       {
         /* A missing basemap affects the whole application rather than any one
@@ -82,7 +82,7 @@ export function App() {
           underneath the drawer. */
       }
       <div
-        className="app"
+        className="app relative h-full min-h-0 flex-1 overflow-hidden"
         style={{
           "--panel-w": `${panelWidth}px`,
           "--panel-offset": panelCollapsed ? "0px" : `${panelWidth}px`,
@@ -101,7 +101,10 @@ export function App() {
         }
         <Suspense
           fallback={
-            <div className="map-pending" role="status">
+            <div
+              className="map-pending flex h-full items-center justify-center bg-bg text-ink-soft"
+              role="status"
+            >
               {m.map_loading()}
             </div>
           }
@@ -116,11 +119,15 @@ export function App() {
             over the map, at the edge the drawer just gave back. */
         }
         {panelCollapsed && (
-          <div className="panel-reopen">
+          <div className="panel-reopen absolute top-3.5 right-2.5 z-6">
             <IconButton
               label={m.panel_show()}
               icon={<PanelRightOpen size={18} aria-hidden />}
               onClick={togglePanel}
+              /* It floats over the map rather than sitting on the panel, so
+                 unlike every other icon button it needs a ground of its
+                 own. */
+              className="bg-card shadow-card"
             />
           </div>
         )}

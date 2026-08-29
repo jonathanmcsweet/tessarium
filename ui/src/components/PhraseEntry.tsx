@@ -133,14 +133,20 @@ export function PhraseEntry() {
   const showWriteDown = generated !== null && phrase === generated;
 
   return (
-    <div className="gate">
-      <form className="gate-card" onSubmit={submit}>
-        <h1>{m.app_name()}</h1>
-        <p className="lede">{m.gate_lede()}</p>
+    <div className="gate grid min-h-full place-items-center p-3 sm:p-6">
+      <form
+        className="gate-card flex w-[min(35rem,100%)] flex-col gap-3 rounded-xl border border-line bg-card p-7 shadow-card"
+        onSubmit={submit}
+      >
+        <h1 className="text-2xl font-bold tracking-tight">{m.app_name()}</h1>
+        <p className="mb-1.5 leading-normal text-ink-soft">{m.gate_lede()}</p>
 
-        <label htmlFor="phrase">{m.gate_phrase_label()}</label>
+        <label htmlFor="phrase" className="text-sm font-semibold">
+          {m.gate_phrase_label()}
+        </label>
         <textarea
           id="phrase"
+          className="field resize-y"
           ref={input}
           rows={4}
           spellCheck={false}
@@ -164,19 +170,40 @@ export function PhraseEntry() {
             of what is being typed, and it has to stay on screen while the user
             fixes it. Toasts are for the submit. */
         }
-        <div className="phrase-status" id="phrase-status" role="status">
-          <span className={wordCount === 24 ? "count ok" : "count"}>
+        <div
+          className="phrase-status flex min-h-5 flex-wrap items-baseline gap-3 text-sm"
+          id="phrase-status"
+          role="status"
+        >
+          <span
+            className={`count tabular-nums ${
+              wordCount === 24 ? "text-ok" : "text-ink-soft"
+            }`}
+          >
             {m.gate_word_count({ count: wordCount })}
           </span>
           {validationError && wordCount > 0 && (
-            <span className="invalid">{sayRefusal(validationError)}</span>
+            <span className="invalid text-danger">
+              {sayRefusal(validationError)}
+            </span>
           )}
-          {ready && <span className="valid">{m.gate_checksum_valid()}</span>}
+          {ready && (
+            <span className="valid font-semibold text-ok">
+              {m.gate_checksum_valid()}
+            </span>
+          )}
         </div>
 
-        <div className="generate">
+        {
+          /* Secondary weight: this sits above "Open my map", which is the
+            primary action, but it must still read as an offer rather than as
+            fine print. Full width on a phone, where a button that is not is
+            just a small target. */
+        }
+        <div className="generate flex max-sm:w-full flex-col items-start gap-1.5">
           <button
             type="button"
+            className="btn btn-quiet max-sm:w-full"
             onClick={onGenerate}
             disabled={generate.isPending}
             /* The hint describes what this button does, so a screen reader
@@ -214,18 +241,35 @@ export function PhraseEntry() {
           </div>
         )}
 
-        <Disclosure className="passphrase">
-          <Button slot="trigger" className="passphrase-summary">
-            <ChevronRight size={14} aria-hidden="true" />
+        {
+          /* A `summary` came with a marker triangle the browser drew; this is
+            a button, so the chevron is ours and turns. */
+        }
+        <Disclosure className="passphrase group">
+          <Button
+            slot="trigger"
+            className="passphrase-summary focus-ring flex w-full cursor-pointer items-center gap-1.5 py-1 text-left text-sm font-semibold"
+          >
+            <ChevronRight
+              size={14}
+              aria-hidden="true"
+              className="flex-none text-ink-soft transition-transform group-expanded:rotate-90"
+            />
             {m.gate_passphrase_summary()}
           </Button>
           <DisclosurePanel>
-            <p className="hint">{m.gate_passphrase_what()}</p>
-            <p className="hint">{m.gate_passphrase_exact()}</p>
-            <p className="hint">{m.gate_passphrase_empty()}</p>
-            <label htmlFor="passphrase">{m.gate_passphrase_label()}</label>
+            <p className="hint my-1.5">{m.gate_passphrase_what()}</p>
+            <p className="hint my-1.5">{m.gate_passphrase_exact()}</p>
+            <p className="hint my-1.5">{m.gate_passphrase_empty()}</p>
+            <label
+              htmlFor="passphrase"
+              className="mb-1 block text-sm font-semibold"
+            >
+              {m.gate_passphrase_label()}
+            </label>
             <input
               id="passphrase"
+              className="field"
               type="password"
               autoComplete="off"
               value={passphrase}
@@ -234,20 +278,30 @@ export function PhraseEntry() {
           </DisclosurePanel>
         </Disclosure>
 
-        <button type="submit" disabled={!ready || unlock.isPending}>
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={!ready || unlock.isPending}
+        >
           {unlock.isPending ? m.gate_submit_busy() : m.gate_submit()}
         </button>
-        {unlock.isPending && <p className="hint">{m.gate_deriving_hint()}</p>}
+        {unlock.isPending && (
+          <p className="hint my-1.5">{m.gate_deriving_hint()}</p>
+        )}
 
         {
           /* The wordlist is English BIP-39 in every language: a French reader
             still types English words, and being told that up front is kinder
             than discovering it against a validation error. */
         }
-        <p className="fineprint">{m.gate_wordlist_note()}</p>
-        <p className="fineprint">{m.gate_fineprint()}</p>
+        <p className="text-xs leading-normal text-ink-soft">
+          {m.gate_wordlist_note()}
+        </p>
+        <p className="text-xs leading-normal text-ink-soft">
+          {m.gate_fineprint()}
+        </p>
 
-        <LanguagePicker className="gate-language" />
+        <LanguagePicker className="mt-1" />
       </form>
     </div>
   );

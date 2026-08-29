@@ -51,20 +51,34 @@ export function Dropdown<T extends string>({
 }: Props<T>) {
   return (
     <Select
-      className={className ? `dropdown ${className}` : "dropdown"}
+      className={`dropdown flex min-w-0 items-center gap-2${
+        className ? ` ${className}` : ""
+      }`}
       selectedKey={value}
       onSelectionChange={(key) => onChange(key as T)}
       isDisabled={disabled ?? false}
     >
-      <Label className={labelHidden ? "sr-only" : "dropdown-label"}>
+      <Label className={labelHidden ? "sr-only" : "text-sm text-ink-soft"}>
         {label}
       </Label>
-      <Button className="dropdown-button">
+      {
+        /* 44px so it is a comfortable touch target rather than the 22px
+          system control it replaced. */
+      }
+      <Button className="dropdown-button focus-ring flex min-h-11 max-w-full flex-1 cursor-pointer items-center justify-between gap-2 rounded-lg border border-line-strong bg-card px-2 text-left text-sm text-ink disabled:cursor-default disabled:opacity-55">
         <SelectValue />
-        <ChevronDown size={16} aria-hidden="true" />
+        <ChevronDown
+          size={16}
+          aria-hidden="true"
+          className="flex-none text-ink-soft"
+        />
       </Button>
-      <Popover className="dropdown-popover">
-        <ListBox className="dropdown-listbox">
+      {
+        /* Sized to the control it hangs from, which is the variable React
+          Aria sets on a popover for exactly this. */
+      }
+      <Popover className="dropdown-popover sheet w-(--trigger-width) min-w-fit">
+        <ListBox className="block max-h-72 overflow-y-auto p-1 outline-none">
           {options.map((option) => (
             <ListBoxItem
               key={option.value}
@@ -73,7 +87,7 @@ export function Dropdown<T extends string>({
                  attribute: this is what the end-to-end suite picks options
                  by, and a selector should not depend on an internal. */
               data-value={option.value}
-              className="dropdown-option"
+              className="dropdown-option sheet-option selected:font-semibold"
             >
               {option.label}
             </ListBoxItem>

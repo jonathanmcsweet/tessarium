@@ -99,7 +99,7 @@ function Simple({ job }: { job: Job; }) {
       );
     case "exporting":
       return (
-        <ul className="download-rows">
+        <ul className="download-rows mt-2 space-y-2.5">
           <Bar
             label={m.map_export_writing()}
             done={job.done_bytes}
@@ -159,7 +159,7 @@ export function MapProgress() {
       <div role="status" aria-live="polite" aria-atomic="false">
         {rows.length > 0
           ? (
-            <ul className="download-rows">
+            <ul className="download-rows mt-2 space-y-2.5">
               {rows.map((r, i) => (
                 <Bar
                   // biome-ignore lint/suspicious/noArrayIndexKey: the server returns one row per requested region in request order, and that list is fixed for the life of the download -- position IS the identity here. Labels cannot serve as one: two cities can share a name.
@@ -180,7 +180,7 @@ export function MapProgress() {
           : <Simple job={job} />}
 
         {job.state === "fetching" && (
-          <p className="hint download-overall">
+          <p className="hint download-overall mt-2.5 tabular-nums">
             {job.parts > 1
               ? m.map_progress_overall_part({
                 done: formatBytes(job.done_bytes),

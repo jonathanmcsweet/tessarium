@@ -58,7 +58,18 @@ export function PanelResizer() {
     <div
       {...moveProps}
       onKeyDown={onKeyDown}
-      className="panel-resizer"
+      /* 24px wide because that is the WCAG 2.5.8 minimum for a pointer
+         target, and a splitter people cannot hit is a splitter people cannot
+         use. Nearly all of that width is transparent: what is drawn is a
+         hairline down the middle, so it reads as the panel's border rather
+         than as a gutter. The line thickens and takes the accent on hover
+         and on keyboard focus -- no outline, because the handle IS a line
+         and the line is what answers.
+
+         `touch-none` matters more than it looks. Without it a touch drag
+         here scrolls the page instead of moving the handle, and the control
+         simply does not work on a phone. */
+      className="panel-resizer absolute inset-y-0 right-[var(--panel-offset,340px)] z-6 w-6 cursor-col-resize touch-none border-0 p-0 outline-none max-drawer:hidden before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-line before:transition-[width,background-color] before:duration-100 before:content-[''] hover:before:w-[3px] hover:before:bg-accent focus-visible:before:w-[3px] focus-visible:before:bg-accent"
       role="separator"
       tabIndex={0}
       aria-orientation="vertical"

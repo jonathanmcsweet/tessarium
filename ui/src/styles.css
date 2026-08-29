@@ -63,119 +63,141 @@
 
   --shadow-card: 0 1px 3px rgba(18, 33, 47, 0.12),
     0 8px 24px rgba(18, 33, 47, 0.08);
+
+  /* Below this the side panel becomes a sheet across the bottom of the
+     screen: there is no longer enough width for a column beside the map.
+     Named rather than a number, because the number is meaningless and the
+     rule is not -- it is the width at which a drawer stops being one. */
+  --breakpoint-drawer: 52rem;
 }
 
 :root {
   color-scheme: light;
 }
 
-* {
-  box-sizing: border-box;
-}
-
 html,
 body,
 #root {
   height: 100%;
-  margin: 0;
 }
 
 body {
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans);
   color: var(--color-ink);
   background: var(--color-bg);
   -webkit-font-smoothing: antialiased;
 }
 
 code {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    monospace;
+  font-family: var(--font-mono);
   font-size: 0.92em;
 }
 
-/* ------------------------------------------------------------- the gate */
-
-.gate {
-  min-height: 100%;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-}
-
-.gate-card {
-  width: min(560px, 100%);
-  background: var(--color-card);
-  border: 1px solid var(--color-line);
-  border-radius: 14px;
-  box-shadow: var(--shadow-card);
-  padding: 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.gate-card h1 {
-  margin: 0;
-  font-size: 26px;
-  letter-spacing: -0.02em;
-}
-
-.lede {
-  margin: 0 0 6px;
+/* Browser-default placeholder grey is marginal against the tinted field
+   fill and varies by engine; pin it to the audited hint colour. */
+::placeholder {
   color: var(--color-ink-soft);
-  line-height: 1.5;
+  opacity: 1;
 }
 
-label {
-  font-weight: 600;
-  font-size: 14px;
+/* ---------------------------------------------------------- the controls
+
+   Four looks, each said once. Everything else in the application is spent
+   as utilities on the element itself; these are here because more than one
+   element wears them and they must not drift apart -- a save link is an
+   <a> because the browser fetches the file, and the import control is a
+   <label> because an <input type=file> cannot be replaced by something
+   that is not one, and all three still have to read as the same button. */
+
+/* The focus ring. One ring for every control in the application: a ring
+   that changes appearance between controls is a ring people stop reading.
+   The React Aria plugin resolves this to the library's own
+   `data-focus-visible` on its components and to `:focus-visible` on plain
+   elements, so both spellings land on the same pixels. */
+@utility focus-ring {
+  @apply focus-visible:outline-2 focus-visible:outline-offset-2
+    focus-visible:outline-accent-text;
 }
 
-textarea,
-input[type="text"],
-input[type="password"] {
-  width: 100%;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 14px;
-  line-height: 1.6;
-  padding: 10px 12px;
-  border: 1px solid var(--color-line-strong);
-  border-radius: 8px;
-  background: var(--color-field);
-  color: var(--color-ink);
-  resize: vertical;
+/* The button box: shape and metrics, no colour. 44px minimum, which is the
+   smallest target most touch guidance accepts. */
+@utility btn {
+  @apply focus-ring inline-flex min-h-11 cursor-pointer items-center
+    justify-center gap-2 rounded-lg border border-transparent px-4 text-sm
+    font-semibold no-underline;
 }
 
-textarea:focus,
-input:focus {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 1px;
+/* The one action a screen is asking for. */
+@utility btn-primary {
+  @apply bg-ink text-white
+    disabled:cursor-not-allowed disabled:bg-[#e3e8ed] disabled:text-[#4c5b69];
 }
 
-.phrase-status {
-  display: flex;
-  gap: 12px;
-  align-items: baseline;
-  flex-wrap: wrap;
-  font-size: 13px;
-  min-height: 20px;
+/* An offer rather than an instruction: still a real button, not fine
+   print. Every secondary control in the application is this one. */
+@utility btn-quiet {
+  @apply border-line bg-card text-ink hover:not-disabled:bg-[#eef1f4]
+    disabled:cursor-not-allowed disabled:text-ink-soft;
 }
 
-.count {
-  color: var(--color-ink-soft);
-  font-variant-numeric: tabular-nums;
+/* Destructive, and the only place the accent is used as a fill behind
+   text. */
+@utility btn-danger {
+  @apply border-accent bg-accent font-semibold text-white;
 }
-.count.ok {
-  color: var(--color-ok);
+
+/* Somewhere to type. The monospace is not decoration: every field in this
+   application takes an address, a phrase or a region name, and all three
+   are read back character by character. */
+@utility field {
+  @apply w-full rounded-lg border border-line-strong bg-field px-3 py-2.5
+    font-mono text-sm leading-relaxed text-ink
+    focus:outline-2 focus:outline-offset-1 focus:outline-focus;
 }
-.valid {
-  color: var(--color-ok);
-  font-weight: 600;
+
+/* Secondary text: the sentence under a control that says what it will do.
+   One size and one colour for all of them, because they are all the same
+   thing. */
+@utility hint {
+  @apply text-sm leading-normal text-ink-soft;
 }
-.invalid {
-  color: var(--color-danger);
+
+/* Something the reader has to take in before acting. A rule down the left
+   in the accent rather than a filled panel: it has to be noticed without
+   competing with the address, which is the one thing on screen that is
+   allowed to be loud. */
+@utility warning {
+  @apply rounded-r-lg border-l-[3px] border-accent bg-[#fff5f3] px-4 py-3
+    text-sm leading-normal;
 }
+
+/* A section heading inside the panel. Small caps rather than a larger
+   size: these label regions of a column that is already narrow, and a
+   heading that competes with its own content is not a heading. */
+@utility panel-title {
+  @apply m-0 text-xs font-semibold tracking-[0.08em] text-ink-soft uppercase;
+}
+
+/* A card that hangs off a control -- the dropdown's list, the search
+   results. Deliberately the same card in both places, because they are the
+   same gesture and looked like two applications when one was drawn by the
+   operating system. */
+@utility sheet {
+  @apply z-40 rounded-lg border border-line-strong bg-card
+    shadow-[0_2px_8px_rgb(0_0_0/0.2)];
+}
+
+/* A row inside one. `focus:` here is React Aria's own focused state, set on
+   whichever row the arrow keys or the pointer are on -- so hovering no
+   longer has to write to the keyboard's cursor to look right. It is a
+   separate state from `focus-visible:`, which is the keyboard ring. */
+@utility sheet-option {
+  @apply flex min-h-11 cursor-pointer items-center rounded px-2.5 py-2
+    text-sm focus:bg-[#eef2f6] focus-visible:outline-2
+    focus-visible:-outline-offset-2 focus-visible:outline-accent-text;
+}
+
+
 
 /* The disclosure trigger. A `summary` came with a marker triangle the
    browser drew; this is a button, so the chevron is ours and turns. */
@@ -208,87 +230,6 @@ input:focus {
 .passphrase-summary[data-focus-visible] {
   outline: 2px solid var(--color-accent-text);
   outline-offset: -2px;
-}
-
-.passphrase .passphrase-summary {
-  font-size: 14px;
-  font-weight: 600;
-  padding: 4px 0;
-}
-
-.hint {
-  margin: 6px 0;
-  font-size: 13px;
-  color: var(--color-ink-soft);
-  line-height: 1.5;
-}
-
-button {
-  font: inherit;
-  font-weight: 600;
-  padding: 10px 16px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: var(--color-ink);
-  color: white;
-  cursor: pointer;
-}
-
-button:disabled {
-  /* Inactive controls are exempt from WCAG contrast, but 1.6:1 white-on-grey
-     was illegible, not just muted. This pair reads at 5.66:1. */
-  background: #e3e8ed;
-  color: #4c5b69;
-  cursor: not-allowed;
-}
-
-/* Secondary weight: this sits above "Open my map", which is the primary
-   action, but it must still read as an offer rather than as fine print. */
-.generate {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
-}
-
-.generate button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  background: transparent;
-  color: var(--color-ink);
-  border-color: var(--color-line);
-  padding: 8px 14px;
-}
-
-.generate button:hover:not(:disabled) {
-  background: #eef1f4;
-}
-
-.generate button:disabled {
-  background: transparent;
-  color: var(--color-ink-soft);
-}
-
-.generate .hint {
-  margin: 0;
-}
-
-.warning {
-  border-left: 3px solid var(--color-accent);
-  background: #fff5f3;
-  padding: 12px 14px;
-  border-radius: 0 8px 8px 0;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.fineprint {
-  margin: 0;
-  font-size: 12px;
-  color: var(--color-ink-soft);
-  line-height: 1.55;
 }
 
 /* ------------------------------------------------------------ the app */
@@ -559,34 +500,6 @@ button:disabled {
   user-select: none;
 }
 
-/* Icon buttons, against the panel rather than on a filled pill -- these sit
-   beside the one thing on screen that should draw the eye. */
-.icon {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border-radius: 8px;
-  border: 1px solid var(--color-line);
-  background: transparent;
-  color: var(--color-ink-soft);
-}
-
-.icon:hover {
-  color: var(--color-ink);
-  background: #eef1f4;
-}
-
-.copied {
-  margin: 6px 0 0;
-  min-height: 18px;
-  font-size: 12px;
-  color: var(--color-ok);
-}
-
 /* Coordinates get the address's own layout: values on the left, the eye and
    copy beside them. */
 .coords-row {
@@ -649,181 +562,6 @@ button:disabled {
   }
 }
 
-/* --------------------------------------------------- shared components */
-
-/* Visible to a screen reader, not to the eye. Used for labels that would be
-   redundant next to an icon but are the only name assistive technology gets. */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-
-/* 44px, which is the smallest target most touch guidance accepts. The icon
-   inside is 18px; the rest is the part a thumb needs and a mouse does not
-   notice. */
-.icon-button {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border-radius: 8px;
-  border: 1px solid var(--color-line);
-  background: transparent;
-  color: var(--color-ink-soft);
-}
-
-.icon-button:hover:not(:disabled) {
-  color: var(--color-ink);
-  background: #eef1f4;
-}
-
-.icon-button[aria-pressed="true"] {
-  color: var(--color-ink);
-  border-color: var(--color-ink-soft);
-}
-
-.tooltip {
-  max-width: 260px;
-  padding: 6px 9px;
-  border-radius: 6px;
-  background: var(--color-ink);
-  color: white;
-  font-size: 12px;
-  line-height: 1.4;
-  box-shadow: var(--shadow-card);
-  z-index: 40;
-}
-
-/* `fill` is an inherited SVG property, so setting it on the wrapper reaches
-   the path inside. React Aria stamps the side the tooltip actually landed on,
-   and the shape is drawn pointing DOWN, which is what a tooltip sitting above
-   its button needs -- the default placement, and the only case that needs no
-   rotation. The other three turn. Radix rotated its own arrow; this is the
-   part that moved out of the library and into here. */
-.tooltip-arrow {
-  fill: var(--color-ink);
-  line-height: 0;
-}
-.tooltip-arrow svg {
-  display: block;
-}
-.tooltip-arrow[data-placement="bottom"] svg {
-  transform: rotate(180deg);
-}
-.tooltip-arrow[data-placement="left"] svg {
-  transform: rotate(-90deg);
-}
-.tooltip-arrow[data-placement="right"] svg {
-  transform: rotate(90deg);
-}
-
-/* Site-wide notices. Full width, above everything, and part of the layout
-   rather than floating over it -- the map resizes around it instead of hiding
-   underneath. */
-.banner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  background: #fff8e6;
-  border-bottom: 1px solid #e8d9a8;
-  color: var(--color-warn);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.banner p {
-  margin: 0;
-  flex: 1;
-}
-
-/* --------------------------------------------------------------- modal */
-
-/* The lock confirmation. React Aria portals the overlay to the end of the
-   document and traps focus in it; what is left here is what it looks like. */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: rgb(15 23 32 / 0.45);
-}
-
-.modal {
-  width: min(440px, 100%);
-  max-height: 90vh;
-  overflow-y: auto;
-  background: var(--color-card);
-  border: 1px solid var(--color-line-strong);
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgb(0 0 0 / 0.3);
-}
-
-.modal-dialog {
-  padding: 20px;
-  outline: none;
-}
-
-.modal-dialog h2 {
-  margin: 0 0 10px;
-  font-size: 18px;
-}
-
-.modal-dialog p {
-  margin: 0 0 12px;
-  font-size: 14px;
-  line-height: 1.55;
-}
-
-/* Cancel first in the DOM, so it is the first thing Tab reaches and the
-   first thing a screen reader reads out of the pair -- and first on screen
-   too, with the destructive one last, where a pointer expects the action it
-   came to take. `row-reverse` was tried and does the opposite: it puts the
-   FIRST child on the right, which put "Lock the map" on the left and Cancel
-   under the thumb. */
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.modal-actions button {
-  min-height: 44px;
-  padding: 0 16px;
-  font-size: 14px;
-  border-radius: 8px;
-  border: 1px solid var(--color-line-strong);
-  background: var(--color-card);
-  color: var(--color-ink);
-  cursor: pointer;
-}
-
-.modal-actions button.danger {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: white;
-  font-weight: 600;
-}
-
-.modal-actions button[data-focus-visible] {
-  outline: 2px solid var(--color-accent-text);
-  outline-offset: 2px;
-}
-
 /* --------------------------------------------------- panel head actions */
 
 .panel-head-actions {
@@ -832,127 +570,11 @@ button:disabled {
   gap: 8px;
 }
 
-/* The tick after a copy. Green rather than the accent, because the accent
-   here means "this is the address" and this means "that worked". */
-.icon-button.copied {
-  color: #1a7f4b;
-  border-color: #1a7f4b;
-}
-
 /* The standing note about the phrase. Quieter than the gate's warning --
    it is permanent, and a permanent alarm stops being one. */
 .panel-foot .phrase-note {
   margin: 0 0 10px;
   font-size: 12px;
-}
-
-/* ------------------------------------------------------------ dropdown */
-
-/* The shared dropdown (components/Dropdown.tsx), which replaced two native
-   selects. The closed control keeps the sizing the native one was given --
-   44px so it is a comfortable touch target rather than a 22px system
-   control -- and the open list is deliberately the same card as the search
-   results below, because they are the same gesture and looked like two
-   different applications when one was drawn by the OS. */
-.dropdown {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.dropdown-label {
-  font-size: 13px;
-  color: var(--color-ink-soft);
-}
-
-.dropdown-button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-  font: inherit;
-  font-size: 13px;
-  color: var(--color-ink);
-  background: var(--color-card);
-  border: 1px solid var(--color-line-strong);
-  border-radius: 8px;
-  min-height: 44px;
-  padding: 0 8px;
-  max-width: 100%;
-  cursor: pointer;
-  text-align: left;
-}
-
-.dropdown-button svg {
-  flex: none;
-  color: var(--color-ink-soft);
-}
-
-.dropdown-button[data-focus-visible] {
-  outline: 2px solid var(--color-accent-text);
-  outline-offset: 1px;
-}
-
-.dropdown-button[data-disabled] {
-  opacity: 0.55;
-  cursor: default;
-}
-
-/* Same card as `.place-results`. Sized to the control it hangs from, which
-   is the variable React Aria sets on a popover for exactly this. */
-.dropdown-popover {
-  width: var(--trigger-width);
-  min-width: fit-content;
-  z-index: 40;
-  background: var(--color-card);
-  border: 1px solid var(--color-line-strong);
-  border-radius: 0.5rem;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
-}
-
-.dropdown-listbox {
-  display: block;
-  padding: 0.25rem;
-  max-height: 18rem;
-  overflow-y: auto;
-  outline: none;
-}
-
-.dropdown-option {
-  display: flex;
-  align-items: center;
-  min-height: 2.75rem;
-  padding: 0.5rem 0.6rem;
-  border-radius: 0.35rem;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.dropdown-option[data-focused] {
-  background: #eef2f6;
-}
-
-.dropdown-option[data-selected] {
-  font-weight: 600;
-}
-
-.dropdown-option[data-focus-visible] {
-  outline: 2px solid var(--color-accent-text);
-  outline-offset: -2px;
-}
-
-.language {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--color-ink-soft);
-}
-
-.gate-language {
-  margin-top: 4px;
 }
 
 /* Marks the square Enter will take. Small, low-contrast, and pointer-events
@@ -1194,15 +816,6 @@ button:disabled {
   min-height: 44px;
 }
 
-.banner-action {
-  flex: none;
-  font-size: 13px;
-  padding: 6px 12px;
-  min-height: 40px;
-  background: var(--color-warn);
-  color: white;
-}
-
 /* Downloaded maps: one row per recorded region, its age, its two verbs. */
 .ledger-rows {
   list-style: none;
@@ -1313,13 +926,6 @@ button:disabled {
     /* biome-ignore lint/complexity/noImportantStyles: as above */
     transition-duration: 0.01ms !important;
   }
-}
-
-/* Browser-default placeholder grey is marginal against the tinted input
-   fill and varies by engine; pin it to the audited hint colour. */
-::placeholder {
-  color: var(--color-ink-soft);
-  opacity: 1;
 }
 
 /* Place search, over the map's top-left. Sized so a result list does not
