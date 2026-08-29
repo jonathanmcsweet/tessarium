@@ -35,15 +35,18 @@ const COARSE = 64;
 const TARGET = "absolute inset-y-0 right-[var(--panel-offset,340px)] z-6 w-6 "
   + "cursor-col-resize touch-none border-0 p-0 outline-none max-drawer:hidden";
 
-/* The part that is drawn: a hairline down the middle of that width, so the
-   handle reads as the panel's border rather than as a gutter. It thickens and
-   takes the accent on hover and on keyboard focus -- there is no outline,
-   because the handle IS a line and the line is what answers. */
-const LINE = "before:absolute before:inset-y-0 before:left-1/2 before:w-px "
-  + "before:-translate-x-1/2 before:bg-line before:content-[''] "
-  + "before:transition-[width,background-color] before:duration-100 "
-  + "hover:before:w-[3px] hover:before:bg-accent "
-  + "focus-visible:before:w-[3px] focus-visible:before:bg-accent";
+/* The part that is drawn: a short grab handle at the middle of the edge,
+   not a line down the whole of it. A full-height rule reads as a second
+   border beside the panel's own and says nothing about being draggable; a
+   stub in the middle is the affordance every resizable panel uses, and it
+   is where a hand reaches anyway. It takes the accent on hover and on
+   keyboard focus -- there is no outline, because the handle IS the mark and
+   the mark is what answers. */
+const HANDLE = "before:absolute before:top-1/2 before:left-1/2 before:h-8 "
+  + "before:w-1 before:-translate-x-1/2 before:-translate-y-1/2 "
+  + "before:rounded-full before:bg-line-strong before:content-[''] "
+  + "before:transition-colors before:duration-100 "
+  + "hover:before:bg-accent focus-visible:before:bg-accent";
 
 export function PanelResizer() {
   const panelWidth = useAppStore((s) => s.panelWidth);
@@ -80,7 +83,7 @@ export function PanelResizer() {
     <div
       {...moveProps}
       onKeyDown={onKeyDown}
-      className={`panel-resizer ${TARGET} ${LINE}`}
+      className={`panel-resizer ${TARGET} ${HANDLE}`}
       role="separator"
       tabIndex={0}
       aria-orientation="vertical"

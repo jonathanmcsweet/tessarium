@@ -21,6 +21,7 @@ import { IconButton } from "./IconButton";
 import { LanguagePicker } from "./LanguagePicker";
 import { LockDialog } from "./LockDialog";
 import { MapProgress } from "./MapProgress";
+import { SettingsMenu } from "./SettingsMenu";
 
 /* Same shape as an address, so the panel does not change width when it is
    concealed and the layout does not jump on every toggle. */
@@ -101,9 +102,19 @@ export function AddressPanel() {
 
   return (
     <aside className={`panel ${DRAWER} ${panelCollapsed ? SHUT : ""}`}>
-      <header className="panel-head flex items-center justify-between border-b border-line px-4.5 py-3.5">
-        <span className="font-bold tracking-tight">{m.app_name()}</span>
-        <div className="flex items-center gap-2">
+      {
+        /* Wraps, because it has to. With a square selected the row is five
+          controls -- reveal, downloads, settings, lock, hide -- and at the
+          drawer's default 340px they need more room than there is. The
+          alternative was clipping one off the right edge, where nothing
+          says it is there. The brand gives way first and the row drops to
+          its own line only when shrinking is not enough. */
+      }
+      <header className="panel-head flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-line px-4.5 py-3.5">
+        <span className="min-w-0 shrink truncate font-bold tracking-tight">
+          {m.app_name()}
+        </span>
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {
             /* One press for everything hidden in this panel. Only shown with
               a selection, because with nothing selected there is nothing
@@ -136,6 +147,7 @@ export function AddressPanel() {
             pressed={downloadOpen}
             onClick={() => (downloadOpen ? closeDownload() : openDownload())}
           />
+          <SettingsMenu />
           <LockDialog
             onConfirm={() => {
               lock.mutate();

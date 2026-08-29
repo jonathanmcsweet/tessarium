@@ -158,6 +158,14 @@ const LedgerEntry = z.object({
   bytes: z.number().int().nonnegative(),
   regions: z.number().int().positive(),
   max_zoom: z.number().int().nonnegative(),
+  /* The world overview, which is the ground under every region rather than
+     a place of its own. Since downloads split into one file per region it
+     has its own archive and writes no record, so nothing made today is
+     flagged here -- but an install from before that split has it inside the
+     old merged map.pmtiles as an ordinary entry, under whatever the picker
+     called it. The server decides this from what the entry holds, not from
+     its name, and says so here rather than leaving the page to guess. */
+  overview: z.boolean(),
 });
 export type LedgerEntry = z.infer<typeof LedgerEntry>;
 const Ledger = z.object({

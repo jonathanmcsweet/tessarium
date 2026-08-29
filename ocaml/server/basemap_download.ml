@@ -1341,6 +1341,24 @@ let run_remove t ~fs ~basemap_dir ~id =
     Eio.Switch.run @@ fun sw ->
     match home_of ~sw ~fs ~basemap_dir ~id with
     | None -> failwith "no such downloaded map"
+    (* Ahead of both branches below, because both destroy something and the
+       overview must survive either. Since the split it has its own file and
+       no record, so nothing made today reaches here -- but an install from
+       before it has the overview INSIDE map.pmtiles as an ordinary entry,
+       which is a real record in the real merged archive and looks like a
+       region from every angle except what it holds. Pruning it takes the
+       tiles the whole map falls back to, everywhere, and on the machine
+       with no internet there is no getting them back.
+
+       Both halves are needed. Spanning the planet alone is not it: a whole
+       world asked for AS DETAIL goes to a file of its own, sits beside the
+       overview rather than being it, and is the user's to remove.
+       [Ledger.spans_world] reads the regions, never the name -- the row
+       this turned up on was called "Map view". *)
+    | Some (file, e) when file = base_file && Ledger.spans_world e ->
+        failwith
+          "the world overview is the map underneath every region and cannot \
+           be removed"
     (* Not [file <> base_file]. The difference is the world overview: a
        negative test would send it down whichever branch it was not, and
        both branches destroy something. [Tile_set.is_region] is the one
@@ -2383,6 +2401,14 @@ let ledger_json ~fs ~basemap_dir =
                      ("source", `String e.Ledger.source);
                      ("bytes", `Int e.Ledger.bytes);
                      ("regions", `Int (List.length e.Ledger.regions));
+                     (* The row is real and its tiles are really there, so
+                        it is listed and can still be brought up to date --
+                        but it is the ground under everything else, and the
+                        UI must not offer to take it away. Sent as a fact
+                        about the entry rather than left for the page to
+                        work out, so the two locks agree on one answer. *)
+                     ("overview",
+                       `Bool (file = base_file && Ledger.spans_world e));
                      ( "max_zoom",
                        `Int
                          (List.fold_left

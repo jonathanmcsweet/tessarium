@@ -207,6 +207,27 @@ await page.waitForFunction(
   null,
   { timeout: 30_000 },
 );
+/* The one secret this application handles, in a field a password manager
+   will recognise. It was a textarea with autocomplete off, so nothing ever
+   offered to remember the string that cannot be recovered if it is lost.
+   Masked by default, because it is typed on whatever screen is to hand. */
+check(
+  "the phrase is a password field a manager can save",
+  (await page.locator("#phrase").getAttribute("type")) === "password"
+    && (await page.locator("#phrase").getAttribute("autocomplete"))
+      === "current-password",
+);
+await page.locator(".gate-phrase-toggle").click();
+check(
+  "and reveals on demand, because 24 words cannot be proofread as bullets",
+  (await page.locator("#phrase").getAttribute("type")) === "text",
+);
+await page.locator(".gate-phrase-toggle").click();
+check(
+  "and hides again",
+  (await page.locator("#phrase").getAttribute("type")) === "password",
+);
+
 check(
   "short phrase is rejected",
   (await page.locator(".phrase-status").textContent()).includes(
@@ -881,6 +902,26 @@ check(
   "and offers a way back",
   (await page.locator(".panel-reopen button").count()) === 1,
 );
+/* And that way back must not be sitting on top of MapLibre's own controls.
+
+   With the drawer shut there is nothing covering the right edge, so
+   MapLibre puts its zoom and locate buttons exactly where the reopen tab
+   is. The rule that keeps that corner clear has to outrank MapLibre's own
+   stylesheet, which loads after ours -- so this is geometry, not a class
+   check: a single-class rule looks perfectly correct in the source and
+   does nothing in the page. */
+const boxesOverlap = await page.evaluate(() => {
+  const tab = document.querySelector(".panel-reopen")?.getBoundingClientRect();
+  const ctrl = document.querySelector(".map-wrap .maplibregl-ctrl-top-right")
+    ?.getBoundingClientRect();
+  if (!tab || !ctrl) return null;
+  return !(tab.right <= ctrl.left || ctrl.right <= tab.left
+    || tab.bottom <= ctrl.top || ctrl.bottom <= tab.top);
+});
+check(
+  "the reopen tab does not sit on top of the map's own controls",
+  boxesOverlap === false,
+);
 await page.locator(".panel-reopen button").click();
 const reopened = await page
   .waitForFunction(
@@ -890,6 +931,55 @@ const reopened = await page
   )
   .then(() => true, () => false);
 check("and reopens from it", reopened);
+
+/* ------------------------------------- appearance -------------------------
+
+   Three states, not two: "system" is the absence of a choice and has to stay
+   distinguishable from having chosen light, or a device that turns dark at
+   dusk stops being followed. The attribute is what says which, and the
+   painted colour is what proves the attribute reached anything. */
+const panelInk = () =>
+  page.locator(".panel").evaluate((e) => getComputedStyle(e).backgroundColor);
+const chosen = () =>
+  page.evaluate(() => document.documentElement.getAttribute("data-theme"));
+
+check("nobody has chosen a theme to begin with", (await chosen()) === null);
+const lightPanel = await panelInk();
+
+const pickTheme = async (value) => {
+  await page.locator(".panel-settings").click();
+  await page.locator(".settings-theme .dropdown-button").click();
+  await page.locator(`.dropdown-option[data-value="${value}"]`).click();
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(
+    (want) =>
+      (document.documentElement.getAttribute("data-theme") ?? "system")
+        === want,
+    value,
+    { timeout: 10_000 },
+  );
+};
+
+await pickTheme("dark");
+check("choosing dark says so on the root", (await chosen()) === "dark");
+const darkPanel = await panelInk();
+check(
+  `and repaints the panel (${lightPanel} -> ${darkPanel})`,
+  darkPanel !== lightPanel,
+);
+check(
+  "and tells the browser to draw its own chrome dark",
+  (await page.evaluate(() =>
+    getComputedStyle(document.documentElement).colorScheme
+  )) === "dark",
+);
+
+await pickTheme("system");
+check(
+  "and going back to the device clears the choice",
+  (await chosen()) === null,
+);
+check("which restores the painted colour", (await panelInk()) === lightPanel);
 
 /* An overview and no region is the state every fresh install starts in, and
    two things have to be true of it at once. */
@@ -949,6 +1039,15 @@ await page.waitForSelector(".download-card", { timeout: 10_000 });
 check(
   "with maps on disk the world offer is gone",
   (await page.locator(".download-world").count()) === 0,
+);
+/* The world overview is the ground under every region, and nothing may
+   offer to take it away. It has its own file and writes no record, so it
+   should not be in this list at all -- and the check is on the list rather
+   than on the server's refusal because the two locks are separate and an
+   absent row is the one that can be deleted by accident. */
+check(
+  "the world download left no row in the downloaded-maps list",
+  (await page.locator(".ledger-row").count()) === 0,
 );
 const viewButton = page.locator(".download-view button");
 await page.waitForFunction(
@@ -1171,6 +1270,35 @@ await page.waitForFunction(
   { timeout: 30_000 },
 );
 check("picking a country by name yields a real estimate", true);
+
+/* The box sits BESIDE its label, not above it.
+
+   Layout is not usually worth an end-to-end check, but this one broke
+   silently and stayed broken: `.download-card label` set `display: block`
+   at two-class specificity and outranked `.region-check`'s own `flex`, so
+   every checkbox in the picker stacked over its text and nothing failed.
+   Geometry is the only thing that catches that -- a class-name assertion
+   passes while the rule that beats it is somewhere else entirely. */
+const boxBeside = await ukEntry
+  .locator(".region-check")
+  .filter({ hasText: "The whole country" })
+  .evaluate((label) => {
+    const box = label.querySelector(".checkbox-box");
+    const text = [...label.children].find((c) =>
+      c !== box && (c.textContent ?? "").trim() !== ""
+    );
+    if (!box || !text) return null;
+    const b = box.getBoundingClientRect();
+    const t = text.getBoundingClientRect();
+    return {
+      leftOf: b.right <= t.left,
+      sameLine: b.top < t.bottom && t.top < b.bottom,
+    };
+  });
+check(
+  "the checkbox sits to the left of its label, on the same line",
+  boxBeside?.leftOf === true && boxBeside.sameLine === true,
+);
 const priceOf = async () => {
   const hint = await page
     .locator(".download-region-offer .hint")

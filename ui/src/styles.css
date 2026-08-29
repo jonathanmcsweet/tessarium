@@ -58,8 +58,37 @@
      selection overlay, borders) keep --color-accent. */
   --color-accent-text: #d13a22;
   --color-ok: #0f7b4f;
+  /* The tick after a copy is darker than the check-passed text: it lands on
+     a button rather than in a sentence, and has to hold 3:1 as a border as
+     well as 4.5:1 as a glyph. */
+  --color-ok-strong: #1a7f4b;
   --color-warn: #8a5a00;
   --color-danger: #b4232a;
+
+  /* Text on a filled primary button. Not white -- white is only right while
+     --color-ink is dark, and in the dark theme it is not. */
+  --color-on-ink: #ffffff;
+
+  /* Inactive controls are exempt from WCAG contrast, but 1.6:1 white on
+     grey was illegible rather than merely muted. This pair reads 5.66:1. */
+  --color-disabled: #e3e8ed;
+  --color-on-disabled: #4c5b69;
+
+  /* The wash under a pointer: hovered buttons, and the row the arrow keys
+     are on in a listbox. One value, where there used to be two a shade
+     apart that nobody could have told from each other. */
+  --color-hover: #eef1f4;
+
+  /* Something the reader has to take in before acting: the gate's
+     provenance warning, the standing note about the phrase. */
+  --color-alert: #fff5f3;
+
+  /* Site-wide notices, and the quieter version of the same thing that sits
+     over the map. Both carry --color-warn as their text. */
+  --color-notice: #fff8e6;
+  --color-notice-line: #e8d9a8;
+  --color-notice-soft: #fffaf0;
+  --color-notice-soft-line: #e6d3a3;
   /* The focus ring. One colour for every control in the app, because a
      focus ring that changes appearance between controls is a focus ring
      people stop reading. */
@@ -75,8 +104,89 @@
   --breakpoint-drawer: 52rem;
 }
 
+/* ------------------------------------------------------------ the dark set
+
+   Written twice on purpose, and the duplication is guarded rather than
+   tolerated: CSS cannot say "the device prefers dark OR the user chose
+   dark" in one selector, because one half is a media query and the other is
+   an attribute. So the palette appears under both, and test/contrast.mjs
+   fails if the two blocks ever stop defining the same tokens.
+
+   The media block is guarded by `:not([data-theme="light"])` so that
+   choosing light on a dark device actually gives light. The attribute block
+   needs no such guard -- it only exists because somebody chose.
+
+   Every pair here is audited by test/contrast.mjs against the same
+   thresholds as the light set. A theme that ships untested contrast is a
+   theme that ships unreadable text to whoever turns it on. */
+
 :root {
   color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --color-ink: #e6ecf2;
+    --color-ink-soft: #a3b3c2;
+    --color-line: #28323d;
+    --color-line-strong: #7d8d9c;
+    --color-bg: #0c1319;
+    --color-card: #151f28;
+    --color-field: #0f1820;
+    --color-accent: #ff6a4d;
+    --color-accent-text: #ff8f77;
+    --color-ok: #4fc38a;
+    --color-ok-strong: #4fc38a;
+    --color-warn: #e5b25c;
+    --color-danger: #ff8080;
+    --color-focus: #79aee8;
+    --color-on-ink: #0c1319;
+    --color-disabled: #232f3b;
+    --color-on-disabled: #8d9dac;
+    --color-hover: #1e2a35;
+    --color-alert: #2a1a17;
+    --color-notice: #2a2313;
+    --color-notice-line: #4a3f22;
+    --color-notice-soft: #241f14;
+    --color-notice-soft-line: #463c22;
+
+    /* A shadow is a shape cut out of the light behind it. On a dark ground
+       there is no light behind it, so the same rgba reads as nothing at
+       all; it has to be darker than the surface it falls on. */
+    --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-ink: #e6ecf2;
+  --color-ink-soft: #a3b3c2;
+  --color-line: #28323d;
+  --color-line-strong: #7d8d9c;
+  --color-bg: #0c1319;
+  --color-card: #151f28;
+  --color-field: #0f1820;
+  --color-accent: #ff6a4d;
+  --color-accent-text: #ff8f77;
+  --color-ok: #4fc38a;
+  --color-ok-strong: #4fc38a;
+  --color-warn: #e5b25c;
+  --color-danger: #ff8080;
+  --color-focus: #79aee8;
+  --color-on-ink: #0c1319;
+  --color-disabled: #232f3b;
+  --color-on-disabled: #8d9dac;
+  --color-hover: #1e2a35;
+  --color-alert: #2a1a17;
+  --color-notice: #2a2313;
+  --color-notice-line: #4a3f22;
+  --color-notice-soft: #241f14;
+  --color-notice-soft-line: #463c22;
+
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
 }
 
 html,
@@ -134,14 +244,14 @@ code {
 
 /* The one action a screen is asking for. */
 @utility btn-primary {
-  @apply bg-ink text-white
-    disabled:cursor-not-allowed disabled:bg-[#e3e8ed] disabled:text-[#4c5b69];
+  @apply bg-ink text-on-ink
+    disabled:cursor-not-allowed disabled:bg-disabled disabled:text-on-disabled;
 }
 
 /* An offer rather than an instruction: still a real button, not fine
    print. Every secondary control in the application is this one. */
 @utility btn-quiet {
-  @apply border-line bg-card text-ink hover:not-disabled:bg-[#eef1f4]
+  @apply border-line bg-card text-ink hover:not-disabled:bg-hover
     disabled:cursor-not-allowed disabled:text-ink-soft;
 }
 
@@ -183,7 +293,7 @@ code {
    competing with the address, which is the one thing on screen that is
    allowed to be loud. */
 @utility warning {
-  @apply rounded-r-lg border-l-4 border-accent bg-[#fff5f3] px-4 py-3
+  @apply rounded-r-lg border-l-4 border-accent bg-alert px-4 py-3
     text-sm leading-normal;
 }
 
@@ -209,7 +319,7 @@ code {
    separate state from `focus-visible:`, which is the keyboard ring. */
 @utility sheet-option {
   @apply flex min-h-11 cursor-pointer items-center rounded px-2.5 py-2
-    text-sm focus:bg-[#eef2f6] focus-visible:outline-2
+    text-sm focus:bg-hover focus-visible:outline-2
     focus-visible:-outline-offset-2 focus-visible:outline-accent-text;
 }
 
@@ -248,13 +358,21 @@ code {
    and the map is the full width of the shell -- so without this they sit
    UNDER the drawer. They track the covered width instead, and slide with it.
 
-   Not `!important` and not a deep selector: MapLibre sets `right: 0` on
-   these in its own stylesheet, and ours loads after it for the same reason
-   documented above. The elements belong to MapLibre, so there is nothing of
-   ours to put a class on. */
-.maplibregl-ctrl-top-right,
-.maplibregl-ctrl-bottom-right {
-  right: var(--panel-offset, 340px);
+   Two classes, and the second one is ours: MapLibre sets `right: 0` on
+   these from a stylesheet that loads AFTER this file, for the reason
+   documented above, so a single-class rule here loses the tie and does
+   nothing. It did nothing for a while -- the controls sat underneath the
+   drawer, and when the drawer was shut they sat underneath the one button
+   that brings it back. `.map-wrap` is the container this application owns,
+   which is what makes the rule outrank theirs whatever the load order. */
+.map-wrap .maplibregl-ctrl-top-right,
+.map-wrap .maplibregl-ctrl-bottom-right {
+  /* Never less than the reopen tab's own width. With the drawer shut
+     --panel-offset is zero, and these slid back under the one control that
+     brings the drawer back -- the zoom buttons and the tab were stacked on
+     the same corner. The floor keeps that corner clear whatever the drawer
+     is doing. */
+  right: max(var(--panel-offset, 340px), 3.5rem);
   transition: right 180ms ease;
 }
 

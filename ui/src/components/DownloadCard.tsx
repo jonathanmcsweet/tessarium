@@ -73,7 +73,7 @@ import { IconButton } from "./IconButton";
    fills it. The tick inside is scaled to nothing until then rather than
    mounted and unmounted, so it cannot reflow the row. */
 const BOX = "checkbox-box flex size-4.5 flex-none items-center justify-center "
-  + "rounded border border-line-strong bg-card text-white "
+  + "rounded border border-line-strong bg-card text-on-ink "
   + "group-selected/check:border-accent group-selected/check:bg-accent "
   + "[&>svg]:scale-0 group-selected/check:[&>svg]:scale-100";
 
@@ -497,6 +497,14 @@ function LedgerRow({ entry, days, busy }: {
           {m.map_ledger_update()}
         </button>
         {
+          /* Nothing to carry. Every package ships the world overview --
+            tools/package.sh, both the .deb and the .rpm, and the offline
+            bundle all put one in basemap/ -- so the machine this file would
+            be walked over to already has it. Exporting it would be copying
+            a gigabyte-scale file onto a USB stick to hand someone something
+            they were installed with. Update stays: deepening the overview
+            is the one thing worth doing to it. */
+          !entry.overview
           /* A link, not a button, when the region has a file of its own --
              which is every region downloaded since downloads stopped
              merging. There is nothing to build: the file the download wrote
@@ -506,7 +514,7 @@ function LedgerRow({ entry, days, busy }: {
              A region still inside the old merged archive keeps the button.
              That one really does have to be extracted first, and the wait
              is the extraction. */
-          entry.file
+          && (entry.file
             ? (
               <a
                 className={`button-link ledger-export ${LINK_BUTTON}`}
@@ -526,19 +534,30 @@ function LedgerRow({ entry, days, busy }: {
               >
                 {m.map_export_action()}
               </button>
-            )
+            ))
         }
-        <button
-          type="button"
-          className="ledger-remove btn btn-quiet border-line-strong"
-          onClick={() => {
-            if (!confirming) setConfirming(true);
-            else remove.mutate(entry.id, loudly);
-          }}
-          disabled={busy || update.isPending || remove.isPending}
-        >
-          {confirming ? m.map_ledger_confirm() : m.map_ledger_remove()}
-        </button>
+        {
+          /* No Remove on the overview. It is the map underneath every
+            region -- what draws wherever detail was never fetched -- so
+            taking it away empties the whole world rather than one place,
+            and on the machine this is all for there is no getting it back.
+            Update stays, because deepening it is the one thing worth doing
+            to it. The server refuses as well; this is the half that keeps
+            the button from being there to press. */
+          !entry.overview && (
+            <button
+              type="button"
+              className="ledger-remove btn btn-quiet border-line-strong"
+              onClick={() => {
+                if (!confirming) setConfirming(true);
+                else remove.mutate(entry.id, loudly);
+              }}
+              disabled={busy || update.isPending || remove.isPending}
+            >
+              {confirming ? m.map_ledger_confirm() : m.map_ledger_remove()}
+            </button>
+          )
+        }
       </div>
     </li>
   );

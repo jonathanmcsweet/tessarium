@@ -34,6 +34,7 @@ import { sayError } from "../core/refusal";
 import { formatBytes, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
+import { useResolvedTheme } from "../theme";
 import { toastError } from "../toast";
 import { PlaceSearch } from "./PlaceSearch";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -97,7 +98,10 @@ const emptyGeoJson = {
    cache and the main one -- and a missing tile is a quiet 204 instead of a
    logged error. The version number lands in the tile URL as a query string
    so MapLibre's per-URL caching cannot keep old tiles over new bytes. */
-const buildStyle = (version: number): maplibregl.StyleSpecification => ({
+const buildStyle = (
+  version: number,
+  scheme: Scheme,
+): maplibregl.StyleSpecification => ({
   version: 8,
   /* Everything the style needs is served from this origin. A style that
      reaches a CDN for glyphs looks fine online and renders unlabelled the
@@ -151,7 +155,7 @@ const buildStyle = (version: number): maplibregl.StyleSpecification => ({
   /* Place names follow the interface language, so switching to French does
      not leave an English map under translated controls. Protomaps wants a
      bare language subtag, not the full locale. */
-  layers: basemapLayers(),
+  layers: basemapLayers(scheme),
 });
 
 /* The floor's layers, then the detail's, then the app's own on top.
@@ -175,9 +179,15 @@ const buildStyle = (version: number): maplibregl.StyleSpecification => ({
    That makes the ordering load-bearing: move a floor layer above the
    detail's ground and the duplication becomes real, with nothing left to
    prevent it. */
-const basemapLayers = (): maplibregl.LayerSpecification[] => {
+const basemapLayers = (
+  scheme: Scheme,
+): maplibregl.LayerSpecification[] => {
   const lang = getLocale().split("-")[0] ?? "en";
-  const flavor = namedFlavor("light");
+  /* Protomaps ships a flavour per scheme, so a dark application does not
+     have to sit next to a white map. Same generator, same layer ids -- only
+     the paint differs -- which is why swapping it is a style rebuild and
+     not a special case anywhere else. */
+  const flavor = namedFlavor(scheme);
   const floor = layers(FLOOR_SOURCE, flavor, { lang })
     .filter((layer) => layer.type !== "background")
     .map((layer) => ({ ...layer, id: `${FLOOR_SOURCE}-${layer.id}` }));
@@ -194,7 +204,34 @@ const basemapLayers = (): maplibregl.LayerSpecification[] => {
 
 /* The grid and selection overlay, added on load and re-added after every
    style swap -- setStyle discards custom sources and layers. */
-const addOverlay = (map: maplibregl.Map) => {
+/* The grid and the coverage wash are drawn by this application rather than
+   by the basemap, so they do not come with the flavour and have to be told
+   which ground they are landing on. Dark values are lighter than the map,
+   the way the light ones are darker than it: the point of both is to be
+   read against the cartography, not to be a particular colour. */
+type Scheme = "light" | "dark";
+
+const OVERLAY: Record<Scheme, {
+  blank: string;
+  blankOpacity: number;
+  edge: string;
+  grid: string;
+}> = {
+  light: {
+    blank: "#41505f",
+    blankOpacity: 0.42,
+    edge: "#5f7183",
+    grid: "#1b3a5c",
+  },
+  dark: {
+    blank: "#9fb3c7",
+    blankOpacity: 0.26,
+    edge: "#b8c9da",
+    grid: "#8fc4ff",
+  },
+};
+
+const addOverlay = (map: maplibregl.Map, scheme: Scheme) => {
   /* Adding twice throws. Cannot happen today, but the callers are event
      listeners around a style swap whose timing MapLibre does not promise. */
   if (map.getSource("coverage")) return;
@@ -218,14 +255,17 @@ const addOverlay = (map: maplibregl.Map) => {
        map was invisible over a blank one -- 1.2:1 against the background,
        which is no signal at all. What keeps it off a drawn map is the data
        it is given, not this. */
-    paint: { "fill-color": "#41505f", "fill-opacity": 0.42 },
+    paint: {
+      "fill-color": OVERLAY[scheme].blank,
+      "fill-opacity": OVERLAY[scheme].blankOpacity,
+    },
   });
   map.addLayer({
     id: "coverage-line",
     type: "line",
     source: "coverage-edge",
     paint: {
-      "line-color": "#5f7183",
+      "line-color": OVERLAY[scheme].edge,
       "line-width": 1.5,
       "line-opacity": 0.85,
     },
@@ -236,7 +276,7 @@ const addOverlay = (map: maplibregl.Map) => {
     type: "line",
     source: "grid",
     paint: {
-      "line-color": "#1b3a5c",
+      "line-color": OVERLAY[scheme].grid,
       "line-width": 0.6,
       /* Fades in as the squares become large enough to aim at, rather
          than appearing abruptly at a threshold. */
@@ -417,6 +457,14 @@ export function MapView() {
   const [styleEpoch, setStyleEpoch] = useState(0);
   const styleVersion = useRef(0);
 
+  /* The scheme the style is built from. Mirrored into a ref because the
+     style is built inside effects and callbacks that must not re-run when
+     it changes -- the rebuild below is what handles a change, once, rather
+     than every listener re-registering. */
+  const scheme = useResolvedTheme(useAppStore((s) => s.theme));
+  const schemeRef = useRef(scheme);
+  schemeRef.current = scheme;
+
   const client = useQueryClient();
   const selection = useAppStore((s) => s.selection);
   const select = useAppStore((s) => s.select);
@@ -438,7 +486,7 @@ export function MapView() {
 
     const map = new maplibregl.Map({
       container: container.current,
-      style: buildStyle(styleVersion.current),
+      style: buildStyle(styleVersion.current, schemeRef.current),
       center: [-0.1278, 51.5074],
       zoom: 19,
       maxZoom: 23,
@@ -463,7 +511,7 @@ export function MapView() {
     );
 
     map.on("load", () => {
-      addOverlay(map);
+      addOverlay(map, schemeRef.current);
       setZoom(map.getZoom());
       setReady(true);
     });
@@ -735,10 +783,10 @@ export function MapView() {
        fails, MapLibre rebuilds the style from scratch and the event fires
        asynchronously instead; registering first serves both timings. */
     map.once("style.load", () => {
-      addOverlay(map);
+      addOverlay(map, schemeRef.current);
       setStyleEpoch((epoch) => epoch + 1);
     });
-    map.setStyle(buildStyle(styleVersion.current));
+    map.setStyle(buildStyle(styleVersion.current, schemeRef.current));
   }, []);
 
   /* The map's labels are asked for in the interface language, and
@@ -758,6 +806,18 @@ export function MapView() {
     styledFor.current = locale;
     rebuildBasemap();
   }, [locale, ready, rebuildBasemap]);
+
+  /* Same shape for the colour scheme, and for the same reason: the flavour
+     and the overlay's own colours are read when the style is built, so a
+     theme chosen afterwards -- or a device that turned dark at dusk --
+     needs the style rebuilt to reach the map. Skipped on the first run,
+     where the map was created with the current scheme already. */
+  const styledAs = useRef(scheme);
+  useEffect(() => {
+    if (!ready || styledAs.current === scheme) return;
+    styledAs.current = scheme;
+    rebuildBasemap();
+  }, [scheme, ready, rebuildBasemap]);
 
   /* ------------------------------------------------------ browse cache */
 
@@ -1230,7 +1290,7 @@ export function MapView() {
         )}
         {truncated && (
           <div
-            className={`${NOTE} warn border-[#e6d3a3] bg-[#fffaf0] text-warn`}
+            className={`${NOTE} warn border-notice-soft-line bg-notice-soft text-warn`}
             role="status"
           >
             {m.map_too_many_squares()}

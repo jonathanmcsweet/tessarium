@@ -17,7 +17,7 @@
    phrase goes straight to the worker, which keeps the derived key and returns
    only whether it worked. */
 
-import { ChevronRight, Dices } from "lucide-react";
+import { ChevronRight, Dices, Eye, EyeOff } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Button, Disclosure, DisclosurePanel } from "react-aria-components";
 import { useBackendDown } from "../core/health";
@@ -30,6 +30,7 @@ import { sayRefusal } from "../core/refusal";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
 import { toastError } from "../toast";
+import { IconButton } from "./IconButton";
 import { LanguagePicker } from "./LanguagePicker";
 import { loadMapView } from "./mapChunk";
 
@@ -41,7 +42,14 @@ export function PhraseEntry() {
   /* Held so the "write this down" notice disappears once the user edits the
      words, rather than lingering over a phrase we did not generate. */
   const [generated, setGenerated] = useState<string | null>(null);
-  const input = useRef<HTMLTextAreaElement>(null);
+  /* Masked by default, because this is the highest-value secret the
+     application handles and it is typed on whatever screen the user happens
+     to be in front of. Revealed on demand -- 24 words cannot be proofread
+     through bullets -- and revealed automatically when the phrase was
+     GENERATED, since the next thing that screen asks is that you write it
+     down, and a screenful of dots cannot be written down. */
+  const [shown, setShown] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
 
   const setUnlocked = useAppStore((s) => s.setUnlocked);
   const generate = useGeneratePhrase();
@@ -89,6 +97,9 @@ export function PhraseEntry() {
       onSuccess: ({ mnemonic }) => {
         setPhrase(mnemonic);
         setGenerated(mnemonic);
+        /* The screen is about to say "write these down". It has to show
+           them to be able to ask that. */
+        setShown(true);
         input.current?.focus();
       },
       onError: () => toastError(m.gate_generate_failed()),
@@ -144,26 +155,58 @@ export function PhraseEntry() {
         <label htmlFor="phrase" className="text-sm font-semibold">
           {m.gate_phrase_label()}
         </label>
-        <textarea
-          id="phrase"
-          className="field resize-y font-mono"
-          ref={input}
-          rows={4}
-          spellCheck={false}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          /* A generated phrase arrives a moment after the click and replaces
-             whatever is in this field. Read-only for that moment, so it can
-             never replace something the user typed in the meantime.
-             Read-only rather than disabled: focus and selection survive. */
-          readOnly={generate.isPending}
-          aria-invalid={wordCount > 0 && validationError !== null}
-          aria-describedby="phrase-status"
-          placeholder={m.gate_phrase_placeholder()}
-          value={phrase}
-          onChange={(e) => setPhrase(e.target.value)}
-        />
+        {
+          /* A real password field, in a real form, with a real
+            `autocomplete` -- which is what a password manager needs before
+            it will offer to save anything. It was a textarea with
+            autocomplete off, and the browser did as it was told: nothing
+            ever offered to remember the one string that cannot be
+            recovered if it is lost.
+
+            The cost is that 24 words no longer wrap. The reveal toggle and
+            the word count beside it are what replace reading them back, and
+            a generated phrase reveals itself so it can be written down.
+
+            Note what this does NOT change: the phrase still goes straight
+            to the worker and this application still stores nothing. What is
+            new is that the BROWSER may now be asked to keep it, by the
+            person using it, in the place they already keep secrets. */
+        }
+        <div className="flex items-start gap-2">
+          <input
+            id="phrase"
+            className="field font-mono"
+            ref={input}
+            type={shown ? "text" : "password"}
+            name="phrase"
+            autoComplete="current-password"
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            /* A generated phrase arrives a moment after the click and
+               replaces whatever is in this field. Read-only for that moment,
+               so it can never replace something the user typed in the
+               meantime. Read-only rather than disabled: focus and selection
+               survive. */
+            readOnly={generate.isPending}
+            aria-invalid={wordCount > 0 && validationError !== null}
+            aria-describedby="phrase-status"
+            placeholder={m.gate_phrase_placeholder()}
+            value={phrase}
+            onChange={(e) => setPhrase(e.target.value)}
+          />
+          <IconButton
+            className="gate-phrase-toggle"
+            label={shown ? m.gate_phrase_hide() : m.gate_phrase_show()}
+            pressed={shown}
+            onClick={() => setShown((v) => !v)}
+            /* Crossed-out means hidden, matching the panel's own eyes:
+               these show the state, not the action the press would take. */
+            icon={shown
+              ? <Eye size={18} aria-hidden />
+              : <EyeOff size={18} aria-hidden />}
+          />
+        </div>
 
         {
           /* Inline and beside the field, not a toast: this is live validation

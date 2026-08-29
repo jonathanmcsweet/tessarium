@@ -10,6 +10,7 @@
 
 import { create } from "zustand";
 import { applyLocale, getLocale, type Locale } from "./i18n";
+import { applyTheme, type Theme } from "./theme";
 
 export type Cell = {
   latLo: number;
@@ -80,8 +81,15 @@ type AppState = {
      re-renders the tree: the message functions read the locale when they are
      called, and nothing would call them again otherwise. */
   locale: Locale;
+  /* Light, dark, or whatever the device says. In memory only, like
+     everything else here: the note at the top of this file is the whole
+     reason the language menu is session-only too, and a colour scheme is
+     not worth being the exception that makes it untrue. "system" is the
+     start, so the answer is right before anyone touches it. */
+  theme: Theme;
 
   setLocale: (locale: Locale) => void;
+  setTheme: (theme: Theme) => void;
   setUnlocked: () => void;
   setLocked: () => void;
   select: (selection: Selection) => void;
@@ -110,10 +118,15 @@ export const useAppStore = create<AppState>()((set) => ({
   panelWidth: PANEL_DEFAULT,
   panelCollapsed: false,
   locale: getLocale() as Locale,
+  theme: "system",
 
   setLocale: (locale) => {
     applyLocale(locale);
     set({ locale });
+  },
+  setTheme: (theme) => {
+    applyTheme(theme);
+    set({ theme });
   },
   setUnlocked: () => set({ unlocked: true }),
   setLocked: () =>

@@ -24,14 +24,14 @@ type Props = {
 export function Banner({ message, action, onDismiss }: Props) {
   return (
     <div
-      className="banner flex items-center gap-3 border-b border-[#e8d9a8] bg-[#fff8e6] px-4 py-2.5 text-sm leading-normal text-warn"
+      className="banner flex items-center gap-3 border-b border-notice-line bg-notice px-4 py-2.5 text-sm leading-normal text-warn"
       role="status"
     >
       <p className="flex-1">{message}</p>
       {action && (
         <button
           type="button"
-          className="banner-action btn flex-none border-warn bg-warn text-white"
+          className="banner-action btn flex-none border-warn bg-warn text-on-ink"
           onClick={action.onClick}
         >
           {action.label}

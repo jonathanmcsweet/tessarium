@@ -21,6 +21,77 @@ than a git log.
 
 ---
 
+### 2026-08-29 — A dark theme, a settings gear, and the map under the map
+
+**Phase:** 6
+
+**What:** Six fixes and two features, all from one round of looking at the
+running application rather than at the source.
+
+The world overview can no longer be removed. The panel resizer is a grab
+handle at the middle of the edge instead of a line down the whole of it. The
+reopen tab no longer sits on top of MapLibre's own controls. Checkboxes sit
+beside their labels. There is a settings gear in the panel header, and a dark
+theme behind it, which the map follows.
+
+The seed phrase is now `<input type="password" autocomplete="current-password">`
+in a real form, with a reveal toggle -- so a password manager will offer to
+save the one string in this application that cannot be recovered if it is
+lost. It was a textarea with `autocomplete="off"`, and browsers did as they
+were told.
+
+**Rationale:** Three of these were the same bug in different clothes: a rule
+that looks right in the stylesheet and does nothing in the page.
+
+`.download-card label { display: block }` outranked `.region-check`'s own
+`flex` at two-class specificity, so every checkbox in the region picker
+stacked over its text -- and had done since long before the Tailwind
+conversion, which fixed it as a side effect. `.maplibregl-ctrl-*` lost the
+same tie to MapLibre's own stylesheet, which loads after ours, so the map's
+controls sat under the drawer when it was open and under the reopen tab when
+it was shut. Both are now checked by geometry in the end-to-end suite rather
+than by class name: a selector assertion passes while the rule that beats it
+is in another file entirely.
+
+The world overview is the one that could destroy data. Since the per-region
+split it has its own file and writes no ledger record, so nothing made today
+is at risk -- but an install from before the split has it INSIDE
+map.pmtiles, recorded as an ordinary entry under whatever the picker called
+it ("Map view", on the install that turned this up). The test was written
+first and failed on three counts, the third being that pressing Remove
+deleted map.pmtiles outright.
+
+The rule is `file = base_file && Ledger.spans_world e`, and both halves are
+load-bearing. The first draft used only the second and broke the end-to-end
+suite, which downloads the whole planet AS DETAIL over the API: that lands in
+a file of its own, sits beside the overview rather than being it, and is the
+user's to remove. Judged by what the entry holds, never by its name.
+
+Export is gone from that row too, and for a reason that has nothing to do
+with safety: every package ships `basemap/world.pmtiles` -- package.sh, the
+.deb, the .rpm and the offline bundle -- so exporting it would be carrying a
+file to a machine that was installed with one. Update stays.
+
+The theme follows the device and can be overridden for the session, which is
+the same rule the language menu follows and for the same reason: this
+application persists nothing, and the end-to-end suite asserts empty storage.
+The cost is one preference forgotten per reload.
+
+**Follow-on:** The palette had to be tokenised before a second one was
+possible -- `#eef1f4`, `#fff8e6`, `#4c5b69` and eight others were arbitrary
+values, and a literal can only be audited in the theme it belongs to.
+`test/contrast.mjs` now audits both palettes against the same thresholds,
+requires the two dark blocks (media query and attribute, which CSS cannot
+express as one selector) to define identical tokens, and requires every
+audited token to be spent somewhere.
+
+Two things worth knowing. The server serves the UI from assets EMBEDDED in
+the binary, so `make ui` alone changes nothing that is running -- it needs
+`make build` as well, which is why the stacked checkboxes were still on
+screen after they had been fixed. And the gate's fineprint still says the
+phrase is "never stored", which remains true of this application but is now
+worth a second look given a password manager may hold it.
+
 ### 2026-08-29 — Tailwind for the layout, React Aria kept
 
 **Phase:** 6

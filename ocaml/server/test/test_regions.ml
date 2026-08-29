@@ -362,6 +362,84 @@ let () =
     (Eio.Path.is_file Eio.Path.(dir / Tile_set.world_file));
   check "with nothing left to remove" (entries () = []);
 
+  (* The third lock, and the one an upgrade walks straight into.
+
+     Installs from before the split have their overview INSIDE
+     map.pmtiles, recorded as an ordinary ledger entry, because that is what
+     downloading the world did then. Neither lock above sees it: the file is
+     the merged archive rather than the overview's own, and the entry is a
+     real record rather than a planted one. So the row shows up in the list
+     with a Remove button, under whatever the picker called it -- "Map view"
+     on the install that turned this up -- and pressing it prunes the tiles
+     the whole map falls back to.
+
+     Judged by what the entry holds, not by its name, because the name says
+     nothing. *)
+  let legacy =
+    Ledger.make ~name:"Map view" ~completed:1 ~source:"nowhere" ~bytes:1
+      ~regions:
+        [ req ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
+            ~max_zoom:6 ]
+  in
+  check "an entry spanning the planet is recognised as such, whatever it is\
+         called"
+    (Ledger.spans_world legacy);
+  check "and one spanning a country is not"
+    (not
+       (Ledger.spans_world
+          (Ledger.make ~name:"Georgia" ~completed:1 ~source:"nowhere" ~bytes:1
+             ~regions:
+               [ req ~min_lon:(-85.6) ~min_lat:30.3 ~max_lon:(-80.8)
+                   ~max_lat:35.0 ~max_zoom:12 ])));
+  let legacy_meta =
+    match Ledger.to_metadata [ legacy ] ~previous:"{}" with
+    | Ok m -> m
+    | Error e -> failwith e
+  in
+  Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / Tile_set.base_file)
+    (source_archive ~metadata:legacy_meta ~min_zoom:0 ~max_zoom:6
+       ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85. ());
+  check "the legacy overview is listed, because its tiles are really there"
+    (List.exists (fun e -> str "id" e = Ledger.id legacy) (entries ()));
+  check "but it is marked as the overview, so nothing offers to remove it"
+    (List.exists
+       (fun e ->
+         str "id" e = Ledger.id legacy
+         && match e with
+            | `Assoc f -> List.assoc_opt "overview" f = Some (`Bool true)
+            | _ -> false)
+       (entries ()));
+  D.run_remove t ~fs ~basemap_dir ~id:(Ledger.id legacy);
+  check ("removing the legacy overview fails: " ^ outcome ())
+    (state () = "failed");
+  check "and the merged archive still holds its tiles"
+    (Eio.Path.is_file Eio.Path.(dir / Tile_set.base_file));
+
+  (* And the other half of the rule, which the end-to-end suite caught the
+     absence of: spanning the planet is NOT on its own disqualifying. A user
+     may ask for the whole world as DETAIL -- the scripted download in
+     ui/test/e2e.mjs does -- and that lands in a file of its own, sits beside
+     the overview rather than being it, and is theirs to take away again. *)
+  D.run_download t ~fs ~net ~source ~assets:"" ~basemap_dir
+    ~budget:D.default_budget ~name:(Some "The lot") ~now ~refresh:false
+    ~replaces:None ~target:D.Detail ~labels:None
+    [ req ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
+        ~max_zoom:2 ];
+  check ("the whole world as detail downloads: " ^ outcome ())
+    (state () = "done");
+  let whole =
+    List.find_opt (fun e -> str "name" e = "The lot") (entries ())
+  in
+  check "it is listed like any other region" (whole <> None);
+  check "and is not flagged as the overview"
+    (match whole with
+     | Some (`Assoc f) -> List.assoc_opt "overview" f = Some (`Bool false)
+     | _ -> false);
+  (match whole with
+   | Some e -> D.run_remove t ~fs ~basemap_dir ~id:(str "id" e)
+   | None -> ());
+  check ("and removing it works: " ^ outcome ()) (state () = "removed");
+
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1;
   print_endline "regions are files"

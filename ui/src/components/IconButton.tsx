@@ -37,7 +37,7 @@ const LONG_PRESS_MS = 450;
 const BASE =
   "icon-button focus-ring inline-flex h-11 w-11 flex-none items-center "
   + "justify-center rounded-lg border border-line p-0 "
-  + "hover:not-disabled:bg-[#eef1f4] hover:not-disabled:text-ink "
+  + "hover:not-disabled:bg-hover hover:not-disabled:text-ink "
   + "aria-pressed:border-ink-soft aria-pressed:text-ink";
 
 /* Colour is a prop rather than a class the caller passes in, because two
@@ -51,7 +51,7 @@ const TONES = {
   default: "text-ink-soft",
   /* The tick after a copy. Green rather than the accent, because the accent
      here means "this is the address" and this means "that worked". */
-  ok: "border-[#1a7f4b] text-[#1a7f4b]",
+  ok: "border-ok-strong text-ok-strong",
 } as const;
 
 type Props = {
@@ -121,7 +121,7 @@ export function IconButton({
           path inside. */
       }
       <Tooltip
-        className="z-40 max-w-65 rounded-md bg-ink px-2.5 py-1.5 text-xs leading-snug text-white shadow-card"
+        className="z-40 max-w-65 rounded-md bg-ink px-2.5 py-1.5 text-xs leading-snug text-on-ink shadow-card"
         offset={6}
         containerPadding={8}
       >

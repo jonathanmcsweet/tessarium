@@ -218,6 +218,41 @@ let drops ~(removed : entry) ~(kept : t) =
     List.exists (fun p -> fetches p ~z ~x ~y) gone
     && not (List.exists (fun p -> fetches p ~z ~x ~y) stays)
 
+(* Does this entry's box span the planet?
+
+   Half of the test for the world overview, and only half -- see
+   [Basemap_download.run_remove], which pairs it with the archive the entry
+   lives in. Spanning the planet is not on its own disqualifying: a user may
+   ask for the whole world AS DETAIL, and that lands in a file of its own,
+   sits beside the overview rather than being it, and is theirs to remove.
+   The end-to-end suite does exactly that, which is how this was caught.
+
+   What cannot be removed is a world-spanning entry inside the old merged
+   map.pmtiles. That is the shape an install from before the per-region
+   split has: back then the overview merged into that one archive and took a
+   row in the list like any region, under whatever the picker called it.
+   Pruning it takes the tiles the whole map falls back to, everywhere.
+
+   Judged by what the entry SAYS it holds, never by its name: the name is
+   display only, and the row a user is looking at may well read "Map view".
+   One region, no clipping polygon, and a box reaching the ends of the
+   usable projection.
+
+   The margin is a whole degree, which is far wider than any rounding and
+   far narrower than any real pick: the picker's own world box stops at
+   +/-85 latitude, where Mercator does. *)
+let world_margin = 1.0
+
+let spans_world (e : entry) =
+  match e.regions with
+  | [ r ] ->
+      r.Basemap_job.polygon = None
+      && r.Basemap_job.min_lon <= -180.0 +. world_margin
+      && r.Basemap_job.max_lon >= 180.0 -. world_margin
+      && r.Basemap_job.min_lat <= -85.0 +. world_margin
+      && r.Basemap_job.max_lat >= 85.0 -. world_margin
+  | _ -> false
+
 (* The mirror of [drops], for export rather than removal: [drops] answers
    "is this tile leaving with the entry being removed", this answers "is this
    tile no business of the entry being written out". Both are phrased as
