@@ -21,6 +21,32 @@ than a git log.
 
 ---
 
+### 2026-08-29 — The world map is listed, and has no verbs
+
+**Phase:** 6
+
+**What:** The world overview now appears in Downloaded Maps as a row with a
+size, a sentence saying what it is, and no buttons at all. The server
+synthesises it from `world.pmtiles` itself under a reserved id, and
+`run_remove`, `run_export` and `start_update` refuse that id by name. A
+viewport download is no longer called "Map view".
+
+**Rationale:** Reversal. The overview was deliberately absent from the ledger,
+on the theory that a row nobody can see is a row nobody can delete. What that
+actually produced was a panel whose answer to "what maps do I have" left out
+the largest file on disk — so a 3 MB viewport download named "Map view" got
+read as the world map, and the Remove button beside it as the button that
+deletes the world. Three rounds of "the default world map still has a Remove
+button" were about a row that was never the world map. Invisibility is not a
+lock; it is a lock plus a lie about what is there. The refusals are the lock,
+and they are tested at the function level because the route's hex-only id
+filter refuses the reserved id before a handler sees it.
+
+**Follow-on:** None. Names already recorded in a ledger keep their old text —
+an existing "Map view" row stays "Map view" until it is removed and fetched
+again.
+
+
 ### 2026-08-29 — A dark theme, a settings gear, and the map under the map
 
 **Phase:** 6

@@ -785,15 +785,53 @@ check(
   (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
     === 404,
 );
-/* It is not a region, so nothing lists it and nothing offers to remove it. */
+/* It is not a region. It writes no record, and it is listed anyway -- under
+   an id the server made up, flagged, with nothing to carry and no date,
+   because nothing recorded fetching it. Listing it is what lets the page
+   show a user the map they are standing on instead of leaving the largest
+   file on disk out of the answer to "what maps do I have". */
 const ledgerAfterWorld = await (await fetch(`${base}/api/basemap-ledger`, {
   method: "POST",
   headers: { "content-type": "application/json" },
   body: "{}",
 })).json();
 check(
-  "the world overview writes no ledger entry",
-  ledgerAfterWorld.entries?.length === 0,
+  "the world overview writes no ledger entry and is listed as itself",
+  ledgerAfterWorld.entries?.length === 1
+    && ledgerAfterWorld.entries[0].overview === true
+    && ledgerAfterWorld.entries[0].id === "world"
+    && ledgerAfterWorld.entries[0].file === ""
+    && ledgerAfterWorld.entries[0].completed === 0
+    && ledgerAfterWorld.entries[0].bytes > 0,
+);
+/* Every verb that takes an id off that list has to refuse this one.
+
+   Two locks, and the outer one answers first: the id the overview is listed
+   under is a word, every real id is hex, and the route parses ids before a
+   handler sees them -- so the request never reaches the code that removes
+   things. The inner lock is the handlers refusing the id by name, with the
+   reason a person would need ("no such downloaded map" is true of the
+   record and false of the row they are looking at); that one is driven
+   directly in ocaml/server/test/test_regions.ml, because nothing over HTTP
+   can get past the first lock to reach it. Both are kept: whichever is
+   removed, the other still holds. */
+for (
+  const [verb, endpoint] of [
+    ["removed", "basemap-remove"],
+    ["exported", "basemap-export"],
+    ["updated", "basemap-update"],
+  ]
+) {
+  const res = await postJson(endpoint, { id: "world" });
+  check(
+    `the overview cannot be ${verb} through its listed id (got ${res.status})`,
+    res.status === 400,
+  );
+}
+check(
+  "and it is still on disk after all three tried",
+  (await fetch(`${base}/basemap/world.pmtiles`, { method: "HEAD" })).status
+    === 200,
 );
 check(
   "and still counts as a map being on disk",
@@ -1041,13 +1079,41 @@ check(
   (await page.locator(".download-world").count()) === 0,
 );
 /* The world overview is the ground under every region, and nothing may
-   offer to take it away. It has its own file and writes no record, so it
-   should not be in this list at all -- and the check is on the list rather
-   than on the server's refusal because the two locks are separate and an
-   absent row is the one that can be deleted by accident. */
+   offer to take it away.
+
+   It is in the list, and it has no verbs. That is the shape the complaint
+   asked for and the previous shape got wrong in the other direction:
+   leaving it out entirely meant the panel's answer to "what maps do I
+   have" skipped the largest file on disk, so a small download named for
+   the viewport read as the world map and its Remove button as the button
+   that deletes the world.
+
+   Asserted on the DOM rather than on the server's refusal, because the two
+   locks are separate and a button that should not be there is the one that
+   gets pressed. */
 check(
-  "the world download left no row in the downloaded-maps list",
-  (await page.locator(".ledger-row").count()) === 0,
+  "the world overview is listed",
+  (await page.locator(".ledger-row").count()) === 1,
+);
+check(
+  "under a name that cannot be mistaken for somebody's download",
+  ((await page.locator(".ledger-row .ledger-name").textContent()) ?? "")
+    .trim() === "World map",
+);
+check(
+  "with its size, and why it is there",
+  ((await page.locator(".ledger-row .hint").textContent()) ?? "")
+    .includes("the base map every region is drawn on"),
+);
+check(
+  "and not one button on it: no Remove, no Export, no Update",
+  (await page.locator(".ledger-row .ledger-remove").count()) === 0
+    && (await page.locator(".ledger-row .ledger-export").count()) === 0
+    && (await page.locator(".ledger-row .ledger-update").count()) === 0,
+);
+check(
+  "nor a staleness nudge it could not act on",
+  (await page.locator(".ledger-row .ledger-stale").count()) === 0,
 );
 const viewButton = page.locator(".download-view button");
 await page.waitForFunction(
@@ -1207,7 +1273,10 @@ await page.evaluate(() => window.__barWatch?.disconnect());
    own file is asked directly: it must reach 15, because a file carried to
    another machine has to hold what it claims without anything beside it. */
 const ledgerFiles = await (await postJson("basemap-ledger")).json();
-const regionFile = ledgerFiles.entries?.[0]?.file ?? "";
+/* The first DOWNLOAD, not the first row: the overview is listed above them
+   and has no file to ask about. */
+const regionFile = (ledgerFiles.entries ?? []).find((e) => !e.overview)?.file
+  ?? "";
 check("a downloaded region has a file of its own", regionFile !== "");
 const zoomBytes = await fetch(`${base}/basemap/${regionFile}`, {
   headers: { range: "bytes=100-101" },
@@ -1990,26 +2059,30 @@ check(
   await awaitDone(4),
 );
 const ledger1 = await (await postJson("basemap-ledger")).json();
+const downloads1 = (ledger1.entries ?? []).filter((e) => !e.overview);
 check(
   "the archive records every region download by name",
-  ledger1.entries?.length === 3
-    && ["Map view", "United Kingdom and London", "Overlapping patch"]
-      .every((n) => ledger1.entries.some((e) => e.name === n)),
+  downloads1.length === 3
+    && ["Custom area", "United Kingdom and London", "Overlapping patch"]
+      .every((n) => downloads1.some((e) => e.name === n)),
 );
+/* The overview is in the list and is not one of them: it is flagged, and
+   the flag is what every caller sorts by -- never the name, which on an
+   install from before the split is whatever the picker happened to say. */
 check(
-  "and does not record the world overview among them",
-  !ledger1.entries?.some((e) => e.name === "World overview"),
+  "and the world overview is beside them rather than among them",
+  (ledger1.entries ?? []).filter((e) => e.overview).length === 1,
 );
-const patchEntry = ledger1.entries?.find((e) => e.name === "Overlapping patch");
+const patchEntry = downloads1.find((e) => e.name === "Overlapping patch");
 check(
   "it gets a file of its own, not a share of somebody else's",
   (patchEntry?.file ?? "") !== ""
-    && ledger1.entries.every((e) => e.file !== "")
-    && new Set(ledger1.entries.map((e) => e.file)).size === 3,
+    && downloads1.every((e) => e.file !== "")
+    && new Set(downloads1.map((e) => e.file)).size === 3,
 );
 check(
   "every download records when and how much",
-  ledger1.entries?.filter((e) => e.completed > 0 && e.bytes > 0).length === 3,
+  downloads1.filter((e) => e.completed > 0 && e.bytes > 0).length === 3,
 );
 
 await openButton.click();
@@ -2018,12 +2091,18 @@ await page.waitForSelector(".download-ledger", { timeout: 10_000 });
    than racing the request. */
 const listedRows = await page
   .waitForFunction(
-    () => document.querySelectorAll(".ledger-row").length === 3,
+    () => document.querySelectorAll(".ledger-row").length === 4,
     null,
     { timeout: 30_000 },
   )
   .then(() => true, () => false);
-check("the card lists the downloaded maps", listedRows);
+check("the card lists the downloaded maps, and the map under them", listedRows);
+/* Three rows can be removed and one cannot, which is the whole point of the
+   fourth being there. */
+check(
+  "Remove is on every download and on nothing else",
+  (await page.locator(".ledger-row .ledger-remove").count()) === 3,
+);
 check(
   "nothing just downloaded is flagged for update",
   (await page.locator(".ledger-stale").count()) === 0,
@@ -2050,7 +2129,7 @@ check(
 );
 check(
   "a fresh download names its date",
-  ((await page.locator(".ledger-row").filter({ hasText: "Map view" })
+  ((await page.locator(".ledger-row").filter({ hasText: "Custom area" })
     .locator(".hint").textContent()) ?? "").includes("updated"),
 );
 
@@ -2091,11 +2170,11 @@ check(
 /* Remove is two presses of the same button, because it discards gigabytes.
    The view download's tiles sit inside the United Kingdom pick, so removing
    it must keep the archive intact -- entries own records, not tiles. */
-const viewRow = page.locator(".ledger-row").filter({ hasText: "Map view" });
+const viewRow = page.locator(".ledger-row").filter({ hasText: "Custom area" });
 
 /* The name has to have a column to sit in. Unwrapped, the row's three
    buttons took the full width and left the name a few pixels, which
-   `overflow-wrap` then honoured by breaking "Map view" one letter per line --
+   `overflow-wrap` then honoured by breaking the name one letter per line --
    a tall thin stack of characters. Wider than it is tall is the cheap way to
    say "this is a line of text", and it fails loudly on the broken layout. */
 const nameBox = await viewRow.locator(".ledger-name").boundingBox();
@@ -2113,9 +2192,10 @@ check(
     .includes("Really"),
 );
 await viewRow.locator(".ledger-remove").click();
+/* Three, not two: the overview row is one of them and does not leave. */
 const rowGone = await page
   .waitForFunction(
-    () => document.querySelectorAll(".ledger-row").length === 2,
+    () => document.querySelectorAll(".ledger-row").length === 3,
     null,
     { timeout: 30_000 },
   )
@@ -2135,10 +2215,11 @@ const removedToast = await page
   .then(() => true, () => false);
 check("removal announces what it freed", removedToast);
 const ledger2 = await (await postJson("basemap-ledger")).json();
+const downloads2 = (ledger2.entries ?? []).filter((e) => !e.overview);
 check(
   "the archive agrees the entry is gone",
-  ledger2.entries?.length === 2
-    && !ledger2.entries.some((e) => e.name === "Map view"),
+  downloads2.length === 2
+    && !downloads2.some((e) => e.name === "Custom area"),
 );
 /* And the floor is untouched by a removal, which is the reason the overview
    has its own file. */
@@ -2151,7 +2232,7 @@ check(
    rather than about a rewrite: a removal unlinks one archive and cannot
    reach into the others. */
 const survivors = await Promise.all(
-  (ledger2.entries ?? []).map(async (e) =>
+  downloads2.map(async (e) =>
     (await fetch(`${base}/basemap/${e.file}`, { method: "HEAD" })).status
   ),
 );
@@ -4022,7 +4103,7 @@ check(
     (prunedLedger.entries ?? []).map((e) => e.name).join(", ")
   })`,
   prunedLedger.entries?.some((e) => e.name === "London borrowed back")
-    && prunedLedger.entries?.length === 2,
+    && (prunedLedger.entries ?? []).filter((e) => !e.overview).length === 2,
 );
 await postJson("basemap-settings", { browse_cache: false });
 

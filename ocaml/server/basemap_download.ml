@@ -59,6 +59,22 @@ let base_file = Tile_set.base_file
 let world_file = Tile_set.world_file
 let tile_files ~fs ~basemap_dir = Tile_set.names ~dir:Eio.Path.(fs / basemap_dir)
 
+(* The name the world overview answers to in the list, and nowhere else.
+
+   The overview writes no ledger record -- every package ships one and the
+   extraction tool makes one, neither of which goes through a download --
+   so it has no id of its own to be listed under. This is that id, made up
+   here rather than read from a file.
+
+   It is a word, and every real id is twelve hex digits of a hash, so no
+   download can collide with it however many are made. That matters because
+   the whole point of putting the overview in the list is that a user can
+   SEE it, and the moment a thing is visible its id is sayable: every verb
+   that takes an id off that list has to refuse this one by name. It was
+   safe before only because it was invisible, which is a defence that also
+   hid the forty-five megabytes the map is standing on. *)
+let overview_id = "world"
+
 (* What "downloaded" means. The world overview is not a download and must
    not be counted as one: it is nobody's region, and the detail source's
    bounds come from these so that the map does not ask about a planet nobody
@@ -1339,6 +1355,14 @@ let run_remove t ~fs ~basemap_dir ~id =
   let discard_part () = try Eio.Path.unlink part_path with _ -> () in
   match
     Eio.Switch.run @@ fun sw ->
+    (* First, and by name, because the overview is now IN the list the id
+       came from. It has no record, so [home_of] would answer None and this
+       would come back as "no such downloaded map" -- true of the record and
+       false of the map, on a row the user can see. *)
+    if id = overview_id then
+      failwith
+        "the world overview is the map underneath every region and cannot \
+         be removed";
     match home_of ~sw ~fs ~basemap_dir ~id with
     | None -> failwith "no such downloaded map"
     (* Ahead of both branches below, because both destroy something and the
@@ -1518,6 +1542,15 @@ let run_export t ~fs ~basemap_dir ~id =
   let dir = Eio.Path.(fs / basemap_dir / export_dir_name) in
   match
     Eio.Switch.run @@ fun sw ->
+    (* Nothing to hand over. Every package ships an overview, so the machine
+       this file would be carried to already has one, and copying tens of
+       megabytes onto a stick to deliver what came in the installer is not a
+       favour. Refused here as well as hidden in the UI: the id is visible
+       now, so the button not being there is no longer the whole answer. *)
+    if id = overview_id then
+      failwith
+        "the world overview ships with every install and does not need \
+         carrying";
     match home_of ~sw ~fs ~basemap_dir ~id with
     | None -> failwith "no such downloaded map"
     | Some (file, _) when Tile_set.is_region file ->
@@ -2327,7 +2360,14 @@ let start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~labels
    from by id -- explicitly, so a budget change that alters the granted
    depth cannot leave two records claiming the same place. *)
 let start_update t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now ~id =
-  if not (claim t) then Error "a download is already running"
+  (* Before the seat is claimed, so a refusal costs nothing and leaves no
+     job behind to explain. An update is a re-download of an entry's regions
+     under its recorded name, and the overview has no entry: there is
+     nothing to re-download and nothing to name it. Deepening the planet is
+     a world download, which the card already offers in its own right. *)
+  if id = overview_id then
+    Error "the world overview is not updated from the downloads list"
+  else if not (claim t) then Error "a download is already running"
   else begin
     Eio.Fiber.fork ~sw (fun () ->
         match
@@ -2365,6 +2405,47 @@ let ledger_json ~fs ~basemap_dir =
   match
     Eio.Switch.run @@ fun sw ->
     let led = homes ~sw ~fs ~basemap_dir in
+    (* The map under the map, listed first because it is underneath.
+
+       It has no ledger record and never will -- packages ship it, the
+       extraction tool writes it, and the world download merges into it
+       without recording anything -- so this row is assembled from the file
+       itself: its size on disk and the depth its header claims. Everything
+       a record would supply is absent and says so. [completed] is 0, which
+       the page already renders as "age unknown"; the source is empty
+       because nothing wrote down where this one came from.
+
+       Listing it is the fix for a real complaint, and the complaint was not
+       that a button was wrong. Leaving the overview out meant the panel's
+       answer to "what maps do I have" omitted the largest and most
+       important file on disk, so a small download named for the viewport
+       read as the world map, and its Remove button as the button that
+       deletes the world. A row with a size and no verbs answers the
+       question and closes the door in the same line. *)
+    let overview =
+      List.filter_map
+        (fun (e : Tile_set.entry) ->
+          if e.Tile_set.name <> world_file then None
+          else
+            Some
+              (`Assoc
+                 [
+                   ("id", `String overview_id);
+                   ("file", `String "");
+                   (* Named by the page, not here. A row the user reads has
+                      to be in the user's language, and this server has no
+                      opinion about which that is. *)
+                   ("name", `String "");
+                   ("completed", `Int 0);
+                   ("source", `String "");
+                   ("bytes", `Int e.Tile_set.size);
+                   ("regions", `Int 1);
+                   ("overview", `Bool true);
+                   ( "max_zoom",
+                     `Int e.Tile_set.header.Pmtiles.Header.max_zoom );
+                 ]))
+        (Tile_set.entries ~dir:Eio.Path.(fs / basemap_dir))
+    in
     `Assoc
       [
         (* Whether there is a map on disk at all, which is NOT whether the
@@ -2382,7 +2463,8 @@ let ledger_json ~fs ~basemap_dir =
                (tile_files ~fs ~basemap_dir)) );
         ( "entries",
           `List
-            (List.map
+            (overview
+            @ List.map
                (fun (file, (e : Ledger.entry)) ->
                  `Assoc
                    [

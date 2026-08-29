@@ -136,6 +136,7 @@ let () =
     | _ -> `Null
   in
   let str k j = match field k j with `String s -> s | _ -> "" in
+  let bool k j = match field k j with `Bool b -> b | _ -> false in
   (* [status] wraps the job in a generation counter, which is the poller's
      business and not this test's. *)
   let job () = field "job" (D.status t) in
@@ -326,8 +327,77 @@ let () =
        (List.exists
           (fun (e : Tile_set.entry) -> e.Tile_set.name = Tile_set.world_file)
           (Tile_set.detail ~dir)));
-  check "and it writes no record, so nothing lists it and nothing can name it"
-    (List.length (entries ()) = 1);
+  (* It writes no record, and it is listed anyway, under an id of the
+     server's own making.
+
+     Invisibility used to be the whole defence: the overview appeared in no
+     list, so there was no row and no button. What that actually produced
+     was a panel that showed a three-megabyte box over London and nothing
+     about the forty-five megabytes the map is really standing on -- so the
+     box got read as the world map, and the button beside it as the button
+     that deletes it. The overview is listed now BECAUSE it must not be
+     removable: a user who can see it, sized, with no verb attached, can
+     see that it stays. *)
+  let world_row () =
+    List.find_opt (fun e -> bool "overview" e) (entries ())
+  in
+  check "the overview is listed once, as the overview"
+    (List.length (entries ()) = 2 && world_row () <> None);
+  check "under a reserved id no download could ever be given"
+    (match world_row () with
+     | Some e -> str "id" e = D.overview_id
+     | None -> false);
+  check "with nothing to carry away, because every package ships one"
+    (match world_row () with Some e -> str "file" e = "" | None -> false);
+  check "sized from the file on disk"
+    (match world_row () with
+     | Some e -> (
+         match field "bytes" e with
+         | `Int n ->
+             n
+             = (match Eio.Path.stat ~follow:true
+                        Eio.Path.(dir / Tile_set.world_file) with
+                | st -> Optint.Int63.to_int st.Eio.File.Stat.size
+                | exception Eio.Io _ -> -1)
+         | _ -> false)
+     | None -> false);
+  check "and no completion date, because nobody recorded downloading it"
+    (match world_row () with
+     | Some e -> field "completed" e = `Int 0
+     | None -> false);
+
+  (* Being listed is what makes an id sayable, so each verb has to refuse it
+     by name rather than by never having heard of it. All three, because all
+     three take an id off the same list. *)
+  let says_overview () =
+    let r = outcome () in
+    let rec find i =
+      i + 8 <= String.length r
+      && (String.sub r i 8 = "overview" || find (i + 1))
+    in
+    state () = "failed" && find 0
+  in
+  D.run_remove t ~fs ~basemap_dir ~id:D.overview_id;
+  (* The reason, not just the refusal. Without a guard of its own this id
+     falls through to [home_of], which has never heard of it and says "no
+     such downloaded map" -- a sentence that is true of the record and false
+     of the row the user is looking at. *)
+  check ("removing the overview by its listed id is refused as such: "
+         ^ outcome ())
+    (says_overview ());
+  check "and the overview is still on disk"
+    (Eio.Path.is_file Eio.Path.(dir / Tile_set.world_file));
+  D.run_export t ~fs ~basemap_dir ~id:D.overview_id;
+  check ("exporting it is refused as such too: " ^ outcome ())
+    (says_overview ());
+  check "and updating it is refused before any work starts"
+    (Eio.Switch.run @@ fun sw ->
+     match
+       D.start_update t ~sw ~fs ~net ~source ~assets:"" ~basemap_dir
+         ~budget:D.default_budget ~now ~id:D.overview_id
+     with
+     | Error _ -> true
+     | Ok () -> false);
 
   (* The second lock. An overview that CLAIMS to be a region -- a file
      someone built by hand, or an export renamed on a USB stick -- must not
@@ -346,21 +416,25 @@ let () =
   Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / Tile_set.world_file)
     (source_archive ~metadata:planted_meta ~min_zoom:0 ~max_zoom:3
        ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85. ());
-  check "an overview claiming to be a region is still not listed"
-    (List.length (entries ()) = 1);
+  check "an overview claiming to be a region is still listed only as itself"
+    (List.length (entries ()) = 2
+     && not (List.exists (fun e -> str "id" e = Ledger.id planted) (entries ())));
   D.run_remove t ~fs ~basemap_dir ~id:(Ledger.id planted);
   check ("removing it by the id it claims fails: " ^ outcome ())
     (state () = "failed");
   check "and the overview is still there"
     (Eio.Path.is_file Eio.Path.(dir / Tile_set.world_file));
 
-  (* And removing everything that IS removable leaves it standing. *)
+  (* And removing everything that IS removable leaves it standing. Walking
+     the whole list, overview row included, because that is what a script
+     driving the API would do. *)
   List.iter
     (fun e -> D.run_remove t ~fs ~basemap_dir ~id:(str "id" e))
     (entries ());
   check "removing every downloaded region leaves the overview alone"
     (Eio.Path.is_file Eio.Path.(dir / Tile_set.world_file));
-  check "with nothing left to remove" (entries () = []);
+  check "and it is the only thing left in the list"
+    (match entries () with [ e ] -> bool "overview" e | _ -> false);
 
   (* The third lock, and the one an upgrade walks straight into.
 

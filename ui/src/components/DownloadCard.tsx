@@ -436,11 +436,20 @@ function LedgerRow({ entry, days, busy }: {
     return () => clearTimeout(id);
   }, [confirming]);
   const ageUnknown = entry.completed === 0;
-  const stale = days > 0
+  /* Never on the overview. It has no recorded date to be old, no verb to
+     act on the nudge with, and nagging about a file the user cannot update
+     from this row is just a permanent red mark on the base map. */
+  const stale = !entry.overview
+    && days > 0
     && (ageUnknown
       || Date.now() / 1000 - entry.completed > days * 86_400);
   const size = formatBytes(entry.bytes);
-  const meta = ageUnknown
+  const meta = entry.overview
+    /* Says what the row IS, which is also why it has no buttons. A row with
+       a size and nothing to press invites the question; answering it in the
+       line that was going to be there anyway costs nothing. */
+    ? m.map_ledger_overview({ size })
+    : ageUnknown
     ? m.map_ledger_age_unknown({ size })
     : m.map_ledger_meta({
       size,
@@ -462,7 +471,16 @@ function LedgerRow({ entry, days, busy }: {
             tight. */
         }
         <span className="ledger-name text-sm font-semibold break-words">
-          {entry.name}
+          {
+            /* The overview is named here rather than by the server, which
+               has no opinion about the reader's language. The name it
+               carries is not usable either way: the row is synthesised from
+               a file with no record and arrives blank, and an install from
+               before the split has the overview recorded under whatever the
+               picker called it -- "Map view" on the one that started
+               this. */
+          }
+          {entry.overview ? m.map_name_world() : entry.name}
         </span>
         <span className="hint">
           {meta}
@@ -488,22 +506,38 @@ function LedgerRow({ entry, days, busy }: {
            one of these -- which is exactly what adding the third did. */
       }
       <div className="download-actions flex flex-shrink flex-wrap gap-2">
-        <button
-          type="button"
-          className="ledger-update btn btn-quiet border-line-strong"
-          onClick={() => update.mutate(entry.id, loudly)}
-          disabled={busy || update.isPending || remove.isPending}
-        >
-          {m.map_ledger_update()}
-        </button>
+        {
+          /* No Update either, so the overview row carries no verbs at all.
+
+             An update is a re-download of an entry's own regions under its
+             own recorded name, and the overview has no record: the row is
+             built from the file. On an install from before the split it
+             does have one, and following it would re-fetch the whole planet
+             AS DETAIL under the name the picker gave it -- a download the
+             size of the world that leaves a removable duplicate of the
+             thing this row exists to protect.
+
+             Deepening the planet is a world download, and the card already
+             offers exactly that above the list whenever the estimate says
+             the overview does not cover what is being asked for. */
+          !entry.overview && (
+            <button
+              type="button"
+              className="ledger-update btn btn-quiet border-line-strong"
+              onClick={() => update.mutate(entry.id, loudly)}
+              disabled={busy || update.isPending || remove.isPending}
+            >
+              {m.map_ledger_update()}
+            </button>
+          )
+        }
         {
           /* Nothing to carry. Every package ships the world overview --
             tools/package.sh, both the .deb and the .rpm, and the offline
             bundle all put one in basemap/ -- so the machine this file would
             be walked over to already has it. Exporting it would be copying
             a gigabyte-scale file onto a USB stick to hand someone something
-            they were installed with. Update stays: deepening the overview
-            is the one thing worth doing to it. */
+            they were installed with. */
           !entry.overview
           /* A link, not a button, when the region has a file of its own --
              which is every region downloaded since downloads stopped
@@ -541,8 +575,7 @@ function LedgerRow({ entry, days, busy }: {
             region -- what draws wherever detail was never fetched -- so
             taking it away empties the whole world rather than one place,
             and on the machine this is all for there is no getting it back.
-            Update stays, because deepening it is the one thing worth doing
-            to it. The server refuses as well; this is the half that keeps
+            The server refuses the id as well; this is the half that keeps
             the button from being there to press. */
           !entry.overview && (
             <button

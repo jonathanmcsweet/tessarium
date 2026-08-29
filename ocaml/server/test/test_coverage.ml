@@ -379,10 +379,24 @@ let () =
   check "a world overview on its own counts as a basemap"
     (held_in world_only = Some true);
   check "an empty directory does not" (held_in empty = Some false);
-  check "nor do its entries say otherwise"
+  (* And the one row it does list is the overview describing itself, not a
+     download. "Held" still cannot be read off the entry count -- an entry
+     here is the map itself -- which is the reason [held] is answered
+     separately at all. *)
+  check "and lists exactly the map it is, with nothing to remove"
     (match
        Tessarium_server.Basemap_download.ledger_json ~fs ~basemap_dir:world_only
      with
+    | Ok (`Assoc fields) -> (
+        match List.assoc_opt "entries" fields with
+        | Some (`List [ `Assoc e ]) ->
+            List.assoc_opt "overview" e = Some (`Bool true)
+            && List.assoc_opt "id" e
+               = Some (`String Tessarium_server.Basemap_download.overview_id)
+        | _ -> false)
+    | _ -> false);
+  check "while an empty directory lists nothing"
+    (match Tessarium_server.Basemap_download.ledger_json ~fs ~basemap_dir:empty with
     | Ok (`Assoc fields) -> List.assoc_opt "entries" fields = Some (`List [])
     | _ -> false);
   (* --------------------------------------------- how deep the answer is *)
