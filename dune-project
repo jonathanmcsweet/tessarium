@@ -39,7 +39,13 @@
   stdint
   ppx_deriving
   ppx_deriving_yojson
-  cohttp-eio
+  ; Floored at the release that normalises percent-encoded path separators
+  ; before matching (OSEC-2026-16, fixed in 6.3.0). This server never asks
+  ; cohttp to resolve a path -- every target goes through Url_path.resolve,
+  ; which is extracted F* and decodes before it validates, which is the
+  ; ordering that bug got wrong -- so the floor is belt to that braces. It is
+  ; here so a fresh solve cannot quietly pick a vulnerable one.
+  (cohttp-eio (>= 6.3.0))
   eio_main
   ; Reading a planet build over HTTP range requests: bare eio for the source
   ; itself, and TLS with compiled-in Mozilla trust anchors, because the

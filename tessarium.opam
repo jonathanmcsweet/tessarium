@@ -21,7 +21,7 @@ depends: [
   "stdint"
   "ppx_deriving"
   "ppx_deriving_yojson"
-  "cohttp-eio"
+  "cohttp-eio" {>= "6.3.0"}
   "eio_main"
   "eio"
   "tls-eio"
