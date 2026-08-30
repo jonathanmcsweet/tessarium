@@ -34,7 +34,19 @@ jobs:
           mkdir -p ~/toolchain && cd ~/toolchain
           curl -fsSL -o fstar.tar.gz \
             "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
-          tar -xzf fstar.tar.gz && mv fstar* fstar
+          tar -xzf fstar.tar.gz
+          # The tarball's top directory has been both a versioned name and a
+          # bare `fstar`, and `mv fstar* fstar` only survives the first: once
+          # the archive unpacks to `fstar` the glob also catches the tarball
+          # and mv is asked to move a directory into itself. Normalise
+          # whichever arrived instead, which is a no-op for the bare one.
+          # Same rule as tools/setup.sh, which does this for a workstation.
+          find . -maxdepth 1 -type d -name 'fstar*' ! -name fstar \
+            -exec mv {} fstar \;
+          # ~/toolchain is what gets cached, and the tarball is 230 MB of it
+          # that nothing reads again. tools/setup.sh drops it for the same
+          # reason.
+          rm -f fstar.tar.gz
 
       # `make verify` passes --report_assumes error, so every escape hatch --
       # admit, assume, magic -- is an error rather than something to remember to
@@ -64,7 +76,19 @@ jobs:
           mkdir -p ~/toolchain && cd ~/toolchain
           curl -fsSL -o fstar.tar.gz \
             "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
-          tar -xzf fstar.tar.gz && mv fstar* fstar
+          tar -xzf fstar.tar.gz
+          # The tarball's top directory has been both a versioned name and a
+          # bare `fstar`, and `mv fstar* fstar` only survives the first: once
+          # the archive unpacks to `fstar` the glob also catches the tarball
+          # and mv is asked to move a directory into itself. Normalise
+          # whichever arrived instead, which is a no-op for the bare one.
+          # Same rule as tools/setup.sh, which does this for a workstation.
+          find . -maxdepth 1 -type d -name 'fstar*' ! -name fstar \
+            -exec mv {} fstar \;
+          # ~/toolchain is what gets cached, and the tarball is 230 MB of it
+          # that nothing reads again. tools/setup.sh drops it for the same
+          # reason.
+          rm -f fstar.tar.gz
 
       - uses: ocaml/setup-ocaml@v3
         with:
@@ -294,7 +318,19 @@ jobs:
           mkdir -p ~/toolchain && cd ~/toolchain
           curl -fsSL -o fstar.tar.gz \
             "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
-          tar -xzf fstar.tar.gz && mv fstar* fstar
+          tar -xzf fstar.tar.gz
+          # The tarball's top directory has been both a versioned name and a
+          # bare `fstar`, and `mv fstar* fstar` only survives the first: once
+          # the archive unpacks to `fstar` the glob also catches the tarball
+          # and mv is asked to move a directory into itself. Normalise
+          # whichever arrived instead, which is a no-op for the bare one.
+          # Same rule as tools/setup.sh, which does this for a workstation.
+          find . -maxdepth 1 -type d -name 'fstar*' ! -name fstar \
+            -exec mv {} fstar \;
+          # ~/toolchain is what gets cached, and the tarball is 230 MB of it
+          # that nothing reads again. tools/setup.sh drops it for the same
+          # reason.
+          rm -f fstar.tar.gz
 
       - uses: ocaml/setup-ocaml@v3
         with:
