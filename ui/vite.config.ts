@@ -79,10 +79,33 @@ export default defineConfig({
     // somewhere other than where the person running it is looking -- exactly
     // the confusion this port exists to end.
     strictPort: true,
+    /* Everything the app asks its own origin for that this server does not
+       itself hold. test/dev-proxy.mjs walks the source for those paths and
+       fails when one is not covered here -- which is how the map spent a long
+       while with no cartography on the dev server and cartography everywhere
+       else: the style's two TileJSON URLs were never on this list, so the
+       only map anyone saw in dev was the grid drawn over nothing. A missing
+       entry does not break the build or log anything an eye would catch. It
+       just serves index.html for a JSON request. */
     proxy: {
       "/basemap": backend,
       "/api": backend,
       "/healthz": backend,
+      /* The style's two sources. `/tiles` covers the TileJSON at
+         /tiles.json AND the tiles at /tiles/{z}/{x}/{y}.mvt, which the
+         TileJSON points at -- Vite matches these by prefix.
+
+         `changeOrigin: false` is load-bearing rather than tidy. A TileJSON
+         has to hand back an absolute URL for its tiles, and the server
+         builds that one from the request's own Host header so it names
+         whoever asked. Vite's shorthand turns changeOrigin ON, which
+         rewrites Host to the backend -- so the document served at :7380
+         gets tile URLs on :7373, fetches them cross-origin, and every one
+         is refused. Keeping the header means the tiles are advertised on
+         the origin that asked for them, and the prefix above carries
+         them. */
+      "/tiles": { target: backend, changeOrigin: false },
+      "/world.json": { target: backend, changeOrigin: false },
       // The worker's two wasm modules -- the KDF and the map core -- are
       // embedded in the backend, not in public/. So in dev they come from the
       // last `make ui` and can lag wasm/*.wasm; rerun it after `make sync-wasm`

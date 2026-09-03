@@ -21,6 +21,32 @@ than a git log.
 
 ---
 
+### 2026-09-03 — The map comes back on the development server
+
+**Phase:** 6
+
+**What:** `vite dev` never forwarded the style's two TileJSON URLs, so the
+basemap had no cartography on the development server and cartography
+everywhere else — the grid drew over an empty ground, which reads as
+"nothing downloaded here" rather than as a broken proxy. `/tiles` and
+`/world.json` are on the list now.
+
+**Rationale:** Forwarding the paths was only half of it, and the half that
+looks fine. A TileJSON has to hand back an ABSOLUTE url for its tiles, and
+the server builds that from the Host header of whoever asked. Vite's
+shorthand proxy form turns `changeOrigin` on, which rewrites Host to the
+backend — so the document served on the dev port received tile urls on the
+backend port, fetched them cross-origin, and every one was refused. Both
+routes keep the caller's host.
+
+The failure was silent by construction: a path missing from the proxy table
+does not fail the build or log anything, because Vite falls through to the
+SPA handler and answers a JSON fetch with index.html. So `test/dev-proxy.mjs`
+walks the source for every path the app asks its own origin for and requires
+each to be covered, and separately requires the two TileJSON routes to keep
+the host. Shown failing on both halves before the fix.
+
+
 ### 2026-09-03 — Five palettes, cyberpunk dark by default
 
 **Phase:** 6
