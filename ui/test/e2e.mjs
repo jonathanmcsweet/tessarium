@@ -753,6 +753,15 @@ check(
   `and squares its corners like everything else (${toast.radius})`,
   toast.radius === "0px",
 );
+/* And a SUCCESS takes itself away. One short statement with nothing to
+   re-read, unlike an error -- which is the pair that has to hold: if both
+   stayed, "an error waits to be dismissed" further down would be trivially
+   true and would assert nothing at all. */
+await page.waitForTimeout(7000);
+check(
+  "a success toast takes itself away",
+  (await page.locator(".app-toast").count()) === 0,
+);
 await page.waitForFunction(() => !document.querySelector(".banner"), null, {
   timeout: 10_000,
 });
@@ -2946,6 +2955,98 @@ const shownCoords = await page.locator(".coords dd").allTextContents();
 check(
   "the coordinates eye reveals them",
   shownCoords.length === 2 && shownCoords.every((t) => /\d/.test(t)),
+);
+
+/* ---------------------------------------- what a toast has to keep doing
+
+   Two behaviours here are TUNED rather than default, which means they are
+   the two a change of library would silently undo. Named through this
+   application's own `app-toast` class rather than through the current
+   library's data attributes, so these assertions outlive it.
+
+   The first: an error waits to be dismissed. Sonner's default five seconds
+   is shorter than a long message being read aloud, and the message vanished
+   mid-sentence. Nothing in a screenshot would show that; it needs a clock.
+
+   Raised by making the clipboard refuse, which is a real failure -- a
+   permissions policy or a non-secure context does exactly this -- and the
+   only error path in the app that can be provoked on demand. */
+const anyToast = page.locator(".app-toast");
+/* The coordinates' own copy control, revealed just above. */
+const toastCopy = page.locator(".coords-row .icon-button").nth(1);
+await page.evaluate(() => {
+  globalThis.__realWrite = navigator.clipboard.writeText.bind(
+    navigator.clipboard,
+  );
+  navigator.clipboard.writeText = () => Promise.reject(new Error("refused"));
+});
+await toastCopy.click();
+check(
+  "a failed copy is reported as a toast",
+  await anyToast.first().waitFor({ state: "visible", timeout: 10_000 })
+    .then(() => true, () => false),
+);
+
+/* Legible before it is timed: the text a toast carries is 13px, and the
+   library's own tinted palette put it under AA -- which is why richColors
+   is off. Computed, because the colours live in a stylesheet this project
+   does not own and no token audit can reach them. */
+const toastContrast = await anyToast.first().evaluate((n) => {
+  const s = getComputedStyle(n);
+  const parse = (c) => (c.match(/-?[\d.]+/g) ?? []).map(Number).slice(0, 3);
+  const lin = (v) => {
+    const x = v / 255;
+    return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = (c) => {
+    const [r, g, b] = parse(c).map(lin);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [hi, lo] = [lum(s.color), lum(s.backgroundColor)].sort((a, b) => b - a);
+  return {
+    ratio: (hi + 0.05) / (lo + 0.05),
+    fg: s.color,
+    bg: s.backgroundColor,
+  };
+});
+check(
+  `toast text passes AA (${
+    toastContrast.ratio.toFixed(2)
+  }:1, ${toastContrast.fg} on ${toastContrast.bg})`,
+  toastContrast.ratio >= 4.5,
+);
+
+/* Past the success duration, and still there. This is the whole point. */
+await page.waitForTimeout(7000);
+check(
+  "an error toast is still on screen after a success would have gone",
+  (await anyToast.count()) >= 1,
+);
+
+/* And it can be got rid of, which is what makes waiting acceptable. A
+   toast that never leaves and cannot be dismissed is a trap for anyone
+   who cannot reach for a pointer. */
+const closer = anyToast.first().locator("button").first();
+check("it carries a control to dismiss it", (await closer.count()) === 1);
+await closer.click();
+check(
+  "and dismissing it works",
+  await anyToast.first().waitFor({ state: "detached", timeout: 10_000 })
+    .then(() => true, () => false),
+);
+
+/* The real clipboard back, so the copy checks further down are still
+   reading the browser's own and not a stub left behind by this one. */
+await page.evaluate(() => {
+  navigator.clipboard.writeText = globalThis.__realWrite;
+});
+
+/* Announced, or it is not a message at all: a toast reports the outcome of
+   something a person just did, and someone not looking at that corner of
+   the screen has only the live region. */
+check(
+  "toasts are announced through a live region",
+  (await page.locator("[aria-live]").count()) >= 1,
 );
 
 /* Zoomed out, a ~3 m square is sub-pixel; a pin has to mark it or a fresh

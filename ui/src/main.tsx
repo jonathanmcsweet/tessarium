@@ -42,10 +42,18 @@ createRoot(root).render(
           stylesheet where the contrast audit cannot see it. The default
           theme is near-black on white. */
       }
+      {
+        /* `app-toast` is this application's own name for a toast, and it is
+          here so the end-to-end suite never has to name sonner's. The two
+          behaviours that matter -- an error that waits to be dismissed, and
+          text that passes AA -- are tuned rather than default, so they are
+          asserted; asserting them through `[data-sonner-toast]` would tie
+          the assertions to the library and lose them the day it changes. */
+      }
       <Toaster
         position="top-center"
         closeButton
-        toastOptions={{ duration: 5000 }}
+        toastOptions={{ duration: 5000, className: "app-toast" }}
       />
     </QueryClientProvider>
   </StrictMode>,
