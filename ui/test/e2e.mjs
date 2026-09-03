@@ -1018,6 +1018,45 @@ check(
   )) === "dark",
 );
 
+/* The map's own controls, which are not this application's markup: MapLibre
+   ships them light-only, and they sat white over a dark map until someone
+   using the app at night pointed at them. Computed colour, not class names,
+   because the bug was a stylesheet this project does not own winning. */
+const surfaceLightness = async (sel) => {
+  const bg = await page.locator(sel).first()
+    .evaluate((n) => getComputedStyle(n).backgroundColor);
+  const nums = bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
+  return bg.startsWith("oklab") || bg.startsWith("oklch")
+    ? nums[0]
+    : (nums[0] + nums[1] + nums[2]) / (3 * 255);
+};
+check(
+  "the zoom buttons go dark with the theme",
+  (await surfaceLightness(".maplibregl-ctrl-group")) < 0.5,
+);
+check(
+  "and so does the scale bar",
+  (await surfaceLightness(".maplibregl-ctrl-scale")) < 0.5,
+);
+
+/* The low-light theme: red on black, chosen only -- no device media query
+   maps to it, so everything it needs proving is that the choice lands and
+   paints something that is neither of the other two. The red-only property
+   itself is audited token by token in contrast.mjs. */
+await pickTheme("night");
+check("choosing low light says so on the root", (await chosen()) === "night");
+const nightPanel = await panelInk();
+check(
+  "and paints a third surface, not a renamed dark",
+  nightPanel !== lightPanel && nightPanel !== darkPanel,
+);
+check(
+  "low light still tells the browser it is a dark scheme",
+  (await page.evaluate(() =>
+    getComputedStyle(document.documentElement).colorScheme
+  )) === "dark",
+);
+
 await pickTheme("system");
 check(
   "and going back to the device clears the choice",
@@ -1041,6 +1080,36 @@ check(
   "with only an overview, street zoom still offers to download the area",
   await page.waitForSelector(".map-note.action", { timeout: 20_000 })
     .then(() => true, () => false),
+);
+
+/* And the note is painted in the theme's colours, both of them. It sat on a
+   hardcoded white through the dark theme's whole first release -- white pill,
+   near-white ink -- and every token audit missed it because a literal in a
+   component class list belongs to no palette. Read back as painted, judged
+   by lightness rather than by name, so the check outlives the exact token.
+   The computed colour arrives as oklab() in this browser, whose first number
+   is lightness; rgb() is normalised to the same scale. */
+const noteLightness = async () => {
+  const bg = await page.locator(".map-note.action").first()
+    .evaluate((n) => getComputedStyle(n).backgroundColor);
+  const nums = bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
+  return bg.startsWith("oklab") || bg.startsWith("oklch")
+    ? nums[0]
+    : (nums[0] + nums[1] + nums[2]) / (3 * 255);
+};
+await pickTheme("dark");
+check(
+  `the note over the map goes dark with the theme (lightness ${
+    (await noteLightness()).toFixed(2)
+  })`,
+  (await noteLightness()) < 0.5,
+);
+await pickTheme("system");
+check(
+  `and light with the light theme (lightness ${
+    (await noteLightness()).toFixed(2)
+  })`,
+  (await noteLightness()) > 0.5,
 );
 
 /* Second: it must cost nothing to look around. The floor draws every tile

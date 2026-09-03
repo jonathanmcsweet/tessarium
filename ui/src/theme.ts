@@ -22,8 +22,14 @@
 
 import { useEffect, useState } from "react";
 
-export const themes = ["system", "light", "dark"] as const;
+export const themes = ["system", "light", "dark", "night"] as const;
 export type Theme = (typeof themes)[number];
+
+/* What is actually on screen: a theme with the "who decides" taken out.
+   "night" is the low-light palette -- red on black, for keeping night
+   vision -- and only ever arrives by choice; resolveTheme never returns it
+   for "system", because no media query can know its user is in the dark. */
+export type ResolvedTheme = Exclude<Theme, "system">;
 
 /* Sets one attribute and nothing else. The stylesheet does the rest -- both
    palettes live there, including `color-scheme`, so there is no inline style
@@ -38,7 +44,7 @@ export function applyTheme(theme: Theme) {
 /* What is actually on screen right now, which is what an icon has to show:
    a control offering "switch to dark" while the device is already dark is
    worse than no control. Reads the media query when nobody has chosen. */
-function resolveTheme(theme: Theme): "light" | "dark" {
+function resolveTheme(theme: Theme): ResolvedTheme {
   if (theme !== "system") return theme;
   return globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches
     ? "dark"
@@ -53,7 +59,7 @@ function resolveTheme(theme: Theme): "light" | "dark" {
    subscribed to rather than read once. When a person has chosen, the
    subscription is still live but its answer is ignored, which is the whole
    meaning of having chosen. */
-export function useResolvedTheme(theme: Theme): "light" | "dark" {
+export function useResolvedTheme(theme: Theme): ResolvedTheme {
   const [device, setDevice] = useState(() => resolveTheme("system"));
   useEffect(() => {
     const query = globalThis.matchMedia?.("(prefers-color-scheme: dark)");

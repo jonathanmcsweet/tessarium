@@ -44,7 +44,7 @@ const TARGET = "absolute inset-y-0 right-[var(--panel-offset,340px)] z-6 w-6 "
    the mark is what answers. */
 const HANDLE = "before:absolute before:top-1/2 before:left-1/2 before:h-8 "
   + "before:w-1 before:-translate-x-1/2 before:-translate-y-1/2 "
-  + "before:rounded-full before:bg-line-strong before:content-[''] "
+  + "before:bg-line-strong before:content-[''] "
   + "before:transition-colors before:duration-100 "
   + "hover:before:bg-accent focus-visible:before:bg-accent";
 

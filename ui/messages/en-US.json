@@ -7,6 +7,7 @@
   "theme_system": "Match my device",
   "theme_light": "Light",
   "theme_dark": "Dark",
+  "theme_night": "Low light",
   "app_name": "Tessarium",
   "banner_backend_down": "Cannot reach the server. Opening your map, searching, and downloading maps will not work until it is back.",
   "banner_basemap_action": "Download maps",

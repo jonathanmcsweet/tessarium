@@ -140,7 +140,7 @@ const DEBOUNCE_MS = 250;
 /* The box itself. The ring is on the wrapper rather than the input, because
    the magnifier sits inside the same border and a ring around only the text
    would read as two controls. */
-const FIELD = "place-search-field flex items-center gap-2 rounded-lg border "
+const FIELD = "place-search-field flex items-center gap-2 border "
   + "border-line-strong bg-card px-2.5 shadow-[0_1px_4px_rgb(0_0_0/0.15)] "
   + "focus-within:outline-2 focus-within:outline-offset-1 "
   + "focus-within:outline-accent-text";

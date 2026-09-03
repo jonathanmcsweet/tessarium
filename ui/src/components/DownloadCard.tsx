@@ -74,7 +74,7 @@ import { IconButton } from "./IconButton";
    fills it. The tick inside is scaled to nothing until then rather than
    mounted and unmounted, so it cannot reflow the row. */
 const BOX = "checkbox-box flex size-4.5 flex-none items-center justify-center "
-  + "rounded border border-line-strong bg-card text-on-ink "
+  + "border border-line-strong bg-card text-on-ink "
   + "group-selected/check:border-accent group-selected/check:bg-accent "
   + "[&>svg]:scale-0 group-selected/check:[&>svg]:scale-100";
 
@@ -305,7 +305,7 @@ function RegionPicker() {
         /* The picker's tree. It scrolls inside the card so the selection's
           estimate and its download button stay in reach below the list. */
       }
-      <ul className="region-tree my-2 max-h-[min(45vh,21rem)] divide-y divide-line overflow-y-auto rounded-lg border border-line">
+      <ul className="region-tree my-2 max-h-[min(45vh,21rem)] divide-y divide-line overflow-y-auto border border-line">
         {list.map(({ country, label }) => {
           const code = country.code ?? country.name;
           const subs = subdivisionsOf(country);

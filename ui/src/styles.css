@@ -189,6 +189,45 @@
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
 }
 
+/* Low light: for keeping night vision. Every colour is red or amber because
+   that is the entire point -- rod cells barely respond to long wavelengths,
+   so a red screen can be read and the dark outside it stays visible. This
+   palette exists only as a choice; no media query selects it, because no
+   device knows its user is standing in the dark. Green and blue do not
+   appear even for "ok" and focus: one stray cyan tick would undo what the
+   rest of the screen is protecting. Contrast is carried by lightness alone,
+   and the test suite audits this block against the same AA thresholds as
+   the other two. */
+:root[data-theme="night"] {
+  color-scheme: dark;
+
+  --color-ink: #f4d7d2;
+  --color-ink-soft: #c9938b;
+  --color-line: #3a2222;
+  --color-line-strong: #93675f;
+  --color-bg: #120909;
+  --color-card: #1c1010;
+  --color-field: #170c0c;
+  --color-accent: #ff5346;
+  --color-accent-text: #ff8d7e;
+  --color-ok: #ffb199;
+  --color-ok-strong: #ffb199;
+  --color-warn: #f0a86e;
+  --color-danger: #ff8080;
+  --color-focus: #ff9d8f;
+  --color-on-ink: #120909;
+  --color-disabled: #2b1a1a;
+  --color-on-disabled: #c9a29a;
+  --color-hover: #241414;
+  --color-alert: #2a1212;
+  --color-notice: #261a10;
+  --color-notice-line: #4a3322;
+  --color-notice-soft: #221610;
+  --color-notice-soft-line: #46362a;
+
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
 html,
 body,
 #root {
@@ -238,7 +277,7 @@ code {
    smallest target most touch guidance accepts. */
 @utility btn {
   @apply focus-ring inline-flex min-h-11 cursor-pointer items-center
-    justify-center gap-2 rounded-lg border border-transparent px-4 text-sm
+    justify-center gap-2 border border-transparent px-4 text-sm
     font-semibold no-underline;
 }
 
@@ -266,7 +305,7 @@ code {
    3.44:1, past the non-text minimum, where the decorative hairline would
    not be. */
 @utility field {
-  @apply w-full rounded-lg border border-line-strong bg-field px-3 py-2.5
+  @apply w-full border border-line-strong bg-field px-3 py-2.5
     text-sm leading-relaxed text-ink
     focus:outline-2 focus:outline-offset-1 focus:outline-focus;
 }
@@ -293,7 +332,7 @@ code {
    competing with the address, which is the one thing on screen that is
    allowed to be loud. */
 @utility warning {
-  @apply rounded-r-lg border-l-4 border-accent bg-alert px-4 py-3
+  @apply border-l-4 border-accent bg-alert px-4 py-3
     text-sm leading-normal;
 }
 
@@ -309,7 +348,7 @@ code {
    same gesture and looked like two applications when one was drawn by the
    operating system. */
 @utility sheet {
-  @apply z-40 rounded-lg border border-line-strong bg-card
+  @apply z-40 border border-line-strong bg-card
     shadow-[0_2px_8px_rgb(0_0_0/0.2)];
 }
 
@@ -318,7 +357,7 @@ code {
    longer has to write to the keyboard's cursor to look right. It is a
    separate state from `focus-visible:`, which is the keyboard ring. */
 @utility sheet-option {
-  @apply flex min-h-11 cursor-pointer items-center rounded px-2.5 py-2
+  @apply flex min-h-11 cursor-pointer items-center px-2.5 py-2
     text-sm focus:bg-hover focus-visible:outline-2
     focus-visible:-outline-offset-2 focus-visible:outline-accent-text;
 }
@@ -365,6 +404,61 @@ code {
    drawer, and when the drawer was shut they sat underneath the one button
    that brings it back. `.map-wrap` is the container this application owns,
    which is what makes the rule outrank theirs whatever the load order. */
+/* MapLibre's controls -- zoom, compass, geolocate, the scale bar, the
+   attribution -- ship a light-only stylesheet and were the last things on
+   screen still white in a dark room. Painted with the same tokens as
+   everything else, so all four themes get them for free. The icons inside
+   the buttons are background-image SVGs with #333 baked in, which no token
+   can reach: they are inverted instead, under the same three selectors the
+   dark palettes use, and land near #ccc. */
+.map-wrap .maplibregl-ctrl-group {
+  background: var(--color-card);
+  box-shadow: 0 0 0 1px var(--color-line);
+}
+
+.map-wrap .maplibregl-ctrl-group button + button {
+  border-top-color: var(--color-line);
+}
+
+.map-wrap .maplibregl-ctrl-scale {
+  background: var(--color-card);
+  color: var(--color-ink);
+  border-color: var(--color-line-strong);
+}
+
+/* Both class names, matching the specificity MapLibre itself uses for this
+   one -- its own rule is .maplibregl-ctrl.maplibregl-ctrl-attrib and ties
+   are settled by load order, which this file loses. */
+.map-wrap .maplibregl-ctrl.maplibregl-ctrl-attrib {
+  background: var(--color-card);
+}
+
+.map-wrap .maplibregl-ctrl-attrib,
+.map-wrap .maplibregl-ctrl-attrib a {
+  color: var(--color-ink-soft);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
+    filter: invert(1);
+  }
+}
+
+:root[data-theme="dark"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon,
+:root[data-theme="night"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
+  filter: invert(1);
+}
+
+/* The theme squares every corner, and the map's own controls -- zoom,
+   compass, attribution -- arrive with MapLibre's own 4px radius. Same two-class
+   trick as below: MapLibre's stylesheet loads after this one, so a single
+   class would lose. */
+.map-wrap .maplibregl-ctrl-group,
+.map-wrap .maplibregl-ctrl-group button,
+.map-wrap .maplibregl-ctrl-attrib {
+  border-radius: 0;
+}
+
 .map-wrap .maplibregl-ctrl-top-right,
 .map-wrap .maplibregl-ctrl-bottom-right {
   /* Never less than the reopen tab's own width. With the drawer shut

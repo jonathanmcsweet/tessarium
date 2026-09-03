@@ -29,6 +29,7 @@ const themeLabel: Record<Theme, () => string> = {
   system: () => m.theme_system(),
   light: () => m.theme_light(),
   dark: () => m.theme_dark(),
+  night: () => m.theme_night(),
 };
 
 export function SettingsMenu() {

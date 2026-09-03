@@ -146,7 +146,7 @@ export function PhraseEntry() {
   return (
     <div className="gate grid min-h-full place-items-center p-3 sm:p-6">
       <form
-        className="gate-card flex w-[min(35rem,100%)] flex-col gap-3 rounded-xl border border-line bg-card p-7 shadow-card"
+        className="gate-card flex w-[min(35rem,100%)] flex-col gap-3 border border-line bg-card p-7 shadow-card"
         onSubmit={submit}
       >
         <h1 className="text-2xl font-bold tracking-tight">{m.app_name()}</h1>

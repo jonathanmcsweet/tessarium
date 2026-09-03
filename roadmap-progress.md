@@ -21,6 +21,28 @@ than a git log.
 
 ---
 
+### 2026-08-30 — A low-light theme, square corners, and the map chrome themed
+
+**Phase:** 6
+
+**What:** A fourth theme, "Low light" — red on black for keeping night vision,
+audited to the same AA thresholds as the others plus a mechanical red-dominance
+rule (no night token may spend more green or blue than red). Every corner in
+the theme squared, including MapLibre's own controls. Two theme-blind surfaces
+fixed and pinned by computed-colour e2e checks: the map note sat on a
+hardcoded `bg-white/95` through the dark theme's whole first release, and
+MapLibre's zoom/scale/attribution chrome stayed white in every dark theme —
+tokens for the surfaces, `filter: invert(1)` for the #333 baked into its
+icon sprites.
+
+**Rationale:** Low light is choice-only — no media query selects it, because
+no device knows its user is standing in the dark. The map under it is
+Protomaps' "black" flavor with a red overlay grid, since Protomaps has no red
+flavor and the theme must not introduce colours it exists to exclude.
+
+**Follow-on:** None.
+
+
 ### 2026-08-29 — Name a view after where it is; nothing in the base archive is removable
 
 **Phase:** 6

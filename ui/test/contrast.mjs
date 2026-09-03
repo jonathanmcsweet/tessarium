@@ -63,10 +63,12 @@ const block = (start) => {
 const light = block("@theme {");
 const darkMedia = block("@media (prefers-color-scheme: dark) {");
 const darkChosen = block(':root[data-theme="dark"] {');
+const night = block(':root[data-theme="night"] {');
 
 check("the light palette is the @theme block", light !== null);
 check("the dark palette exists for a dark device", darkMedia !== null);
 check("and for someone who chose it", darkChosen !== null);
+check("the low-light palette exists for whoever chose it", night !== null);
 
 /* The duplication above is the whole reason for this check. Adding a token
    to one dark block and not the other would leave half the application on
@@ -84,6 +86,22 @@ check(
   "and the dark set covers every token the light set defines",
   names(light) === names(darkMedia),
 );
+check(
+  "and so does the low-light set",
+  names(light) === names(night),
+);
+
+/* Low light exists to protect night vision, which is a property no contrast
+   ratio can see: it fails the moment any token brings green or blue to the
+   screen. Red-dominant, mechanically: no channel may beat red. Amber passes
+   (r >= g > b); cyan and violet cannot. */
+for (const [name, hex] of Object.entries(night ?? {})) {
+  const ch = (i) => parseInt(hex.slice(i, i + 2), 16);
+  check(
+    `night: --color-${name} (${hex}) spends no light the dark should keep`,
+    ch(1) >= ch(3) && ch(1) >= ch(5),
+  );
+}
 
 let vars = light ?? {};
 
@@ -155,6 +173,7 @@ const audit = (label, palette) => {
 };
 audit("light", light);
 audit("dark", darkMedia);
+audit("night", night);
 
 /* Every audited colour is a token now, which is what made a second palette
    possible at all: a pair naming a literal can only be checked in the theme

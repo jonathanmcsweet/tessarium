@@ -7,6 +7,7 @@
   "theme_system": "Seguir mi dispositivo",
   "theme_light": "Claro",
   "theme_dark": "Oscuro",
+  "theme_night": "Luz tenue",
   "app_name": "Tessarium",
   "banner_backend_down": "No se puede conectar con el servidor. Abrir tu mapa, buscar y descargar mapas no funcionará hasta que vuelva.",
   "banner_basemap_action": "Descargar mapas",

@@ -34,7 +34,7 @@ import { sayError } from "../core/refusal";
 import { formatBytes, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
-import { useResolvedTheme } from "../theme";
+import { type ResolvedTheme, useResolvedTheme } from "../theme";
 import { toastError } from "../toast";
 import { PlaceSearch } from "./PlaceSearch";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -187,7 +187,10 @@ const basemapLayers = (
      have to sit next to a white map. Same generator, same layer ids -- only
      the paint differs -- which is why swapping it is a style rebuild and
      not a special case anywhere else. */
-  const flavor = namedFlavor(scheme);
+  /* Protomaps has no red flavour, and "night" must not invent colours the
+     theme worked to exclude: "black" is its darkest, least chromatic set,
+     and the red arrives from this application's own overlay on top. */
+  const flavor = namedFlavor(scheme === "night" ? "black" : scheme);
   const floor = layers(FLOOR_SOURCE, flavor, { lang })
     .filter((layer) => layer.type !== "background")
     .map((layer) => ({ ...layer, id: `${FLOOR_SOURCE}-${layer.id}` }));
@@ -209,7 +212,7 @@ const basemapLayers = (
    which ground they are landing on. Dark values are lighter than the map,
    the way the light ones are darker than it: the point of both is to be
    read against the cartography, not to be a particular colour. */
-type Scheme = "light" | "dark";
+type Scheme = ResolvedTheme;
 
 const OVERLAY: Record<Scheme, {
   blank: string;
@@ -228,6 +231,15 @@ const OVERLAY: Record<Scheme, {
     blankOpacity: 0.26,
     edge: "#b8c9da",
     grid: "#8fc4ff",
+  },
+  /* Red only, like everything else in low light: the grid is the loudest
+     thing this application draws, and a blue grid over a red screen would
+     be the one light that costs the user their night vision. */
+  night: {
+    blank: "#c98f85",
+    blankOpacity: 0.24,
+    edge: "#d9a79b",
+    grid: "#ff6a5c",
   },
 };
 
@@ -420,11 +432,13 @@ const cellCenter = (cell: {
   },
 });
 
-/* A note over the map: a pill, transparent to the pointer, wide enough for a
-   sentence in any of six languages. */
-const NOTE =
-  "map-note pointer-events-none max-w-full rounded-full border border-line "
-  + "bg-white/95 px-4 py-1.5 text-center text-sm shadow-card";
+/* A note over the map: transparent to the pointer, wide enough for a
+   sentence in any of six languages. bg-card, not white: this floats over
+   the map in both themes, and a literal white here was exactly the thing
+   the token audit could not see -- it shipped as a white pill with
+   near-white text through the dark theme's whole first release. */
+const NOTE = "map-note pointer-events-none max-w-full border border-line "
+  + "bg-card/95 px-4 py-1.5 text-center text-sm shadow-card";
 
 /* One that offers something to do lays its text and action out in a row,
    wrapping on a narrow screen rather than pushing the button off the map.
@@ -1212,7 +1226,7 @@ export function MapView() {
           keyboard aid, not a control. */
       }
       <div
-        className="reticle pointer-events-none absolute top-1/2 left-1/2 z-2 size-4.5 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 border-[rgba(18,33,47,0.55)]"
+        className="reticle pointer-events-none absolute top-1/2 left-1/2 z-2 size-4.5 -translate-x-1/2 -translate-y-1/2 border-2 border-[rgba(18,33,47,0.55)]"
         aria-hidden
       />
       {
@@ -1275,7 +1289,7 @@ export function MapView() {
             <span>{m.map_coverage_gap()}</span>
             <button
               type="button"
-              className="note-action btn pointer-events-auto rounded-full! px-3.5 text-sm"
+              className="note-action btn pointer-events-auto px-3.5 text-sm"
               onClick={() =>
                 openDownload()}
             >

@@ -39,7 +39,7 @@ export function LockDialog({ onConfirm }: { onConfirm: () => void; }) {
         className="fixed inset-0 z-60 flex items-center justify-center bg-[rgb(15_23_32/0.45)] p-4"
         isDismissable
       >
-        <Modal className="max-h-[90vh] w-[min(27.5rem,100%)] overflow-y-auto rounded-xl border border-line-strong bg-card shadow-[0_8px_32px_rgb(0_0_0/0.3)]">
+        <Modal className="max-h-[90vh] w-[min(27.5rem,100%)] overflow-y-auto border border-line-strong bg-card shadow-[0_8px_32px_rgb(0_0_0/0.3)]">
           <Dialog className="modal-dialog p-5 outline-none">
             {({ close }) => (
               <>

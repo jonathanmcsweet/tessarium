@@ -31,7 +31,7 @@ import {
    the 22px system control it replaced. */
 const TRIGGER =
   "dropdown-button focus-ring flex min-h-11 max-w-full flex-1 cursor-pointer "
-  + "items-center justify-between gap-2 rounded-lg border border-line-strong "
+  + "items-center justify-between gap-2 border border-line-strong "
   + "bg-card px-2 text-left text-sm text-ink "
   + "disabled:cursor-default disabled:opacity-55";
 

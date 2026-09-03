@@ -36,7 +36,7 @@ const LONG_PRESS_MS = 450;
    property. */
 const BASE =
   "icon-button focus-ring inline-flex h-11 w-11 flex-none items-center "
-  + "justify-center rounded-lg border border-line p-0 "
+  + "justify-center border border-line p-0 "
   + "hover:not-disabled:bg-hover hover:not-disabled:text-ink "
   + "aria-pressed:border-ink-soft aria-pressed:text-ink";
 
@@ -121,7 +121,7 @@ export function IconButton({
           path inside. */
       }
       <Tooltip
-        className="z-40 max-w-65 rounded-md bg-ink px-2.5 py-1.5 text-xs leading-snug text-on-ink shadow-card"
+        className="z-40 max-w-65 bg-ink px-2.5 py-1.5 text-xs leading-snug text-on-ink shadow-card"
         offset={6}
         containerPadding={8}
       >
