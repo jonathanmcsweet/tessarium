@@ -26,10 +26,12 @@ import { IconButton } from "./IconButton";
    sentences instead of a key pattern. "Match my device" is deliberately not
    called "System": it says whose decision it is. */
 const themeLabel: Record<Theme, () => string> = {
-  system: () => m.theme_system(),
-  light: () => m.theme_light(),
+  "cyber-dark": () => m.theme_cyber_dark(),
+  "cyber-light": () => m.theme_cyber_light(),
   dark: () => m.theme_dark(),
+  light: () => m.theme_light(),
   night: () => m.theme_night(),
+  system: () => m.theme_system(),
 };
 
 export function SettingsMenu() {

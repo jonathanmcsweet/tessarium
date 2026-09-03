@@ -10,7 +10,7 @@
 
 import { create } from "zustand";
 import { applyLocale, getLocale, type Locale } from "./i18n";
-import { applyTheme, type Theme } from "./theme";
+import { applyTheme, DEFAULT_THEME, type Theme } from "./theme";
 
 export type Cell = {
   latLo: number;
@@ -118,7 +118,7 @@ export const useAppStore = create<AppState>()((set) => ({
   panelWidth: PANEL_DEFAULT,
   panelCollapsed: false,
   locale: getLocale() as Locale,
-  theme: "system",
+  theme: DEFAULT_THEME,
 
   setLocale: (locale) => {
     applyLocale(locale);

@@ -38,106 +38,108 @@
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     monospace;
 
-  /* Light is Night City by day, and it gets there a different way than the
-     dark theme does. Neon is a thing you see because it is dark; on paper
-     there is no glow to have, and a pale magenta on white is just pink. So
-     the light theme takes the print half of the same look -- saturated ink,
-     hard edges, and the misregistered colour separation of a cheap two-pass
-     press -- and keeps the dark theme's magenta/violet/cyan family, each one
-     pushed down to the lightness white demands of it. Same city, daylight,
-     and every pair below is audited by test/contrast.mjs like any other. */
+  /* ------------------------------------------------- cyberpunk dark, and
+     the palette the application opens in.
 
-  /* Violet-black rather than navy: the ground the dark theme is built on
-     (#0a0614), brought up to ink. */
-  --color-ink: #1a1030;
-  --color-ink-soft: #5c4b7a;
-  --color-line: #ddd5ec;
-  /* Borders that identify a control (inputs, selects) rather than decorate:
-     3.96:1 on white, past the 3:1 non-text minimum. Decorative hairlines
-     stay --color-line. */
-  --color-line-strong: #8878a8;
-  /* Paper under a UV cast, not neutral grey. */
-  --color-bg: #f5f2fb;
-  --color-card: #ffffff;
+     This block is two things at once, and the second is the reason it holds
+     THIS palette rather than a plain one. Tailwind compiles `@theme` to
+     `:root`, so whatever is written here is what paints before anyone has
+     chosen anything -- and it is also what every `[data-theme]` block below
+     overrides one token at a time. The default theme therefore has to be
+     the one written here, or the first frame is a theme nobody picked.
+
+     Cyberpunk dark is that default: purple-black ground, magenta accent,
+     cyan focus and address, acid-green ok. Because it wears no attribute,
+     it is the one palette with no `[data-theme]` block of its own -- there
+     is nothing to keep in step and nothing to drift.
+
+     Every pair is audited by test/contrast.mjs against the same thresholds
+     as the other four. A theme that ships untested contrast is a theme that
+     ships unreadable text to whoever turns it on. */
+  --color-ink: #ede7fa;
+  --color-ink-soft: #b9a8d8;
+  --color-line: #2b1d42;
+  /* Borders that identify a control (inputs, selects) rather than decorate,
+     past the 3:1 non-text minimum. Decorative hairlines stay
+     --color-line. */
+  --color-line-strong: #7a63a3;
+  --color-bg: #0a0614;
+  --color-card: #140d22;
   /* Fields are a shade off the card so an input reads as somewhere to type
      before it is focused. Every foreground the contrast test pairs with a
-     field is checked against this, not against white. */
-  --color-field: #fbf9fe;
-  /* Hot magenta, the dark theme's accent taken down until it can carry
-     white text as a fill: 5.14:1, where the old vermilion managed 3.95 and
-     nothing was checking. */
-  --color-accent: #d6006e;
-  /* The accent, dark enough to be TEXT: 6.82:1 on white, so the address
-     line passes AA at any size -- the 19px large-text exemption died the
-     day a mobile media query set it to 17px. Non-text accent uses (the
-     selection overlay, borders) keep --color-accent. */
-  --color-accent-text: #b3005e;
-  /* The dark theme's acid lime at the lightness white will take: same hue,
-     and it has to be this dark to be read at all on paper. */
-  --color-ok: #3f7a00;
-  /* The tick after a copy is darker than the check-passed text: it lands on
-     a button rather than in a sentence, and has to hold 3:1 as a border as
-     well as 4.5:1 as a glyph. */
-  --color-ok-strong: #357000;
-  --color-warn: #8a5a00;
-  --color-danger: #c0002e;
+     field is checked against this, not against the card. */
+  --color-field: #100a1c;
+  --color-accent: #ff4fa8;
+  /* The accent as TEXT, which is a lower bar to clear on a dark ground than
+     on a white one -- the 19px large-text exemption died the day a mobile
+     media query set it to 17px, so this holds 4.5:1 at any size. Non-text
+     accent uses (the selection overlay, borders) keep --color-accent. */
+  --color-accent-text: #ff86c2;
+  --color-ok: #b7ff5c;
+  /* The tick after a copy lands on a button rather than in a sentence, and
+     has to hold 3:1 as a border as well as 4.5:1 as a glyph. On this ground
+     the check-passed colour already does both. */
+  --color-ok-strong: #b7ff5c;
+  --color-warn: #e8c15c;
+  --color-danger: #ff6e8e;
 
   /* Text on a filled primary button. Not white -- white is only right while
-     --color-ink is dark, and in the dark theme it is not. */
-  --color-on-ink: #ffffff;
+     --color-ink is dark, and in this palette it is not. */
+  --color-on-ink: #0a0614;
   /* And on a filled ACCENT, which is a different question with a different
-     answer: here the accent is dark enough for white, and in both dark
-     themes it is a bright one that needs the ground back. */
-  --color-on-accent: #ffffff;
+     answer: a bright accent needs the ground back, a dark one takes white.
+     It was a literal `text-white` for both, and under AA in every theme. */
+  --color-on-accent: #0a0614;
 
-  /* Inactive controls are exempt from WCAG contrast, but 1.6:1 white on
-     grey was illegible rather than merely muted. This pair reads 7.14:1. */
-  --color-disabled: #e4dff0;
-  --color-on-disabled: #4c4166;
+  /* Inactive controls are exempt from WCAG contrast, but 1.6:1 was
+     illegible rather than merely muted. This pair is audited like any
+     other. */
+  --color-disabled: #241736;
+  --color-on-disabled: #a693c7;
 
   /* The wash under a pointer: hovered buttons, and the row the arrow keys
      are on in a listbox. One value, where there used to be two a shade
      apart that nobody could have told from each other. */
-  --color-hover: #f3eefc;
+  --color-hover: #1d1330;
 
   /* Something the reader has to take in before acting: the gate's
      provenance warning, the standing note about the phrase. */
-  --color-alert: #fdf0f8;
+  --color-alert: #2b1226;
 
   /* Site-wide notices, and the quieter version of the same thing that sits
      over the map. Both carry --color-warn as their text. Amber stays amber
-     in all four palettes: it is hazard tape, and it is the one colour on
+     in all five palettes: it is hazard tape, and it is the one colour on
      screen that should not be restyled into the theme. */
-  --color-notice: #fff8e6;
-  --color-notice-line: #e8d9a8;
-  --color-notice-soft: #fffaf0;
-  --color-notice-soft-line: #e6d3a3;
+  --color-notice: #251d0d;
+  --color-notice-line: #4a3d1e;
+  --color-notice-soft: #201a10;
+  --color-notice-soft-line: #443a20;
   /* The focus ring. One colour for every control in the app, because a
      focus ring that changes appearance between controls is a focus ring
-     people stop reading. Deep cyan: the dark theme's focus, darkened. */
-  --color-focus: #0077a3;
-  /* Direction C's levers. They were held at rest here -- address in ink,
-     primary action a solid block, no glitch, no wash -- on the assumption
-     that the look needed darkness. Two of the four did: the corner glows
-     and the neon gradient. The other two did not. A split shadow on a
-     wordmark is misregistration, which is a PRINT artefact and reads better
-     on white than it ever does on black, and a gradient only needed stops
-     dark enough to keep their label. */
-  --color-accent-alt: #006d7a;
-  --color-cta-from: #b3005e;
-  --color-cta-mid: #6d28d9;
-  --color-cta-to: #00646f;
-  --color-on-cta: #ffffff;
-  --glitch-a: rgb(214 0 110 / 0.55);
-  --glitch-b: rgb(0 150 176 / 0.55);
-  /* The wash the dark theme runs at 0.16; on paper the same figure is a
-     stain, and this is a press running slightly out of ink. */
-  --bg-image:
-    radial-gradient(ellipse at 12% -10%, rgb(214 0 110 / 0.07), transparent 46%),
-    radial-gradient(ellipse at 95% 110%, rgb(0 150 176 / 0.07), transparent 46%);
+     people stop reading. */
+  --color-focus: #53f1ff;
 
-  --shadow-card: 0 1px 3px rgba(26, 16, 48, 0.14),
-    0 8px 24px rgba(26, 16, 48, 0.10);
+  /* The four levers the plain themes hold at rest: the address's own
+     colour, the primary action's gradient, the wordmark's split shadow and
+     the ground's corner glow. Plain light and plain dark set all four to
+     nothing -- one colour repeated three times is a solid button, and a
+     transparent shadow is no shadow -- so they need no rule anywhere else
+     in the application to stay plain. */
+  --color-accent-alt: #53f1ff;
+  --color-cta-from: #ff4fa8;
+  --color-cta-mid: #a54fff;
+  --color-cta-to: #53f1ff;
+  --color-on-cta: #0a0614;
+  --glitch-a: rgb(255 79 168 / 0.75);
+  --glitch-b: rgb(83 241 255 / 0.75);
+  --bg-image:
+    radial-gradient(ellipse at 12% -10%, rgb(255 79 168 / 0.16), transparent 46%),
+    radial-gradient(ellipse at 95% 110%, rgb(83 241 255 / 0.13), transparent 46%);
+
+  /* A shadow is a shape cut out of the light behind it. On a dark ground
+     there is no light behind it, so a tinted rgba reads as nothing at all;
+     it has to be darker than the surface it falls on. */
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
 
   /* Below this the side panel becomes a sheet across the bottom of the
      screen: there is no longer enough width for a column beside the map.
@@ -146,116 +148,236 @@
   --breakpoint-drawer: 52rem;
 }
 
-/* ------------------------------------------------------------ the dark set
+/* ------------------------------------------------------- the chosen sets
 
-   Written twice on purpose, and the duplication is guarded rather than
-   tolerated: CSS cannot say "the device prefers dark OR the user chose
-   dark" in one selector, because one half is a media query and the other is
-   an attribute. So the palette appears under both, and test/contrast.mjs
-   fails if the two blocks ever stop defining the same tokens.
+   Five palettes and six menu entries. Cyberpunk dark is the default and
+   lives in @theme above, wearing no attribute; the other four are here,
+   and each overrides the default token by token.
 
-   The media block is guarded by `:not([data-theme="light"])` so that
-   choosing light on a dark device actually gives light. The attribute block
-   needs no such guard -- it only exists because somebody chose.
+   "Match my device" is the sixth entry and not a palette: it borrows the
+   two PLAIN sets, which is what a device preference means -- an operating
+   system says light or dark, it does not say cyberpunk. That is why plain
+   light is written under two selectors at once and plain dark is written
+   twice: CSS cannot say "the device prefers dark OR the user chose dark" in
+   one selector, because one half is a media query and the other is an
+   attribute. test/contrast.mjs fails if the two dark blocks ever stop
+   agreeing, token for token.
 
-   Every pair here is audited by test/contrast.mjs against the same
-   thresholds as the light set. A theme that ships untested contrast is a
-   theme that ships unreadable text to whoever turns it on. */
+   Order is load-bearing. The media block below and the plain-light rule
+   above it are the same specificity and both match a device-dark viewer on
+   "system", so the one that wins is the one written later. */
 
 :root {
+  color-scheme: dark;
+}
+
+/* ------------------------------------------------------------ plain light
+
+   The theme this application had before it had a look: navy ink, vermilion
+   accent, white card. All four Direction C levers are at rest -- one colour
+   repeated across the gradient's three stops is a solid button, transparent
+   glitch is no glitch, and `none` is no wash -- so nothing else in the
+   application needs a rule to keep it plain. */
+:root[data-theme="system"],
+:root[data-theme="light"] {
   color-scheme: light;
+
+  --color-ink: #12212f;
+  --color-ink-soft: #5a6b7b;
+  --color-line: #d9e0e7;
+  --color-line-strong: #7f8c98;
+  --color-bg: #f4f6f8;
+  --color-card: #ffffff;
+  --color-field: #fbfcfd;
+  /* One shade darker than the vermilion this theme shipped with (#e8452c),
+     which could carry neither white nor its own ink at AA on the one
+     control that fills with it. This is the shade that was already sitting
+     beside it as --color-accent-text, and at arm's length the two are the
+     same red. */
+  --color-accent: #d13a22;
+  --color-accent-text: #d13a22;
+  --color-ok: #0f7b4f;
+  --color-ok-strong: #1a7f4b;
+  --color-warn: #8a5a00;
+  --color-danger: #b4232a;
+  --color-focus: #2b6cb0;
+  --color-on-ink: #ffffff;
+  --color-on-accent: #ffffff;
+  --color-disabled: #e3e8ed;
+  --color-on-disabled: #4c5b69;
+  --color-hover: #eef1f4;
+  --color-alert: #fff5f3;
+  --color-notice: #fff8e6;
+  --color-notice-line: #e8d9a8;
+  --color-notice-soft: #fffaf0;
+  --color-notice-soft-line: #e6d3a3;
+
+  --color-accent-alt: #12212f;
+  --color-cta-from: #12212f;
+  --color-cta-mid: #12212f;
+  --color-cta-to: #12212f;
+  --color-on-cta: #ffffff;
+  --glitch-a: transparent;
+  --glitch-b: transparent;
+  --bg-image: none;
+
+  --shadow-card: 0 1px 3px rgba(18, 33, 47, 0.12),
+    0 8px 24px rgba(18, 33, 47, 0.08);
+}
+
+/* ------------------------------------------------------------- plain dark
+
+   Slate rather than purple, and the same four levers at rest. Written twice
+   for the reason at the top of this section; the two blocks are required to
+   agree. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-ink: #e6ecf2;
+  --color-ink-soft: #a3b3c2;
+  --color-line: #28323d;
+  --color-line-strong: #7d8d9c;
+  --color-bg: #0c1319;
+  --color-card: #151f28;
+  --color-field: #0f1820;
+  --color-accent: #ff6a4d;
+  --color-accent-text: #ff8f77;
+  --color-ok: #4fc38a;
+  --color-ok-strong: #4fc38a;
+  --color-warn: #e5b25c;
+  --color-danger: #ff8080;
+  --color-focus: #79aee8;
+  --color-on-ink: #0c1319;
+  --color-on-accent: #0c1319;
+  --color-disabled: #232f3b;
+  --color-on-disabled: #8d9dac;
+  --color-hover: #1e2a35;
+  --color-alert: #2a1a17;
+  --color-notice: #2a2313;
+  --color-notice-line: #4a3f22;
+  --color-notice-soft: #241f14;
+  --color-notice-soft-line: #463c22;
+
+  --color-accent-alt: #ff8f77;
+  --color-cta-from: #e6ecf2;
+  --color-cta-mid: #e6ecf2;
+  --color-cta-to: #e6ecf2;
+  --color-on-cta: #0c1319;
+  --glitch-a: transparent;
+  --glitch-b: transparent;
+  --bg-image: none;
+
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root[data-theme="system"] {
     color-scheme: dark;
 
-    --color-accent-alt: #53f1ff;
-    --color-cta-from: #ff4fa8;
-    --color-cta-mid: #a54fff;
-    --color-cta-to: #53f1ff;
-    --color-on-cta: #0a0614;
+    --color-ink: #e6ecf2;
+    --color-ink-soft: #a3b3c2;
+    --color-line: #28323d;
+    --color-line-strong: #7d8d9c;
+    --color-bg: #0c1319;
+    --color-card: #151f28;
+    --color-field: #0f1820;
+    --color-accent: #ff6a4d;
+    --color-accent-text: #ff8f77;
+    --color-ok: #4fc38a;
+    --color-ok-strong: #4fc38a;
+    --color-warn: #e5b25c;
+    --color-danger: #ff8080;
+    --color-focus: #79aee8;
+    --color-on-ink: #0c1319;
+    --color-on-accent: #0c1319;
+    --color-disabled: #232f3b;
+    --color-on-disabled: #8d9dac;
+    --color-hover: #1e2a35;
+    --color-alert: #2a1a17;
+    --color-notice: #2a2313;
+    --color-notice-line: #4a3f22;
+    --color-notice-soft: #241f14;
+    --color-notice-soft-line: #463c22;
 
-    --glitch-a: rgb(255 79 168 / 0.75);
-    --glitch-b: rgb(83 241 255 / 0.75);
-    --bg-image:
-      radial-gradient(ellipse at 12% -10%, rgb(255 79 168 / 0.16), transparent 46%),
-      radial-gradient(ellipse at 95% 110%, rgb(83 241 255 / 0.13), transparent 46%);
+    --color-accent-alt: #ff8f77;
+    --color-cta-from: #e6ecf2;
+    --color-cta-mid: #e6ecf2;
+    --color-cta-to: #e6ecf2;
+    --color-on-cta: #0c1319;
+    --glitch-a: transparent;
+    --glitch-b: transparent;
+    --bg-image: none;
 
-
-    --color-ink: #ede7fa;
-    --color-ink-soft: #b9a8d8;
-    --color-line: #2b1d42;
-    --color-line-strong: #7a63a3;
-    --color-bg: #0a0614;
-    --color-card: #140d22;
-    --color-field: #100a1c;
-    --color-accent: #ff4fa8;
-    --color-accent-text: #ff86c2;
-    --color-ok: #b7ff5c;
-    --color-ok-strong: #b7ff5c;
-    --color-warn: #e8c15c;
-    --color-danger: #ff6e8e;
-    --color-focus: #53f1ff;
-    --color-on-ink: #0a0614;
-    --color-on-accent: #0a0614;
-    --color-disabled: #241736;
-    --color-on-disabled: #a693c7;
-    --color-hover: #1d1330;
-    --color-alert: #2b1226;
-    --color-notice: #251d0d;
-    --color-notice-line: #4a3d1e;
-    --color-notice-soft: #201a10;
-    --color-notice-soft-line: #443a20;
-
-    /* A shadow is a shape cut out of the light behind it. On a dark ground
-       there is no light behind it, so the same rgba reads as nothing at
-       all; it has to be darker than the surface it falls on. */
     --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
   }
 }
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
+/* -------------------------------------------------------- cyberpunk light
 
-  --color-accent-alt: #53f1ff;
-  --color-cta-from: #ff4fa8;
-  --color-cta-mid: #a54fff;
-  --color-cta-to: #53f1ff;
-  --color-on-cta: #0a0614;
+   The same city as the default, in daylight, and it gets there a different
+   way. Neon is a thing you see BECAUSE it is dark; on paper there is no
+   glow to have, and a pale magenta on white is just pink. So this takes the
+   print half of the look -- saturated ink, hard edges, and the misregistered
+   colour separation of a cheap two-pass press -- and keeps the default's
+   magenta/violet/cyan family, each colour pushed down to the lightness
+   white demands of it.
 
-  --glitch-a: rgb(255 79 168 / 0.75);
-  --glitch-b: rgb(83 241 255 / 0.75);
+   Two of the four levers move here and two do not. The corner glow needs
+   darkness and is kept faint; the gradient only ever needed stops dark
+   enough to hold a white label; and the wordmark's split shadow is
+   misregistration, a print artefact that reads better on white than it ever
+   does on black. */
+:root[data-theme="cyber-light"] {
+  color-scheme: light;
+
+  /* Violet-black rather than navy: the default's ground (#0a0614), brought
+     up to ink. */
+  --color-ink: #1a1030;
+  --color-ink-soft: #5c4b7a;
+  --color-line: #ddd5ec;
+  --color-line-strong: #8878a8;
+  /* Paper under a UV cast, not neutral grey. */
+  --color-bg: #f5f2fb;
+  --color-card: #ffffff;
+  --color-field: #fbf9fe;
+  /* Hot magenta, the default's accent taken down until it can carry white
+     text as a fill. */
+  --color-accent: #d6006e;
+  --color-accent-text: #b3005e;
+  /* The default's acid lime at the lightness white will take: same hue, and
+     it has to be this dark to be read at all on paper. */
+  --color-ok: #3f7a00;
+  --color-ok-strong: #357000;
+  --color-warn: #8a5a00;
+  --color-danger: #c0002e;
+  /* Deep cyan: the default's focus, darkened. */
+  --color-focus: #0077a3;
+  --color-on-ink: #ffffff;
+  --color-on-accent: #ffffff;
+  --color-disabled: #e4dff0;
+  --color-on-disabled: #4c4166;
+  --color-hover: #f3eefc;
+  --color-alert: #fdf0f8;
+  --color-notice: #fff8e6;
+  --color-notice-line: #e8d9a8;
+  --color-notice-soft: #fffaf0;
+  --color-notice-soft-line: #e6d3a3;
+
+  --color-accent-alt: #006d7a;
+  --color-cta-from: #b3005e;
+  --color-cta-mid: #6d28d9;
+  --color-cta-to: #00646f;
+  --color-on-cta: #ffffff;
+  --glitch-a: rgb(214 0 110 / 0.55);
+  --glitch-b: rgb(0 150 176 / 0.55);
+  /* The default runs this wash at 0.16; on paper the same figure is a
+     stain, and this is a press running slightly out of ink. */
   --bg-image:
-    radial-gradient(ellipse at 12% -10%, rgb(255 79 168 / 0.16), transparent 46%),
-    radial-gradient(ellipse at 95% 110%, rgb(83 241 255 / 0.13), transparent 46%);
+    radial-gradient(ellipse at 12% -10%, rgb(214 0 110 / 0.07), transparent 46%),
+    radial-gradient(ellipse at 95% 110%, rgb(0 150 176 / 0.07), transparent 46%);
 
-  --color-ink: #ede7fa;
-  --color-ink-soft: #b9a8d8;
-  --color-line: #2b1d42;
-  --color-line-strong: #7a63a3;
-  --color-bg: #0a0614;
-  --color-card: #140d22;
-  --color-field: #100a1c;
-  --color-accent: #ff4fa8;
-  --color-accent-text: #ff86c2;
-  --color-ok: #b7ff5c;
-  --color-ok-strong: #b7ff5c;
-  --color-warn: #e8c15c;
-  --color-danger: #ff6e8e;
-  --color-focus: #53f1ff;
-  --color-on-ink: #0a0614;
-  --color-on-accent: #0a0614;
-  --color-disabled: #241736;
-  --color-on-disabled: #a693c7;
-  --color-hover: #1d1330;
-  --color-alert: #2b1226;
-  --color-notice: #251d0d;
-  --color-notice-line: #4a3d1e;
-  --color-notice-soft: #201a10;
-  --color-notice-soft-line: #443a20;
-
-  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
+  --shadow-card: 0 1px 3px rgba(26, 16, 48, 0.14),
+    0 8px 24px rgba(26, 16, 48, 0.10);
 }
 
 /* Low light: for keeping night vision. Every colour is red or amber because
@@ -266,7 +388,7 @@
    appear even for "ok" and focus: one stray cyan tick would undo what the
    rest of the screen is protecting. Contrast is carried by lightness alone,
    and the test suite audits this block against the same AA thresholds as
-   the other two. */
+   the other four. */
 :root[data-theme="night"] {
   color-scheme: dark;
 
@@ -561,15 +683,32 @@ code {
   color: var(--color-ink-soft);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
-    filter: invert(1);
-  }
+/* MapLibre's control icons are background-image SVGs with #333 baked in,
+   which no token can reach, so they are inverted instead and land near #ccc.
+
+   Stated as "inverted, unless the palette is a light one" rather than as a
+   list of the dark ones. There are three dark palettes and two light, the
+   default is dark, and a list of the dark ones is a list that a sixth theme
+   silently falls off -- which is how these controls stayed light through the
+   dark theme's whole first release. Opting OUT is the safe direction: a new
+   theme that forgets this rule gets inverted icons on a dark ground, which
+   is right, instead of black icons on a black one. */
+.map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
+  filter: invert(1);
 }
 
-:root[data-theme="dark"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon,
-:root[data-theme="night"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
-  filter: invert(1);
+:root[data-theme="system"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon,
+:root[data-theme="light"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon,
+:root[data-theme="cyber-light"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
+  filter: none;
+}
+
+/* And back again when the device someone is matching is itself dark. Same
+   specificity as the rule above, so this has to stay below it. */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
+    filter: invert(1);
+  }
 }
 
 /* The theme squares every corner, and the map's own controls -- zoom,

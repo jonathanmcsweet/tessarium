@@ -1,18 +1,24 @@
-/* Light or dark, and who decides.
+/* Which palette, and who decides.
 
-   Three states, not two. "system" is not a third colour -- it is the absence
-   of a choice, and it has to stay distinguishable from having chosen light,
-   because a device that flips to dark in the evening should carry the app
-   with it unless someone said otherwise. So the root element carries
-   `data-theme` only when a person picked one, and the stylesheet reads
-   `prefers-color-scheme` the rest of the time.
+   Six entries, five palettes. "Match my device" is not a sixth colour -- it
+   is a deferral, and it has to stay distinguishable from having chosen
+   light, because a device that flips to dark in the evening should carry
+   the app with it. What it defers TO is the two plain palettes: an
+   operating system says light or dark, it does not say cyberpunk.
 
-   Nothing is stored. Reloading returns to the device's own answer, which is
-   the same rule the language menu follows and for the same reason: this
-   application persists nothing, and a colour scheme is not worth being the
-   exception that makes that sentence untrue. The cost is one preference
-   forgotten per reload; the thing it buys is that "we store nothing about
-   you" needs no footnote.
+   The DEFAULT is cyberpunk dark, and the default is the one that wears no
+   attribute. That is the opposite way round from how this started, when
+   "system" was the absence of a choice, and the reason is that the
+   stylesheet's @theme block paints before any attribute is set -- so
+   whatever is written there IS the default, and pretending otherwise buys a
+   first frame in a theme nobody picked.
+
+   Nothing is stored. Reloading returns to the default, which is the same
+   rule the language menu follows and for the same reason: this application
+   persists nothing, and a colour scheme is not worth being the exception
+   that makes that sentence untrue. The cost is one preference forgotten per
+   reload; the thing it buys is that "we store nothing about you" needs no
+   footnote.
 
    `color-scheme` travels with each palette in the stylesheet, and it is not
    decoration: it is what tells the browser to draw its OWN pieces dark --
@@ -22,22 +28,33 @@
 
 import { useEffect, useState } from "react";
 
-export const themes = ["system", "light", "dark", "night"] as const;
+export const themes = [
+  "cyber-dark",
+  "cyber-light",
+  "dark",
+  "light",
+  "night",
+  "system",
+] as const;
 export type Theme = (typeof themes)[number];
+
+/* The palette @theme paints, and so the one that wears no attribute. */
+export const DEFAULT_THEME: Theme = "cyber-dark";
 
 /* What is actually on screen: a theme with the "who decides" taken out.
    "night" is the low-light palette -- red on black, for keeping night
    vision -- and only ever arrives by choice; resolveTheme never returns it
-   for "system", because no media query can know its user is in the dark. */
+   for "system", and nor does it return either cyberpunk palette, because no
+   media query can know its user is in the dark or wants neon. */
 export type ResolvedTheme = Exclude<Theme, "system">;
 
-/* Sets one attribute and nothing else. The stylesheet does the rest -- both
-   palettes live there, including `color-scheme`, so there is no inline style
-   to keep in step and no path where the colours and the browser's own
-   chrome disagree. Absent means nobody chose. */
+/* Sets one attribute and nothing else. The stylesheet does the rest -- every
+   palette lives there, including `color-scheme`, so there is no inline style
+   to keep in step and no path where the colours and the browser's own chrome
+   disagree. Absent means the default. */
 export function applyTheme(theme: Theme) {
   const root = document.documentElement;
-  if (theme === "system") root.removeAttribute("data-theme");
+  if (theme === DEFAULT_THEME) root.removeAttribute("data-theme");
   else root.setAttribute("data-theme", theme);
 }
 

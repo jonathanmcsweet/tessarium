@@ -8,6 +8,8 @@
   "theme_light": "Light",
   "theme_dark": "Dark",
   "theme_night": "Low light",
+  "theme_cyber_dark": "Cyberpunk dark",
+  "theme_cyber_light": "Cyberpunk light",
   "app_name": "Tessarium",
   "banner_backend_down": "Cannot reach the server. Opening your map, searching and downloading maps will not work until it is back.",
   "banner_basemap_action": "Download maps",

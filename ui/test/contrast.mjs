@@ -37,11 +37,15 @@ const check = (name, ok) => {
   }
 };
 
-/* Two palettes, audited against the same thresholds. The light one is the
-   @theme block; the dark one is written twice -- once under
-   prefers-color-scheme and once under [data-theme="dark"] -- because CSS
-   cannot say "the device prefers dark OR the user chose dark" in a single
-   selector. Both dark blocks are read, and they are required to agree. */
+/* Five palettes, audited against the same thresholds.
+
+   Cyberpunk dark is the @theme block, because it is the default and the
+   default is what paints before any attribute is set. The rest are
+   [data-theme] blocks. Plain dark is written twice -- once under
+   [data-theme="dark"] and once under prefers-color-scheme for whoever chose
+   "match my device" -- because CSS cannot say "the device prefers dark OR
+   the user chose dark" in a single selector. Both are read, and they are
+   required to agree. */
 const block = (start) => {
   const from = css.indexOf(start);
   if (from < 0) return null;
@@ -60,36 +64,55 @@ const block = (start) => {
   return out;
 };
 
-const light = block("@theme {");
-const darkMedia = block("@media (prefers-color-scheme: dark) {");
-const darkChosen = block(':root[data-theme="dark"] {');
+const cyberDark = block("@theme {");
+const plainLight = block(':root[data-theme="system"],');
+const plainDark = block(':root[data-theme="dark"] {');
+const plainDarkDevice = block("@media (prefers-color-scheme: dark) {");
+const cyberLight = block(':root[data-theme="cyber-light"] {');
 const night = block(':root[data-theme="night"] {');
 
-check("the light palette is the @theme block", light !== null);
-check("the dark palette exists for a dark device", darkMedia !== null);
-check("and for someone who chose it", darkChosen !== null);
+check("the default palette is the @theme block", cyberDark !== null);
+check(
+  "plain light exists, for the choice and for the device",
+  plainLight !== null,
+);
+check("plain dark exists for whoever chose it", plainDark !== null);
+check("and for a dark device on 'match my device'", plainDarkDevice !== null);
+check("cyberpunk light exists for whoever chose it", cyberLight !== null);
 check("the low-light palette exists for whoever chose it", night !== null);
 
 /* The duplication above is the whole reason for this check. Adding a token
-   to one dark block and not the other would leave half the application on
-   the light value, which reads as a bug in one theme and nowhere else. */
+   to one plain-dark block and not the other would leave half the
+   application on the default's value, which reads as a bug in one theme and
+   nowhere else. */
 const names = (o) => Object.keys(o ?? {}).sort().join(",");
 check(
-  "both dark blocks define exactly the same tokens",
-  names(darkMedia) === names(darkChosen),
+  "both plain-dark blocks define exactly the same tokens",
+  names(plainDark) === names(plainDarkDevice),
 );
 check(
   "with the same values",
-  JSON.stringify(darkMedia) === JSON.stringify(darkChosen),
+  JSON.stringify(plainDark) === JSON.stringify(plainDarkDevice),
 );
-check(
-  "and the dark set covers every token the light set defines",
-  names(light) === names(darkMedia),
-);
-check(
-  "and so does the low-light set",
-  names(light) === names(night),
-);
+
+/* And every palette has to be complete. A token defined by the default and
+   missing from a chosen theme does not fall back to something sensible --
+   it falls back to the DEFAULT's value, so a plain theme would quietly wear
+   one magenta. That is the failure this catches, and it is invisible on
+   screen until it is the one token you are looking at. */
+for (
+  const [label, palette] of [
+    ["plain light", plainLight],
+    ["plain dark", plainDark],
+    ["cyberpunk light", cyberLight],
+    ["low light", night],
+  ]
+) {
+  check(
+    `${label} defines every token the default does`,
+    names(cyberDark) === names(palette),
+  );
+}
 
 /* Low light exists to protect night vision, which is a property no contrast
    ratio can see: it fails the moment any token brings green or blue to the
@@ -103,7 +126,7 @@ for (const [name, hex] of Object.entries(night ?? {})) {
   );
 }
 
-let vars = light ?? {};
+let vars = cyberDark ?? {};
 
 const lum = (hex) => {
   const c = (i) => {
@@ -190,8 +213,10 @@ const audit = (label, palette) => {
     );
   }
 };
-audit("light", light);
-audit("dark", darkMedia);
+audit("cyberpunk dark", cyberDark);
+audit("cyberpunk light", cyberLight);
+audit("plain light", plainLight);
+audit("plain dark", plainDark);
 audit("night", night);
 
 /* Every audited colour is a token now, which is what made a second palette
@@ -205,7 +230,7 @@ const spent = (token) =>
     f.includes(`var(--color-${token})`)
     || new RegExp(`[-:\\[]${token}\\b`).test(f)
   );
-for (const token of Object.keys(light ?? {})) {
+for (const token of Object.keys(cyberDark ?? {})) {
   check(`--color-${token} is rendered somewhere`, spent(token));
 }
 

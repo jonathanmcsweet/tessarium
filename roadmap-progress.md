@@ -21,6 +21,50 @@ than a git log.
 
 ---
 
+### 2026-09-03 — Five palettes, cyberpunk dark by default
+
+**Phase:** 6
+
+**What:** The plain light and plain dark themes are back as themes of their
+own, and the two Direction C palettes are named for what they are. The menu
+is now cyberpunk dark, cyberpunk light, dark, light, low light, and "match my
+device". Cyberpunk dark is the default.
+
+**Rationale:** The default is the palette that wears no `data-theme`
+attribute, and that had been "match my device". It is now cyberpunk dark, and
+the reason is mechanical rather than a preference: Tailwind compiles `@theme`
+to `:root`, so whatever is written there paints before any attribute is set.
+The default has to BE the `@theme` block or the first frame is a theme nobody
+picked. So cyberpunk dark lives there and is the one palette with no
+`[data-theme]` block of its own — nothing to keep in step, nothing to drift.
+
+"Match my device" now sets an attribute like any other choice, and resolves
+to the two PLAIN palettes: an operating system says light or dark, it does
+not say cyberpunk. Plain dark is therefore written twice, once for the choice
+and once under `prefers-color-scheme` for the deferral, and the contrast test
+requires the two blocks to agree token for token.
+
+Two rules that were lists of dark themes became rules about light ones.
+MapLibre's control icons are now inverted by default and un-inverted for the
+two pale palettes, because a list of the dark ones is a list a sixth theme
+falls off — which is how those controls stayed white through the dark theme's
+whole first release. Same reasoning put `isLight` in MapView in place of
+three separate `=== "light"` comparisons.
+
+Plain light's accent moved one shade, from `#e8452c` to the `#d13a22` that
+was already sitting beside it as `accent-text`. The original could carry
+neither white nor its own ink at AA on the one control that fills with it,
+and that is now an audited pair rather than an unexamined one.
+
+The e2e walks all five entries and asserts what each PAINTS — panel
+lightness, `color-scheme`, the map's controls, the sprite sheet — plus that
+the five resolve to five different palettes. That last check first read the
+panel's computed colour and could not tell plain light from cyberpunk light,
+because both lay their cards on plain white; it reads four tokens together
+now. It also pins the plain themes as plain by their values: one colour
+across all three gradient stops, transparent glitch, no wash.
+
+
 ### 2026-09-03 — Night City by day: the light theme
 
 **Phase:** 6

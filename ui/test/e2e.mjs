@@ -978,17 +978,45 @@ check("and reopens from it", reopened);
 
 /* ------------------------------------- appearance -------------------------
 
-   Three states, not two: "system" is the absence of a choice and has to stay
-   distinguishable from having chosen light, or a device that turns dark at
-   dusk stops being followed. The attribute is what says which, and the
-   painted colour is what proves the attribute reached anything. */
-const panelInk = () =>
-  page.locator(".panel").evaluate((e) => getComputedStyle(e).backgroundColor);
+   Five palettes and a sixth entry that is not one. "Match my device" is a
+   deferral rather than a colour, and it has to stay distinguishable from
+   having chosen light, or a device that turns dark at dusk stops being
+   followed. The attribute is what says which, and the painted colour is what
+   proves the attribute reached anything.
+
+   The DEFAULT wears no attribute, because the stylesheet's @theme block is
+   what paints before one is set. That makes "nothing chosen" and "chose the
+   default" the same state on purpose, and it makes the assertion below --
+   that an untouched page is already dark -- the thing that would fail if the
+   default and the @theme block ever stopped being the same palette. */
 const chosen = () =>
   page.evaluate(() => document.documentElement.getAttribute("data-theme"));
 
+/* Lightness of a painted surface, on one scale. The computed colour arrives
+   as oklab() in this browser, whose first number IS lightness; rgb() is
+   normalised to the same 0..1 range. */
+const surfaceLightness = async (sel) => {
+  const bg = await page.locator(sel).first()
+    .evaluate((n) => getComputedStyle(n).backgroundColor);
+  const nums = bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
+  return bg.startsWith("oklab") || bg.startsWith("oklch")
+    ? nums[0]
+    : (nums[0] + nums[1] + nums[2]) / (3 * 255);
+};
+
 check("nobody has chosen a theme to begin with", (await chosen()) === null);
-const lightPanel = await panelInk();
+check(
+  `and the default is a dark one (panel lightness ${
+    (await surfaceLightness(".panel")).toFixed(2)
+  })`,
+  (await surfaceLightness(".panel")) < 0.5,
+);
+check(
+  "which the browser is told about, so its own chrome matches",
+  (await page.evaluate(() =>
+    getComputedStyle(document.documentElement).colorScheme
+  )) === "dark",
+);
 
 /* The map's icons are baked images, one sheet per flavour, and the style
    names the sheet it wants. It named `light` for every theme, so a dark map
@@ -1009,8 +1037,8 @@ const sheetIs = (want) =>
     { timeout: 15_000 },
   ).then(() => true, () => false);
 check(
-  `a light map asks for the light sheet (${await spriteSheet()})`,
-  await sheetIs("light"),
+  `the default map asks for the dark sheet (${await spriteSheet()})`,
+  await sheetIs("dark"),
 );
 
 const pickTheme = async (value) => {
@@ -1020,83 +1048,152 @@ const pickTheme = async (value) => {
   await page.keyboard.press("Escape");
   await page.waitForFunction(
     (want) =>
-      (document.documentElement.getAttribute("data-theme") ?? "system")
+      (document.documentElement.getAttribute("data-theme") ?? "cyber-dark")
         === want,
     value,
     { timeout: 10_000 },
   );
 };
 
-await pickTheme("dark");
-check("choosing dark says so on the root", (await chosen()) === "dark");
-const darkPanel = await panelInk();
+/* What a palette resolves to, as four of its load-bearing tokens. Not the
+   panel's computed colour, which was the first thing tried here and is not
+   an identity: both light palettes lay their cards on plain white, so a
+   theme that silently resolved to another theme would have looked identical
+   to one that did not. Ground, card, ink and accent together do separate
+   all five. */
+const paletteId = () =>
+  page.evaluate(() => {
+    const s = getComputedStyle(document.documentElement);
+    return ["bg", "card", "ink", "accent"]
+      .map((t) => s.getPropertyValue(`--color-${t}`).trim()).join(" ");
+  });
+
+/* Every entry in the menu, each one asserted on what it paints rather than
+   on the name it set. The five identities are required to be five DIFFERENT
+   identities further down: a theme that silently resolves to another theme
+   is the failure mode a list of names cannot see, and renaming two palettes
+   without repointing one of them is exactly how it happens. */
+const painted = {};
+for (
+  const [name, wantLight] of [
+    ["light", true],
+    ["dark", false],
+    ["cyber-light", true],
+    ["cyber-dark", false],
+    ["night", false],
+  ]
+) {
+  await pickTheme(name);
+  painted[name] = await paletteId();
+  const lightness = await surfaceLightness(".panel");
+  check(
+    `choosing ${name} paints a ${wantLight ? "pale" : "dark"} panel (${
+      lightness.toFixed(2)
+    })`,
+    wantLight ? lightness > 0.5 : lightness < 0.5,
+  );
+  check(
+    `and tells the browser ${name} is a ${wantLight ? "light" : "dark"} scheme`,
+    (await page.evaluate(() =>
+      getComputedStyle(document.documentElement).colorScheme
+    )) === (wantLight ? "light" : "dark"),
+  );
+  /* The map's own controls, which are not this application's markup:
+     MapLibre ships them light-only, and they sat white over a dark map until
+     someone using the app at night pointed at them. Computed colour, not
+     class names, because the bug was a stylesheet this project does not own
+     winning -- and it is asserted for every palette because the rule that
+     fixes it is a list, and a list is a thing a sixth theme falls off. */
+  check(
+    `${name}: the zoom buttons follow the theme`,
+    (await surfaceLightness(".maplibregl-ctrl-group") < 0.5) !== wantLight,
+  );
+  check(
+    `${name}: and so does the scale bar`,
+    (await surfaceLightness(".maplibregl-ctrl-scale") < 0.5) !== wantLight,
+  );
+  /* Low light takes the dark sheet as well: there is no red one drawn, and
+     `black`, the other near-black option, is missing its points of
+     interest. */
+  check(
+    `${name}: the map asks for the ${wantLight ? "light" : "dark"} sheet`,
+    await sheetIs(wantLight ? "light" : "dark"),
+  );
+}
+
+/* Five entries, five palettes. */
+const ids = Object.values(painted);
 check(
-  `and repaints the panel (${lightPanel} -> ${darkPanel})`,
-  darkPanel !== lightPanel,
-);
-check(
-  "and tells the browser to draw its own chrome dark",
-  (await page.evaluate(() =>
-    getComputedStyle(document.documentElement).colorScheme
-  )) === "dark",
+  `each theme resolves to its own palette (${
+    new Set(ids).size
+  } of ${ids.length})`,
+  new Set(ids).size === ids.length,
 );
 
-/* The map's own controls, which are not this application's markup: MapLibre
-   ships them light-only, and they sat white over a dark map until someone
-   using the app at night pointed at them. Computed colour, not class names,
-   because the bug was a stylesheet this project does not own winning. */
-const surfaceLightness = async (sel) => {
-  const bg = await page.locator(sel).first()
-    .evaluate((n) => getComputedStyle(n).backgroundColor);
-  const nums = bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
-  return bg.startsWith("oklab") || bg.startsWith("oklch")
-    ? nums[0]
-    : (nums[0] + nums[1] + nums[2]) / (3 * 255);
-};
+/* The default is the one that wears NO attribute, so choosing it has to
+   remove one rather than set it -- otherwise the stylesheet has a rule
+   nothing matches and the first frame after a reload is a different theme
+   from the one the menu says is selected. */
+await pickTheme("cyber-dark");
 check(
-  "the zoom buttons go dark with the theme",
-  (await surfaceLightness(".maplibregl-ctrl-group")) < 0.5,
-);
-check(
-  "and so does the scale bar",
-  (await surfaceLightness(".maplibregl-ctrl-scale")) < 0.5,
-);
-/* And the shields stop being white, which is a different sheet and not a
-   different colour. */
-check("a dark map asks for the dark sheet", await sheetIs("dark"));
-
-/* The low-light theme: red on black, chosen only -- no device media query
-   maps to it, so everything it needs proving is that the choice lands and
-   paints something that is neither of the other two. The red-only property
-   itself is audited token by token in contrast.mjs. */
-await pickTheme("night");
-check("choosing low light says so on the root", (await chosen()) === "night");
-const nightPanel = await panelInk();
-check(
-  "and paints a third surface, not a renamed dark",
-  nightPanel !== lightPanel && nightPanel !== darkPanel,
-);
-check(
-  "low light still tells the browser it is a dark scheme",
-  (await page.evaluate(() =>
-    getComputedStyle(document.documentElement).colorScheme
-  )) === "dark",
-);
-/* Low light takes the dark sheet too -- there is no red one drawn, and
-   `black`, the other near-black option, is missing its points of interest.
-   Named so the day someone draws a red sheet, this is what says where it
-   goes. */
-check(
-  "low light asks for the dark sheet, not the light one",
-  await sheetIs("dark"),
-);
-
-await pickTheme("system");
-check(
-  "and going back to the device clears the choice",
+  "choosing the default clears the attribute rather than setting it",
   (await chosen()) === null,
 );
-check("which restores the painted colour", (await panelInk()) === lightPanel);
+
+/* The plain themes are plain because four tokens are held at rest, not
+   because anything is switched off elsewhere: one colour repeated across the
+   gradient's three stops is a solid button, and a transparent split shadow
+   is no split shadow. Read back resolved, because "at rest" is a property of
+   the values and not of the rule that sets them. */
+const levers = () =>
+  page.evaluate(() => {
+    const s = getComputedStyle(document.documentElement);
+    const g = (n) => s.getPropertyValue(n).trim();
+    return {
+      stops: [g("--color-cta-from"), g("--color-cta-mid"), g("--color-cta-to")],
+      glitch: [g("--glitch-a"), g("--glitch-b")],
+      wash: g("--bg-image"),
+    };
+  });
+for (const plain of ["light", "dark"]) {
+  await pickTheme(plain);
+  const { stops, glitch, wash } = await levers();
+  check(
+    `${plain}: the primary action is one colour, not a gradient`,
+    new Set(stops).size === 1 && stops[0] !== "",
+  );
+  check(
+    `${plain}: the wordmark has no split shadow`,
+    glitch.every((c) => c === "transparent"),
+  );
+  check(`${plain}: and the ground carries no wash`, wash === "none");
+}
+
+/* And the cyberpunk pair actually moves them, so the check above is a
+   statement about those themes rather than about all of them. */
+await pickTheme("cyber-dark");
+const cyber = await levers();
+check(
+  "cyberpunk dark runs a real three-stop gradient",
+  new Set(cyber.stops).size === 3,
+);
+check(
+  "and a visible split shadow",
+  cyber.glitch.every((c) => c !== "transparent"),
+);
+check("and a wash on the ground", cyber.wash !== "none");
+
+/* "Match my device" is the one entry that is not a palette. It sets an
+   attribute like any other choice -- it is no longer the absence of one --
+   and what it resolves to is the PLAIN pair, because an operating system
+   says light or dark and does not say cyberpunk. This browser reports a
+   light preference, so it has to land on plain light exactly. */
+await pickTheme("system");
+check("matching the device says so on the root", (await chosen()) === "system");
+check(
+  "and on a light device that is plain light, not a cyberpunk one",
+  (await paletteId()) === painted.light,
+);
 
 /* An overview and no region is the state every fresh install starts in, and
    two things have to be true of it at once. */
@@ -1121,16 +1218,11 @@ check(
    near-white ink -- and every token audit missed it because a literal in a
    component class list belongs to no palette. Read back as painted, judged
    by lightness rather than by name, so the check outlives the exact token.
-   The computed colour arrives as oklab() in this browser, whose first number
-   is lightness; rgb() is normalised to the same scale. */
-const noteLightness = async () => {
-  const bg = await page.locator(".map-note.action").first()
-    .evaluate((n) => getComputedStyle(n).backgroundColor);
-  const nums = bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
-  return bg.startsWith("oklab") || bg.startsWith("oklch")
-    ? nums[0]
-    : (nums[0] + nums[1] + nums[2]) / (3 * 255);
-};
+
+   Named themes rather than "match my device": what that entry resolves to
+   is a property of the machine running the suite, and this assertion is
+   about the stylesheet. */
+const noteLightness = () => surfaceLightness(".map-note.action");
 await pickTheme("dark");
 check(
   `the note over the map goes dark with the theme (lightness ${
@@ -1138,7 +1230,7 @@ check(
   })`,
   (await noteLightness()) < 0.5,
 );
-await pickTheme("system");
+await pickTheme("light");
 check(
   `and light with the light theme (lightness ${
     (await noteLightness()).toFixed(2)

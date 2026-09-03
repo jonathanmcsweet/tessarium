@@ -92,6 +92,13 @@ const emptyGeoJson = {
   features: [] as GeoJSON.Feature[],
 };
 
+/* Whether a palette puts the map on a pale ground. Five schemes, and every
+   map-side choice below -- the flavour, the sprite sheet, the overlay -- turns
+   on this rather than on a list of names, so a sixth palette answers one
+   question instead of being added to three lists. */
+const isLight = (scheme: Scheme) =>
+  scheme === "light" || scheme === "cyber-light";
+
 /* Which pre-drawn sprite sheet the style asks for.
 
    The icons a map draws -- route-number shields most visibly -- are baked
@@ -106,7 +113,7 @@ const emptyGeoJson = {
    points of interest for light and dark only -- so choosing it would trade
    white shields for 35 missing icons. A red sheet would need one drawn,
    which is a basemap build step and is on the roadmap. */
-const spriteSheet = (scheme: Scheme) => (scheme === "light" ? "light" : "dark");
+const spriteSheet = (scheme: Scheme) => (isLight(scheme) ? "light" : "dark");
 
 /* The style, rebuilt whenever the archive on disk is replaced. Tiles come
    through the server's /tiles endpoint rather than from the archive file
@@ -258,7 +265,7 @@ const basemapLayers = (
      in a room someone is keeping dark. */
   const flavor = scheme === "night"
     ? nightFlavor(namedFlavor("black"))
-    : namedFlavor(scheme === "light" ? "light" : "dark");
+    : namedFlavor(isLight(scheme) ? "light" : "dark");
   const floor = layers(FLOOR_SOURCE, flavor, { lang })
     .filter((layer) => layer.type !== "background")
     .map((layer) => ({ ...layer, id: `${FLOOR_SOURCE}-${layer.id}` }));
@@ -289,18 +296,36 @@ const OVERLAY: Record<Scheme, {
   grid: string;
   /* The selected square and its pin. Hardcoded to the light accent for as
      long as there was one theme; now the loudest mark on the map follows
-     the palette it lands in -- magenta in the dark theme, red in low
-     light. */
+     the palette it lands in -- vermilion in the plain themes, magenta in
+     the cyberpunk ones, red in low light. */
   select: string;
 }> = {
+  /* The two plain themes: a neutral grid over the map, and the accent that
+     palette actually uses for the selection. */
   light: {
+    blank: "#41505f",
+    blankOpacity: 0.42,
+    edge: "#5f7183",
+    grid: "#1b3a5c",
+    select: "#d13a22",
+  },
+  dark: {
+    blank: "#9fb3c7",
+    blankOpacity: 0.26,
+    edge: "#b8c9da",
+    grid: "#8fc4ff",
+    select: "#ff6a4d",
+  },
+  /* And the two cyberpunk ones, which take the grid into the palette's own
+     family rather than leaving a blue grid over a violet map. */
+  "cyber-light": {
     blank: "#4a3f66",
     blankOpacity: 0.42,
     edge: "#6d5f8f",
     grid: "#331a5e",
     select: "#d6006e",
   },
-  dark: {
+  "cyber-dark": {
     blank: "#a89ac9",
     blankOpacity: 0.24,
     edge: "#c3b3e0",

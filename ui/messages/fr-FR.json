@@ -8,6 +8,8 @@
   "theme_light": "Clair",
   "theme_dark": "Sombre",
   "theme_night": "Basse lumière",
+  "theme_cyber_dark": "Cyberpunk sombre",
+  "theme_cyber_light": "Cyberpunk clair",
   "app_name": "Tessarium",
   "banner_backend_down": "Serveur injoignable. L’ouverture de votre carte, la recherche et le téléchargement de cartes ne fonctionneront pas tant qu’il n’est pas rétabli.",
   "banner_basemap_action": "Télécharger les cartes",
