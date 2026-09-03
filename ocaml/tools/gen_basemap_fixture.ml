@@ -187,12 +187,21 @@ let png =
   ^ "\x00\x00\x00\x0aIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\x0d\x0a\x2d\xb4"
   ^ "\x00\x00\x00\x00IEND\xaeB`\x82"
 
+(* Both sheets the style can name, at both densities. The UI picks one by
+   theme, so shipping only the light one here would 404 the moment a test
+   chose dark -- and the e2e counts a failed request as a failure, which is
+   how the real thing would be noticed too. *)
+let sprite_sheets = [ "light"; "dark" ]
+
 let assets_tarball () =
   let w = "basemaps-assets-fixture/" in
-  tar_entry (w ^ "sprites/v4/light.json") "{}"
-  ^ tar_entry (w ^ "sprites/v4/light.png") png
-  ^ tar_entry (w ^ "sprites/v4/light@2x.json") "{}"
-  ^ tar_entry (w ^ "sprites/v4/light@2x.png") png
+  let sheet name =
+    tar_entry (w ^ "sprites/v4/" ^ name ^ ".json") "{}"
+    ^ tar_entry (w ^ "sprites/v4/" ^ name ^ ".png") png
+    ^ tar_entry (w ^ "sprites/v4/" ^ name ^ "@2x.json") "{}"
+    ^ tar_entry (w ^ "sprites/v4/" ^ name ^ "@2x.png") png
+  in
+  String.concat "" (List.map sheet sprite_sheets)
   ^ tar_entry (w ^ "fonts/Noto Sans Regular/0-255.pbf") ""
   ^ String.make 1024 '\000'
 

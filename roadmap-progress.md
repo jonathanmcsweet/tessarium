@@ -21,6 +21,36 @@ than a git log.
 
 ---
 
+### 2026-09-03 — The map's icons follow the theme
+
+**Phase:** 6
+
+**What:** The style named the `light` sprite sheet for every theme, so a dark
+or low-light map drew white motorway shields — the one part of a map the
+palette cannot reach, because sprites are baked images. It now names a sheet
+per scheme: `light` for light, `dark` for both dark and low light. All five
+Protomaps sheets already shipped in the bundle, so this costs nothing to
+download and nothing at runtime.
+
+**Rationale:** Low light takes `dark` rather than `black`, the other
+near-black option: their shields are the same near-black badge, but `black`
+is a reduced sheet — Protomaps draws points of interest for light and dark
+only — so `black` would have traded white shields for 35 missing icons.
+Considered and rejected: tinting the sheet at runtime on a canvas. `setStyle`
+discards added images and the style rebuilds on theme AND locale change, so
+it would re-run every rebuild after an async load, showing the untinted sheet
+first.
+
+The e2e reads the sprite URL off the style the map is holding rather than off
+the source, because the bug was a string that read correctly and was simply
+never varied. Shown failing on both dark and low light before the fix. The
+fixture's asset tarball carries both sheets now — with only the light one,
+choosing dark 404s, and the e2e counts a failed request as a failure.
+
+**Follow-on:** No RED shield sheet exists; low light's badges are near-black,
+not red. Drawing one is a basemap packaging step. Recorded in roadmap.md.
+
+
 ### 2026-08-30 — Low-light map: grey grid, warm roads, themed chrome
 
 **Phase:** 6

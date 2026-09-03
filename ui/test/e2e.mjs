@@ -990,6 +990,29 @@ const chosen = () =>
 check("nobody has chosen a theme to begin with", (await chosen()) === null);
 const lightPanel = await panelInk();
 
+/* The map's icons are baked images, one sheet per flavour, and the style
+   names the sheet it wants. It named `light` for every theme, so a dark map
+   drew white motorway shields over it -- the one part of the map the palette
+   cannot reach, and so the one part that has to be chosen rather than
+   coloured. Read off the style the map is holding, since the bug was a
+   string that looked right in the source and was simply never varied. */
+const spriteSheet = () =>
+  page.evaluate(() =>
+    (window.__tessarium_map?.getStyle()?.sprite ?? "").toString()
+  );
+const sheetIs = (want) =>
+  page.waitForFunction(
+    (w) =>
+      (window.__tessarium_map?.getStyle()?.sprite ?? "").toString()
+        .endsWith(`/sprites/v4/${w}`),
+    want,
+    { timeout: 15_000 },
+  ).then(() => true, () => false);
+check(
+  `a light map asks for the light sheet (${await spriteSheet()})`,
+  await sheetIs("light"),
+);
+
 const pickTheme = async (value) => {
   await page.locator(".panel-settings").click();
   await page.locator(".settings-theme .dropdown-button").click();
@@ -1038,6 +1061,9 @@ check(
   "and so does the scale bar",
   (await surfaceLightness(".maplibregl-ctrl-scale")) < 0.5,
 );
+/* And the shields stop being white, which is a different sheet and not a
+   different colour. */
+check("a dark map asks for the dark sheet", await sheetIs("dark"));
 
 /* The low-light theme: red on black, chosen only -- no device media query
    maps to it, so everything it needs proving is that the choice lands and
@@ -1055,6 +1081,14 @@ check(
   (await page.evaluate(() =>
     getComputedStyle(document.documentElement).colorScheme
   )) === "dark",
+);
+/* Low light takes the dark sheet too -- there is no red one drawn, and
+   `black`, the other near-black option, is missing its points of interest.
+   Named so the day someone draws a red sheet, this is what says where it
+   goes. */
+check(
+  "low light asks for the dark sheet, not the light one",
+  await sheetIs("dark"),
 );
 
 await pickTheme("system");

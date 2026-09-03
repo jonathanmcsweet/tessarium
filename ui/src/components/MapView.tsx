@@ -92,6 +92,22 @@ const emptyGeoJson = {
   features: [] as GeoJSON.Feature[],
 };
 
+/* Which pre-drawn sprite sheet the style asks for.
+
+   The icons a map draws -- route-number shields most visibly -- are baked
+   images, not flavour colours, so nothing in the palette can reach them.
+   Protomaps' answer is a sheet per flavour, drawn once at build time, and
+   we already carry all five; the style just names one. Naming `light` for
+   every scheme, which is what this did, is what put white motorway shields
+   on a black map: the map went dark around icons that could not follow.
+
+   Low light takes `dark` rather than `black`. Their shields are the same
+   near-black badge, but `black` is a reduced sheet -- Protomaps draws the
+   points of interest for light and dark only -- so choosing it would trade
+   white shields for 35 missing icons. A red sheet would need one drawn,
+   which is a basemap build step and is on the roadmap. */
+const spriteSheet = (scheme: Scheme) => (scheme === "light" ? "light" : "dark");
+
 /* The style, rebuilt whenever the archive on disk is replaced. Tiles come
    through the server's /tiles endpoint rather than from the archive file
    directly: the server is what knows about BOTH archives -- the browse
@@ -109,7 +125,7 @@ const buildStyle = (
   glyphs: "/basemap/fonts/{fontstack}/{range}.pbf",
   /* MapLibre appends .json and .png, so this names the flavour rather
      than the directory: sprites/v4/light.json and light.png. */
-  sprite: `${window.location.origin}/basemap/sprites/v4/light`,
+  sprite: `${window.location.origin}/basemap/sprites/v4/${spriteSheet(scheme)}`,
   sources: {
     protomaps: {
       type: "vector",
@@ -189,9 +205,10 @@ const buildStyle = (
    thing this theme exists to prevent. Halos and the ground are left alone;
    they are already dark.
 
-   Route-number shields are sprite images, not flavour colours, so their
-   white badges are not reachable from here -- recolouring them is a sprite
-   rebuild, noted on the roadmap. */
+   Route-number shields are sprite images, not flavour colours, so they are
+   not reachable from here at all -- `spriteSheet` above is what stops them
+   being white, by asking for the dark sheet. Drawing a RED one is a basemap
+   build step, noted on the roadmap. */
 const NIGHT_ROADS = {
   tunnel_minor: "#2b2020",
   tunnel_link: "#2b2020",

@@ -454,20 +454,22 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
-- [ ] **Route-number shields are white in the low-light theme.** The map
-      chrome, road lines and place labels all follow the theme now, but the
-      highway shields (the `75`, `285` badges from `roads_shields`) stay
-      white: they are raster sprite images without an SDF channel, so
-      MapLibre's `icon-color` cannot tint them and the flavour has no colour
-      for them. Two honest fixes, both bigger than a theme token: ship a
-      red-tinted shield sprite alongside the existing per-flavour sprites
-      (`basemap/sprites/v4/`) and point the night style at it, which is
-      basemap-packaging work in `tools/stage-bundle.sh` and
-      `tools/fetch-basemap.sh` and adds weight to the offline bundle; or
-      tint them at runtime by reading the loaded sprite's pixels onto a
-      canvas and re-registering each shield with `map.addImage`, which keeps
-      the bundle unchanged but adds pixel-manipulation and sprite-load timing
-      to `MapView`. Deferred pending which the user wants; the shield TEXT
+- [ ] **No red sprite sheet for the low-light theme.** Low light draws
+      Protomaps' `dark` icons — near-black shields, the whole POI set — which
+      is the darkest sheet that exists, and its shield badges are the one
+      part of that map still drawn in a neutral rather than in red. Sprites
+      are raster images with no SDF channel, so `icon-color` cannot tint
+      them and no flavour key reaches them; a red one has to be DRAWN.
+      Protomaps draws all five of theirs with `spritegen`, a Rust tool over
+      a master `refill.svg` plus a per-flavour JSON of colours, so the shape
+      of the work is a sixth config and a generation step in
+      `tools/fetch-basemap.sh` / `tools/stage-bundle.sh`, plus roughly 50 KB
+      in the offline bundle. There is no documented custom-flavour path
+      upstream, which is what makes this a packaging decision and not a
+      config line. Runtime canvas tinting was the considered alternative and
+      is rejected: `setStyle` discards added images and the style rebuilds on
+      theme AND locale change, so it would re-run on every rebuild, after an
+      async sprite load, showing the untinted sheet first. The shield TEXT
       already takes the label tint.
 
 - [ ] **`run_remove`'s merged-archive branch is unreachable.** Nothing inside
