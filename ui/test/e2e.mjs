@@ -718,6 +718,41 @@ check(
   "and the toast carries a close button for keyboard users",
   (await page.locator("[data-sonner-toast] [data-close-button]").count()) >= 1,
 );
+
+/* The toast is drawn by sonner, which injects its own stylesheet: white
+   background, near-black text, 8px corners, all of it written as literals
+   in a file this project does not own. So it stayed white in every theme
+   and round in a theme that squares every corner -- the same shape of bug
+   as MapLibre's controls, and invisible to the token audit for the same
+   reason, that the colours belong to no palette.
+
+   Nothing has chosen a theme yet here, so this is the default: dark. Read
+   as painted and as geometry, because the fix is a stylesheet fighting
+   another stylesheet and only the computed value says who won. */
+const toastStyle = () =>
+  page.locator("[data-sonner-toast]").first().evaluate((n) => {
+    const s = getComputedStyle(n);
+    return {
+      bg: s.backgroundColor,
+      radius: s.borderTopLeftRadius,
+      color: s.color,
+    };
+  });
+const toast = await toastStyle();
+const toastLight = (() => {
+  const n = toast.bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
+  return toast.bg.startsWith("oklab") || toast.bg.startsWith("oklch")
+    ? n[0]
+    : (n[0] + n[1] + n[2]) / (3 * 255);
+})();
+check(
+  `the toast is painted in the theme, not sonner's white (${toast.bg})`,
+  toastLight < 0.5,
+);
+check(
+  `and squares its corners like everything else (${toast.radius})`,
+  toast.radius === "0px",
+);
 await page.waitForFunction(() => !document.querySelector(".banner"), null, {
   timeout: 10_000,
 });

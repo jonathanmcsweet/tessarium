@@ -21,6 +21,37 @@ than a git log.
 
 ---
 
+### 2026-09-03 — Two colours that belonged to no palette
+
+**Phase:** 6
+
+**What:** Cyberpunk light's magenta family read as crimson beside its cyan,
+and the toasts were sonner's white with 8px corners in every theme.
+
+**Rationale:** The accent had drifted +7.6 degrees toward red. It was picked
+by holding the DARK accent's sRGB hue (both 329 degrees) and taking the
+lightness down, and sRGB hue is not perceptual -- at that lightness the same
+number reads crimson. Measured in OKLCH instead, `#ff4fa8` is at 353.5 and
+`#d6006e` was at 1.1. The family is now re-hued to 353.5 keeping each
+colour's own lightness and chroma, so nothing else about it moves:
+`#d10c81`, `#af076b`, `#fff0f5`, and the map's selection square with them.
+Every pair still clears AA with headroom.
+
+The toasts are sonner's markup and sonner's injected stylesheet, with white,
+near-black, 8px and a black-on-white shadow written as literals -- the same
+shape as MapLibre's controls, and invisible to the contrast audit for the
+same reason, that the colours belong to no palette. Most of it is reachable
+through sonner's own custom properties, so the toast follows a theme change
+with no rule per palette; the action and close buttons carry their own radii
+and are overridden directly. The selectors are heavier than they look
+because sonner sets its palette under two attributes and injects its style
+after ours -- matching that weight loses the tie and changes nothing, which
+is what the first attempt did.
+
+Shown failing first: white and 8px on a real toast, read as computed
+background and radius rather than as class names.
+
+
 ### 2026-09-03 — The map comes back on the development server
 
 **Phase:** 6

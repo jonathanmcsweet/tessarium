@@ -342,8 +342,8 @@
   --color-field: #fbf9fe;
   /* Hot magenta, the default's accent taken down until it can carry white
      text as a fill. */
-  --color-accent: #d6006e;
-  --color-accent-text: #b3005e;
+  --color-accent: #d10c81;
+  --color-accent-text: #af076b;
   /* The default's acid lime at the lightness white will take: same hue, and
      it has to be this dark to be read at all on paper. */
   --color-ok: #3f7a00;
@@ -357,23 +357,23 @@
   --color-disabled: #e4dff0;
   --color-on-disabled: #4c4166;
   --color-hover: #f3eefc;
-  --color-alert: #fdf0f8;
+  --color-alert: #fff0f5;
   --color-notice: #fff8e6;
   --color-notice-line: #e8d9a8;
   --color-notice-soft: #fffaf0;
   --color-notice-soft-line: #e6d3a3;
 
   --color-accent-alt: #006d7a;
-  --color-cta-from: #b3005e;
+  --color-cta-from: #af076b;
   --color-cta-mid: #6d28d9;
   --color-cta-to: #00646f;
   --color-on-cta: #ffffff;
-  --glitch-a: rgb(214 0 110 / 0.55);
+  --glitch-a: rgb(209 12 129 / 0.55);
   --glitch-b: rgb(0 150 176 / 0.55);
   /* The default runs this wash at 0.16; on paper the same figure is a
      stain, and this is a press running slightly out of ink. */
   --bg-image:
-    radial-gradient(ellipse at 12% -10%, rgb(214 0 110 / 0.07), transparent 46%),
+    radial-gradient(ellipse at 12% -10%, rgb(209 12 129 / 0.07), transparent 46%),
     radial-gradient(ellipse at 95% 110%, rgb(0 150 176 / 0.07), transparent 46%);
 
   --shadow-card: 0 1px 3px rgba(26, 16, 48, 0.14),
@@ -718,6 +718,49 @@ code {
 .map-wrap .maplibregl-ctrl-group,
 .map-wrap .maplibregl-ctrl-group button,
 .map-wrap .maplibregl-ctrl-attrib {
+  border-radius: 0;
+}
+
+/* ---------------------------------------------------------- against sonner
+
+   The toasts are sonner's markup and sonner's stylesheet, injected at
+   runtime: white ground, near-black text, 8px corners and a black-on-white
+   shadow, all written as literals in a file this project does not own. So a
+   toast stayed white in every theme and round in a theme that squares every
+   corner -- the same shape of bug as MapLibre's controls above, and
+   invisible to the contrast audit for the same reason, that its colours
+   belong to no palette.
+
+   Most of it is reachable through sonner's own custom properties, which is
+   the supported way in and means the toast follows a theme change with no
+   rule per palette. The two radii are literals in its stylesheet and need
+   overriding directly.
+
+   The selectors are heavier than they look because they have to be. Sonner
+   sets its palette under `[data-sonner-toaster][data-sonner-theme='light']`
+   -- two attributes -- and injects its <style> after this file, so matching
+   that weight loses the tie and changes nothing. Naming the theme attribute
+   without a value beats it for any value it takes. */
+:root [data-sonner-toaster][data-sonner-theme] {
+  --normal-bg: var(--color-card);
+  --normal-text: var(--color-ink);
+  --normal-border: var(--color-line-strong);
+  --normal-bg-hover: var(--color-hover);
+  --normal-border-hover: var(--color-line-strong);
+  --border-radius: 0;
+}
+
+:root [data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  /* Sonner's own is a black wash, which is a shape cut out of light that a
+     dark ground does not have. The card shadow is already stated per
+     palette for exactly this. */
+  box-shadow: var(--shadow-card);
+}
+
+/* The action button and the close button carry 4px and a full 50% of their
+   own, neither of them a variable. */
+:root [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-button],
+:root [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button] {
   border-radius: 0;
 }
 

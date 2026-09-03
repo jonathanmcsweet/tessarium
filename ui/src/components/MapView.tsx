@@ -323,7 +323,7 @@ const OVERLAY: Record<Scheme, {
     blankOpacity: 0.42,
     edge: "#6d5f8f",
     grid: "#331a5e",
-    select: "#d6006e",
+    select: "#d10c81",
   },
   "cyber-dark": {
     blank: "#a89ac9",
