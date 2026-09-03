@@ -169,6 +169,12 @@ const pairs = () => [
   ["primary label on the gradient's middle", v("on-cta"), v("cta-mid"), 4.5],
   ["primary label on the gradient's last stop", v("on-cta"), v("cta-to"), 4.5],
   ["the address itself", v("accent-alt"), v("card"), 4.5],
+  /* The one place the accent is a FILL behind text -- the confirm on the
+     lock dialogue. It wore a literal `text-white`, which is a colour
+     belonging to no palette and so audited in none of them: 3.95:1 in
+     light, 3.03:1 in dark, 3.19:1 in low light, all of them under AA and
+     none of them visible to this file until the pair was written down. */
+  ["the label on a destructive button", v("on-accent"), v("accent"), 4.5],
 ];
 
 /* The pair list is written once and run against each palette. A colour is

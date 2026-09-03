@@ -2908,6 +2908,38 @@ check(
   clicked === sample.address,
 );
 
+/* And it is painted in the colour the palettes reserve for it. --color-accent-alt
+   is the address's own colour -- cyan in dark, deep cyan in light, soft red in
+   low light -- and it painted NOTHING: the element carried `text-accent-alt` as
+   a base class and `text-accent-text` in the revealed branch, so the later class
+   won every time the address was on screen and the token was spent only in the
+   one state where the text is blurred out anyway. Every palette defined it,
+   contrast.mjs audited it as "the address itself", and no pixel had ever been
+   that colour.
+
+   Compared against the resolved custom property rather than a literal, so the
+   check says "the address wears its own token" and survives a repaint of it. */
+const paintedAs = async (prop) =>
+  await page.evaluate((p) => {
+    const el = document.querySelector(".address");
+    if (!el) return ["", ""];
+    const want = getComputedStyle(document.documentElement)
+      .getPropertyValue(p).trim();
+    /* Resolved through a throwaway element so the token's hex and the
+       computed colour are in the same notation before they are compared. */
+    const probe = document.createElement("span");
+    probe.style.color = want;
+    document.body.appendChild(probe);
+    const normalised = getComputedStyle(probe).color;
+    probe.remove();
+    return [getComputedStyle(el).color, normalised];
+  }, prop);
+const [addressInk, altToken] = await paintedAs("--color-accent-alt");
+check(
+  `the revealed address is painted in its own token (${addressInk} vs ${altToken})`,
+  addressInk === altToken && altToken !== "",
+);
+
 /* Version-skew detection, against the worker rather than the DOM. The served
    worker, the served core and the committed vectors must agree on the grid
    and derivation versions; a server upgraded behind a surviving tab, or a

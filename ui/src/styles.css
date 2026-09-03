@@ -38,76 +38,106 @@
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     monospace;
 
-  --color-ink: #12212f;
-  --color-ink-soft: #5a6b7b;
-  --color-line: #d9e0e7;
+  /* Light is Night City by day, and it gets there a different way than the
+     dark theme does. Neon is a thing you see because it is dark; on paper
+     there is no glow to have, and a pale magenta on white is just pink. So
+     the light theme takes the print half of the same look -- saturated ink,
+     hard edges, and the misregistered colour separation of a cheap two-pass
+     press -- and keeps the dark theme's magenta/violet/cyan family, each one
+     pushed down to the lightness white demands of it. Same city, daylight,
+     and every pair below is audited by test/contrast.mjs like any other. */
+
+  /* Violet-black rather than navy: the ground the dark theme is built on
+     (#0a0614), brought up to ink. */
+  --color-ink: #1a1030;
+  --color-ink-soft: #5c4b7a;
+  --color-line: #ddd5ec;
   /* Borders that identify a control (inputs, selects) rather than decorate:
-     3.44:1 on white, past the 3:1 non-text minimum. Decorative hairlines
+     3.96:1 on white, past the 3:1 non-text minimum. Decorative hairlines
      stay --color-line. */
-  --color-line-strong: #7f8c98;
-  --color-bg: #f4f6f8;
+  --color-line-strong: #8878a8;
+  /* Paper under a UV cast, not neutral grey. */
+  --color-bg: #f5f2fb;
   --color-card: #ffffff;
   /* Fields are a shade off the card so an input reads as somewhere to type
      before it is focused. Every foreground the contrast test pairs with a
      field is checked against this, not against white. */
-  --color-field: #fbfcfd;
-  --color-accent: #e8452c;
-  /* The accent, dark enough to be TEXT: 4.84:1 on white, so the address
+  --color-field: #fbf9fe;
+  /* Hot magenta, the dark theme's accent taken down until it can carry
+     white text as a fill: 5.14:1, where the old vermilion managed 3.95 and
+     nothing was checking. */
+  --color-accent: #d6006e;
+  /* The accent, dark enough to be TEXT: 6.82:1 on white, so the address
      line passes AA at any size -- the 19px large-text exemption died the
      day a mobile media query set it to 17px. Non-text accent uses (the
      selection overlay, borders) keep --color-accent. */
-  --color-accent-text: #d13a22;
-  --color-ok: #0f7b4f;
+  --color-accent-text: #b3005e;
+  /* The dark theme's acid lime at the lightness white will take: same hue,
+     and it has to be this dark to be read at all on paper. */
+  --color-ok: #3f7a00;
   /* The tick after a copy is darker than the check-passed text: it lands on
      a button rather than in a sentence, and has to hold 3:1 as a border as
      well as 4.5:1 as a glyph. */
-  --color-ok-strong: #1a7f4b;
+  --color-ok-strong: #357000;
   --color-warn: #8a5a00;
-  --color-danger: #b4232a;
+  --color-danger: #c0002e;
 
   /* Text on a filled primary button. Not white -- white is only right while
      --color-ink is dark, and in the dark theme it is not. */
   --color-on-ink: #ffffff;
+  /* And on a filled ACCENT, which is a different question with a different
+     answer: here the accent is dark enough for white, and in both dark
+     themes it is a bright one that needs the ground back. */
+  --color-on-accent: #ffffff;
 
   /* Inactive controls are exempt from WCAG contrast, but 1.6:1 white on
-     grey was illegible rather than merely muted. This pair reads 5.66:1. */
-  --color-disabled: #e3e8ed;
-  --color-on-disabled: #4c5b69;
+     grey was illegible rather than merely muted. This pair reads 7.14:1. */
+  --color-disabled: #e4dff0;
+  --color-on-disabled: #4c4166;
 
   /* The wash under a pointer: hovered buttons, and the row the arrow keys
      are on in a listbox. One value, where there used to be two a shade
      apart that nobody could have told from each other. */
-  --color-hover: #eef1f4;
+  --color-hover: #f3eefc;
 
   /* Something the reader has to take in before acting: the gate's
      provenance warning, the standing note about the phrase. */
-  --color-alert: #fff5f3;
+  --color-alert: #fdf0f8;
 
   /* Site-wide notices, and the quieter version of the same thing that sits
-     over the map. Both carry --color-warn as their text. */
+     over the map. Both carry --color-warn as their text. Amber stays amber
+     in all four palettes: it is hazard tape, and it is the one colour on
+     screen that should not be restyled into the theme. */
   --color-notice: #fff8e6;
   --color-notice-line: #e8d9a8;
   --color-notice-soft: #fffaf0;
   --color-notice-soft-line: #e6d3a3;
   /* The focus ring. One colour for every control in the app, because a
      focus ring that changes appearance between controls is a focus ring
-     people stop reading. */
-  --color-focus: #2b6cb0;
-  /* Direction C's levers, held at rest in the light theme: the address
-     paints in ink, the primary action is the solid ink block it always
-     was (all three gradient stops the same colour), and the glitch
-     shadows are transparent. The dark theme is where they move. */
-  --color-accent-alt: #12212f;
-  --color-cta-from: #12212f;
-  --color-cta-mid: #12212f;
-  --color-cta-to: #12212f;
+     people stop reading. Deep cyan: the dark theme's focus, darkened. */
+  --color-focus: #0077a3;
+  /* Direction C's levers. They were held at rest here -- address in ink,
+     primary action a solid block, no glitch, no wash -- on the assumption
+     that the look needed darkness. Two of the four did: the corner glows
+     and the neon gradient. The other two did not. A split shadow on a
+     wordmark is misregistration, which is a PRINT artefact and reads better
+     on white than it ever does on black, and a gradient only needed stops
+     dark enough to keep their label. */
+  --color-accent-alt: #006d7a;
+  --color-cta-from: #b3005e;
+  --color-cta-mid: #6d28d9;
+  --color-cta-to: #00646f;
   --color-on-cta: #ffffff;
-  --glitch-a: transparent;
-  --glitch-b: transparent;
-  --bg-image: none;
+  --glitch-a: rgb(214 0 110 / 0.55);
+  --glitch-b: rgb(0 150 176 / 0.55);
+  /* The wash the dark theme runs at 0.16; on paper the same figure is a
+     stain, and this is a press running slightly out of ink. */
+  --bg-image:
+    radial-gradient(ellipse at 12% -10%, rgb(214 0 110 / 0.07), transparent 46%),
+    radial-gradient(ellipse at 95% 110%, rgb(0 150 176 / 0.07), transparent 46%);
 
-  --shadow-card: 0 1px 3px rgba(18, 33, 47, 0.12),
-    0 8px 24px rgba(18, 33, 47, 0.08);
+  --shadow-card: 0 1px 3px rgba(26, 16, 48, 0.14),
+    0 8px 24px rgba(26, 16, 48, 0.10);
 
   /* Below this the side panel becomes a sheet across the bottom of the
      screen: there is no longer enough width for a column beside the map.
@@ -168,6 +198,7 @@
     --color-danger: #ff6e8e;
     --color-focus: #53f1ff;
     --color-on-ink: #0a0614;
+    --color-on-accent: #0a0614;
     --color-disabled: #241736;
     --color-on-disabled: #a693c7;
     --color-hover: #1d1330;
@@ -214,6 +245,7 @@
   --color-danger: #ff6e8e;
   --color-focus: #53f1ff;
   --color-on-ink: #0a0614;
+  --color-on-accent: #0a0614;
   --color-disabled: #241736;
   --color-on-disabled: #a693c7;
   --color-hover: #1d1330;
@@ -261,6 +293,7 @@
   --glitch-b: transparent;
   --bg-image: none;
   --color-on-ink: #120909;
+  --color-on-accent: #120909;
   --color-disabled: #2b1a1a;
   --color-on-disabled: #c9a29a;
   --color-hover: #241414;
@@ -357,9 +390,11 @@ code {
 }
 
 /* Destructive, and the only place the accent is used as a fill behind
-   text. */
+   text -- which is why the label needs a token of its own. It was
+   `text-white`, a colour belonging to no palette and therefore audited in
+   none of them, and it was under AA on all three accents. */
 @utility btn-danger {
-  @apply border-accent bg-accent font-semibold text-white;
+  @apply border-accent bg-accent font-semibold text-on-accent;
 }
 
 /* Somewhere to type. A shade off the card so it reads as a field before it

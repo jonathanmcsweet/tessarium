@@ -184,7 +184,7 @@ export function AddressPanel() {
                     every press. Same information, no layout in it. */
                 }
                 <output
-                  className={`address block min-w-0 flex-1 font-mono text-lg font-semibold leading-snug break-words text-accent-alt ${
+                  className={`address block min-w-0 flex-1 font-mono text-lg font-semibold leading-snug break-words ${
                     /* Muted rather than accented while concealed: hidden is
                        a resting state, not an alert. And it is worth being
                        exact about WHAT is blurred -- the mask. The address
@@ -192,10 +192,19 @@ export function AddressPanel() {
                        there is nothing behind this to recover by selecting
                        the text, opening devtools, or sharpening a
                        screenshot. This is a picture of twenty-five
-                       bullets. */
+                       bullets.
+
+                       The colour is set in each branch and NOT on the line
+                       above. It used to sit in both: `text-accent-alt` on
+                       the base and `text-accent-text` here, and two colour
+                       classes on one element are settled by the stylesheet
+                       rather than by the order they are written in -- so
+                       the address wore accent-text in every theme and
+                       accent-alt, the token each palette defines FOR the
+                       address, painted nothing anywhere. */
                     concealed
                       ? "tracking-wide text-ink-soft blur-[3.5px] select-none"
-                      : "text-accent-text"}`}
+                      : "text-accent-alt"}`}
                   aria-label={concealed ? m.panel_concealed() : undefined}
                 >
                   {concealed ? MASK : selection.address}

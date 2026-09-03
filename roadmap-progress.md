@@ -21,6 +21,48 @@ than a git log.
 
 ---
 
+### 2026-09-03 — Night City by day: the light theme
+
+**Phase:** 6
+
+**What:** The light palette was the only one Direction C had not reached —
+navy ink, vermilion accent, and the four Direction C levers pinned at rest.
+It is now the same magenta/violet/cyan family as the dark theme, each colour
+pushed down to the lightness white demands: violet-black ink on UV-cast
+paper, hot magenta accent, deep cyan address, acid lime darkened for the
+checksum. The primary action is the three-stop gradient it is in dark, and
+the wordmark carries the split shadow. The map's light overlay follows —
+selection square in magenta, grid in violet.
+
+**Rationale:** Two of the four levers were held at rest on the assumption
+that the look needs darkness, and only two of them do. A neon glow and a
+corner wash are things you see BECAUSE it is dark; a split shadow on a
+wordmark is misregistration, a print artefact that reads better on white
+than it ever does on black, and a gradient only ever needed stops dark
+enough to keep their label. So light takes the print half of the same look
+rather than a dimmed copy of the neon half.
+
+Two bugs fell out of it, both of the kind that reads correctly in source and
+paints nothing:
+
+- `btn-danger` — the confirm on the lock dialogue — wore a literal
+  `text-white`, a colour belonging to no palette and so audited in none of
+  them. It was 3.95:1 in light, 3.03:1 in dark, 3.19:1 in low light, all
+  under AA. It now spends a `--color-on-accent` token, white in light and
+  the ground colour in the two dark palettes, and contrast.mjs audits it.
+- `--color-accent-alt` is each palette's colour FOR the address, and it had
+  never painted a pixel: the element carried `text-accent-alt` as a base
+  class and `text-accent-text` in its revealed branch, and two colour
+  classes on one element are settled by the stylesheet, not by writing
+  order. Every palette defined it and contrast.mjs audited it as "the
+  address itself". The dark theme's cyan address, ledgered as shipped,
+  had been pink the whole time.
+
+Both are pinned by tests written to fail first — the second reads the
+address's computed colour back and compares it against the resolved token,
+not a literal, so it survives a repaint.
+
+
 ### 2026-09-03 — The map's icons follow the theme
 
 **Phase:** 6

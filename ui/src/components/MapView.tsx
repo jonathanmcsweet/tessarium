@@ -294,11 +294,11 @@ const OVERLAY: Record<Scheme, {
   select: string;
 }> = {
   light: {
-    blank: "#41505f",
+    blank: "#4a3f66",
     blankOpacity: 0.42,
-    edge: "#5f7183",
-    grid: "#1b3a5c",
-    select: "#e8452c",
+    edge: "#6d5f8f",
+    grid: "#331a5e",
+    select: "#d6006e",
   },
   dark: {
     blank: "#a89ac9",
