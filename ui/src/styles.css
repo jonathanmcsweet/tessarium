@@ -370,14 +370,6 @@ code {
   @apply w-full border border-line-strong bg-field px-3 py-2.5
     text-sm leading-relaxed text-ink
     focus:outline-2 focus:outline-offset-1 focus:outline-focus;
-  clip-path: polygon(
-    0 0,
-    calc(100% - 10px) 0,
-    100% 10px,
-    100% 100%,
-    10px 100%,
-    0 calc(100% - 10px)
-  );
 }
 
 /* The offers inside the download card, in order of usefulness. Each is

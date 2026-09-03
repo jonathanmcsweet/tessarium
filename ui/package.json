@@ -17,13 +17,14 @@
     "format": "dprint fmt",
     "format:check": "dprint check",
     "messages": "node test/messages.mjs",
-    "check": "pnpm run paraglide && pnpm run lint && pnpm run format:check && pnpm run typecheck && pnpm run messages && pnpm run regions && pnpm run contrast && pnpm run map-coverage && pnpm run loading && pnpm run place-context && pnpm run payload",
+    "check": "pnpm run paraglide && pnpm run lint && pnpm run format:check && pnpm run typecheck && pnpm run messages && pnpm run regions && pnpm run contrast && pnpm run map-coverage && pnpm run night-flavor && pnpm run loading && pnpm run place-context && pnpm run payload",
     "paraglide": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide",
     "regions": "node test/regions.mjs",
     "contrast": "node test/contrast.mjs",
     "map-coverage": "node test/coverage.mjs",
     "loading": "node test/loading.mjs",
     "payload": "node test/payload.mjs",
+    "night-flavor": "node test/night-flavor.mjs",
     "place-context": "node test/place-context.mjs"
   },
   "dependencies": {

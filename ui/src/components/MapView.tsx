@@ -179,6 +179,53 @@ const buildStyle = (
    That makes the ordering load-bearing: move a floor layer above the
    detail's ground and the duplication becomes real, with nothing left to
    prevent it. */
+/* The low-light map: "black" with warmth added, key by key.
+
+   Two moves, matching the two complaints a cold map draws in the dark. The
+   ROADS -- black's near-neutral #14/#1f/#29 greys -- take a small red lift
+   so a motorway is a warm line rather than a grey one. The LABELS, which are
+   the brightest marks on the map, move from grey to a soft red: black's
+   #999 city name would glow white-blue in a dark room, and that is the one
+   thing this theme exists to prevent. Halos and the ground are left alone;
+   they are already dark.
+
+   Route-number shields are sprite images, not flavour colours, so their
+   white badges are not reachable from here -- recolouring them is a sprite
+   rebuild, noted on the roadmap. */
+const NIGHT_ROADS = {
+  tunnel_minor: "#2b2020",
+  tunnel_link: "#2b2020",
+  tunnel_major: "#2b2020",
+  tunnel_highway: "#2b2020",
+  minor_service: "#221a1a",
+  minor_a: "#2f2323",
+  minor_b: "#221a1a",
+  link: "#221a1a",
+  major: "#332626",
+  highway: "#3a2929",
+  bridges_minor: "#221a1a",
+  bridges_link: "#2f2626",
+  bridges_major: "#2f2626",
+  bridges_highway: "#3a2929",
+} as const;
+
+const NIGHT_LABELS = {
+  roads_label_minor: "#7a5c5c",
+  roads_label_major: "#8a6666",
+  ocean_label: "#9a7a7a",
+  subplace_label: "#8a6a6a",
+  city_label: "#c89d9d",
+  state_label: "#6a5252",
+  country_label: "#a07d7d",
+  address_label: "#6a5252",
+} as const;
+
+const nightFlavor = (base: ReturnType<typeof namedFlavor>) => ({
+  ...base,
+  ...NIGHT_ROADS,
+  ...NIGHT_LABELS,
+});
+
 const basemapLayers = (
   scheme: Scheme,
 ): maplibregl.LayerSpecification[] => {
@@ -187,10 +234,14 @@ const basemapLayers = (
      have to sit next to a white map. Same generator, same layer ids -- only
      the paint differs -- which is why swapping it is a style rebuild and
      not a special case anywhere else. */
-  /* Protomaps has no red flavour, and "night" must not invent colours the
-     theme worked to exclude: "black" is its darkest, least chromatic set,
-     and the red arrives from this application's own overlay on top. */
-  const flavor = namedFlavor(scheme === "night" ? "black" : scheme);
+  /* Protomaps has no red flavour, so low light starts from "black" -- its
+     darkest, least chromatic set -- and tints it here. Roads take a slight
+     warm lift and the labels, which are the lightest things the map draws,
+     move from grey toward a soft red so nothing on the map is a cold white
+     in a room someone is keeping dark. */
+  const flavor = scheme === "night"
+    ? nightFlavor(namedFlavor("black"))
+    : namedFlavor(scheme === "light" ? "light" : "dark");
   const floor = layers(FLOOR_SOURCE, flavor, { lang })
     .filter((layer) => layer.type !== "background")
     .map((layer) => ({ ...layer, id: `${FLOOR_SOURCE}-${layer.id}` }));
@@ -242,11 +293,16 @@ const OVERLAY: Record<Scheme, {
   /* Red only, like everything else in low light: the grid is the loudest
      thing this application draws, and a blue grid over a red screen would
      be the one light that costs the user their night vision. */
+  /* The overlay grid is grey here, not red: red belongs to the map's own
+     warmth (roads, labels) and the selection, and a red grid laid over a
+     red-tinted map was one red too many to read. Grey is the one neutral
+     the theme allows itself, kept dim. The selection square stays red --
+     it is the one mark that has to jump off everything else. */
   night: {
-    blank: "#c98f85",
-    blankOpacity: 0.24,
-    edge: "#d9a79b",
-    grid: "#ff6a5c",
+    blank: "#8a7f7c",
+    blankOpacity: 0.22,
+    edge: "#9a8f8c",
+    grid: "#8f8582",
     select: "#ff5346",
   },
 };

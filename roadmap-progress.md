@@ -21,6 +21,29 @@ than a git log.
 
 ---
 
+### 2026-08-30 — Low-light map: grey grid, warm roads, themed chrome
+
+**Phase:** 6
+
+**What:** Four fixes to the low-light theme's map. The overlay grid is grey
+rather than red (red was reserved for the map's own warmth and the
+selection). The "black" Protomaps flavour is tinted per-key for low light:
+road lines take a slight warm lift and the labels — the lightest marks the
+map draws — move from grey toward soft red, so no cold white sits on the map
+in a dark room. MapLibre's own controls (zoom, compass, geolocate, scale,
+attribution) were already themed in code but only reached the running app
+after the embedded binary was rebuilt.
+
+**Rationale:** The flavour override is keyed by property name, and a wrong
+key silently warms nothing — two typos (`water_label`, `peak_label`) did
+exactly that in the first draft. A new `night-flavor` test parses the tint
+tables out of MapView and checks every key against the real flavour, plus
+that each tint is actually warm and each label lighter than its neutral.
+
+**Follow-on:** Route-number shields stay white — raster sprites without SDF,
+so not tintable from the flavour. Recorded in roadmap.md.
+
+
 ### 2026-08-30 — The dark theme goes Night City
 
 **Phase:** 6

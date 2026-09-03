@@ -454,6 +454,22 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
+- [ ] **Route-number shields are white in the low-light theme.** The map
+      chrome, road lines and place labels all follow the theme now, but the
+      highway shields (the `75`, `285` badges from `roads_shields`) stay
+      white: they are raster sprite images without an SDF channel, so
+      MapLibre's `icon-color` cannot tint them and the flavour has no colour
+      for them. Two honest fixes, both bigger than a theme token: ship a
+      red-tinted shield sprite alongside the existing per-flavour sprites
+      (`basemap/sprites/v4/`) and point the night style at it, which is
+      basemap-packaging work in `tools/stage-bundle.sh` and
+      `tools/fetch-basemap.sh` and adds weight to the offline bundle; or
+      tint them at runtime by reading the loaded sprite's pixels onto a
+      canvas and re-registering each shield with `map.addImage`, which keeps
+      the bundle unchanged but adds pixel-manipulation and sprite-load timing
+      to `MapView`. Deferred pending which the user wants; the shield TEXT
+      already takes the label tint.
+
 - [ ] **`run_remove`'s merged-archive branch is unreachable.** Nothing inside
       `map.pmtiles` may be removed, so the path that prunes one entry out of
       the shared archive — rewriting it, or unlinking it when the last entry
