@@ -93,6 +93,18 @@
      focus ring that changes appearance between controls is a focus ring
      people stop reading. */
   --color-focus: #2b6cb0;
+  /* Direction C's levers, held at rest in the light theme: the address
+     paints in ink, the primary action is the solid ink block it always
+     was (all three gradient stops the same colour), and the glitch
+     shadows are transparent. The dark theme is where they move. */
+  --color-accent-alt: #12212f;
+  --color-cta-from: #12212f;
+  --color-cta-mid: #12212f;
+  --color-cta-to: #12212f;
+  --color-on-cta: #ffffff;
+  --glitch-a: transparent;
+  --glitch-b: transparent;
+  --bg-image: none;
 
   --shadow-card: 0 1px 3px rgba(18, 33, 47, 0.12),
     0 8px 24px rgba(18, 33, 47, 0.08);
@@ -128,29 +140,42 @@
   :root:not([data-theme="light"]) {
     color-scheme: dark;
 
-    --color-ink: #e6ecf2;
-    --color-ink-soft: #a3b3c2;
-    --color-line: #28323d;
-    --color-line-strong: #7d8d9c;
-    --color-bg: #0c1319;
-    --color-card: #151f28;
-    --color-field: #0f1820;
-    --color-accent: #ff6a4d;
-    --color-accent-text: #ff8f77;
-    --color-ok: #4fc38a;
-    --color-ok-strong: #4fc38a;
-    --color-warn: #e5b25c;
-    --color-danger: #ff8080;
-    --color-focus: #79aee8;
-    --color-on-ink: #0c1319;
-    --color-disabled: #232f3b;
-    --color-on-disabled: #8d9dac;
-    --color-hover: #1e2a35;
-    --color-alert: #2a1a17;
-    --color-notice: #2a2313;
-    --color-notice-line: #4a3f22;
-    --color-notice-soft: #241f14;
-    --color-notice-soft-line: #463c22;
+    --color-accent-alt: #53f1ff;
+    --color-cta-from: #ff4fa8;
+    --color-cta-mid: #a54fff;
+    --color-cta-to: #53f1ff;
+    --color-on-cta: #0a0614;
+
+    --glitch-a: rgb(255 79 168 / 0.75);
+    --glitch-b: rgb(83 241 255 / 0.75);
+    --bg-image:
+      radial-gradient(ellipse at 12% -10%, rgb(255 79 168 / 0.16), transparent 46%),
+      radial-gradient(ellipse at 95% 110%, rgb(83 241 255 / 0.13), transparent 46%);
+
+
+    --color-ink: #ede7fa;
+    --color-ink-soft: #b9a8d8;
+    --color-line: #2b1d42;
+    --color-line-strong: #7a63a3;
+    --color-bg: #0a0614;
+    --color-card: #140d22;
+    --color-field: #100a1c;
+    --color-accent: #ff4fa8;
+    --color-accent-text: #ff86c2;
+    --color-ok: #b7ff5c;
+    --color-ok-strong: #b7ff5c;
+    --color-warn: #e8c15c;
+    --color-danger: #ff6e8e;
+    --color-focus: #53f1ff;
+    --color-on-ink: #0a0614;
+    --color-disabled: #241736;
+    --color-on-disabled: #a693c7;
+    --color-hover: #1d1330;
+    --color-alert: #2b1226;
+    --color-notice: #251d0d;
+    --color-notice-line: #4a3d1e;
+    --color-notice-soft: #201a10;
+    --color-notice-soft-line: #443a20;
 
     /* A shadow is a shape cut out of the light behind it. On a dark ground
        there is no light behind it, so the same rgba reads as nothing at
@@ -162,29 +187,41 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --color-ink: #e6ecf2;
-  --color-ink-soft: #a3b3c2;
-  --color-line: #28323d;
-  --color-line-strong: #7d8d9c;
-  --color-bg: #0c1319;
-  --color-card: #151f28;
-  --color-field: #0f1820;
-  --color-accent: #ff6a4d;
-  --color-accent-text: #ff8f77;
-  --color-ok: #4fc38a;
-  --color-ok-strong: #4fc38a;
-  --color-warn: #e5b25c;
-  --color-danger: #ff8080;
-  --color-focus: #79aee8;
-  --color-on-ink: #0c1319;
-  --color-disabled: #232f3b;
-  --color-on-disabled: #8d9dac;
-  --color-hover: #1e2a35;
-  --color-alert: #2a1a17;
-  --color-notice: #2a2313;
-  --color-notice-line: #4a3f22;
-  --color-notice-soft: #241f14;
-  --color-notice-soft-line: #463c22;
+  --color-accent-alt: #53f1ff;
+  --color-cta-from: #ff4fa8;
+  --color-cta-mid: #a54fff;
+  --color-cta-to: #53f1ff;
+  --color-on-cta: #0a0614;
+
+  --glitch-a: rgb(255 79 168 / 0.75);
+  --glitch-b: rgb(83 241 255 / 0.75);
+  --bg-image:
+    radial-gradient(ellipse at 12% -10%, rgb(255 79 168 / 0.16), transparent 46%),
+    radial-gradient(ellipse at 95% 110%, rgb(83 241 255 / 0.13), transparent 46%);
+
+  --color-ink: #ede7fa;
+  --color-ink-soft: #b9a8d8;
+  --color-line: #2b1d42;
+  --color-line-strong: #7a63a3;
+  --color-bg: #0a0614;
+  --color-card: #140d22;
+  --color-field: #100a1c;
+  --color-accent: #ff4fa8;
+  --color-accent-text: #ff86c2;
+  --color-ok: #b7ff5c;
+  --color-ok-strong: #b7ff5c;
+  --color-warn: #e8c15c;
+  --color-danger: #ff6e8e;
+  --color-focus: #53f1ff;
+  --color-on-ink: #0a0614;
+  --color-disabled: #241736;
+  --color-on-disabled: #a693c7;
+  --color-hover: #1d1330;
+  --color-alert: #2b1226;
+  --color-notice: #251d0d;
+  --color-notice-line: #4a3d1e;
+  --color-notice-soft: #201a10;
+  --color-notice-soft-line: #443a20;
 
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
 }
@@ -215,6 +252,14 @@
   --color-warn: #f0a86e;
   --color-danger: #ff8080;
   --color-focus: #ff9d8f;
+  --color-accent-alt: #ff9d8f;
+  --color-cta-from: #f4d7d2;
+  --color-cta-mid: #f4d7d2;
+  --color-cta-to: #f4d7d2;
+  --color-on-cta: #120909;
+  --glitch-a: transparent;
+  --glitch-b: transparent;
+  --bg-image: none;
   --color-on-ink: #120909;
   --color-disabled: #2b1a1a;
   --color-on-disabled: #c9a29a;
@@ -237,7 +282,9 @@ body,
 body {
   font-family: var(--font-sans);
   color: var(--color-ink);
-  background: var(--color-bg);
+  /* The image is Direction C's corner glow, defined per palette and `none`
+     outside the dark theme. */
+  background: var(--bg-image, none) var(--color-bg);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -279,12 +326,27 @@ code {
   @apply focus-ring inline-flex min-h-11 cursor-pointer items-center
     justify-center gap-2 border border-transparent px-4 text-sm
     font-semibold no-underline;
+  clip-path: polygon(
+    0 0,
+    calc(100% - 10px) 0,
+    100% 10px,
+    100% 100%,
+    10px 100%,
+    0 calc(100% - 10px)
+  );
 }
 
 /* The one action a screen is asking for. */
 @utility btn-primary {
-  @apply bg-ink text-on-ink
-    disabled:cursor-not-allowed disabled:bg-disabled disabled:text-on-disabled;
+  @apply text-on-cta
+    disabled:cursor-not-allowed disabled:bg-none disabled:bg-disabled
+    disabled:text-on-disabled;
+  background-image: linear-gradient(
+    100deg,
+    var(--color-cta-from),
+    var(--color-cta-mid) 55%,
+    var(--color-cta-to)
+  );
 }
 
 /* An offer rather than an instruction: still a real button, not fine
@@ -308,6 +370,14 @@ code {
   @apply w-full border border-line-strong bg-field px-3 py-2.5
     text-sm leading-relaxed text-ink
     focus:outline-2 focus:outline-offset-1 focus:outline-focus;
+  clip-path: polygon(
+    0 0,
+    calc(100% - 10px) 0,
+    100% 10px,
+    100% 100%,
+    10px 100%,
+    0 calc(100% - 10px)
+  );
 }
 
 /* The offers inside the download card, in order of usefulness. Each is
@@ -340,7 +410,33 @@ code {
    size: these label regions of a column that is already narrow, and a
    heading that competes with its own content is not a heading. */
 @utility panel-title {
-  @apply m-0 text-xs font-semibold tracking-wider text-ink-soft uppercase;
+  @apply m-0 font-mono text-xs font-semibold tracking-widest text-ink-soft
+    uppercase;
+}
+
+/* The icon buttons take the same cut as the text buttons, scaled down: at
+   44px square, the 10px cut the btn utility carries reads as a chip missing
+   rather than a shape. */
+@utility icon-cut {
+  clip-path: polygon(
+    0 0,
+    calc(100% - 7px) 0,
+    100% 7px,
+    100% 100%,
+    7px 100%,
+    0 calc(100% - 7px)
+  );
+}
+
+/* The application's name, wherever it stands alone: tracked-out mono caps,
+   with Direction C's split shadow behind it. The shadow colours are theme
+   tokens and sit at transparent outside the dark theme, so light and low
+   light keep a plain wordmark without a second rule anywhere. */
+@utility brand {
+  @apply font-mono font-bold tracking-[0.18em] uppercase;
+  text-shadow:
+    -2px 0 var(--glitch-a, transparent),
+    2px 0 var(--glitch-b, transparent);
 }
 
 /* A card that hangs off a control -- the dropdown's list, the search

@@ -219,18 +219,25 @@ const OVERLAY: Record<Scheme, {
   blankOpacity: number;
   edge: string;
   grid: string;
+  /* The selected square and its pin. Hardcoded to the light accent for as
+     long as there was one theme; now the loudest mark on the map follows
+     the palette it lands in -- magenta in the dark theme, red in low
+     light. */
+  select: string;
 }> = {
   light: {
     blank: "#41505f",
     blankOpacity: 0.42,
     edge: "#5f7183",
     grid: "#1b3a5c",
+    select: "#e8452c",
   },
   dark: {
-    blank: "#9fb3c7",
-    blankOpacity: 0.26,
-    edge: "#b8c9da",
-    grid: "#8fc4ff",
+    blank: "#a89ac9",
+    blankOpacity: 0.24,
+    edge: "#c3b3e0",
+    grid: "#6ee9ff",
+    select: "#ff4fa8",
   },
   /* Red only, like everything else in low light: the grid is the loudest
      thing this application draws, and a blue grid over a red screen would
@@ -240,6 +247,7 @@ const OVERLAY: Record<Scheme, {
     blankOpacity: 0.24,
     edge: "#d9a79b",
     grid: "#ff6a5c",
+    select: "#ff5346",
   },
 };
 
@@ -309,14 +317,14 @@ const addOverlay = (map: maplibregl.Map, scheme: Scheme) => {
     type: "fill",
     source: "selection",
     filter: ["==", ["geometry-type"], "Polygon"],
-    paint: { "fill-color": "#e8452c", "fill-opacity": 0.35 },
+    paint: { "fill-color": OVERLAY[scheme].select, "fill-opacity": 0.35 },
   });
   map.addLayer({
     id: "selection-outline",
     type: "line",
     source: "selection",
     filter: ["==", ["geometry-type"], "Polygon"],
-    paint: { "line-color": "#e8452c", "line-width": 2 },
+    paint: { "line-color": OVERLAY[scheme].select, "line-width": 2 },
   });
   /* A ~3 m square is sub-pixel until street level, so zoomed out the
      selection would be invisible -- exactly when someone has just looked an
@@ -332,7 +340,7 @@ const addOverlay = (map: maplibregl.Map, scheme: Scheme) => {
     maxzoom: GRID_MIN_ZOOM + 1,
     paint: {
       "circle-radius": 11,
-      "circle-color": "#e8452c",
+      "circle-color": OVERLAY[scheme].select,
       "circle-opacity": [
         "interpolate",
         ["linear"],
@@ -352,7 +360,7 @@ const addOverlay = (map: maplibregl.Map, scheme: Scheme) => {
     maxzoom: GRID_MIN_ZOOM + 1,
     paint: {
       "circle-radius": 5,
-      "circle-color": "#e8452c",
+      "circle-color": OVERLAY[scheme].select,
       "circle-stroke-color": "#ffffff",
       "circle-stroke-width": 2,
       "circle-opacity": [

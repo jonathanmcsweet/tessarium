@@ -156,6 +156,19 @@ const pairs = () => [
   ["input borders on cards (non-text)", v("line-strong"), v("card"), 3.0],
   ["input borders on their fill (non-text)", v("line-strong"), v("field"), 3.0],
   ["placeholder text on inputs", v("ink-soft"), v("field"), 4.5],
+  /* Direction C: the primary action is a three-stop gradient, so its label
+     is audited against every stop -- the middle is the one that fails
+     first. Outside the dark theme the stops are all one colour and these
+     three collapse into the old solid-button check. */
+  [
+    "primary label on the gradient's first stop",
+    v("on-cta"),
+    v("cta-from"),
+    4.5,
+  ],
+  ["primary label on the gradient's middle", v("on-cta"), v("cta-mid"), 4.5],
+  ["primary label on the gradient's last stop", v("on-cta"), v("cta-to"), 4.5],
+  ["the address itself", v("accent-alt"), v("card"), 4.5],
 ];
 
 /* The pair list is written once and run against each palette. A colour is

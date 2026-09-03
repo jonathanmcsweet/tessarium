@@ -149,7 +149,7 @@ export function PhraseEntry() {
         className="gate-card flex w-[min(35rem,100%)] flex-col gap-3 border border-line bg-card p-7 shadow-card"
         onSubmit={submit}
       >
-        <h1 className="text-2xl font-bold tracking-tight">{m.app_name()}</h1>
+        <h1 className="brand text-2xl">{m.app_name()}</h1>
         <p className="mb-1.5 leading-normal text-ink-soft">{m.gate_lede()}</p>
 
         <label htmlFor="phrase" className="text-sm font-semibold">

@@ -111,7 +111,7 @@ export function AddressPanel() {
           its own line only when shrinking is not enough. */
       }
       <header className="panel-head flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-line px-4.5 py-3.5">
-        <span className="min-w-0 shrink truncate font-bold tracking-tight">
+        <span className="brand min-w-0 shrink truncate">
           {m.app_name()}
         </span>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
@@ -184,7 +184,7 @@ export function AddressPanel() {
                     every press. Same information, no layout in it. */
                 }
                 <output
-                  className={`address block min-w-0 flex-1 font-mono text-lg font-semibold leading-snug break-words ${
+                  className={`address block min-w-0 flex-1 font-mono text-lg font-semibold leading-snug break-words text-accent-alt ${
                     /* Muted rather than accented while concealed: hidden is
                        a resting state, not an alert. And it is worth being
                        exact about WHAT is blurred -- the mask. The address

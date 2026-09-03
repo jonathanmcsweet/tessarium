@@ -35,7 +35,7 @@ const LONG_PRESS_MS = 450;
    over the map) can add it without fighting a class here for the same
    property. */
 const BASE =
-  "icon-button focus-ring inline-flex h-11 w-11 flex-none items-center "
+  "icon-button icon-cut focus-ring inline-flex h-11 w-11 flex-none items-center "
   + "justify-center border border-line p-0 "
   + "hover:not-disabled:bg-hover hover:not-disabled:text-ink "
   + "aria-pressed:border-ink-soft aria-pressed:text-ink";

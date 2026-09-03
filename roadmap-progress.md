@@ -21,6 +21,28 @@ than a git log.
 
 ---
 
+### 2026-08-30 — The dark theme goes Night City
+
+**Phase:** 6
+
+**What:** Direction C from the styling exploration, scanlines deliberately
+dropped. Dark palette is now purple-black with magenta accent, cyan focus and
+address, acid-green ok. Structure shared by all themes: clipped corners on
+buttons, fields and icon buttons; mono tracked-caps wordmark and section
+titles; the primary action is a three-stop gradient audited stop by stop
+(outside dark the stops collapse to one colour, so light and low light keep
+their solid buttons). The map selection square is themed for the first time
+— it had been the light accent hardcoded in GL paint.
+
+**Rationale:** The gradient and glitch shadows ride on tokens
+(`--color-cta-from/mid/to`, `--glitch-a/b`, `--bg-image`) defined in every
+palette and held at rest outside dark, so no second code path exists and the
+contrast suite audits the moving parts in all four themes. Low light keeps
+its red-only rule; its levers are red or transparent.
+
+**Follow-on:** None.
+
+
 ### 2026-08-30 — A low-light theme, square corners, and the map chrome themed
 
 **Phase:** 6
