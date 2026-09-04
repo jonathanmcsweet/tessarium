@@ -137,15 +137,17 @@ export type JobStatus = z.infer<typeof JobStatus>;
 /* The states with work still in flight, as data rather than a chain of
    comparisons. Typed against the union, so a state the Job schema does not
    know cannot sit here unnoticed. */
-const RUNNING: ReadonlySet<Job["state"]> = new Set([
-  "planning",
-  "fetching",
-  "assets",
-  "removing",
-  "compacting",
-  "indexing",
-  "exporting",
-] satisfies Job["state"][]);
+const RUNNING: ReadonlySet<Job["state"]> = new Set(
+  [
+    "planning",
+    "fetching",
+    "assets",
+    "removing",
+    "compacting",
+    "indexing",
+    "exporting",
+  ] satisfies Job["state"][],
+);
 
 export const isRunning = (job: Job): boolean => RUNNING.has(job.state);
 
