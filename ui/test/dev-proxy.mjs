@@ -20,20 +20,29 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 
-let checks = 0;
-let failures = 0;
-const check = (name, ok) => {
-  checks++;
-  if (!ok) {
-    failures++;
-    console.log(`  FAIL  ${name}`);
-  }
-};
+const check = (name, ok) => ({ name, ok });
 
 const config = readFileSync(
   new URL("../vite.config.ts", import.meta.url),
   "utf8",
 );
+
+/* The index just past the brace closing the block that opens at `open` --
+   a scan carried by reduce, the answer carried once found. */
+const blockEnd = (text, open) =>
+  [...text.slice(open)].reduce(
+    (state, c, i) =>
+      state.end >= 0
+        ? state
+        : c === "{"
+        ? { depth: state.depth + 1, end: -1 }
+        : c === "}" && state.depth === 1
+        ? { depth: 0, end: open + i }
+        : c === "}"
+        ? { depth: state.depth - 1, end: -1 }
+        : state,
+    { depth: 0, end: -1 },
+  ).end;
 
 /* The proxy keys, read out of the `proxy: { ... }` block. Both spellings are
    in use -- a bare target and an options object -- and only the key matters
@@ -42,53 +51,41 @@ const proxyBlock = (() => {
   const at = config.indexOf("proxy: {");
   if (at < 0) return "";
   const open = config.indexOf("{", at);
-  let depth = 0;
-  for (let i = open; i < config.length; i++) {
-    if (config[i] === "{") depth++;
-    else if (config[i] === "}" && --depth === 0) return config.slice(open, i);
-  }
-  return "";
+  return config.slice(open, blockEnd(config, open));
 })();
 const prefixes = [...proxyBlock.matchAll(/"(\/[^"]*)":/g)].map((m) => m[1]);
-
-check("the dev server has a proxy table", prefixes.length > 0);
 
 /* Every path this application asks its OWN origin for. Collected from the
    places a path can be written: a fetch, a MapLibre style field, and the
    worker's importScripts. Paths built from `${...origin}` count -- that is
    the same origin spelled the long way. */
-const sources = [];
-const walk = (dir) => {
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    if (e.name === "paraglide") continue;
-    const child = new URL(`${e.name}${e.isDirectory() ? "/" : ""}`, dir);
-    if (e.isDirectory()) walk(child);
-    else if (/\.(tsx?|js)$/.test(e.name)) {
-      sources.push(readFileSync(child, "utf8"));
-    }
-  }
-};
-walk(new URL("../src/", import.meta.url));
-walk(new URL("../public/", import.meta.url));
+const sourceFiles = (dir) =>
+  readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.name !== "paraglide")
+    .flatMap((e) => {
+      const child = new URL(`${e.name}${e.isDirectory() ? "/" : ""}`, dir);
+      if (e.isDirectory()) return sourceFiles(child);
+      return /\.(tsx?|js)$/.test(e.name) ? [readFileSync(child, "utf8")] : [];
+    });
+const sources = [
+  ...sourceFiles(new URL("../src/", import.meta.url)),
+  ...sourceFiles(new URL("../public/", import.meta.url)),
+];
 
-const asked = new Set();
-for (const text of sources) {
-  const patterns = [
-    /(?:fetch|importScripts)\(\s*[`"](\/[^`"]*)/g,
-    /(?:url|glyphs|sprite):\s*[`"](\/[^`"]*)/g,
-    /\$\{[^}]*origin[^}]*\}(\/[A-Za-z0-9_/.-]*)/g,
-  ];
-  for (const re of patterns) {
-    for (const m of text.matchAll(re)) {
+const patterns = [
+  /(?:fetch|importScripts)\(\s*[`"](\/[^`"]*)/g,
+  /(?:url|glyphs|sprite):\s*[`"](\/[^`"]*)/g,
+  /\$\{[^}]*origin[^}]*\}(\/[A-Za-z0-9_/.-]*)/g,
+];
+const asked = [
+  ...new Set(
+    sources.flatMap((text) => patterns.flatMap((re) => [...text.matchAll(re)]))
       /* Down to the first placeholder or query: what the proxy matches on is
          a literal prefix, and everything after `{` or `?` varies. */
-      const path = m[1].split(/[?{]/)[0];
-      if (path.length > 1) asked.add(path);
-    }
-  }
-}
-
-check("the app asks its origin for something", asked.size > 0);
+      .map((m) => m[1].split(/[?{]/)[0])
+      .filter((path) => path.length > 1),
+  ),
+].sort();
 
 /* Files this project serves itself are not the backend's to answer. They sit
    in public/ and are named here rather than detected, because "is it in
@@ -96,13 +93,14 @@ check("the app asks its origin for something", asked.size > 0);
    list. */
 const ownFiles = ["/tessarium.js"];
 
-for (const path of [...asked].sort()) {
-  if (ownFiles.includes(path)) continue;
-  check(
-    `the dev proxy forwards ${path}`,
-    prefixes.some((p) => path === p || path.startsWith(p)),
+const coverage = asked
+  .filter((path) => !ownFiles.includes(path))
+  .map((path) =>
+    check(
+      `the dev proxy forwards ${path}`,
+      prefixes.some((p) => path === p || path.startsWith(p)),
+    )
   );
-}
 
 /* And the two TileJSON routes must keep the client's Host header.
 
@@ -113,15 +111,26 @@ for (const path of [...asked].sort()) {
    fetches them cross-origin, and every one is refused. Forwarding the path
    is therefore only half of it, and the half that is invisible: the request
    succeeds and the answer is unusable. */
-for (const route of ["/tiles", "/world.json"]) {
-  const entry = new RegExp(
-    `"${route}":\\s*\\{[^}]*\\}`,
-  ).exec(proxyBlock)?.[0] ?? "";
-  check(
+const keepsHost = ["/tiles", "/world.json"].map((route) => {
+  const entry = new RegExp(`"${route}":\\s*\\{[^}]*\\}`)
+    .exec(proxyBlock)?.[0] ?? "";
+  return check(
     `${route} keeps the caller's host, so its tile URLs are reachable`,
     /changeOrigin:\s*false/.test(entry),
   );
-}
+});
 
-console.log(`\ndev proxy: ${checks} checks, ${failures} failures`);
-if (failures > 0) process.exit(1);
+const results = [
+  check("the dev server has a proxy table", prefixes.length > 0),
+  check("the app asks its origin for something", asked.length > 0),
+  ...coverage,
+  ...keepsHost,
+];
+const failures = results.filter((r) => !r.ok);
+failures.forEach((f) => {
+  console.log(`  FAIL  ${f.name}`);
+});
+console.log(
+  `\ndev proxy: ${results.length} checks, ${failures.length} failures`,
+);
+if (failures.length > 0) process.exit(1);

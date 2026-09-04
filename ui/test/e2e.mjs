@@ -32,14 +32,25 @@ const messages = JSON.parse(
 );
 const m = (key) => messages[key];
 
-let checks = 0;
-let failures = 0;
+/* Every check is a record in one list; the tally at the bottom is derived
+   from it. The push and the live FAIL line are the reporting edge -- the
+   one place this file mutates on purpose. */
+const results = [];
 const check = (name, ok) => {
-  checks++;
-  if (!ok) {
-    failures++;
-    console.log(`  FAIL  ${name}`);
-  }
+  results.push({ name, ok });
+  if (!ok) console.log(`  FAIL  ${name}`);
+};
+
+/* Poll until `probe` answers with something truthy, or the budget runs out;
+   the answer (or the last falsy one) is returned. Recursion rather than a
+   counter-and-flag loop: the remaining budget travels as an argument, and
+   each step is exactly one probe. Ten polling loops used to spell this out
+   longhand, each with its own let. */
+const until = async (probe, { tries = 120, delayMs = 500 } = {}) => {
+  const value = await probe();
+  if (value || tries <= 1) return value;
+  await new Promise((r) => setTimeout(r, delayMs));
+  return until(probe, { tries: tries - 1, delayMs });
 };
 
 const mnemonic = vectors.key_derivation[0].mnemonic;
@@ -94,11 +105,11 @@ const slowProxy = createServer((req, res) => {
     .then(async (upstream) => {
       const body = Buffer.from(await upstream.arrayBuffer());
       await new Promise((done) => setTimeout(done, PROXY_DELAY_MS));
-      const pass = {};
-      for (const h of ["content-type", "content-range", "accept-ranges"]) {
-        const v = upstream.headers.get(h);
-        if (v) pass[h] = v;
-      }
+      const pass = Object.fromEntries(
+        ["content-type", "content-range", "accept-ranges"]
+          .map((h) => [h, upstream.headers.get(h)])
+          .filter(([, v]) => v),
+      );
       res.writeHead(upstream.status, {
         ...pass,
         "content-length": body.length,
@@ -677,18 +688,18 @@ check(
    download can run start-to-done entirely between two UI polls, and the
    generation in the status envelope is exactly what makes that visible. */
 const awaitDone = async (generation) => {
-  for (let i = 0; i < 120; i++) {
+  const outcome = await until(async () => {
     const status = await (await postJson("basemap-status")).json();
-    if (status.generation === generation && status.job?.state === "done") {
-      return true;
-    }
-    if (status.job?.state === "failed") {
-      console.log(`  download failed: ${status.job.reason}`);
-      return false;
-    }
-    await new Promise((r) => setTimeout(r, 500));
+    return status.generation === generation && status.job?.state === "done"
+      ? { done: true }
+      : status.job?.state === "failed"
+      ? { done: false, reason: status.job.reason }
+      : false;
+  });
+  if (outcome && !outcome.done) {
+    console.log(`  download failed: ${outcome.reason}`);
   }
-  return false;
+  return outcome ? outcome.done : false;
 };
 
 /* With nothing on disk, the card leads with the world map. */
@@ -1408,12 +1419,13 @@ await page.waitForFunction(
 await page.waitForFunction(
   async () => {
     const quiet = () => document.querySelector(".map-loading") === null;
-    if (!quiet()) return false;
-    for (let i = 0; i < 8; i++) {
-      await new Promise((done) => setTimeout(done, 100));
+    const still = async (n) => {
       if (!quiet()) return false;
-    }
-    return true;
+      if (n === 0) return true;
+      await new Promise((done) => setTimeout(done, 100));
+      return still(n - 1);
+    };
+    return still(8);
   },
   null,
   { timeout: 60_000 },
@@ -1425,25 +1437,25 @@ await page.evaluate(() => {
      which is the only moment it is certain to exist. */
   window.__barWatch = new MutationObserver((records) => {
     if (window.__barSeen) return;
-    for (const record of records) {
-      for (const node of record.addedNodes) {
-        if (node.nodeType !== Node.ELEMENT_NODE) continue;
-        const bar = node.matches?.(".map-loading")
+    const bar = records
+      .flatMap((record) => [...record.addedNodes])
+      .filter((node) => node.nodeType === Node.ELEMENT_NODE)
+      .map((node) =>
+        node.matches?.(".map-loading")
           ? node
-          : node.querySelector?.(".map-loading");
-        if (bar) {
-          window.__barSeen = true;
-          window.__barLabel = bar.getAttribute("aria-label");
-          return;
-        }
-      }
+          : node.querySelector?.(".map-loading")
+      )
+      .find(Boolean);
+    if (bar) {
+      window.__barSeen = true;
+      window.__barLabel = bar.getAttribute("aria-label");
     }
   });
   window.__barWatch.observe(document.body, { childList: true, subtree: true });
 });
-let delayedTiles = 0;
+const delayedTiles = [];
 await page.route("**/tiles/**", async (route) => {
-  delayedTiles += 1;
+  delayedTiles.push(route.request().url());
   await new Promise((done) => setTimeout(done, 500));
   try {
     await route.continue();
@@ -1466,10 +1478,8 @@ await page.route("**/tiles/**", async (route) => {
 
    Marked once, not once per attempt, so a retry cannot stack query
    parameters and change what is being asked for. */
-let started = false;
-for (let attempt = 0; attempt < 6 && !started; attempt++) {
-  if (attempt > 0) await page.waitForTimeout(600);
-  started = await page.evaluate(() => {
+const started = await until(() =>
+  page.evaluate(() => {
     if (document.querySelector(".map-loading")) return false;
     window.__barSeen = false;
     window.__barLabel = null;
@@ -1478,15 +1488,14 @@ for (let attempt = 0; attempt < 6 && !started; attempt++) {
       src.tiles.map((u) => u.includes("e2e_bar=1") ? u : `${u}&e2e_bar=1`),
     );
     return true;
-  });
-}
+  }), { tries: 6, delayMs: 600 });
 check("the refetch was triggered against a quiet map", started);
 const barSeen = await page
   .waitForFunction(() => window.__barSeen === true, null, { timeout: 30_000 })
   .then(() => true, () => false);
 check(
-  `the refetch actually went through the delay (${delayedTiles} tiles)`,
-  delayedTiles > 0,
+  `the refetch actually went through the delay (${delayedTiles.length} tiles)`,
+  delayedTiles.length > 0,
 );
 check("slow tiles raise the loading bar", barSeen);
 /* Read off the bar as it appeared, not off the DOM afterwards. Asked
@@ -2022,18 +2031,30 @@ check(
   cover.present.length === cover.w * cover.h,
 );
 
-let agreed = true;
-for (let row = 0; row < cover.h; row++) {
-  for (let col = 0; col < cover.w; col++) {
-    const res = await fetch(
-      `${base}/tiles/${cover.zoom}/${cover.x + col}/${cover.y + row}.mvt`,
-    );
-    await res.arrayBuffer();
-    const served = res.status === 200;
-    if (served !== (cover.present[row * cover.w + col] === "1")) agreed = false;
-  }
-}
-check("the mask agrees with the tile endpoint, cell for cell", agreed);
+const cells = Array.from({ length: cover.h * cover.w }, (_, i) => ({
+  row: Math.floor(i / cover.w),
+  col: i % cover.w,
+}));
+/* Sequential on purpose -- one request at a time, the way the old loop ran
+   -- and the fold carries the disagreements, so a failure names its cells
+   instead of saying only that one exists. */
+const disagreed = await cells.reduce(async (acc, { row, col }) => {
+  const prior = await acc;
+  const res = await fetch(
+    `${base}/tiles/${cover.zoom}/${cover.x + col}/${cover.y + row}.mvt`,
+  );
+  await res.arrayBuffer();
+  const served = res.status === 200;
+  return served === (cover.present[row * cover.w + col] === "1")
+    ? prior
+    : [...prior, `${row},${col}`];
+}, Promise.resolve([]));
+check(
+  `the mask agrees with the tile endpoint, cell for cell (off: ${
+    disagreed.join(" ") || "none"
+  })`,
+  disagreed.length === 0,
+);
 
 /* The other side of the world: nothing at street level, but the world
    overview underneath is still real, which is why the note there offers
@@ -2436,13 +2457,12 @@ check(
 await chooseFrom(".ledger-reminder", "30");
 /* The save is a request; let the server confirm it before the card closes,
    or the reopened card can read the old value in perfect honesty. */
-let saved30 = false;
-for (let i = 0; i < 40 && !saved30; i++) {
-  const s = await (await postJson("basemap-settings")).json();
-  saved30 = s.update_reminder_days === 30;
-  if (!saved30) await new Promise((r) => setTimeout(r, 250));
-}
-check("the reminder write reaches the server", saved30);
+check(
+  "the reminder write reaches the server",
+  await until(async () =>
+    (await (await postJson("basemap-settings")).json())
+      .update_reminder_days === 30, { tries: 40, delayMs: 250 }),
+);
 await page.locator(".download-card .icon-button").click();
 await page.waitForFunction(
   () => !document.querySelector(".download-card"),
@@ -2634,22 +2654,16 @@ check(
   "a box over the budget splits instead of clamping",
   est3.max_zooms?.[0] === 6 && est3.covered === false && est3.tiles > 0,
 );
-const finalJob3 = async (generation) => {
-  for (let i = 0; i < 120; i++) {
+const finalJob3 = async (generation) =>
+  (await until(async () => {
     const status = await (await post3("basemap-status")).json();
-    if (
-      status.generation === generation
-      && !["planning", "fetching", "assets", "removing"].includes(
-        status.job?.state,
-      )
-      && status.job?.state !== "idle"
-    ) {
-      return status.job;
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  return null;
-};
+    return status.generation === generation
+        && !["planning", "fetching", "assets", "removing", "idle"].includes(
+          status.job?.state,
+        )
+      ? status.job
+      : false;
+  }, { tries: 120, delayMs: 250 })) || null;
 await post3("basemap-download", { regions: [world] });
 const done3 = await finalJob3(1);
 check(
@@ -2814,20 +2828,16 @@ check("a settled view fetches its missing tiles", browsed.fetched > 0);
    arrived, so a wrong or missing number is a map that never fills in. */
 check("the browse answers with the depth it wrote", browsed.zoom === 15);
 /* The one-byte threshold compacts immediately; wait for the writer to rest. */
-let compacted = false;
-for (let i = 0; i < 120 && !compacted; i++) {
-  const st = await (await post3("basemap-status")).json();
-  if (
-    !["planning", "fetching", "assets", "removing", "compacting"]
+check(
+  "the cache folds into the main archive past the threshold",
+  await until(async () => {
+    const st = await (await post3("basemap-status")).json();
+    return !["planning", "fetching", "assets", "removing", "compacting"]
       .includes(st.job?.state)
-  ) {
-    compacted = (await fetch(`${base3}/basemap/cache.pmtiles`, {
-      method: "HEAD",
-    })).status === 404;
-  }
-  if (!compacted) await new Promise((r) => setTimeout(r, 250));
-}
-check("the cache folds into the main archive past the threshold", compacted);
+      && (await fetch(`${base3}/basemap/cache.pmtiles`, { method: "HEAD" }))
+          .status === 404;
+  }, { tries: 120, delayMs: 250 }),
+);
 check(
   "the browsed tile serves after compaction",
   (await fetch(`${base3}/tiles/15/${lt.x}/${lt.y}.mvt`)).status === 200,
@@ -2848,17 +2858,19 @@ check("a second look fetches nothing", browsedAgain.fetched === 0);
    world missing => the offer is back". The old rule -- offer only on an
    empty map -- is exactly how the Georgia-first user never saw it. */
 const worldPage = await context.newPage();
-await worldPage.route("**/api/basemap-estimate", async (route) => {
-  let world = false;
+const isWorldAsk = (data) => {
   try {
-    const body = JSON.parse(route.request().postData() ?? "{}");
+    const body = JSON.parse(data ?? "{}");
     const r = body.regions?.[0];
-    world = body.regions?.length === 1 && r?.min_lon === -180
+    return body.regions?.length === 1 && r?.min_lon === -180
       && r?.max_lon === 180 && r?.min_lat === -85 && r?.max_zoom === 6;
   } catch {
     /* not JSON: not ours */
+    return false;
   }
-  if (world) {
+};
+await worldPage.route("**/api/basemap-estimate", async (route) => {
+  if (isWorldAsk(route.request().postData())) {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
@@ -3604,8 +3616,7 @@ const showsSquareFor = async (lat, lon) => {
    caught up. */
 const inspectAt = async (lat, lon) => {
   const box = await page.locator(".map").boundingBox();
-  let corner = null;
-  for (let attempt = 1; attempt <= 3 && corner === null; attempt++) {
+  const attempt = async () => {
     await page.evaluate(([la, lo]) => {
       const map = window.__tessarium_map;
       if (!map) return;
@@ -3619,13 +3630,11 @@ const inspectAt = async (lat, lon) => {
     const showed = await page
       .waitForSelector(".address", { timeout: 10_000 })
       .then(() => true, () => false);
-    if (!showed) continue;
+    if (!showed) return null;
     await reveal();
-    for (let i = 0; i < 20 && corner === null; i++) {
-      corner = await showsSquareFor(lat, lon);
-      if (corner === null) await page.waitForTimeout(250);
-    }
-  }
+    return until(() => showsSquareFor(lat, lon), { tries: 20, delayMs: 250 });
+  };
+  const corner = (await until(attempt, { tries: 3, delayMs: 0 })) || null;
   check(
     `a square containing ${lat.toFixed(4)},${lon.toFixed(4)} was selected`,
     corner !== null,
@@ -3670,8 +3679,8 @@ await relock(sampleMnemonic);
 
 /* Saved once, the way a user saves them: click the square, write down what
    the panel says, and note where looking the address back up goes. */
-const saved = [];
-for (const point of savedPoints) {
+const saved = await savedPoints.reduce(async (acc, point) => {
+  const prior = await acc;
   const at = { lat: point.lat_ns / 1e9, lon: point.lon_ns / 1e9 };
   const seen = await inspectAt(at.lat, at.lon);
   check(
@@ -3679,10 +3688,10 @@ for (const point of savedPoints) {
       + `(${point.address})`,
     seen.address === point.address,
   );
-  saved.push({ at, ...seen, landed: await flyToAddress(seen.address) });
-}
+  return [...prior, { at, ...seen, landed: await flyToAddress(seen.address) }];
+}, Promise.resolve([]));
 
-for (let cycle = 1; cycle <= 3; cycle++) {
+for (const cycle of [1, 2, 3]) {
   await relock(sampleMnemonic);
   for (const [i, s] of saved.entries()) {
     const landed = await flyToAddress(s.address);
@@ -4105,11 +4114,12 @@ check(
 /* Whatever the second visit did pay for, name it, so a regression that
    re-downloads one large thing is legible rather than a total that drifted. */
 if (second >= first / 20) {
-  for (
-    const r of secondVisit.filter((r) => r.bytes > 4096).sort((a, b) =>
-      b.bytes - a.bytes
-    ).slice(0, 8)
-  ) console.log(`    re-sent ${Math.round(r.bytes / 1024)} KB  ${r.path}`);
+  secondVisit.filter((r) => r.bytes > 4096)
+    .sort((a, b) => b.bytes - a.bytes)
+    .slice(0, 8)
+    .forEach((r) => {
+      console.log(`    re-sent ${Math.round(r.bytes / 1024)} KB  ${r.path}`);
+    });
 }
 
 /* The map's own bytes are most of the weight, so a run where the map never
@@ -4240,11 +4250,11 @@ check(
 );
 /* Named, so a regression is legible rather than a total that drifted. */
 if (gateBytes >= 200 * 1024) {
-  for (
-    const r of atGate.filter((r) => r.bytes > 4096).sort((a, b) =>
-      b.bytes - a.bytes
-    )
-  ) console.log(`    ${Math.round(r.bytes / 1024)} KB  ${r.path}`);
+  atGate.filter((r) => r.bytes > 4096)
+    .sort((a, b) => b.bytes - a.bytes)
+    .forEach((r) => {
+      console.log(`    ${Math.round(r.bytes / 1024)} KB  ${r.path}`);
+    });
 }
 
 const jsAssets = (rows) =>
@@ -4520,17 +4530,15 @@ check(
    operations; the multipart server's one-byte threshold folds it away the
    moment it exists. Driven over the API -- the page is gone, so nothing
    auto-browses underneath these steps. */
-const awaitRemoved = async (generation) => {
-  for (let i = 0; i < 120; i++) {
+const awaitRemoved = async (generation) =>
+  (await until(async () => {
     const status = await (await postJson("basemap-status")).json();
-    if (status.generation === generation && status.job?.state === "removed") {
-      return true;
-    }
-    if (status.job?.state === "failed") return false;
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  return false;
-};
+    return status.generation === generation && status.job?.state === "removed"
+      ? "removed"
+      : status.job?.state === "failed"
+      ? "failed"
+      : false;
+  })) === "removed";
 const cacheStatus = async () =>
   (await fetch(`${base}/basemap/cache.pmtiles`, { method: "HEAD" })).status;
 const deepTile = async () =>
@@ -4648,23 +4656,23 @@ await post5("basemap-download", {
    so an entry appearing IS a part on disk. That is the property that makes a
    cancelled download resumable -- and it is why this no longer waits on a
    file name it had to know in advance. */
-let landed = false;
-for (let i = 0; i < 600 && !landed; i++) {
-  landed = ((await (await post5("basemap-ledger")).json()).entries ?? [])
-    .length > 0;
-  if (!landed) await new Promise((r) => setTimeout(r, 25));
-}
-check("a part of the download reached the archive", landed);
+check(
+  "a part of the download reached the archive",
+  await until(
+    async () =>
+      ((await (await post5("basemap-ledger")).json()).entries ?? []).length
+        > 0,
+    { tries: 600, delayMs: 25 },
+  ),
+);
 check(
   "cancelling it is accepted",
   (await (await post5("basemap-cancel")).json()).ok === true,
 );
-let stopped = "";
-for (let i = 0; i < 300; i++) {
-  stopped = (await (await post5("basemap-status")).json()).job?.state ?? "";
-  if (["cancelled", "done", "failed"].includes(stopped)) break;
-  await new Promise((r) => setTimeout(r, 100));
-}
+const stopped = (await until(async () => {
+  const state = (await (await post5("basemap-status")).json()).job?.state ?? "";
+  return ["cancelled", "done", "failed"].includes(state) ? state : false;
+}, { tries: 300, delayMs: 100 })) || "still running";
 /* Finishing first would make the next check vacuous rather than wrong, so
    it fails loudly instead of passing quietly. */
 check(
@@ -4693,13 +4701,10 @@ check(
 );
 /* And it is removable, which is the part that was impossible before. */
 await post5("basemap-remove", { id: partial?.id });
-let removedPartial = "";
-for (let i = 0; i < 300; i++) {
-  removedPartial = (await (await post5("basemap-status")).json()).job?.state
-    ?? "";
-  if (["removed", "failed"].includes(removedPartial)) break;
-  await new Promise((r) => setTimeout(r, 100));
-}
+const removedPartial = (await until(async () => {
+  const state = (await (await post5("basemap-status")).json()).job?.state ?? "";
+  return ["removed", "failed"].includes(state) ? state : false;
+}, { tries: 300, delayMs: 100 })) || "still running";
 check(
   `an interrupted download can be removed (got ${removedPartial})`,
   removedPartial === "removed"
@@ -4776,7 +4781,6 @@ const racyAside = new URL("racy.bin.aside", racyRoot);
 const racyBytes = Buffer.alloc(128 * 1024, 7);
 writeFileSync(racyPath, racyBytes);
 
-let racyComplete = 0, racyTruncated = 0, racyMissing = 0, racyOther = 0;
 /* 600 rather than a round hundred, and the reason is worth stating: the
    window this opens is narrow. Measured against the unfixed server, 2 of 300
    requests truncated -- so a short loop would clear a broken build about one
@@ -4787,66 +4791,69 @@ const ROUNDS = 600;
 /* Away and back, so the name is genuinely absent for part of every cycle.
    Replacing it in place would not do: the old code would open the
    replacement, stream a file of the same length, and look correct. */
-const flipper = (async () => {
-  for (let i = 0; i < ROUNDS; i++) {
-    try {
-      renameSync(racyPath, racyAside);
-      renameSync(racyAside, racyPath);
-    } catch { /* lost a race with ourselves; the next round re-tries */ }
-    await new Promise((resolve) => setTimeout(resolve, 1));
-  }
-})();
-
-for (let i = 0; i < ROUNDS; i++) {
-  let res;
+const flip = async (n) => {
+  if (n === 0) return;
   try {
-    res = await fetch(`${base}/basemap/racy.bin`);
-  } catch {
-    racyOther += 1;
-    continue;
-  }
-  if (res.status === 404) {
-    racyMissing += 1;
-    await res.arrayBuffer().catch(() => {});
-    continue;
-  }
-  if (res.status !== 200) {
-    racyOther += 1;
-    await res.arrayBuffer().catch(() => {});
-    continue;
-  }
+    renameSync(racyPath, racyAside);
+    renameSync(racyAside, racyPath);
+  } catch { /* lost a race with ourselves; the next round re-tries */ }
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  return flip(n - 1);
+};
+const flipper = flip(ROUNDS);
+
+/* One round, one verdict. undici rejects the body when it is shorter than
+   the length that was promised, which is exactly the failure being looked
+   for -- so the throw counts as a truncation rather than as an error in
+   this harness. */
+const racyRound = async () => {
+  const res = await fetch(`${base}/basemap/racy.bin`).catch(() => null);
+  if (res === null) return "other";
   const promised = Number(res.headers.get("content-length"));
-  /* undici rejects the body when it is shorter than the length that was
-     promised, which is exactly the failure being looked for -- so the throw
-     counts as a truncation rather than as an error in this harness. */
   const got = await res.arrayBuffer().then((b) => b.byteLength, () => -1);
-  if (got === promised && promised === racyBytes.length) racyComplete += 1;
-  else racyTruncated += 1;
-}
+  if (res.status === 404) return "missing";
+  if (res.status !== 200) return "other";
+  return got === promised && promised === racyBytes.length
+    ? "complete"
+    : "truncated";
+};
+/* Sequential, the fold carrying the verdicts: the point is many separate
+   requests racing the flipper, not one burst racing it once. */
+const racyVerdicts = await Array.from({ length: ROUNDS }).reduce(
+  async (acc) => {
+    const prior = await acc;
+    return [...prior, await racyRound()];
+  },
+  Promise.resolve([]),
+);
 await flipper;
 rmSync(racyPath, { force: true });
 rmSync(racyAside, { force: true });
 
+const racy = (verdict) => racyVerdicts.filter((v) => v === verdict).length;
 check(
   `a file renamed mid-flight never truncates a promised body `
-    + `(${racyComplete} complete, ${racyTruncated} truncated, `
-    + `${racyMissing} absent, ${racyOther} other, of ${ROUNDS})`,
-  racyTruncated === 0,
+    + `(${racy("complete")} complete, ${racy("truncated")} truncated, `
+    + `${racy("missing")} absent, ${racy("other")} other, of ${ROUNDS})`,
+  racy("truncated") === 0,
 );
 /* Guards the check above from passing because nothing was ever served: if the
    loop only ever saw 404s it has proved nothing about promised bodies. */
 check(
-  `and the loop actually served the file (${racyComplete} times)`,
-  racyComplete > 0,
+  `and the loop actually served the file (${racy("complete")} times)`,
+  racy("complete") > 0,
 );
 
 slowProxy.close();
 
-for (const p of problems) console.log(`  PAGE  ${p}`);
+problems.forEach((p) => {
+  console.log(`  PAGE  ${p}`);
+});
 check(
   "no console errors, CSP violations or failed requests",
   problems.length === 0,
 );
 
-console.log(`\n${checks} checks, ${failures} failures`);
-process.exit(failures ? 1 : 0);
+const failed = results.filter((r) => !r.ok).length;
+console.log(`\n${results.length} checks, ${failed} failures`);
+process.exit(failed ? 1 : 0);
