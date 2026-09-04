@@ -62,6 +62,14 @@ a MINOR release, which is inside what `^` accepts, so a rename would have
 arrived with a routine update. Moving it is now an edit somebody makes on
 purpose.
 
+Its dismiss control shipped as a hand-drawn cross while the banner beside it
+used the shared set's, and every check passed -- the suite could see that a
+dismiss control existed, was labelled, worked and held contrast, none of
+which is the question "is it the same X as the other X". `ui/test/icons.mjs`
+now reads the source: a raw `<svg>` needs a named reason, and one shape has
+one (a tooltip's arrow is geometry React Aria leaves to the caller, and no
+icon set ships it).
+
 
 ### 2026-09-03 — Two colours that belonged to no palette
 

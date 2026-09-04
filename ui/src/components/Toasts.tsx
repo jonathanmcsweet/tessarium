@@ -9,6 +9,7 @@
    contrast test as the rest of the application, and follows a theme change
    with no rule of its own. */
 
+import { X } from "lucide-react";
 /* The `UNSTABLE_` prefix is the library saying this API may change shape in a
    MINOR release, which is inside what a caret range accepts. So
    react-aria-components is pinned to an exact version in package.json rather
@@ -80,17 +81,11 @@ export function Toasts() {
                 cursor-pointer items-center justify-center border-0 bg-transparent
                 text-ink-soft hover:text-ink"
             >
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              >
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
+              {
+                /* The shared icon set, at the size the other dismiss controls
+                  use -- see Banner and MapProgress, which close the same way. */
+              }
+              <X size={16} aria-hidden />
             </Button>
           </Toast>
         )}
