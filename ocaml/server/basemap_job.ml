@@ -5,6 +5,29 @@
    progress never exceeding the total -- is testable with no network, no
    filesystem and no clock, which is where decisions live in this codebase. *)
 
+(* One picked region's share of a download that may be carrying several.
+
+   The bytes are FETCHED bytes -- what the network delivered for this region
+   -- not archive bytes written. A merge copies the whole base archive
+   forward, and crediting a region with the gigabyte of London already on
+   disk because Tokyo was being added would read as Tokyo downloading a
+   gigabyte it never asked for.
+
+   [total_bytes] is what is known so far, not a promise. Small regions ride
+   in one batch, so all their totals are settled the moment that batch is
+   planned; a region large enough to be split across parts learns the rest
+   of its total as later parts are planned, and [planned] is false until it
+   has. A bar whose denominator can still grow must say so rather than
+   quietly appearing to lose ground. *)
+type region_progress = {
+  label : string;
+  done_bytes : int;
+  total_bytes : int;
+  planned : bool;
+      (** every part that can add to this region has been planned, so
+          [total_bytes] will not grow again *)
+}
+
 type t =
   | Idle
   | Planning
@@ -13,6 +36,10 @@ type t =
       total_bytes : int;
       part : int;  (** 1-based; a single-box download is part 1 of 1 *)
       parts : int;
+      regions : region_progress list;
+          (** per-region breakdown, in the order the client asked for them.
+              Empty when there is nothing useful to say -- a world overview
+              belongs to no region, and neither does a compaction. *)
     }
   | Assets  (** tiles written; glyphs and sprites downloading *)
   | Removing of { done_bytes : int; total_bytes : int }
@@ -21,29 +48,47 @@ type t =
       (** browsed tiles are being folded into the main archive *)
   | Indexing of { done_tiles : int; total_tiles : int }
       (** the archive's own labels are being read into the search index *)
+  | Exporting of { done_bytes : int; total_bytes : int }
+      (** one region is being written out as a file to carry elsewhere *)
   | Done of { total_bytes : int; parts : int }
   | Removed of { freed_bytes : int }
       (** a removal finished; its own terminal state so the UI can say
           "removed" rather than pretending a download completed *)
+  | Exported of { file : string; bytes : int }
+      (** an export finished and is sitting in the export directory. Its own
+          terminal state because the UI has somewhere to send the user --
+          the file -- which "done" alone could not say. *)
   | Failed of string
   | Cancelled
 
 (* A new download may begin from any resting state. Never from a running one:
    two fibers writing one map.pmtiles is corruption with extra steps. *)
 let can_start = function
-  | Idle | Done _ | Removed _ | Failed _ | Cancelled -> true
-  | Planning | Fetching _ | Assets | Removing _ | Compacting _ | Indexing _ ->
+  | Idle | Done _ | Removed _ | Exported _ | Failed _ | Cancelled -> true
+  | Planning | Fetching _ | Assets | Removing _ | Compacting _ | Indexing _
+  | Exporting _ ->
       false
 
 let is_running = function
-  | Planning | Fetching _ | Assets | Removing _ | Compacting _ | Indexing _ ->
+  | Planning | Fetching _ | Assets | Removing _ | Compacting _ | Indexing _
+  | Exporting _ ->
       true
-  | Idle | Done _ | Removed _ | Failed _ | Cancelled -> false
+  | Idle | Done _ | Removed _ | Exported _ | Failed _ | Cancelled -> false
 
 (* Progress is clamped rather than trusted. The copier reports raw byte
    counts; gzip framing can push the last report past the planned total, and a
    progress bar at 101% reads as a bug because it is one. *)
-let progress ~done_bytes ~total_bytes ~part ~parts =
+(* Regions are clamped exactly as the aggregate is, and for the same reason:
+   the caller reports raw counters, and a row reading 3.1 / 3.0 GB reads as a
+   bug because it is one. *)
+let clamp_region (r : region_progress) =
+  {
+    r with
+    done_bytes = max 0 (min r.done_bytes r.total_bytes);
+    total_bytes = max 0 r.total_bytes;
+  }
+
+let progress ?(regions = []) ~done_bytes ~total_bytes ~part ~parts () =
   let parts = max 1 parts in
   Fetching
     {
@@ -51,6 +96,7 @@ let progress ~done_bytes ~total_bytes ~part ~parts =
       total_bytes = max 0 total_bytes;
       part = max 1 (min part parts);
       parts;
+      regions = List.map clamp_region regions;
     }
 
 (* The request the UI sends, validated. Server-side, because the server does
@@ -108,7 +154,7 @@ let validate ?polygon ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom () =
 let to_json = function
   | Idle -> `Assoc [ ("state", `String "idle") ]
   | Planning -> `Assoc [ ("state", `String "planning") ]
-  | Fetching { done_bytes; total_bytes; part; parts } ->
+  | Fetching { done_bytes; total_bytes; part; parts; regions } ->
       `Assoc
         [
           ("state", `String "fetching");
@@ -116,6 +162,18 @@ let to_json = function
           ("total_bytes", `Int total_bytes);
           ("part", `Int part);
           ("parts", `Int parts);
+          ( "regions",
+            `List
+              (List.map
+                 (fun r ->
+                   `Assoc
+                     [
+                       ("label", `String r.label);
+                       ("done_bytes", `Int r.done_bytes);
+                       ("total_bytes", `Int r.total_bytes);
+                       ("planned", `Bool r.planned);
+                     ])
+                 regions) );
         ]
   | Assets -> `Assoc [ ("state", `String "assets") ]
   | Removing { done_bytes; total_bytes } ->
@@ -146,9 +204,23 @@ let to_json = function
           ("total_bytes", `Int total_bytes);
           ("parts", `Int parts);
         ]
+  | Exporting { done_bytes; total_bytes } ->
+      `Assoc
+        [
+          ("state", `String "exporting");
+          ("done_bytes", `Int done_bytes);
+          ("total_bytes", `Int total_bytes);
+        ]
   | Removed { freed_bytes } ->
       `Assoc
         [ ("state", `String "removed"); ("freed_bytes", `Int freed_bytes) ]
+  | Exported { file; bytes } ->
+      `Assoc
+        [
+          ("state", `String "exported");
+          ("file", `String file);
+          ("bytes", `Int bytes);
+        ]
   | Failed reason ->
       `Assoc [ ("state", `String "failed"); ("reason", `String reason) ]
   | Cancelled -> `Assoc [ ("state", `String "cancelled") ]

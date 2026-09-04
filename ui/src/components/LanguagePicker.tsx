@@ -15,7 +15,11 @@ export function LanguagePicker({ className }: { className?: string; }) {
   const setLocale = useAppStore((s) => s.setLocale);
 
   return (
-    <div className={className ? `language ${className}` : "language"}>
+    <div
+      className={`language flex items-center gap-1.5 text-ink-soft${
+        className ? ` ${className}` : ""
+      }`}
+    >
       <Languages size={16} aria-hidden />
       <Dropdown<Locale>
         label={m.a11y_language()}

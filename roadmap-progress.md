@@ -21,6 +21,616 @@ than a git log.
 
 ---
 
+### 2026-09-04 — Toasts move to React Aria
+
+**Phase:** 6
+
+**What:** sonner is gone. Toasts are React Aria's `ToastQueue` and
+`ToastRegion` (still `UNSTABLE_`-prefixed at 1.20, so the version is pinned),
+drawn by `ui/src/components/Toasts.tsx` in this project's own markup wearing
+its own utilities. One behaviour library instead of two, and the dependency
+is dropped.
+
+**Rationale:** The prize was not "one library instead of two". sonner
+injected its own stylesheet with white, near-black, 8px and a black-on-white
+shadow written as literals, which is a second source of truth for colour that
+the contrast audit structurally could not see -- the same blind spot that
+produced `bg-white/95` on the map note and MapLibre's light-only controls.
+Theming it at all meant beating its specificity, and the first attempt at
+that silently did nothing. A toast is now audited like everything else.
+
+The two tuned behaviours were written down as checks FIRST, against sonner,
+and neither was edited for the move: an error waits to be dismissed
+(omitting React Aria's `timeout` is what does it), and the text passes AA at
+13px. They are named through this project's own `app-toast` class rather
+than any library's data attributes, which is what let them survive.
+
+Two things the move surfaced. `maxVisibleToasts: 1` was wrong: this queue
+HOLDS what it cannot show rather than dropping it, so a low ceiling turns a
+burst into a backlog draining one timeout at a time, and a message about
+something half a minute old arrives as if it had just happened. Three, which
+is what sonner showed. And the dismissal check had to name the toast by its
+own text -- with one showing at a time, whatever was queued behind took the
+closed one's place and a bare count read as nothing having happened. That
+failure was real, not a flake.
+
+A third kind exists now: a cancelled download is neither an error nor a
+success, and had been sonner's bare `toast()`.
+
+The pin is exact, not a caret: `UNSTABLE_` means the API may change shape in
+a MINOR release, which is inside what `^` accepts, so a rename would have
+arrived with a routine update. Moving it is now an edit somebody makes on
+purpose.
+
+Its dismiss control shipped as a hand-drawn cross while the banner beside it
+used the shared set's, and every check passed -- the suite could see that a
+dismiss control existed, was labelled, worked and held contrast, none of
+which is the question "is it the same X as the other X". `ui/test/icons.mjs`
+now reads the source: a raw `<svg>` needs a named reason, and one shape has
+one (a tooltip's arrow is geometry React Aria leaves to the caller, and no
+icon set ships it).
+
+
+### 2026-09-03 — Two colours that belonged to no palette
+
+**Phase:** 6
+
+**What:** Cyberpunk light's magenta family read as crimson beside its cyan,
+and the toasts were sonner's white with 8px corners in every theme.
+
+**Rationale:** The accent had drifted +7.6 degrees toward red. It was picked
+by holding the DARK accent's sRGB hue (both 329 degrees) and taking the
+lightness down, and sRGB hue is not perceptual -- at that lightness the same
+number reads crimson. Measured in OKLCH instead, `#ff4fa8` is at 353.5 and
+`#d6006e` was at 1.1. The family is now re-hued to 353.5 keeping each
+colour's own lightness and chroma, so nothing else about it moves:
+`#d10c81`, `#af076b`, `#fff0f5`, and the map's selection square with them.
+Every pair still clears AA with headroom.
+
+The toasts are sonner's markup and sonner's injected stylesheet, with white,
+near-black, 8px and a black-on-white shadow written as literals -- the same
+shape as MapLibre's controls, and invisible to the contrast audit for the
+same reason, that the colours belong to no palette. Most of it is reachable
+through sonner's own custom properties, so the toast follows a theme change
+with no rule per palette; the action and close buttons carry their own radii
+and are overridden directly. The selectors are heavier than they look
+because sonner sets its palette under two attributes and injects its style
+after ours -- matching that weight loses the tie and changes nothing, which
+is what the first attempt did.
+
+Shown failing first: white and 8px on a real toast, read as computed
+background and radius rather than as class names.
+
+
+### 2026-09-03 — The map comes back on the development server
+
+**Phase:** 6
+
+**What:** `vite dev` never forwarded the style's two TileJSON URLs, so the
+basemap had no cartography on the development server and cartography
+everywhere else — the grid drew over an empty ground, which reads as
+"nothing downloaded here" rather than as a broken proxy. `/tiles` and
+`/world.json` are on the list now.
+
+**Rationale:** Forwarding the paths was only half of it, and the half that
+looks fine. A TileJSON has to hand back an ABSOLUTE url for its tiles, and
+the server builds that from the Host header of whoever asked. Vite's
+shorthand proxy form turns `changeOrigin` on, which rewrites Host to the
+backend — so the document served on the dev port received tile urls on the
+backend port, fetched them cross-origin, and every one was refused. Both
+routes keep the caller's host.
+
+The failure was silent by construction: a path missing from the proxy table
+does not fail the build or log anything, because Vite falls through to the
+SPA handler and answers a JSON fetch with index.html. So `test/dev-proxy.mjs`
+walks the source for every path the app asks its own origin for and requires
+each to be covered, and separately requires the two TileJSON routes to keep
+the host. Shown failing on both halves before the fix.
+
+
+### 2026-09-03 — Five palettes, cyberpunk dark by default
+
+**Phase:** 6
+
+**What:** The plain light and plain dark themes are back as themes of their
+own, and the two Direction C palettes are named for what they are. The menu
+is now cyberpunk dark, cyberpunk light, dark, light, low light, and "match my
+device". Cyberpunk dark is the default.
+
+**Rationale:** The default is the palette that wears no `data-theme`
+attribute, and that had been "match my device". It is now cyberpunk dark, and
+the reason is mechanical rather than a preference: Tailwind compiles `@theme`
+to `:root`, so whatever is written there paints before any attribute is set.
+The default has to BE the `@theme` block or the first frame is a theme nobody
+picked. So cyberpunk dark lives there and is the one palette with no
+`[data-theme]` block of its own — nothing to keep in step, nothing to drift.
+
+"Match my device" now sets an attribute like any other choice, and resolves
+to the two PLAIN palettes: an operating system says light or dark, it does
+not say cyberpunk. Plain dark is therefore written twice, once for the choice
+and once under `prefers-color-scheme` for the deferral, and the contrast test
+requires the two blocks to agree token for token.
+
+Two rules that were lists of dark themes became rules about light ones.
+MapLibre's control icons are now inverted by default and un-inverted for the
+two pale palettes, because a list of the dark ones is a list a sixth theme
+falls off — which is how those controls stayed white through the dark theme's
+whole first release. Same reasoning put `isLight` in MapView in place of
+three separate `=== "light"` comparisons.
+
+Plain light's accent moved one shade, from `#e8452c` to the `#d13a22` that
+was already sitting beside it as `accent-text`. The original could carry
+neither white nor its own ink at AA on the one control that fills with it,
+and that is now an audited pair rather than an unexamined one.
+
+The e2e walks all five entries and asserts what each PAINTS — panel
+lightness, `color-scheme`, the map's controls, the sprite sheet — plus that
+the five resolve to five different palettes. That last check first read the
+panel's computed colour and could not tell plain light from cyberpunk light,
+because both lay their cards on plain white; it reads four tokens together
+now. It also pins the plain themes as plain by their values: one colour
+across all three gradient stops, transparent glitch, no wash.
+
+
+### 2026-09-03 — Night City by day: the light theme
+
+**Phase:** 6
+
+**What:** The light palette was the only one Direction C had not reached —
+navy ink, vermilion accent, and the four Direction C levers pinned at rest.
+It is now the same magenta/violet/cyan family as the dark theme, each colour
+pushed down to the lightness white demands: violet-black ink on UV-cast
+paper, hot magenta accent, deep cyan address, acid lime darkened for the
+checksum. The primary action is the three-stop gradient it is in dark, and
+the wordmark carries the split shadow. The map's light overlay follows —
+selection square in magenta, grid in violet.
+
+**Rationale:** Two of the four levers were held at rest on the assumption
+that the look needs darkness, and only two of them do. A neon glow and a
+corner wash are things you see BECAUSE it is dark; a split shadow on a
+wordmark is misregistration, a print artefact that reads better on white
+than it ever does on black, and a gradient only ever needed stops dark
+enough to keep their label. So light takes the print half of the same look
+rather than a dimmed copy of the neon half.
+
+Two bugs fell out of it, both of the kind that reads correctly in source and
+paints nothing:
+
+- `btn-danger` — the confirm on the lock dialogue — wore a literal
+  `text-white`, a colour belonging to no palette and so audited in none of
+  them. It was 3.95:1 in light, 3.03:1 in dark, 3.19:1 in low light, all
+  under AA. It now spends a `--color-on-accent` token, white in light and
+  the ground colour in the two dark palettes, and contrast.mjs audits it.
+- `--color-accent-alt` is each palette's colour FOR the address, and it had
+  never painted a pixel: the element carried `text-accent-alt` as a base
+  class and `text-accent-text` in its revealed branch, and two colour
+  classes on one element are settled by the stylesheet, not by writing
+  order. Every palette defined it and contrast.mjs audited it as "the
+  address itself". The dark theme's cyan address, ledgered as shipped,
+  had been pink the whole time.
+
+Both are pinned by tests written to fail first — the second reads the
+address's computed colour back and compares it against the resolved token,
+not a literal, so it survives a repaint.
+
+
+### 2026-09-03 — The map's icons follow the theme
+
+**Phase:** 6
+
+**What:** The style named the `light` sprite sheet for every theme, so a dark
+or low-light map drew white motorway shields — the one part of a map the
+palette cannot reach, because sprites are baked images. It now names a sheet
+per scheme: `light` for light, `dark` for both dark and low light. All five
+Protomaps sheets already shipped in the bundle, so this costs nothing to
+download and nothing at runtime.
+
+**Rationale:** Low light takes `dark` rather than `black`, the other
+near-black option: their shields are the same near-black badge, but `black`
+is a reduced sheet — Protomaps draws points of interest for light and dark
+only — so `black` would have traded white shields for 35 missing icons.
+Considered and rejected: tinting the sheet at runtime on a canvas. `setStyle`
+discards added images and the style rebuilds on theme AND locale change, so
+it would re-run every rebuild after an async load, showing the untinted sheet
+first.
+
+The e2e reads the sprite URL off the style the map is holding rather than off
+the source, because the bug was a string that read correctly and was simply
+never varied. Shown failing on both dark and low light before the fix. The
+fixture's asset tarball carries both sheets now — with only the light one,
+choosing dark 404s, and the e2e counts a failed request as a failure.
+
+**Follow-on:** No RED shield sheet exists; low light's badges are near-black,
+not red. Drawing one is a basemap packaging step. Recorded in roadmap.md.
+
+
+### 2026-08-30 — Low-light map: grey grid, warm roads, themed chrome
+
+**Phase:** 6
+
+**What:** Four fixes to the low-light theme's map. The overlay grid is grey
+rather than red (red was reserved for the map's own warmth and the
+selection). The "black" Protomaps flavour is tinted per-key for low light:
+road lines take a slight warm lift and the labels — the lightest marks the
+map draws — move from grey toward soft red, so no cold white sits on the map
+in a dark room. MapLibre's own controls (zoom, compass, geolocate, scale,
+attribution) were already themed in code but only reached the running app
+after the embedded binary was rebuilt.
+
+**Rationale:** The flavour override is keyed by property name, and a wrong
+key silently warms nothing — two typos (`water_label`, `peak_label`) did
+exactly that in the first draft. A new `night-flavor` test parses the tint
+tables out of MapView and checks every key against the real flavour, plus
+that each tint is actually warm and each label lighter than its neutral.
+
+**Follow-on:** Route-number shields stay white — raster sprites without SDF,
+so not tintable from the flavour. Recorded in roadmap.md.
+
+
+### 2026-08-30 — The dark theme goes Night City
+
+**Phase:** 6
+
+**What:** Direction C from the styling exploration, scanlines deliberately
+dropped. Dark palette is now purple-black with magenta accent, cyan focus and
+address, acid-green ok. Structure shared by all themes: clipped corners on
+buttons, fields and icon buttons; mono tracked-caps wordmark and section
+titles; the primary action is a three-stop gradient audited stop by stop
+(outside dark the stops collapse to one colour, so light and low light keep
+their solid buttons). The map selection square is themed for the first time
+— it had been the light accent hardcoded in GL paint.
+
+**Rationale:** The gradient and glitch shadows ride on tokens
+(`--color-cta-from/mid/to`, `--glitch-a/b`, `--bg-image`) defined in every
+palette and held at rest outside dark, so no second code path exists and the
+contrast suite audits the moving parts in all four themes. Low light keeps
+its red-only rule; its levers are red or transparent.
+
+**Follow-on:** None.
+
+
+### 2026-08-30 — A low-light theme, square corners, and the map chrome themed
+
+**Phase:** 6
+
+**What:** A fourth theme, "Low light" — red on black for keeping night vision,
+audited to the same AA thresholds as the others plus a mechanical red-dominance
+rule (no night token may spend more green or blue than red). Every corner in
+the theme squared, including MapLibre's own controls. Two theme-blind surfaces
+fixed and pinned by computed-colour e2e checks: the map note sat on a
+hardcoded `bg-white/95` through the dark theme's whole first release, and
+MapLibre's zoom/scale/attribution chrome stayed white in every dark theme —
+tokens for the surfaces, `filter: invert(1)` for the #333 baked into its
+icon sprites.
+
+**Rationale:** Low light is choice-only — no media query selects it, because
+no device knows its user is standing in the dark. The map under it is
+Protomaps' "black" flavor with a red overlay grid, since Protomaps has no red
+flavor and the theme must not introduce colours it exists to exclude.
+
+**Follow-on:** None.
+
+
+### 2026-08-29 — Name a view after where it is; nothing in the base archive is removable
+
+**Phase:** 6
+
+**What:** A download of the current view is named by reverse lookup against
+the committed region catalogue — "London", not "Map view". New in
+`regions.ts` as `placeAt`: smallest containing city box, else subdivision,
+else the country whose border polygon holds the point; undefined over open
+water, where the server names the download from its box corners instead. The
+generic `map_name_view` message is gone from all six locales. Separately,
+no ledger entry living inside `map.pmtiles` offers Remove or Update any more,
+in the card or on the server.
+
+**Rationale:** Two bugs wearing each other's clothes, and I fixed the wrong
+one twice. The visible complaint was "the default world map still has a
+Remove button", pointing at a row called "Map view" — which was a 600 m box
+over London, not the world map at all. I twice gated removal on what an entry
+COVERS (`Ledger.spans_world`), which protected the overview and sailed past
+the row being pointed at. Both real defects were elsewhere. The naming: a
+generic phrase in a list beside "Georgia" reads as something the application
+put there rather than something a person chose, which is precisely how it got
+mistaken for the map underneath everything. The removal: a test written for
+this found that removing a merged entry deletes `map.pmtiles` outright, so the
+rule is about where an entry LIVES, not what it covers — an entry with no file
+of its own shares the base archive, and the base archive is edited with a file
+manager, not from a panel. Export stays; carrying a copy away is not deleting.
+
+**Follow-on:** Names already written into a ledger keep their old text — an
+existing "Map view" row stays "Map view". `run_remove`'s merged-archive prune
+branch is now unreachable from the API; recorded in roadmap.md.
+
+
+### 2026-08-29 — The world map is listed, and has no verbs
+
+**Phase:** 6
+
+**What:** The world overview now appears in Downloaded Maps as a row with a
+size, a sentence saying what it is, and no buttons at all. The server
+synthesises it from `world.pmtiles` itself under a reserved id, and
+`run_remove`, `run_export` and `start_update` refuse that id by name. A
+viewport download is no longer called "Map view".
+
+**Rationale:** Reversal. The overview was deliberately absent from the ledger,
+on the theory that a row nobody can see is a row nobody can delete. What that
+actually produced was a panel whose answer to "what maps do I have" left out
+the largest file on disk — so a 3 MB viewport download named "Map view" got
+read as the world map, and the Remove button beside it as the button that
+deletes the world. Three rounds of "the default world map still has a Remove
+button" were about a row that was never the world map. Invisibility is not a
+lock; it is a lock plus a lie about what is there. The refusals are the lock,
+and they are tested at the function level because the route's hex-only id
+filter refuses the reserved id before a handler sees it.
+
+**Follow-on:** None. Names already recorded in a ledger keep their old text —
+an existing "Map view" row stays "Map view" until it is removed and fetched
+again.
+
+
+### 2026-08-29 — A dark theme, a settings gear, and the map under the map
+
+**Phase:** 6
+
+**What:** Six fixes and two features, all from one round of looking at the
+running application rather than at the source.
+
+The world overview can no longer be removed. The panel resizer is a grab
+handle at the middle of the edge instead of a line down the whole of it. The
+reopen tab no longer sits on top of MapLibre's own controls. Checkboxes sit
+beside their labels. There is a settings gear in the panel header, and a dark
+theme behind it, which the map follows.
+
+The seed phrase is now `<input type="password" autocomplete="current-password">`
+in a real form, with a reveal toggle -- so a password manager will offer to
+save the one string in this application that cannot be recovered if it is
+lost. It was a textarea with `autocomplete="off"`, and browsers did as they
+were told.
+
+**Rationale:** Three of these were the same bug in different clothes: a rule
+that looks right in the stylesheet and does nothing in the page.
+
+`.download-card label { display: block }` outranked `.region-check`'s own
+`flex` at two-class specificity, so every checkbox in the region picker
+stacked over its text -- and had done since long before the Tailwind
+conversion, which fixed it as a side effect. `.maplibregl-ctrl-*` lost the
+same tie to MapLibre's own stylesheet, which loads after ours, so the map's
+controls sat under the drawer when it was open and under the reopen tab when
+it was shut. Both are now checked by geometry in the end-to-end suite rather
+than by class name: a selector assertion passes while the rule that beats it
+is in another file entirely.
+
+The world overview is the one that could destroy data. Since the per-region
+split it has its own file and writes no ledger record, so nothing made today
+is at risk -- but an install from before the split has it INSIDE
+map.pmtiles, recorded as an ordinary entry under whatever the picker called
+it ("Map view", on the install that turned this up). The test was written
+first and failed on three counts, the third being that pressing Remove
+deleted map.pmtiles outright.
+
+The rule is `file = base_file && Ledger.spans_world e`, and both halves are
+load-bearing. The first draft used only the second and broke the end-to-end
+suite, which downloads the whole planet AS DETAIL over the API: that lands in
+a file of its own, sits beside the overview rather than being it, and is the
+user's to remove. Judged by what the entry holds, never by its name.
+
+Export is gone from that row too, and for a reason that has nothing to do
+with safety: every package ships `basemap/world.pmtiles` -- package.sh, the
+.deb, the .rpm and the offline bundle -- so exporting it would be carrying a
+file to a machine that was installed with one. Update stays.
+
+The theme follows the device and can be overridden for the session, which is
+the same rule the language menu follows and for the same reason: this
+application persists nothing, and the end-to-end suite asserts empty storage.
+The cost is one preference forgotten per reload.
+
+**Follow-on:** The palette had to be tokenised before a second one was
+possible -- `#eef1f4`, `#fff8e6`, `#4c5b69` and eight others were arbitrary
+values, and a literal can only be audited in the theme it belongs to.
+`test/contrast.mjs` now audits both palettes against the same thresholds,
+requires the two dark blocks (media query and attribute, which CSS cannot
+express as one selector) to define identical tokens, and requires every
+audited token to be spent somewhere.
+
+Two things worth knowing. The server serves the UI from assets EMBEDDED in
+the binary, so `make ui` alone changes nothing that is running -- it needs
+`make build` as well, which is why the stacked checkboxes were still on
+screen after they had been fixed. And the gate's fineprint still says the
+phrase is "never stored", which remains true of this application but is now
+worth a second look given a password manager may hold it.
+
+### 2026-08-29 — Tailwind for the layout, React Aria kept
+
+**Phase:** 6
+
+**What:** `ui/src/styles.css` goes from 1548 lines to 320. Every component
+carries its own appearance as utility classes; the palette moves into a
+Tailwind `@theme` block, and twelve looks worn by more than one element
+(button, field, hint, warning, popover card, focus ring) are declared once as
+`@utility`. What is left in the file is the two rules that must outrank
+MapLibre's own stylesheet, the loading bar's keyframes, and the reduced-motion
+block. React Aria Components stay exactly where they were — the plugin
+`tailwindcss-react-aria-components` turns their data attributes into variants,
+so `selected:`, `expanded:` and `focus-visible:` are written beside the thing
+they restyle.
+
+**Rationale:** Reverses the React Spectrum adoption of the previous day, at
+the user's instruction: it worked and it shipped offline, but it looked wrong
+for this application. Eight commits were reset rather than reverted (they were
+unpushed) and are kept at the tag `spectrum-attempt`.
+
+The measurement that started the first attempt was right and the remedy was
+wrong. The stylesheet held twenty-two distinct spacing values, twelve font
+sizes and nine border radii — the layout read as rough because nothing lined
+up, not because the controls were homemade. Spectrum replaced the controls and
+left every gap between them untouched, which is why it did not fix the
+complaint. A scale does.
+
+Two things could not be moved to a class list and the reasons are worth
+keeping. `.map-wrap > .map` must stay a two-class CSS selector: MapLibre sets
+`position: relative` with no height on the same element from a stylesheet that
+loads after this one, and a Tailwind utility is one class, so it would lose
+the same race the bare `.map` rule lost. `.maplibregl-ctrl-*` is MapLibre's
+own element — there is nothing of ours to put a class on.
+
+Colour is now a prop rather than a class on `IconButton`, and the concealed
+address is a conditional rather than a modifier class. Two utilities setting
+the same property do not resolve by the order they appear in the markup; they
+resolve by where Tailwind put them in the sheet. A state a control can be in
+must not be decided there.
+
+**Follow-on:** `test/contrast.mjs` reads the `@theme` block and now scans the
+components as well as the stylesheet — a colour written as an arbitrary value
+on an element is still rendered, and the old check would have read that as
+deleting it. The gate payload is 193 KB against 189 before Tailwind and 265
+under Spectrum.
+
+### 2026-08-28 — One file per region
+
+**Phase:** 6
+
+**What:** A download writes its own archive rather than merging into
+`map.pmtiles`. `Tile_set` lists the basemap directory instead of naming three
+files, remembers each archive's header, and opens only the ones whose bounds
+could hold the tile asked for. Each region file carries its own one-entry
+ledger, so the list the user sees is the union of what is on disk; removing a
+region is an unlink, and exporting one is handing over a file that already
+exists. The search index is built across every archive, sharing one table so a
+city held by two overlapping regions resolves to one row.
+
+**Rationale:** Asked how CoMaps and Organic Maps handle this. They do not
+stream and they do not merge: one file per country, downloaded whole, read
+alongside the others. The tile path here was already generic over a list of
+archives — `open_tile_archives` took names and `serve_tile` walked them with
+`find_map` — so the list being a directory rather than three constants was a
+smaller change than the merge it replaces. What it buys is that export stops
+existing as work: the wait between "downloaded" and "can I have the file" was
+the cost of undoing a merge. What it costs is dedup across regions, which is
+the trade Organic Maps makes too.
+
+Two decisions were reversed while writing it. The record is published with
+every part rather than only the last, so a cancelled download leaves a region
+that can be named and removed instead of tiles stranded in the shared archive.
+But dating it only on the last part — so an unfinished download would read as
+"age unknown" — was wrong: parts overlap at their seams and the last part of a
+finished download routinely writes nothing, so it dated finished downloads as
+unfinished. Every part dates the entry; what an interrupted region is missing
+is a question the map's coverage shading already answers.
+
+An estimate for a region no longer refuses a source whose compression differs
+from what is on disk, because nothing merges them: each archive is read
+through its own header, so two regions in two compressions are two files that
+both draw. A browse still refuses — it writes into the cache, and the cache is
+folded into `map.pmtiles`.
+
+**Follow-on:** `map.pmtiles` is read but no longer written by the downloader.
+A migration that split it into region files on first run would retire the
+export path, the prune-on-remove path, and the last reason `Merge.prune`
+exists. Recorded in `roadmap.md`.
+
+---
+
+### 2026-08-28 — The end-to-end suite gets its own port
+
+**Phase:** 6
+
+**What:** The app under test moved off `$(PORT)` (7373) onto `$(E2E_PORT)`
+(7379). Every other server the suite starts already had a port of its own --
+fixture, multipart, mismatch, cancel, proxy, 7374-7378 -- and this one shared
+with `make run` and the new `make dev`.
+
+**Rationale:** Found by leaving the development stack up and running the
+suite. The collision does not announce itself: the server dies on bind, the
+run continues against nothing, and what surfaces is four unrelated map
+download checks failing. A conflict that reads as a product bug costs more
+than one that stops the run outright.
+
+---
+
+### 2026-08-28 — dune-project declares what the dune files actually use
+
+**Phase:** 6
+
+**What:** Twelve libraries were named in a `dune` file and absent from
+`(depends)`: `uunf`, `stdint`, `ppx_deriving`, `ppx_deriving_yojson`, `eio`,
+`tls-eio`, `mirage-crypto-rng`, `ca-certs-nss`, `domain-name`, `uri`,
+`bigstringaf`, and `http` (tests only). `tools/check-deps.sh` compares the two
+lists and now runs in `make test-core`.
+
+**Rationale:** Found by building this project on a machine that had never
+built it: `tools/setup.sh` completes, reports everything present, and then
+`dune build` fails on four separate missing libraries. Some of the twelve were
+being satisfied transitively and so worked by accident; the rest had simply
+never been needed by anyone whose switch was old enough.
+
+CI cannot see this. Its switch is restored from cache, so it holds whatever an
+earlier solve happened to install, and `opam install . --deps-only` is a no-op
+against it. The only person who meets the bug is someone setting up from
+nothing -- which is exactly the audience `tools/setup.sh` exists for. A check
+that diffs the two lists costs no network and no switch, and catches the whole
+class rather than these twelve.
+
+### 2026-08-28 — Maps can be carried to a machine with no internet
+
+**Phase:** 6
+
+**What:** Three things, which together make an offline machine's map library
+maintainable without ever giving it a network.
+
+A downloaded region can be written out as a file (`basemap-export`), listed
+and saved from the download card, and deleted when it has been copied away.
+The exported archive carries a ledger of its own holding just that entry, so
+the far side reads the region, the granted depth and the name out of the file
+rather than having them typed in.
+
+A map file can be added through the browser's own file picker
+(`POST /import`, then `basemap-import`). The upload streams to disk under a
+new route, is described back to the user before anything is merged, and is
+then handed to the ordinary download path as its source — so the merge, the
+ledger entry, the browse-cache prune and the search-index rebuild are the
+same code that a networked download runs.
+
+Download progress is now per region. `Merge.write` hands the blob index to
+its copy callback, the download attributes each fresh blob to the pick that
+asked for it, and `Basemap_job.Fetching` carries a row per region. The rows
+live in the side panel rather than the download card, so closing the card
+does not hide an hour of work.
+
+**Rationale:** Import is deliberately not a new kind of download.
+`Pmtiles_source.open_url` already falls through to a plain file, and
+`run_download` already merges from whatever source it is given, so pointing
+it at an uploaded file reuses every downstream guarantee instead of growing a
+second path that would drift. The machine using this feature is the one with
+no way to fetch a fix, which makes "no second path" worth more here than
+anywhere else in the project.
+
+The upload gets its own route rather than an `/api/` endpoint because every
+`/api/` body is read whole under a 4 MiB bound. That bound is right for every
+other endpoint and wrong for a country. `Api_guard.check_stream` keeps the
+same-origin check and requires `application/octet-stream`, which is off the
+CORS safelist for the same reason `application/json` is — a form post cannot
+reach it.
+
+A browser file picker rather than a path box or a server-side file browser:
+it is the only one of the three that works under Flatpak, where the app has
+no filesystem permission at all and the browser is outside the sandbox. It is
+also the only one that reaches a USB stick without this app knowing what a
+USB stick is.
+
+Per-region bytes count what the network delivered, not archive bytes written.
+A merge copies the whole base archive forward, and crediting Tokyo with the
+gigabyte of London already on disk would read as Tokyo downloading a gigabyte
+it never asked for. A tile two picks both wanted is charged to the earlier
+one, so the rows cannot sum past what was fetched.
+
+**Follow-on:** Six items in roadmap.md, Phase 6: no release job publishes the
+packages any of this assumes someone can install; the `tessarium-basemap` CLI
+still replaces rather than merges, and the shipped `README.txt` claims
+otherwise; a hand-copied archive still gets no search index; an export
+duplicates its region with no free-space check; an imported file is trusted on
+its face where a download is not; and exports are one region at a time.
+
 ### 2026-08-26 — Built packages are installed and run before they ship
 
 **Phase:** 6 · **Branches:** test/install-smoke, build/arch-from-binary

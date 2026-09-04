@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { Toaster } from "sonner";
 import { App } from "./App";
+import { Toasts } from "./components/Toasts";
 import "./i18n";
 import "./styles.css";
 
@@ -32,21 +32,11 @@ createRoot(root).render(
       }
       <App />
       {
-        /* Top centre so it does not sit over the address panel on desktop or
-          under a thumb on mobile. `closeButton` because a toast that can
-          only be waited out is a trap for anyone using a keyboard. */
+        /* Top centre so it sits over neither the address panel on desktop
+          nor a thumb on mobile. Its two timings are not defaults and are
+          asserted end to end -- see ../toast.ts. */
       }
-      {
-        /* No richColors: sonner's tinted palette puts 13px toast text
-          under AA (error red on pink is 4.35:1) and lives outside the
-          stylesheet where the contrast audit cannot see it. The default
-          theme is near-black on white. */
-      }
-      <Toaster
-        position="top-center"
-        closeButton
-        toastOptions={{ duration: 5000 }}
-      />
+      <Toasts />
     </QueryClientProvider>
   </StrictMode>,
 );

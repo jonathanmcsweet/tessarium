@@ -17,9 +17,10 @@
    phrase goes straight to the worker, which keeps the derived key and returns
    only whether it worked. */
 
-import { ChevronRight, Dices } from "lucide-react";
+import { ChevronRight, Dices, Eye, EyeOff } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Button, Disclosure, DisclosurePanel } from "react-aria-components";
+import { useBackendDown } from "../core/health";
 import {
   useGeneratePhrase,
   useUnlock,
@@ -29,6 +30,7 @@ import { sayRefusal } from "../core/refusal";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
 import { toastError } from "../toast";
+import { IconButton } from "./IconButton";
 import { LanguagePicker } from "./LanguagePicker";
 import { loadMapView } from "./mapChunk";
 
@@ -40,7 +42,14 @@ export function PhraseEntry() {
   /* Held so the "write this down" notice disappears once the user edits the
      words, rather than lingering over a phrase we did not generate. */
   const [generated, setGenerated] = useState<string | null>(null);
-  const input = useRef<HTMLTextAreaElement>(null);
+  /* Masked by default, because this is the highest-value secret the
+     application handles and it is typed on whatever screen the user happens
+     to be in front of. Revealed on demand -- 24 words cannot be proofread
+     through bullets -- and revealed automatically when the phrase was
+     GENERATED, since the next thing that screen asks is that you write it
+     down, and a screenful of dots cannot be written down. */
+  const [shown, setShown] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
 
   const setUnlocked = useAppStore((s) => s.setUnlocked);
   const generate = useGeneratePhrase();
@@ -88,11 +97,21 @@ export function PhraseEntry() {
       onSuccess: ({ mnemonic }) => {
         setPhrase(mnemonic);
         setGenerated(mnemonic);
+        /* The screen is about to say "write these down". It has to show
+           them to be able to ask that. */
+        setShown(true);
         input.current?.focus();
       },
       onError: () => toastError(m.gate_generate_failed()),
     });
   }
+
+  /* Unlocking derives the key in a worker against argon2.wasm, which the
+     SERVER supplies -- so with no server it fails, and "Could not open the
+     map" then blames a phrase that is perfectly good. Say which it is. */
+  const serverDown = useBackendDown();
+  const unlockFailed = () =>
+    serverDown ? m.banner_backend_down() : m.gate_unlock_failed();
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -105,7 +124,7 @@ export function PhraseEntry() {
             toastError(
               result.error
                 ? sayRefusal(result.error)
-                : m.gate_unlock_failed(),
+                : unlockFailed(),
             );
             return;
           }
@@ -117,7 +136,7 @@ export function PhraseEntry() {
           setGenerated(null);
           setUnlocked();
         },
-        onError: () => toastError(m.gate_unlock_failed()),
+        onError: () => toastError(unlockFailed()),
       },
     );
   }
@@ -125,50 +144,109 @@ export function PhraseEntry() {
   const showWriteDown = generated !== null && phrase === generated;
 
   return (
-    <div className="gate">
-      <form className="gate-card" onSubmit={submit}>
-        <h1>{m.app_name()}</h1>
-        <p className="lede">{m.gate_lede()}</p>
+    <div className="gate grid min-h-full place-items-center p-3 sm:p-6">
+      <form
+        className="gate-card flex w-[min(35rem,100%)] flex-col gap-3 border border-line bg-card p-7 shadow-card"
+        onSubmit={submit}
+      >
+        <h1 className="brand text-2xl">{m.app_name()}</h1>
+        <p className="mb-1.5 leading-normal text-ink-soft">{m.gate_lede()}</p>
 
-        <label htmlFor="phrase">{m.gate_phrase_label()}</label>
-        <textarea
-          id="phrase"
-          ref={input}
-          rows={4}
-          spellCheck={false}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          /* A generated phrase arrives a moment after the click and replaces
-             whatever is in this field. Read-only for that moment, so it can
-             never replace something the user typed in the meantime.
-             Read-only rather than disabled: focus and selection survive. */
-          readOnly={generate.isPending}
-          aria-invalid={wordCount > 0 && validationError !== null}
-          aria-describedby="phrase-status"
-          placeholder={m.gate_phrase_placeholder()}
-          value={phrase}
-          onChange={(e) => setPhrase(e.target.value)}
-        />
+        <label htmlFor="phrase" className="text-sm font-semibold">
+          {m.gate_phrase_label()}
+        </label>
+        {
+          /* A real password field, in a real form, with a real
+            `autocomplete` -- which is what a password manager needs before
+            it will offer to save anything. It was a textarea with
+            autocomplete off, and the browser did as it was told: nothing
+            ever offered to remember the one string that cannot be
+            recovered if it is lost.
+
+            The cost is that 24 words no longer wrap. The reveal toggle and
+            the word count beside it are what replace reading them back, and
+            a generated phrase reveals itself so it can be written down.
+
+            Note what this does NOT change: the phrase still goes straight
+            to the worker and this application still stores nothing. What is
+            new is that the BROWSER may now be asked to keep it, by the
+            person using it, in the place they already keep secrets. */
+        }
+        <div className="flex items-start gap-2">
+          <input
+            id="phrase"
+            className="field font-mono"
+            ref={input}
+            type={shown ? "text" : "password"}
+            name="phrase"
+            autoComplete="current-password"
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            /* A generated phrase arrives a moment after the click and
+               replaces whatever is in this field. Read-only for that moment,
+               so it can never replace something the user typed in the
+               meantime. Read-only rather than disabled: focus and selection
+               survive. */
+            readOnly={generate.isPending}
+            aria-invalid={wordCount > 0 && validationError !== null}
+            aria-describedby="phrase-status"
+            placeholder={m.gate_phrase_placeholder()}
+            value={phrase}
+            onChange={(e) => setPhrase(e.target.value)}
+          />
+          <IconButton
+            className="gate-phrase-toggle"
+            label={shown ? m.gate_phrase_hide() : m.gate_phrase_show()}
+            pressed={shown}
+            onClick={() => setShown((v) => !v)}
+            /* Crossed-out means hidden, matching the panel's own eyes:
+               these show the state, not the action the press would take. */
+            icon={shown
+              ? <Eye size={18} aria-hidden />
+              : <EyeOff size={18} aria-hidden />}
+          />
+        </div>
 
         {
           /* Inline and beside the field, not a toast: this is live validation
             of what is being typed, and it has to stay on screen while the user
             fixes it. Toasts are for the submit. */
         }
-        <div className="phrase-status" id="phrase-status" role="status">
-          <span className={wordCount === 24 ? "count ok" : "count"}>
+        <div
+          className="phrase-status flex min-h-5 flex-wrap items-baseline gap-3 text-sm"
+          id="phrase-status"
+          role="status"
+        >
+          <span
+            className={`count tabular-nums ${
+              wordCount === 24 ? "text-ok" : "text-ink-soft"
+            }`}
+          >
             {m.gate_word_count({ count: wordCount })}
           </span>
           {validationError && wordCount > 0 && (
-            <span className="invalid">{sayRefusal(validationError)}</span>
+            <span className="invalid text-danger">
+              {sayRefusal(validationError)}
+            </span>
           )}
-          {ready && <span className="valid">{m.gate_checksum_valid()}</span>}
+          {ready && (
+            <span className="valid font-semibold text-ok">
+              {m.gate_checksum_valid()}
+            </span>
+          )}
         </div>
 
-        <div className="generate">
+        {
+          /* Secondary weight: this sits above "Open my map", which is the
+            primary action, but it must still read as an offer rather than as
+            fine print. Full width on a phone, where a button that is not is
+            just a small target. */
+        }
+        <div className="generate flex max-sm:w-full flex-col items-start gap-1.5">
           <button
             type="button"
+            className="btn btn-quiet max-sm:w-full"
             onClick={onGenerate}
             disabled={generate.isPending}
             /* The hint describes what this button does, so a screen reader
@@ -206,18 +284,35 @@ export function PhraseEntry() {
           </div>
         )}
 
-        <Disclosure className="passphrase">
-          <Button slot="trigger" className="passphrase-summary">
-            <ChevronRight size={14} aria-hidden="true" />
+        {
+          /* A `summary` came with a marker triangle the browser drew; this is
+            a button, so the chevron is ours and turns. */
+        }
+        <Disclosure className="passphrase group">
+          <Button
+            slot="trigger"
+            className="passphrase-summary focus-ring flex w-full cursor-pointer items-center gap-1.5 py-1 text-left text-sm font-semibold"
+          >
+            <ChevronRight
+              size={14}
+              aria-hidden="true"
+              className="flex-none text-ink-soft transition-transform group-expanded:rotate-90"
+            />
             {m.gate_passphrase_summary()}
           </Button>
           <DisclosurePanel>
             <p className="hint">{m.gate_passphrase_what()}</p>
             <p className="hint">{m.gate_passphrase_exact()}</p>
             <p className="hint">{m.gate_passphrase_empty()}</p>
-            <label htmlFor="passphrase">{m.gate_passphrase_label()}</label>
+            <label
+              htmlFor="passphrase"
+              className="mb-1 block text-sm font-semibold"
+            >
+              {m.gate_passphrase_label()}
+            </label>
             <input
               id="passphrase"
+              className="field font-mono"
               type="password"
               autoComplete="off"
               value={passphrase}
@@ -226,7 +321,11 @@ export function PhraseEntry() {
           </DisclosurePanel>
         </Disclosure>
 
-        <button type="submit" disabled={!ready || unlock.isPending}>
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={!ready || unlock.isPending}
+        >
           {unlock.isPending ? m.gate_submit_busy() : m.gate_submit()}
         </button>
         {unlock.isPending && <p className="hint">{m.gate_deriving_hint()}</p>}
@@ -236,10 +335,14 @@ export function PhraseEntry() {
             still types English words, and being told that up front is kinder
             than discovering it against a validation error. */
         }
-        <p className="fineprint">{m.gate_wordlist_note()}</p>
-        <p className="fineprint">{m.gate_fineprint()}</p>
+        <p className="text-xs leading-normal text-ink-soft">
+          {m.gate_wordlist_note()}
+        </p>
+        <p className="text-xs leading-normal text-ink-soft">
+          {m.gate_fineprint()}
+        </p>
 
-        <LanguagePicker className="gate-language" />
+        <LanguagePicker className="mt-1" />
       </form>
     </div>
   );

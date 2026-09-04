@@ -41,7 +41,9 @@
 (executable
  (name gen_basemap_fixture)
  (modules gen_basemap_fixture)
- (libraries pmtiles gzip))
+ ; tessarium_server for Ledger: the legacy fixture's record is written by the
+ ; same code the server reads it with, so the two cannot drift.
+ (libraries pmtiles gzip tessarium_server))
 (executable
  (name bench_encode)
  (modules bench_encode)

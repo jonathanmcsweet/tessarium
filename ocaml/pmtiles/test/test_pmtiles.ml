@@ -431,7 +431,7 @@ let () =
     M.write merged_plan src_header ~min_zoom:0 ~max_zoom:10 ~min_lon:(-0.5)
       ~min_lat:50.5 ~max_lon:0.8 ~max_lat:51.5
       ~append:(Buffer.add_string merged_buf)
-      ~copy:(fun ~origin ~offset ~length ->
+      ~copy:(fun ~index:_ ~origin ~offset ~length ->
         let bytes =
           match origin with
           | M.Base -> String.sub base_bytes offset length
@@ -482,7 +482,7 @@ let () =
     M.write multi src_header ~min_zoom:0 ~max_zoom:10 ~min_lon:(-0.5)
       ~min_lat:50.5 ~max_lon:0.8 ~max_lat:51.5
       ~append:(Buffer.add_string multi_buf)
-      ~copy:(fun ~origin ~offset ~length ->
+      ~copy:(fun ~index:_ ~origin ~offset ~length ->
         match origin with
         | M.Fresh ->
             Buffer.add_string multi_buf (String.sub archive_bytes offset length)
@@ -670,7 +670,7 @@ let () =
        M.write refreshed src_header ~min_zoom:0 ~max_zoom:10 ~min_lon:(-0.5)
          ~min_lat:50.5 ~max_lon:0.8 ~max_lat:51.5
          ~append:(Buffer.add_string buf)
-         ~copy:(fun ~origin ~offset ~length ->
+         ~copy:(fun ~index:_ ~origin ~offset ~length ->
            Buffer.add_string buf
              (match origin with
              | M.Base -> String.sub (Buffer.contents merged_buf) offset length
@@ -705,7 +705,7 @@ let () =
        M.write pruned src_header ~min_zoom:0 ~max_zoom:10 ~min_lon:(-0.5)
          ~min_lat:50.5 ~max_lon:0.8 ~max_lat:51.5
          ~append:(Buffer.add_string buf)
-         ~copy:(fun ~origin:_ ~offset ~length ->
+         ~copy:(fun ~index:_ ~origin:_ ~offset ~length ->
            Buffer.add_string buf
              (String.sub (Buffer.contents merged_buf) offset length))
      in

@@ -2,7 +2,6 @@
 
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import { useQueryClient } from "@tanstack/react-query";
-import { Download } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import {
   useCallback,
@@ -11,7 +10,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
 import {
   fetchCoverage,
   isRunning,
@@ -35,9 +33,8 @@ import { sayError } from "../core/refusal";
 import { formatBytes, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
-import { toastError } from "../toast";
-import { DownloadCard } from "./DownloadCard";
-import { IconButton } from "./IconButton";
+import { type ResolvedTheme, useResolvedTheme } from "../theme";
+import { toastError, toastNote, toastSuccess } from "../toast";
 import { PlaceSearch } from "./PlaceSearch";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -94,13 +91,39 @@ const emptyGeoJson = {
   features: [] as GeoJSON.Feature[],
 };
 
+/* Whether a palette puts the map on a pale ground. Five schemes, and every
+   map-side choice below -- the flavour, the sprite sheet, the overlay -- turns
+   on this rather than on a list of names, so a sixth palette answers one
+   question instead of being added to three lists. */
+const isLight = (scheme: Scheme) =>
+  scheme === "light" || scheme === "cyber-light";
+
+/* Which pre-drawn sprite sheet the style asks for.
+
+   The icons a map draws -- route-number shields most visibly -- are baked
+   images, not flavour colours, so nothing in the palette can reach them.
+   Protomaps' answer is a sheet per flavour, drawn once at build time, and
+   we already carry all five; the style just names one. Naming `light` for
+   every scheme, which is what this did, is what put white motorway shields
+   on a black map: the map went dark around icons that could not follow.
+
+   Low light takes `dark` rather than `black`. Their shields are the same
+   near-black badge, but `black` is a reduced sheet -- Protomaps draws the
+   points of interest for light and dark only -- so choosing it would trade
+   white shields for 35 missing icons. A red sheet would need one drawn,
+   which is a basemap build step and is on the roadmap. */
+const spriteSheet = (scheme: Scheme) => (isLight(scheme) ? "light" : "dark");
+
 /* The style, rebuilt whenever the archive on disk is replaced. Tiles come
    through the server's /tiles endpoint rather than from the archive file
    directly: the server is what knows about BOTH archives -- the browse
    cache and the main one -- and a missing tile is a quiet 204 instead of a
    logged error. The version number lands in the tile URL as a query string
    so MapLibre's per-URL caching cannot keep old tiles over new bytes. */
-const buildStyle = (version: number): maplibregl.StyleSpecification => ({
+const buildStyle = (
+  version: number,
+  scheme: Scheme,
+): maplibregl.StyleSpecification => ({
   version: 8,
   /* Everything the style needs is served from this origin. A style that
      reaches a CDN for glyphs looks fine online and renders unlabelled the
@@ -108,7 +131,7 @@ const buildStyle = (version: number): maplibregl.StyleSpecification => ({
   glyphs: "/basemap/fonts/{fontstack}/{range}.pbf",
   /* MapLibre appends .json and .png, so this names the flavour rather
      than the directory: sprites/v4/light.json and light.png. */
-  sprite: `${window.location.origin}/basemap/sprites/v4/light`,
+  sprite: `${window.location.origin}/basemap/sprites/v4/${spriteSheet(scheme)}`,
   sources: {
     protomaps: {
       type: "vector",
@@ -154,7 +177,7 @@ const buildStyle = (version: number): maplibregl.StyleSpecification => ({
   /* Place names follow the interface language, so switching to French does
      not leave an English map under translated controls. Protomaps wants a
      bare language subtag, not the full locale. */
-  layers: basemapLayers(),
+  layers: basemapLayers(scheme),
 });
 
 /* The floor's layers, then the detail's, then the app's own on top.
@@ -178,9 +201,70 @@ const buildStyle = (version: number): maplibregl.StyleSpecification => ({
    That makes the ordering load-bearing: move a floor layer above the
    detail's ground and the duplication becomes real, with nothing left to
    prevent it. */
-const basemapLayers = (): maplibregl.LayerSpecification[] => {
+/* The low-light map: "black" with warmth added, key by key.
+
+   Two moves, matching the two complaints a cold map draws in the dark. The
+   ROADS -- black's near-neutral #14/#1f/#29 greys -- take a small red lift
+   so a motorway is a warm line rather than a grey one. The LABELS, which are
+   the brightest marks on the map, move from grey to a soft red: black's
+   #999 city name would glow white-blue in a dark room, and that is the one
+   thing this theme exists to prevent. Halos and the ground are left alone;
+   they are already dark.
+
+   Route-number shields are sprite images, not flavour colours, so they are
+   not reachable from here at all -- `spriteSheet` above is what stops them
+   being white, by asking for the dark sheet. Drawing a RED one is a basemap
+   build step, noted on the roadmap. */
+const NIGHT_ROADS = {
+  tunnel_minor: "#2b2020",
+  tunnel_link: "#2b2020",
+  tunnel_major: "#2b2020",
+  tunnel_highway: "#2b2020",
+  minor_service: "#221a1a",
+  minor_a: "#2f2323",
+  minor_b: "#221a1a",
+  link: "#221a1a",
+  major: "#332626",
+  highway: "#3a2929",
+  bridges_minor: "#221a1a",
+  bridges_link: "#2f2626",
+  bridges_major: "#2f2626",
+  bridges_highway: "#3a2929",
+} as const;
+
+const NIGHT_LABELS = {
+  roads_label_minor: "#7a5c5c",
+  roads_label_major: "#8a6666",
+  ocean_label: "#9a7a7a",
+  subplace_label: "#8a6a6a",
+  city_label: "#c89d9d",
+  state_label: "#6a5252",
+  country_label: "#a07d7d",
+  address_label: "#6a5252",
+} as const;
+
+const nightFlavor = (base: ReturnType<typeof namedFlavor>) => ({
+  ...base,
+  ...NIGHT_ROADS,
+  ...NIGHT_LABELS,
+});
+
+const basemapLayers = (
+  scheme: Scheme,
+): maplibregl.LayerSpecification[] => {
   const lang = getLocale().split("-")[0] ?? "en";
-  const flavor = namedFlavor("light");
+  /* Protomaps ships a flavour per scheme, so a dark application does not
+     have to sit next to a white map. Same generator, same layer ids -- only
+     the paint differs -- which is why swapping it is a style rebuild and
+     not a special case anywhere else. */
+  /* Protomaps has no red flavour, so low light starts from "black" -- its
+     darkest, least chromatic set -- and tints it here. Roads take a slight
+     warm lift and the labels, which are the lightest things the map draws,
+     move from grey toward a soft red so nothing on the map is a cold white
+     in a room someone is keeping dark. */
+  const flavor = scheme === "night"
+    ? nightFlavor(namedFlavor("black"))
+    : namedFlavor(isLight(scheme) ? "light" : "dark");
   const floor = layers(FLOOR_SOURCE, flavor, { lang })
     .filter((layer) => layer.type !== "background")
     .map((layer) => ({ ...layer, id: `${FLOOR_SOURCE}-${layer.id}` }));
@@ -197,10 +281,57 @@ const basemapLayers = (): maplibregl.LayerSpecification[] => {
 
 /* The grid and selection overlay, added on load and re-added after every
    style swap -- setStyle discards custom sources and layers. */
+/* The grid and the coverage wash are drawn by this application rather than
+   by the basemap, so they do not come with the flavour and have to be told
+   which ground they are landing on. Dark values are lighter than the map,
+   the way the light ones are darker than it: the point of both is to be
+   read against the cartography, not to be a particular colour. */
+type Scheme = ResolvedTheme;
+
+/* The overlay's colours, read from the palette the document is wearing.
+
+   These lived here once, as a Record over the five schemes -- a second copy
+   of the palette that styles.css already owned, and the selection colour
+   really was a copy: it is the accent, and the two had to be edited in
+   step. Now styles.css is the only home (--color-map-* per palette), read
+   through getComputedStyle so the engine that owns the cascade -- media
+   queries included -- is the one resolving it. MapLibre needs literal
+   colour strings, not var() references, which is why this is a read and
+   not a stylesheet rule.
+
+   Called at layer-add time, never cached: applyTheme sets the attribute
+   synchronously in the store action, so by the time a style rebuild runs,
+   the document is already wearing the palette being read. A missing token
+   throws rather than painting MapLibre's silent black. */
+const overlayColors = () => {
+  const token = (name: string): string => {
+    const value = getComputedStyle(document.documentElement)
+      .getPropertyValue(name)
+      .trim();
+    if (!value) throw new Error(`css token ${name} is not defined`);
+    return value;
+  };
+  return {
+    blank: token("--color-map-blank"),
+    blankOpacity: Number(token("--map-blank-opacity")),
+    edge: token("--color-map-edge"),
+    grid: token("--color-map-grid"),
+    /* The selected square and its pin: the loudest mark on the map wears
+       the palette's own accent, the same token the address line spends. */
+    select: token("--color-accent"),
+    /* And the pin's separating ring is what the palette says sits against
+       a filled accent. It was a literal #ffffff -- a colour belonging to
+       no palette, and in low light a pure white flash on the one screen
+       built to avoid one. */
+    onSelect: token("--color-on-accent"),
+  };
+};
+
 const addOverlay = (map: maplibregl.Map) => {
   /* Adding twice throws. Cannot happen today, but the callers are event
      listeners around a style swap whose timing MapLibre does not promise. */
   if (map.getSource("coverage")) return;
+  const colors = overlayColors();
   map.addSource("coverage", { type: "geojson", data: emptyGeoJson });
   map.addSource("coverage-edge", { type: "geojson", data: emptyGeoJson });
   map.addSource("grid", { type: "geojson", data: emptyGeoJson });
@@ -221,14 +352,17 @@ const addOverlay = (map: maplibregl.Map) => {
        map was invisible over a blank one -- 1.2:1 against the background,
        which is no signal at all. What keeps it off a drawn map is the data
        it is given, not this. */
-    paint: { "fill-color": "#41505f", "fill-opacity": 0.42 },
+    paint: {
+      "fill-color": colors.blank,
+      "fill-opacity": colors.blankOpacity,
+    },
   });
   map.addLayer({
     id: "coverage-line",
     type: "line",
     source: "coverage-edge",
     paint: {
-      "line-color": "#5f7183",
+      "line-color": colors.edge,
       "line-width": 1.5,
       "line-opacity": 0.85,
     },
@@ -239,7 +373,7 @@ const addOverlay = (map: maplibregl.Map) => {
     type: "line",
     source: "grid",
     paint: {
-      "line-color": "#1b3a5c",
+      "line-color": colors.grid,
       "line-width": 0.6,
       /* Fades in as the squares become large enough to aim at, rather
          than appearing abruptly at a threshold. */
@@ -260,14 +394,14 @@ const addOverlay = (map: maplibregl.Map) => {
     type: "fill",
     source: "selection",
     filter: ["==", ["geometry-type"], "Polygon"],
-    paint: { "fill-color": "#e8452c", "fill-opacity": 0.35 },
+    paint: { "fill-color": colors.select, "fill-opacity": 0.35 },
   });
   map.addLayer({
     id: "selection-outline",
     type: "line",
     source: "selection",
     filter: ["==", ["geometry-type"], "Polygon"],
-    paint: { "line-color": "#e8452c", "line-width": 2 },
+    paint: { "line-color": colors.select, "line-width": 2 },
   });
   /* A ~3 m square is sub-pixel until street level, so zoomed out the
      selection would be invisible -- exactly when someone has just looked an
@@ -283,7 +417,7 @@ const addOverlay = (map: maplibregl.Map) => {
     maxzoom: GRID_MIN_ZOOM + 1,
     paint: {
       "circle-radius": 11,
-      "circle-color": "#e8452c",
+      "circle-color": colors.select,
       "circle-opacity": [
         "interpolate",
         ["linear"],
@@ -303,8 +437,8 @@ const addOverlay = (map: maplibregl.Map) => {
     maxzoom: GRID_MIN_ZOOM + 1,
     paint: {
       "circle-radius": 5,
-      "circle-color": "#e8452c",
-      "circle-stroke-color": "#ffffff",
+      "circle-color": colors.select,
+      "circle-stroke-color": colors.onSelect,
       "circle-stroke-width": 2,
       "circle-opacity": [
         "interpolate",
@@ -383,6 +517,24 @@ const cellCenter = (cell: {
   },
 });
 
+/* A note over the map: transparent to the pointer, wide enough for a
+   sentence in any of six languages. bg-card, not white: this floats over
+   the map in both themes, and a literal white here was exactly the thing
+   the token audit could not see -- it shipped as a white pill with
+   near-white text through the dark theme's whole first release. */
+const NOTE = "map-note pointer-events-none max-w-full border border-line "
+  + "bg-card/95 px-4 py-1.5 text-center text-sm shadow-card";
+
+/* One that offers something to do lays its text and action out in a row,
+   wrapping on a narrow screen rather than pushing the button off the map.
+   The pill itself stays transparent to the pointer and only the button takes
+   it back: on a phone this sits over the bottom of the map, which is exactly
+   where a thumb starts a pan, and a pill that swallowed that drag made the
+   map feel broken. */
+const NOTE_ACTION =
+  "action flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 "
+  + "py-1.5 pr-2 pl-4 text-left";
+
 export function MapView() {
   const container = useRef<HTMLDivElement>(null);
   /* `mapRef`, not `m` -- `m` is the message namespace throughout the UI. */
@@ -403,6 +555,14 @@ export function MapView() {
      (grid, selection) know their sources were just recreated empty. */
   const [styleEpoch, setStyleEpoch] = useState(0);
   const styleVersion = useRef(0);
+
+  /* The scheme the style is built from. Mirrored into a ref because the
+     style is built inside effects and callbacks that must not re-run when
+     it changes -- the rebuild below is what handles a change, once, rather
+     than every listener re-registering. */
+  const scheme = useResolvedTheme(useAppStore((s) => s.theme));
+  const schemeRef = useRef(scheme);
+  schemeRef.current = scheme;
 
   const client = useQueryClient();
   const selection = useAppStore((s) => s.selection);
@@ -425,7 +585,7 @@ export function MapView() {
 
     const map = new maplibregl.Map({
       container: container.current,
-      style: buildStyle(styleVersion.current),
+      style: buildStyle(styleVersion.current, schemeRef.current),
       center: [-0.1278, 51.5074],
       zoom: 19,
       maxZoom: 23,
@@ -725,7 +885,7 @@ export function MapView() {
       addOverlay(map);
       setStyleEpoch((epoch) => epoch + 1);
     });
-    map.setStyle(buildStyle(styleVersion.current));
+    map.setStyle(buildStyle(styleVersion.current, schemeRef.current));
   }, []);
 
   /* The map's labels are asked for in the interface language, and
@@ -745,6 +905,18 @@ export function MapView() {
     styledFor.current = locale;
     rebuildBasemap();
   }, [locale, ready, rebuildBasemap]);
+
+  /* Same shape for the colour scheme, and for the same reason: the flavour
+     and the overlay's own colours are read when the style is built, so a
+     theme chosen afterwards -- or a device that turned dark at dusk --
+     needs the style rebuilt to reach the map. Skipped on the first run,
+     where the map was created with the current scheme already. */
+  const styledAs = useRef(scheme);
+  useEffect(() => {
+    if (!ready || styledAs.current === scheme) return;
+    styledAs.current = scheme;
+    rebuildBasemap();
+  }, [scheme, ready, rebuildBasemap]);
 
   /* ------------------------------------------------------ browse cache */
 
@@ -851,16 +1023,20 @@ export function MapView() {
   ]);
 
   /* The region is frozen when the card opens. Panning while it is open
-     changes the next download, not the one being confirmed. */
-  const [region, setRegion] = useState<Region | null>(null);
+     changes the next download, not the one being confirmed.
+
+     Published to the store rather than held here: the card itself now draws
+     in the side panel, which has no map to ask. This is the only thing the
+     map has to hand over for that to work. */
+  const setDownloadRegion = useAppStore((s) => s.setDownloadRegion);
   useEffect(() => {
     if (!downloadOpen) {
-      setRegion(null);
+      setDownloadRegion(null);
       return;
     }
     const map = mapRef.current;
-    if (map) setRegion(regionOf(map));
-  }, [downloadOpen]);
+    if (map) setDownloadRegion(regionOf(map));
+  }, [downloadOpen, setDownloadRegion]);
 
   /* Watched here rather than in the card so a download the user closed the
      card on still finishes loudly: the toast fires and the map refreshes
@@ -891,7 +1067,7 @@ export function MapView() {
     }
     const job = current.job;
     if (job.state === "done") {
-      toast.success(m.map_download_done());
+      toastSuccess(m.map_download_done());
       /* The archive exists now; the cached "absent" answer must not outlive
          it and resurrect the banner, and every cached estimate is stale --
          tiles just landed on disk that the numbers do not know about.
@@ -912,7 +1088,7 @@ export function MapView() {
       closeDownload();
       rebuildBasemap();
     } else if (job.state === "removed") {
-      toast.success(
+      toastSuccess(
         job.freed_bytes === 0
           ? m.map_removed_none()
           : m.map_removed_done({ size: formatBytes(job.freed_bytes) }),
@@ -950,7 +1126,7 @@ export function MapView() {
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-present"] });
     } else if (job.state === "cancelled") {
-      toast(m.map_download_cancelled());
+      toastNote(m.map_download_cancelled());
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
       client.invalidateQueries({ queryKey: ["basemap-coverage"] });
       client.removeQueries({
@@ -1130,12 +1306,19 @@ export function MapView() {
         /* Marks the square Enter will take, so keyboard use has the same
           "which one am I about to pick" feedback the pointer gets. */
       }
-      <div className="reticle" aria-hidden />
+      {
+        /* Small, low-contrast, and transparent to the pointer: it is a
+          keyboard aid, not a control. */
+      }
+      <div
+        className="reticle pointer-events-none absolute top-1/2 left-1/2 z-2 size-4.5 -translate-x-1/2 -translate-y-1/2 border-2 border-[rgba(18,33,47,0.55)]"
+        aria-hidden
+      />
       {
         /* Search sits over the map rather than in the panel: it moves the
           map, and the panel is about the square already chosen. */
       }
-      <div className="map-search">
+      <div className="map-search absolute top-2.5 left-2.5 z-2 w-[min(22rem,calc(100%-5.5rem))]">
         <PlaceSearch
           center={() => {
             const c = mapRef.current?.getCenter();
@@ -1155,30 +1338,28 @@ export function MapView() {
           onPickAddress={(lon, lat) => requestFlyTo(lat, lon)}
         />
       </div>
-      <div className="map-actions">
-        <IconButton
-          label={m.map_download_open()}
-          icon={<Download size={18} aria-hidden />}
-          pressed={downloadOpen}
-          onClick={() => (downloadOpen ? closeDownload() : openDownload())}
-        />
-      </div>
-      {downloadOpen && region && (
-        <DownloadCard region={region} job={basemapJob.data?.job} />
-      )}
       {
         /* One column, because these are not mutually exclusive: a view can
           be outside coverage AND too far out for the grid, and two notes
           pinned to the same corner would sit on top of each other. */
       }
-      <div className="map-notes" ref={notesRef}>
+      {
+        /* Centred on the uncovered part of the map, not on the map, or a
+          note drifts under the drawer as it widens. The container spans the
+          map and only the notes inside it take the pointer, or it would
+          swallow clicks meant for the map itself. */
+      }
+      <div
+        className="map-notes pointer-events-none absolute bottom-7 left-[calc((100%-var(--panel-offset,340px))/2)] flex w-max max-w-[80%] -translate-x-1/2 flex-col-reverse items-center gap-2"
+        ref={notesRef}
+      >
         {
           /* Hidden while the card is open: the note's whole purpose is to
             open that card, and leaving it on top of the thing it just
             opened puts a pill over the controls and wins the hit test. */
         }
         {blank && !downloadOpen && (
-          <div className="map-note action" role="status">
+          <div className={`${NOTE} ${NOTE_ACTION}`} role="status">
             {
               /* One message, because there is only one fact the app can
                 state honestly here: the detail is not downloaded. What the
@@ -1193,7 +1374,7 @@ export function MapView() {
             <span>{m.map_coverage_gap()}</span>
             <button
               type="button"
-              className="note-action"
+              className="note-action btn pointer-events-auto px-3.5 text-sm"
               onClick={() =>
                 openDownload()}
             >
@@ -1202,12 +1383,15 @@ export function MapView() {
           </div>
         )}
         {zoom < GRID_MIN_ZOOM && (
-          <div className="map-note" role="status">
+          <div className={NOTE} role="status">
             {m.map_zoom_for_grid()}
           </div>
         )}
         {truncated && (
-          <div className="map-note warn" role="status">
+          <div
+            className={`${NOTE} warn border-notice-soft-line bg-notice-soft text-warn`}
+            role="status"
+          >
             {m.map_too_many_squares()}
           </div>
         )}

@@ -30,7 +30,6 @@ import {
   ListBoxItem,
   Popover,
 } from "react-aria-components";
-import { toast } from "sonner";
 import { type PlaceResult, usePlaceSearch } from "../core/basemap";
 import {
   bearing8,
@@ -55,6 +54,7 @@ import {
   countryName,
   subdivisionsOf,
 } from "../regions";
+import { toastSuccess } from "../toast";
 
 const DIRECTION_LABEL: Record<Direction, () => string> = {
   n: m.search_dir_n,
@@ -136,6 +136,14 @@ type Placing = ReturnType<typeof placeRows>[number]["at"];
    enough that the list feels attached to the keyboard. The scan itself is
    milliseconds on a city and a few hundred on a country. */
 const DEBOUNCE_MS = 250;
+
+/* The box itself. The ring is on the wrapper rather than the input, because
+   the magnifier sits inside the same border and a ring around only the text
+   would read as two controls. */
+const FIELD = "place-search-field flex items-center gap-2 border "
+  + "border-line-strong bg-card px-2.5 shadow-[0_1px_4px_rgb(0_0_0/0.15)] "
+  + "focus-within:outline-2 focus-within:outline-offset-1 "
+  + "focus-within:outline-accent-text";
 
 export function PlaceSearch(
   { onPick, onPickAddress, center }: {
@@ -304,7 +312,7 @@ export function PlaceSearch(
      which is the exposure the panel's toggle exists to prevent. */
   const pickAddress = (option: Option) => {
     onPickAddress(option.lon, option.lat);
-    toast.success(m.search_found());
+    toastSuccess(m.search_found());
     setText("");
   };
 
@@ -354,31 +362,44 @@ export function PlaceSearch(
          also what the hand-written version did. */
       allowsCustomValue
     >
-      <div className="place-search-field">
-        <Search size={16} aria-hidden />
+      <div className={FIELD}>
+        <Search size={16} aria-hidden className="flex-none text-ink-soft" />
         <Input
           id="place-search-input"
+          className="w-full border-0 bg-transparent py-2.5 focus:outline-none"
           autoComplete="off"
           spellCheck={false}
           placeholder={m.search_placeholder()}
         />
       </div>
+      {
+        /* React Aria renders the results card in a portal at the end of the
+          document and positions it, so it is no longer a child of the search
+          box: it needs its own stacking order against the map, and it takes
+          its width from the field through the variable the library sets on
+          it rather than by inheriting a parent's. */
+      }
       {(options.length > 0 || emptyMessage !== null) && (
-        <Popover className="place-results">
+        <Popover className="place-results sheet z-5 w-(--trigger-width)">
           <ListBox
-            className="place-listbox"
+            className="block max-h-72 overflow-y-auto p-1 outline-none"
             renderEmptyState={() => (
-              <p className="place-empty" role="status">{emptyMessage}</p>
+              <p
+                className="place-empty px-2.5 py-2 text-ink-soft"
+                role="status"
+              >
+                {emptyMessage}
+              </p>
             )}
           >
             {(option: Option) => (
               <ListBoxItem
                 id={option.id}
-                className="place-option"
+                className="place-option sheet-option w-full flex-col items-start gap-px text-left"
                 textValue={option.name}
               >
-                <span className="place-name">{option.name}</span>
-                <span className="place-kind">{option.kind}</span>
+                <span className="font-semibold">{option.name}</span>
+                <span className="text-xs text-ink-soft">{option.kind}</span>
               </ListBoxItem>
             )}
           </ListBox>

@@ -1,10 +1,17 @@
 (* The download ledger: which regions this archive was asked to hold, so
    each can be listed, brought up to date, or removed later.
 
-   It lives inside map.pmtiles itself, in the archive's metadata section, so
-   the one atomic rename that publishes tiles publishes their record in the
-   same instant -- there is no sidecar file to drift, and no crash window in
+   It lives inside the archive itself, in the metadata section, so the one
+   atomic rename that publishes tiles publishes their record in the same
+   instant -- there is no sidecar file to drift, and no crash window in
    which the ledger describes tiles that are not on disk.
+
+   A region's archive is its own file, so its ledger is one entry long and
+   travels with it: a machine handed nothing but the file can say what it
+   was handed. The list a user sees is the union of every such file. Only
+   the old merged map.pmtiles, which installs from before the split still
+   have, holds several entries at once -- which is why this is a list rather
+   than a record.
 
    Everything here is pure and deterministic, deliberately: serialization
    uses a fixed key order and compact form so the same ledger is the same
@@ -24,9 +31,15 @@ type entry = {
   completed : int;
       (** when the download that made or refreshed this entry finished, in
           epoch seconds; zero when the tiles predate the ledger and their
-          age is unknown. Tiles already held were deliberately not
-          re-fetched then -- their age belongs to the entries that fetched
-          them -- and a resumed download records the resuming run. *)
+          age is unknown, which the UI draws as "needs updating". Every
+          download dates itself, including one that is interrupted -- what
+          an interrupted region is missing is a question the map's coverage
+          shading already answers, and dating it by the last part to write
+          would have called finished downloads unfinished, since the parts
+          overlap at their seams and the last one routinely writes nothing.
+          Tiles already held were deliberately not re-fetched -- their age
+          belongs to the entries that fetched them -- and a resumed download
+          records the resuming run. *)
   source : string;  (** the resolved archive it was fetched from *)
   bytes : int;
       (** bytes actually fetched from the source by the download that made
@@ -204,6 +217,51 @@ let drops ~(removed : entry) ~(kept : t) =
   fun ~z ~x ~y ->
     List.exists (fun p -> fetches p ~z ~x ~y) gone
     && not (List.exists (fun p -> fetches p ~z ~x ~y) stays)
+
+(* Does this entry's box span the planet?
+
+   Half of the test for the world overview, and only half -- see
+   [Basemap_download.run_remove], which pairs it with the archive the entry
+   lives in. Spanning the planet is not on its own disqualifying: a user may
+   ask for the whole world AS DETAIL, and that lands in a file of its own,
+   sits beside the overview rather than being it, and is theirs to remove.
+   The end-to-end suite does exactly that, which is how this was caught.
+
+   What cannot be removed is a world-spanning entry inside the old merged
+   map.pmtiles. That is the shape an install from before the per-region
+   split has: back then the overview merged into that one archive and took a
+   row in the list like any region, under whatever the picker called it.
+   Pruning it takes the tiles the whole map falls back to, everywhere.
+
+   Judged by what the entry SAYS it holds, never by its name: the name is
+   display only, and the row a user is looking at may well read "Map view".
+   One region, no clipping polygon, and a box reaching the ends of the
+   usable projection.
+
+   The margin is a whole degree, which is far wider than any rounding and
+   far narrower than any real pick: the picker's own world box stops at
+   +/-85 latitude, where Mercator does. *)
+let world_margin = 1.0
+
+let spans_world (e : entry) =
+  match e.regions with
+  | [ r ] ->
+      r.Basemap_job.polygon = None
+      && r.Basemap_job.min_lon <= -180.0 +. world_margin
+      && r.Basemap_job.max_lon >= 180.0 -. world_margin
+      && r.Basemap_job.min_lat <= -85.0 +. world_margin
+      && r.Basemap_job.max_lat >= 85.0 -. world_margin
+  | _ -> false
+
+(* The mirror of [drops], for export rather than removal: [drops] answers
+   "is this tile leaving with the entry being removed", this answers "is this
+   tile no business of the entry being written out". Both are phrased as
+   DROP predicates because that is what [Merge.prune] takes, so exporting one
+   region is the same machine as removing every other one -- without touching
+   the archive the user actually uses. *)
+let outside ~(entry : entry) =
+  let mine = List.map prepare entry.regions in
+  fun ~z ~x ~y -> not (List.exists (fun p -> fetches p ~z ~x ~y) mine)
 
 (* -------------------------------------------------------------- to JSON *)
 

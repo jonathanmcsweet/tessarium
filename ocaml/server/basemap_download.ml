@@ -6,9 +6,17 @@
    owns what cannot be pure: the fiber, the socket, the .part file, and the
    mutex around the one shared job cell.
 
-   Downloads MERGE into the archive on disk rather than replacing it, so the
-   world overview survives every city added on top of it, and a tile already
-   held is never fetched again.
+   Each download writes its OWN archive: one file per region, named after
+   the region and the day it was fetched, dropped in beside the others and
+   never stitched into them. See [Tile_set] for why, and for what a tile
+   lookup does with a directory full of them. What it buys here is that
+   every operation after the download is an operation on one file --
+   handing it over is handing over the file, taking it away is unlinking it
+   -- and neither has to rewrite a gigabyte to do it.
+
+   The world overview is the exception and still merges into its own file,
+   because deepening it from zoom 4 to zoom 6 should cost the levels in
+   between rather than the whole planet again.
 
    The tile source and assets URL are the server's configuration, never the
    client's. A request body names a region of the world; it does not name a
@@ -37,52 +45,59 @@ type t = {
   mutable clear_requested : bool;
 }
 
-(* The tile archives, in the order a lookup tries them. Named once because
-   three readers have to agree: the tile endpoint serves from them, the
-   coverage query answers questions ABOUT them, and the downloader writes
-   them. A list that drifted apart here would have the map drawing tiles a
-   coverage query had just called missing.
+(* The tile archives, in the order a lookup tries them -- [Tile_set]'s
+   answer, restated here because three readers have to agree: the tile
+   endpoint serves from them, the coverage query answers questions ABOUT
+   them, and the downloader writes them. A list that drifted apart here
+   would have the map drawing tiles a coverage query had just called
+   missing.
 
-   Newest first. [cache_file] is what browsing picked up, [base_file] is
-   what was downloaded on purpose, and [world_file] is an optional world
-   overview -- a shallow pyramid of the whole planet, dropped in beside the
-   others and never written by the downloader. It is last because it is the
-   coarsest: anything the other two hold is better.
+   It is a directory listing now rather than three names, because a region
+   is its own file: see [Tile_set] for why. *)
+let cache_file = Tile_set.cache_file
+let base_file = Tile_set.base_file
+let world_file = Tile_set.world_file
+let tile_files ~fs ~basemap_dir = Tile_set.names ~dir:Eio.Path.(fs / basemap_dir)
 
-   It is not special-cased anywhere. Its only job is to make the floor's
-   depth measure deeper, and that measurement counts every archive
-   together, so an archive that already holds the world needs no such
-   file. *)
-let cache_file = "cache.pmtiles"
-let base_file = "map.pmtiles"
-let world_file = "world.pmtiles"
+(* The name the world overview answers to in the list, and nowhere else.
 
-(* What a tile lookup searches, in order. *)
-let tile_files = [ cache_file; base_file; world_file ]
+   The overview writes no ledger record -- every package ships one and the
+   extraction tool makes one, neither of which goes through a download --
+   so it has no id of its own to be listed under. This is that id, made up
+   here rather than read from a file.
+
+   It is a word, and every real id is twelve hex digits of a hash, so no
+   download can collide with it however many are made. That matters because
+   the whole point of putting the overview in the list is that a user can
+   SEE it, and the moment a thing is visible its id is sayable: every verb
+   that takes an id off that list has to refuse this one by name. It was
+   safe before only because it was invisible, which is a defence that also
+   hid the forty-five megabytes the map is standing on. *)
+let overview_id = "world"
 
 (* What "downloaded" means. The world overview is not a download and must
    not be counted as one: it is nobody's region, and the detail source's
    bounds come from these so that the map does not ask about a planet nobody
    fetched. *)
-let detail_files = [ cache_file; base_file ]
+let detail_files ~fs ~basemap_dir =
+  List.filter (fun n -> n <> world_file) (tile_files ~fs ~basemap_dir)
 
 (* Which archive a download writes, and the only thing that differs between
    the two kinds of download this server runs.
 
-   A region joins the detail archive and is recorded in the ledger there, so
-   it can be named, listed, updated and removed. The world overview is not a
-   region: it belongs to no place, it is what the map falls back to
-   everywhere, and every package now ships one. Putting it in the detail
-   archive made it removable by accident -- take away the region whose entry
-   happened to carry it and the floor goes with it -- and gave the ledger a
+   A region goes to a file of its own and carries its own record, so it can
+   be named, listed, updated and removed as one thing. The world overview is
+   not a region: it belongs to no place, it is what the map falls back to
+   everywhere, and every package ships one. Giving it a region's treatment
+   made it removable by accident -- take away the region whose entry
+   happened to carry it and the floor goes with it -- and gave the list a
    row for something the user cannot meaningfully remove.
 
-   So it goes to its own file and writes no record. It merges with whatever
-   overview is already there, which is what makes deepening the shipped zoom
-   4 to zoom 6 cost only the levels in between. *)
+   So it has one fixed file and writes no record. It is also the one
+   download that still MERGES, into whatever overview is already there,
+   which is what makes deepening the shipped zoom 4 to zoom 6 cost only the
+   levels in between rather than the planet again. *)
 type target = Detail | World
-
-let file_of = function Detail -> base_file | World -> world_file
 
 (* How deep the floor is ever allowed to go. The scan below is one lookup
    per tile of a whole zoom level, so the work quadruples with every step:
@@ -156,6 +171,11 @@ type ops = {
     world:bool -> Basemap_job.request list -> (Yojson.Safe.t, string) result;
   start :
     name:string option ->
+    (* One display label per region, in request order, when the client sent
+       them. What the picker called each pick, echoed back in the status so
+       the progress rows survive a reload -- the ledger keeps only the one
+       combined name, which cannot label six bars. *)
+    labels:string list option ->
     world:bool ->
     Basemap_job.request list ->
     (unit, string) result;
@@ -164,6 +184,19 @@ type ops = {
   ledger : unit -> (Yojson.Safe.t, string) result;
   update : id:string -> (unit, string) result;
   remove : id:string -> (unit, string) result;
+  (* Writing one recorded region out as a file to carry elsewhere, and
+     managing the files that produces. Reads the archive and writes beside
+     it, so nothing here can damage the map the user is looking at. *)
+  export : id:string -> (unit, string) result;
+  exports : unit -> Yojson.Safe.t;
+  delete_export : file:string -> (unit, string) result;
+  (* The far side of the same trip: what is staged for import, committing
+     it, and throwing it away. Receiving the bytes is not here -- it takes a
+     socket, and everything in this record is meant to be callable from a
+     test with none. *)
+  staged : unit -> Yojson.Safe.t;
+  import : unit -> (unit, string) result;
+  discard_import : unit -> (unit, string) result;
   (* Answers with the tiles fetched AND the zoom actually written: the
      source's depth may be shallower than the view asked for, and a client
      that cannot tell the difference will keep asking for a depth that can
@@ -315,6 +348,12 @@ let open_source ~sw ~fs ~net ~source =
    from: a small region is one segment, a giant is several. *)
 type segment = {
   req : Basemap_job.request;
+  idx : int;
+      (** which request this came from, as a position in the list the client
+          sent. Carried rather than recovered by comparing requests: a batch
+          may hold two picks with identical boxes -- a country and a city
+          inside it clamped to the same depth -- and progress attributed by
+          value would credit both to whichever matched first. *)
   depth : int;
   box : float * float * float * float;
   clip : Pmtiles.Clip.t option;
@@ -331,8 +370,8 @@ type segment = {
 let units_of ?cancel ~budget ~header reqs =
   let min_zoom = header.Pmtiles.Header.min_zoom in
   let split =
-    List.map
-      (fun (req : Basemap_job.request) ->
+    List.mapi
+      (fun idx (req : Basemap_job.request) ->
         let requested = min req.max_zoom header.Pmtiles.Header.max_zoom in
         let clip = Option.map Pmtiles.Clip.of_rings req.polygon in
         let parts, depth, _clamped =
@@ -343,11 +382,11 @@ let units_of ?cancel ~budget ~header reqs =
             ~max_lat:req.max_lat ~full_limit:budget.full
             ~quick_limit:budget.quick ~max_parts:budget.max_parts ()
         in
-        (req, depth, clip, parts))
+        (req, idx, depth, clip, parts))
       reqs
   in
   let singles, giants =
-    List.partition (fun (_, _, _, parts) -> List.length parts = 1) split
+    List.partition (fun (_, _, _, _, parts) -> List.length parts = 1) split
   in
   let batch =
     match singles with
@@ -356,18 +395,18 @@ let units_of ?cancel ~budget ~header reqs =
         [
           `Batch
             (List.map
-               (fun ((req : Basemap_job.request), depth, clip, parts) ->
-                 { req; depth; clip; box = List.hd parts })
+               (fun ((req : Basemap_job.request), idx, depth, clip, parts) ->
+                 { req; idx; depth; clip; box = List.hd parts })
                l);
         ]
   in
   let parts =
     List.concat_map
-      (fun (req, depth, clip, boxes) ->
-        List.map (fun box -> `Part { req; depth; clip; box }) boxes)
+      (fun (req, idx, depth, clip, boxes) ->
+        List.map (fun box -> `Part { req; idx; depth; clip; box }) boxes)
       giants
   in
-  (batch @ parts, List.map (fun (_, depth, _, _) -> depth) split)
+  (batch @ parts, List.map (fun (_, _, depth, _, _) -> depth) split)
 
 let plan_box ?cancel ~archive ~min_zoom (seg : segment) =
   let a, b, c, d = seg.box in
@@ -430,31 +469,6 @@ let whole_archives ~sw ~fs ~basemap_dir names =
 let open_cache ~sw ~fs ~basemap_dir =
   open_archive ~sw ~fs ~basemap_dir cache_file
 
-(* Reading the archive's own labels into the search index. Runs when the
-   archive changes -- a download, an update, a removal -- because that is
-   exactly when the names it can offer change, and because a keystroke
-   cannot wait the seconds this takes on a country. An archive with no
-   tiles has no names, so its index goes rather than lingering. *)
-let reindex t ~fs ~basemap_dir =
-  Eio.Switch.run @@ fun sw ->
-  match open_archive ~sw ~fs ~basemap_dir "map.pmtiles" with
-  | None -> Place_index.remove ~fs ~basemap_dir
-  | Some archive ->
-      let last = ref 0 in
-      let entries =
-        Place_index.build archive ~on_tile:(fun done_ total ->
-            (* Progress, but not thirty thousand mutex takes: the bar moves
-               at a human rate either way. *)
-            if done_ - !last >= 256 || done_ = total then begin
-              last := done_;
-              check_cancel t;
-              set t
-                (Basemap_job.Indexing
-                   { done_tiles = done_; total_tiles = total })
-            end)
-      in
-      Place_index.save ~fs ~basemap_dir entries
-
 (* The archive's ledger, read before anything rewrites the archive. An
    unreadable ledger stops the operation cold rather than being overwritten:
    silently forgetting what a gigabyte archive holds is the one failure this
@@ -467,6 +481,113 @@ let base_ledger = function
       | Ok l -> (meta, l)
       | Error m -> failwith m)
 
+(* ------------------------------------------------- where entries live *)
+
+(* Every downloaded archive on disk: one file per region, plus the old
+   merged one if this install has it.
+
+   The browse cache is not here -- it is nobody's download -- and neither is
+   the world overview. That second exclusion is load-bearing: everything
+   that lists, exports, updates or removes a region finds it through here,
+   so an overview that never appears is an overview with no id to name, no
+   row to press Remove on, and nothing to delete. The refusals at those
+   sites are the second lock on the same door. *)
+let downloaded_files ~fs ~basemap_dir =
+  List.filter
+    (fun n -> n <> cache_file && n <> world_file)
+    (tile_files ~fs ~basemap_dir)
+
+(* One file's ledger.
+
+   [base_file] keeps the old contract: a metadata blob it cannot read stops
+   whatever asked, because that file can hold every region a user ever
+   downloaded and quietly reading it as empty would forget all of them.
+
+   A region file is different, and deliberately. It arrives on a USB stick
+   as often as it arrives from a download, so it is far likelier to be
+   truncated or half-copied -- and one bad file must not take the list of
+   everything else down with it, least of all because that list is where
+   the user would go to delete it. It is skipped with a warning, and its
+   tiles keep being served either way: [Tile_set] reads headers, not
+   ledgers, so a file with an unreadable record still draws. What is lost is
+   the ability to name it in the UI, not the map. *)
+let ledger_of ~sw ~fs ~basemap_dir name =
+  match open_readable ~sw ~fs ~basemap_dir name with
+  | None -> []
+  | Some a -> (
+      match Ledger.of_metadata (Pmtiles.Archive.metadata a) with
+      | Ok l -> l
+      | Error m | (exception Failure m) ->
+          if name = base_file then failwith m
+          else begin
+            Logs.warn (fun m' ->
+                m' "%s: unreadable download record, not listed: %s" name m);
+            []
+          end)
+
+(* Every recorded region and the file holding it, in the order a lookup
+   would find them. *)
+let homes ~sw ~fs ~basemap_dir =
+  List.concat_map
+    (fun name ->
+      List.map (fun e -> (name, e)) (ledger_of ~sw ~fs ~basemap_dir name))
+    (downloaded_files ~fs ~basemap_dir)
+
+let home_of ~sw ~fs ~basemap_dir ~id =
+  List.find_opt
+    (fun (_, e) -> Ledger.id e = id)
+    (homes ~sw ~fs ~basemap_dir)
+
+(* Reading the archives' own labels into the search index. Runs when they
+   change -- a download, an update, a removal -- because that is exactly when
+   the names they can offer change, and because a keystroke cannot wait the
+   seconds this takes on a country.
+
+   Every downloaded file, not one: the names a search can offer are the
+   union of what is on disk, and with a file per region that is a list. The
+   world overview is left out on purpose -- its labels are the handful of
+   country names a zoom-6 pyramid carries, and they would answer ahead of
+   the real ones. Nothing downloaded means no names, so the index goes
+   rather than lingering. *)
+let reindex t ~fs ~basemap_dir =
+  Eio.Switch.run @@ fun sw ->
+  match
+    List.filter_map (open_readable ~sw ~fs ~basemap_dir)
+      (downloaded_files ~fs ~basemap_dir)
+  with
+  | [] -> Place_index.remove ~fs ~basemap_dir
+  | archives ->
+      let last = ref 0 in
+      let entries =
+        Place_index.build_many archives ~on_tile:(fun done_ total ->
+            (* Progress, but not thirty thousand mutex takes: the bar moves
+               at a human rate either way. *)
+            if done_ - !last >= 256 || done_ = total then begin
+              last := done_;
+              check_cancel t;
+              set t
+                (Basemap_job.Indexing
+                   { done_tiles = done_; total_tiles = total })
+            end)
+      in
+      Place_index.save ~fs ~basemap_dir entries
+
+(* The id a set of granted regions hashes to. [Ledger.id] reads the regions
+   and nothing else, so the name, the source and the byte count can all be
+   left blank here -- which is what lets the estimate work out which file a
+   download would join before it knows anything else about it. *)
+let id_of_regions regions =
+  Ledger.id (Ledger.make ~name:"" ~regions ~completed:0 ~source:"" ~bytes:0)
+
+(* The depths a request was actually GRANTED, folded back into it. A clamped
+   giant records the zoom it really fetched, so its identity, its ledger row
+   and what Remove undoes all describe the same tiles. *)
+let as_granted (reqs : Basemap_job.request list) depths =
+  List.map2
+    (fun (r : Basemap_job.request) depth ->
+      { r with Basemap_job.max_zoom = min r.Basemap_job.max_zoom depth })
+    reqs depths
+
 (* A scripted request without a name still gets a legible ledger row. *)
 let default_name (reqs : Basemap_job.request list) =
   match reqs with
@@ -474,6 +595,98 @@ let default_name (reqs : Basemap_job.request list) =
   | r :: _ ->
       Printf.sprintf "%.2f, %.2f - %.2f, %.2f" r.min_lon r.min_lat r.max_lon
         r.max_lat
+
+(* ------------------------------------------------------- region files *)
+
+(* Where a download lands, and therefore what a person carries away.
+
+   These used to be the export path's, computed when someone asked for a
+   copy of a region already merged into map.pmtiles. They are the
+   DOWNLOAD's now: a region is written straight to a file of its own with
+   this name, and exporting it is handing over a file that already exists.
+   That is the whole reason the naming moved up here, above [run_download]
+   -- there is no second name to reconcile, because there is no second
+   file. *)
+
+let export_dir_name = "export"
+
+(* A file name from what the user called the region.
+
+   Everything outside a conservative ASCII set becomes a dash. The string
+   lands in a filesystem, in a URL path and in a save dialog, and the set
+   that is safe and predictable in all three is small -- so a Japanese or
+   Arabic region name slugs down to its id rather than travelling as bytes
+   that one of those three will mangle. The real name is not lost by this:
+   it rides inside the file, in the ledger, and is what the importing
+   machine displays. *)
+(* Epoch seconds to YYYY-MM-DD, UTC, in integer arithmetic.
+
+   Written out rather than taken from a library because there is no calendar
+   dependency here and this is the only date the server ever formats: `unix`
+   is not in (depends), and adding it for one conversion would be a whole
+   package to keep declared and installed for eleven lines. Hinnant's
+   civil-from-days, which is exact for every day this can be handed -- the
+   leap rule is arithmetic, not a table, so 2000 and 2100 come out right
+   without either being a special case.
+
+   UTC, not local: the name travels with the file to another machine in
+   another timezone, and a date that changes depending on who is reading it
+   is worse than one that is merely not local. *)
+let iso_date_of_epoch (secs : int) : string =
+  let days = if secs >= 0 then secs / 86_400 else ((secs + 1) / 86_400) - 1 in
+  let z = days + 719_468 in
+  let era = (if z >= 0 then z else z - 146_096) / 146_097 in
+  let doe = z - (era * 146_097) in
+  let yoe = (doe - (doe / 1_460) + (doe / 36_524) - (doe / 146_096)) / 365 in
+  let y = yoe + (era * 400) in
+  let doy = doe - ((365 * yoe) + (yoe / 4) - (yoe / 100)) in
+  let mp = ((5 * doy) + 2) / 153 in
+  let d = doy - (((153 * mp) + 2) / 5) + 1 in
+  let m = mp + if mp < 10 then 3 else -9 in
+  let y = if m <= 2 then y + 1 else y in
+  Printf.sprintf "%04d-%02d-%02d" y m d
+
+let region_filename ~(entry : Ledger.entry) ~id =
+  let buf = Buffer.create 32 in
+  let last_dash = ref false in
+  String.iter
+    (fun c ->
+      let keep =
+        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9')
+        || c = '_'
+      in
+      if keep then begin
+        Buffer.add_char buf c;
+        last_dash := false
+      end
+      else if not !last_dash then begin
+        Buffer.add_char buf '-';
+        last_dash := true
+      end)
+    entry.Ledger.name;
+  let slug =
+    let raw = Buffer.contents buf in
+    let trimmed =
+      let n = String.length raw in
+      let i = ref 0 and j = ref n in
+      while !i < n && raw.[!i] = '-' do incr i done;
+      while !j > !i && raw.[!j - 1] = '-' do decr j done;
+      String.sub raw !i (!j - !i)
+    in
+    if trimmed = "" then "map" else trimmed
+  in
+  (* The id keeps two exports of similarly-named regions apart, and makes an
+     export idempotent: the same entry written twice is the same file, not a
+     second copy filling the disk. *)
+  let short = if String.length id <= 8 then id else String.sub id 0 8 in
+  (* The date the TILES were fetched, not the date they were exported: it is
+     what someone holding the file wants to know, and taking it from the
+     entry rather than from the clock is what keeps a re-export idempotent --
+     exporting the same map twice is still the same file. ISO order so a
+     directory of these sorts chronologically. *)
+  let date = iso_date_of_epoch entry.Ledger.completed in
+  Printf.sprintf "%s-%s-%s.pmtiles" slug date short
 
 let guard_compression ~h base =
   match base with
@@ -503,11 +716,25 @@ let estimate ~fs ~net ~source ~basemap_dir ~budget ~world
     Eio.Switch.run @@ fun sw ->
     let _resolved, _src, archive = open_source ~sw ~fs ~net ~source in
     let h = archive.Pmtiles.Archive.header in
+    let units, depths = units_of ~budget ~header:h reqs in
+    (* The archive this download would JOIN. For the overview that is the
+       overview; for a region it is the region's OWN file, found by the id
+       its granted boxes hash to -- which is why the units have to be
+       planned first. It used to be map.pmtiles for every region, and
+       quoting against that now would promise a download most of which is
+       already held and then fetch all of it: a region does not merge into
+       the merged archive any more. *)
     let base =
-      open_archive ~sw ~fs ~basemap_dir (file_of (if world then World else Detail))
+      if world then open_archive ~sw ~fs ~basemap_dir world_file
+      else
+        match
+          home_of ~sw ~fs ~basemap_dir ~id:(id_of_regions (as_granted reqs depths))
+        with
+        | Some (file, _) when file <> base_file ->
+            open_archive ~sw ~fs ~basemap_dir file
+        | _ -> None
     in
     guard_compression ~h base;
-    let units, depths = units_of ~budget ~header:h reqs in
     let fetch = ref 0 and fresh = ref 0 and any_tiles = ref false in
     List.iter
       (fun unit ->
@@ -566,7 +793,15 @@ let write_entry dir segments contents =
    ("basemaps-assets-main/..."); only the fonts and sprites under it matter,
    and they land under the basemap dir without that wrapper. *)
 let fetch_assets t ~sw ~net ~assets ~dir =
-  if not (dir_exists Eio.Path.(dir / "fonts") && dir_exists Eio.Path.(dir / "sprites"))
+  (* An empty URL means "do not". The import path passes one: a file carried
+     here on a stick holds tiles and nothing else, and the machine it lands
+     on either already has its glyphs -- every package ships them -- or is
+     offline and has no way to get them. Reaching for the network there would
+     turn a working import into a failure reported after the tiles were
+     already merged, which is the worst of both. *)
+  if assets = "" then ()
+  else if
+    not (dir_exists Eio.Path.(dir / "fonts") && dir_exists Eio.Path.(dir / "sprites"))
   then begin
     set t Basemap_job.Assets;
     let body = Pmtiles_source.get_body ~sw ~net assets in
@@ -608,7 +843,7 @@ let copy_with_metadata t ~fs ~basemap_dir ~metadata ~on_progress
   Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part_path (fun out ->
       let written = ref 0 in
       let append str = Eio.Flow.copy_string str out in
-      let copy ~origin:_ ~offset ~length =
+      let copy ~index:_ ~origin:_ ~offset ~length =
         check_cancel t;
         Eio.Flow.copy_string
           (b.Pmtiles.Archive.src.Pmtiles.Archive.read ~offset ~length)
@@ -666,7 +901,7 @@ let prune_cache t ~fs ~basemap_dir ~regions =
         let e7f v = float_of_int v /. 1e7 in
         Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part (fun out ->
             let append str = Eio.Flow.copy_string str out in
-            let copy ~origin:_ ~offset ~length =
+            let copy ~index:_ ~origin:_ ~offset ~length =
               Eio.Flow.copy_string
                 (cache.Pmtiles.Archive.src.Pmtiles.Archive.read ~offset
                    ~length)
@@ -690,12 +925,32 @@ let prune_cache t ~fs ~basemap_dir ~regions =
    already the archive on disk, and a re-request finds its tiles held and
    skips it after the planning cost alone. The price is that each unit
    rewrites the archive it grows -- recorded on the roadmap, not hidden. *)
-let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
-    ~refresh ~replaces ~target (reqs : Basemap_job.request list) =
+(* [origin] overrides what the ledger records as the archive these tiles came
+   from. Only an import passes one, and it must: the source it is READING is a
+   temporary file in the import directory that is deleted the moment the merge
+   ends, so recording that would leave every imported region citing a path
+   that does not exist. What belongs in the record is what the exporting
+   machine cited -- the planet build the tiles were originally cut from -- and
+   the imported file carries it in its own ledger. *)
+let run_download t ~fs ~net ~source ?origin ~assets ~basemap_dir ~budget ~name
+    ~now ~refresh ~replaces ~target ~labels (reqs : Basemap_job.request list) =
   let dir = Eio.Path.(fs / basemap_dir) in
-  let archive_file = file_of target in
-  let part_path = Eio.Path.(dir / (archive_file ^ ".part")) in
-  let discard_part () = try Eio.Path.unlink part_path with _ -> () in
+  (* Which file this run writes.
+
+     The overview has one name and always did. A region no longer has one:
+     it goes to a file of its own, named after itself, and that name is
+     derived from the region's ledger id -- which is not known until the
+     source header says how deep the request was actually GRANTED. So it is
+     settled inside the switch below and the .part name follows it. The
+     empty string until then means there is no file yet to discard. *)
+  let archive_file =
+    ref (match target with World -> world_file | Detail -> "")
+  in
+  let part_path () = Eio.Path.(dir / (!archive_file ^ ".part")) in
+  let discard_part () =
+    if !archive_file <> "" then
+      try Eio.Path.unlink (part_path ()) with _ -> ()
+  in
   (* Every unit renamed into the archive owns its region from that moment,
      even when the run then stops early: cancel and failure must prune the
      browse cache exactly as success does, or the stale browsed copy of a
@@ -735,36 +990,91 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
        what actually happened. Identity is fixed here, before anything
        runs; the completion time and byte count are filled in when they
        are true. *)
-    let recorded =
-      List.map2
-        (fun (r : Basemap_job.request) depth ->
-          { r with Basemap_job.max_zoom = min r.Basemap_job.max_zoom depth })
-        reqs depths
-    in
+    let recorded = as_granted reqs depths in
     prune_regions := recorded;
+    let recorded_source = Option.value origin ~default:resolved in
     let entry ~completed ~bytes =
-      Ledger.make ~name ~regions:recorded ~completed ~source:resolved ~bytes
+      Ledger.make ~name ~regions:recorded ~completed ~source:recorded_source
+        ~bytes
     in
     let entry_id = Ledger.id (entry ~completed:0 ~bytes:0) in
-    (* An update replaces the entry it came from even if a changed budget
-       granted a different depth this time -- two records claiming the same
-       place would leave one of them describing tiles the other owns. *)
-    let record led e =
-      let led =
-        match replaces with
-        | Some old_id when old_id <> entry_id -> (
-            match Ledger.remove led ~id:old_id with
-            | Some (_, rest) -> rest
-            | None -> led)
-        | _ -> led
-      in
-      Ledger.record led e
-    in
+    (* One clock reading for the whole run, because two things have to agree
+       on it: the ledger row inside the file and the date in the file's own
+       name. A download that crosses midnight would otherwise be filed under
+       one day and named after another. *)
+    let stamp = now () in
+    (* Which file this run writes, now that the run has an identity.
+
+       A file already holding this id is written into rather than duplicated,
+       and that is what buys three things at once: a cancelled download
+       resumes into it, an update rewrites it, and asking twice for the same
+       region does not fill the disk with a second copy of a country.
+
+       An entry sitting in the old merged map.pmtiles is deliberately NOT
+       reused. That file is still read but never written, so a region it
+       holds is re-downloaded to a file of its own beside it; the merged
+       copy stays until the user removes it, which is the only behaviour
+       that does not rewrite a gigabyte archive nobody asked us to touch.
+
+       A fresh name carries the region, the date and the id. It is the name
+       an export used to invent at export time, because this file IS the
+       export now. *)
+    (if target = Detail then
+       let existing =
+         Eio.Switch.run (fun psw ->
+             match home_of ~sw:psw ~fs ~basemap_dir ~id:entry_id with
+             | Some (f, _) when f <> base_file -> Some f
+             | _ -> None)
+       in
+       archive_file :=
+         match existing with
+         | Some f -> f
+         | None ->
+             region_filename ~entry:(entry ~completed:stamp ~bytes:0)
+               ~id:entry_id);
     let written_total = ref 0 in
     let fetched_total = ref 0 in
     let wrote_any = ref false in
     let found_tiles = ref false in
-    let entry_written = ref false in
+
+    (* ------------------------------------------- per-region progress *)
+
+    (* What each picked region has cost, so a download of six countries reads
+       as six bars rather than one anonymous total. Indexed by the region's
+       position in the request, which is the order the client listed them and
+       the order it will draw them in.
+
+       Kept out here rather than per part: a region large enough to be split
+       is spread across several units, and its bar must accumulate across
+       them rather than restart at each one. *)
+    let region_count = List.length reqs in
+    let region_labels =
+      match labels with
+      | Some l when List.length l = region_count -> Array.of_list l
+      | _ -> Array.make region_count ""
+    in
+    let region_done = Array.make region_count 0 in
+    let region_total = Array.make region_count 0 in
+    (* How many units still have to be planned before a region's total is
+       final. Counted up front from the units themselves, so a bar can say
+       whether its denominator is settled or still growing. *)
+    let region_pending = Array.make region_count 0 in
+    List.iter
+      (fun unit ->
+        List.iter
+          (fun (s : segment) ->
+            region_pending.(s.idx) <- region_pending.(s.idx) + 1)
+          (segments_of unit))
+      units;
+    let region_rows () =
+      List.init region_count (fun k ->
+          {
+            Basemap_job.label = region_labels.(k);
+            done_bytes = region_done.(k);
+            total_bytes = region_total.(k);
+            planned = region_pending.(k) = 0;
+          })
+    in
     List.iteri
       (fun i unit ->
         check_cancel t;
@@ -776,9 +1086,9 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
            the old inode alive for the open reader, and every base read of
            this part completes before the rename. *)
         Eio.Switch.run @@ fun usw ->
-        let base = open_archive ~sw:usw ~fs ~basemap_dir archive_file in
+        let base = open_archive ~sw:usw ~fs ~basemap_dir !archive_file in
         guard_compression ~h base;
-        let base_meta, base_led = base_ledger base in
+        let base_meta, _base_led = base_ledger base in
         let plans =
           List.map (plan_box ~cancel:t ~archive ~min_zoom) (segments_of unit)
         in
@@ -792,6 +1102,51 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
           Pmtiles.Merge.plan ~on_entry:(breathe ~cancel:t ()) ~refresh ~base
             plans
         in
+        (* Which region each fresh blob is being fetched for.
+
+           A blob the merge kept from the base archive is nobody's download --
+           it is already on disk and no network pays for it -- so it stays
+           unowned and is credited to no row. Where several picks in one
+           batch wanted a tile the merge stores once, the earliest in request
+           order is credited: those bytes cross the wire once and must be
+           counted once, or three overlapping picks would each claim the
+           whole overlap and the rows would sum past what was fetched.
+
+           Tile ids first, because a blob can back several tiles -- identical
+           content deduplicates -- and it is the tile that belongs to a
+           region, not the blob. *)
+        let blob_region = Array.make (max 1 (Array.length mp.Pmtiles.Merge.blobs)) (-1) in
+        let tile_region = Hashtbl.create 4096 in
+        List.iter2
+          (fun (seg : segment) (pl : Pmtiles.Extract.plan) ->
+            Array.iter
+              (fun (id, _) ->
+                match Hashtbl.find_opt tile_region id with
+                | Some prev when prev <= seg.idx -> ()
+                | _ -> Hashtbl.replace tile_region id seg.idx)
+              pl.Pmtiles.Extract.tiles)
+          (segments_of unit) plans;
+        Array.iter
+          (fun (id, blob) ->
+            if blob_region.(blob) < 0 then
+              match (Hashtbl.find_opt tile_region id, mp.Pmtiles.Merge.blobs.(blob)) with
+              | Some k, (Pmtiles.Merge.Fresh, _, _) -> blob_region.(blob) <- k
+              | _ -> ())
+          mp.Pmtiles.Merge.tiles;
+        Array.iteri
+          (fun blob k ->
+            if k >= 0 then begin
+              let _, _, length = mp.Pmtiles.Merge.blobs.(blob) in
+              region_total.(k) <- region_total.(k) + length
+            end)
+          blob_region;
+        (* Planned, whether or not this unit goes on to write anything: a
+           unit that found every tile already on disk still settles the
+           totals of the regions it covered. *)
+        List.iter
+          (fun (s : segment) ->
+            region_pending.(s.idx) <- max 0 (region_pending.(s.idx) - 1))
+          (segments_of unit);
         (* Nothing new in this unit -- the resume case -- writes nothing. *)
         if mp.Pmtiles.Merge.fresh_tiles > 0 || mp.Pmtiles.Merge.refreshed_tiles > 0
         then begin
@@ -799,7 +1154,7 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
           let total = mp.Pmtiles.Merge.total_bytes in
           set t
             (Basemap_job.progress ~done_bytes:0 ~total_bytes:total ~part
-               ~parts:parts_total);
+               ~parts:parts_total ~regions:(region_rows ()) ());
           (* The merged header describes the union: the base's box and zooms
              grown by this unit's, so mid-sequence archives stay honest
              about what they hold. *)
@@ -828,11 +1183,11 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
           (* Written under a .part name and renamed only once complete, so
              the file the map reads is never mid-write and a failure leaves
              the previous archive untouched. *)
-          Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part_path
+          Eio.Path.with_open_out ~create:(`Or_truncate 0o644) (part_path ())
             (fun out ->
               let written = ref 0 in
               let append str = Eio.Flow.copy_string str out in
-              let copy ~origin ~offset ~length =
+              let copy ~index ~origin ~offset ~length =
                 check_cancel t;
                 let bytes =
                   match origin with
@@ -847,37 +1202,60 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
                 in
                 Eio.Flow.copy_string bytes out;
                 written := !written + length;
+                (* The blob's own index, not a count of calls: which blob is
+                   being copied is [Merge.write]'s to say, and a counter here
+                   would be a second copy of that answer to keep in step. *)
+                let owner = blob_region.(index) in
+                if owner >= 0 then
+                  region_done.(owner) <- region_done.(owner) + length;
                 set t
                   (Basemap_job.progress ~done_bytes:!written ~total_bytes:total
-                     ~part ~parts:parts_total)
+                     ~part ~parts:parts_total ~regions:(region_rows ()) ())
               in
-              (* The last part that writes also publishes the ledger entry, in
-                 the same rename that publishes its tiles: the record and the
-                 tiles it describes are never separated by a crash window.
-                 [bytes] is what the network delivered -- the number the
-                 estimate quoted -- not the archive bytes copied merging. *)
+              (* Every part publishes the ledger entry, in the same rename
+                 that publishes its tiles -- so the record and the tiles it
+                 describes are still never separated by a crash window.
+
+                 EVERY part, where it used to be only the last. A download
+                 cut short after part three now leaves a file that says what
+                 it holds, which is what makes it resumable: the next run
+                 finds this file by its id and carries on into it rather than
+                 starting a second copy of the same country. It is also what
+                 makes it removable, which tiles stranded in map.pmtiles by a
+                 cancelled download never were.
+
+                 Every part also DATES it, which is not the same choice.
+                 Leaving the date off until the last part looked better --
+                 an unfinished download would say "age unknown" and the UI
+                 already draws that as "needs updating" -- but the last part
+                 of a finished download routinely writes nothing at all: the
+                 parts overlap at their seams, and by the time the last one
+                 is planned its tiles are already on disk. It would have
+                 dated finished downloads as unfinished, which is the wrong
+                 lie of the two. What is missing from an interrupted region
+                 is a question the map already answers, in the coverage
+                 shading over the ground it does not have.
+
+                 One entry, because one file is one region -- there is no
+                 other record in here to merge with. [bytes] is what the
+                 network delivered, the number the estimate quoted, not the
+                 archive bytes copied while merging. *)
               let metadata =
-                if part < parts_total || target = World then base_meta
-                else begin
+                if target = World then base_meta
+                else
                   let e =
-                    entry ~completed:(now ())
-                      ~bytes:
-                        (!fetched_total + mp.Pmtiles.Merge.fetch_bytes)
+                    entry ~completed:stamp
+                      ~bytes:(!fetched_total + mp.Pmtiles.Merge.fetch_bytes)
                   in
-                  match
-                    Ledger.to_metadata (record base_led e) ~previous:base_meta
-                  with
-                  | Ok m ->
-                      entry_written := true;
-                      m
+                  match Ledger.to_metadata [ e ] ~previous:base_meta with
+                  | Ok m -> m
                   | Error m -> failwith m
-                end
               in
               ignore
                 (Pmtiles.Merge.write ~metadata mp h ~min_zoom:min_zoom'
                    ~max_zoom:max_zoom' ~min_lon ~min_lat ~max_lon ~max_lat
                    ~append ~copy));
-          Eio.Path.rename part_path Eio.Path.(dir / archive_file);
+          Eio.Path.rename (part_path ()) Eio.Path.(dir / !archive_file);
           wrote_any := true;
           published := true;
           written_total := !written_total + total;
@@ -885,42 +1263,37 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
         end)
       units;
     if not !found_tiles then failwith "the source has no tiles in that area";
-    (* The entry may still be unpublished: the final part was skipped as
-       already held, or nothing was fetched at all. A repeat of a recorded
-       download stays a no-op and says so; anything else gets the entry via
-       one metadata-only rewrite -- including an archive from before the
-       ledger existed, which is adopted with completion time zero, meaning
-       "age unknown, treat as stale". *)
-    (* The overview keeps no record, so there is nothing to publish and
-       nothing to adopt -- but "you already have this" is still the honest
-       answer when the merge found every tile already on disk, which is what
-       a user gets who asks for the shipped depth again. *)
-    if target = World then begin
-      if not !wrote_any then failwith "you already have the maps for that area"
-    end
-    else if not !entry_written then begin
-      Eio.Switch.run @@ fun usw ->
-      let base = open_base ~sw:usw ~fs ~basemap_dir in
-      let base_meta, base_led = base_ledger base in
-      let already = Ledger.find base_led ~id:entry_id <> None in
-      if (not !wrote_any) && already then
-        failwith "you already have the maps for that area";
-      match base with
-      | None -> ()  (* nothing written and nothing on disk: no record *)
-      | Some b ->
-          let completed = if !wrote_any then now () else 0 in
-          let e = entry ~completed ~bytes:!fetched_total in
-          let metadata =
-            match
-              Ledger.to_metadata (record base_led e) ~previous:base_meta
-            with
-            | Ok m -> m
-            | Error m -> failwith m
-          in
-          copy_with_metadata t ~fs ~basemap_dir ~metadata
-            ~on_progress:(fun _ _ -> ())
-            b
-    end;
+    (* Nothing written means every tile asked for was already in the file
+       this run would have joined, which is the honest "you already have
+       this" -- and the same sentence for a region as for the overview.
+
+       This used to be a whole second path. The record could outlive the
+       tiles by a part, or an archive from before the ledger existed had to
+       be adopted, and both were settled by rewriting a gigabyte file to
+       change its metadata. The record rides with the tiles in every part
+       now, so there is nothing left to catch up with. *)
+    if not !wrote_any then failwith "you already have the maps for that area";
+    (* An update normally rewrites the file it came from: the same regions
+       hash to the same id, so [archive_file] above found it. It only
+       differs when the granted depth changed -- a budget raised or lowered
+       between the two runs -- and then the old file is a duplicate of what
+       was just written, under a name that no longer describes it. *)
+    (match replaces with
+    | Some old_id when old_id <> entry_id ->
+        Eio.Switch.run (fun psw ->
+            match home_of ~sw:psw ~fs ~basemap_dir ~id:old_id with
+            | Some (f, _) when Tile_set.is_region f -> (
+                try Eio.Path.unlink Eio.Path.(dir / f)
+                with e ->
+                  Logs.warn (fun m ->
+                      m "could not remove the updated region's old file %s: %s"
+                        f (Printexc.to_string e)))
+            (* In the merged archive, where taking one region out means
+               rewriting the whole file. Not worth doing at the tail of a
+               download the user is waiting on: the row stays listed, and
+               removing it is one press. *)
+            | _ -> ())
+    | _ -> ());
     prune_cache t ~fs ~basemap_dir ~regions:recorded;
     (* Marked only once it has actually happened: a prune that raised left
        the cache untouched (it publishes by rename), so the terminal handler
@@ -960,17 +1333,84 @@ let run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
 
 (* ----------------------------------------------------------------- remove *)
 
-(* Rewrites the archive without one ledger entry's tiles, entry and tiles
-   leaving in the same atomic rename. Never touches the network. When the
-   last tile goes, the archive file goes with it -- an empty archive and a
-   missing one should be the same state, and the missing one is the honest
-   spelling. *)
+(* Taking one downloaded region away. Never touches the network.
+
+   Two shapes, because there are two ways a region can be on disk.
+
+   Its own file is the normal one now, and it is an unlink: the record lives
+   inside the file it describes, so the two leave together and there is
+   nothing to rewrite, nothing to interrupt and no progress to report. That
+   is the point of one file per region.
+
+   The other is the old merged map.pmtiles, which can hold any number of
+   entries in one file. Removing one of those still means rewriting the file
+   without that entry's tiles -- entry and tiles leaving in the same atomic
+   rename -- which is the machinery below. It runs for installs that predate
+   the split and for nothing else. When the last tile goes the file goes with
+   it: an empty archive and a missing one are the same state, and the missing
+   one is the honest spelling. *)
 let run_remove t ~fs ~basemap_dir ~id =
   let dir = Eio.Path.(fs / basemap_dir) in
   let part_path = Eio.Path.(dir / "map.pmtiles.part") in
   let discard_part () = try Eio.Path.unlink part_path with _ -> () in
   match
     Eio.Switch.run @@ fun sw ->
+    (* First, and by name, because the overview is now IN the list the id
+       came from. It has no record, so [home_of] would answer None and this
+       would come back as "no such downloaded map" -- true of the record and
+       false of the map, on a row the user can see. *)
+    if id = overview_id then
+      failwith
+        "the world overview is the map underneath every region and cannot \
+         be removed";
+    match home_of ~sw ~fs ~basemap_dir ~id with
+    | None -> failwith "no such downloaded map"
+    (* Nothing in the base archive, whatever it covers and whatever it is
+       called.
+
+       This used to ask what the entry HELD -- [Ledger.spans_world] -- so
+       that a merged world overview was protected and a merged region was
+       not. That distinction is invisible from the panel and turned out to
+       be the wrong one anyway. map.pmtiles is not a place downloads live
+       any more; it is the base archive. It is what tools/fetch-basemap.sh
+       writes, what installs from before the one-file-per-region split grew,
+       and the file every merged entry shares tiles with. Taking one entry
+       out of it rewrites the whole file, or unlinks it when the last entry
+       goes -- which is the map the rest of the application is standing on,
+       destroyed to satisfy a Remove button on a row called "Map view".
+
+       So the line is where an entry LIVES. A download made today wrote its
+       own file and is removable by unlinking that file, which touches
+       nothing else; that is the whole point of the split. An entry with no
+       file of its own is part of the base map, and the base map is removed
+       with a file manager, not from here. *)
+    | Some (file, _) when file = base_file ->
+        failwith
+          "that map is part of the base map this server is drawing from and \
+           cannot be removed here"
+    (* Not [file <> base_file]. The difference is the world overview: a
+       negative test would send it down whichever branch it was not, and
+       both branches destroy something. [Tile_set.is_region] is the one
+       place that says what may be deleted, and anything that is not a
+       region and is not the merged archive is refused below rather than
+       guessed at. *)
+    | Some (file, _) when Tile_set.is_region file ->
+        let freed =
+          match Eio.Path.stat ~follow:true Eio.Path.(dir / file) with
+          | st -> Optint.Int63.to_int st.Eio.File.Stat.size
+          | exception Eio.Io _ -> 0
+        in
+        Eio.Path.unlink Eio.Path.(dir / file);
+        freed
+    | Some (file, _) when file <> base_file ->
+        (* Unreachable while [homes] reads only the downloaded archives, and
+           written anyway: this is the sentence that has to stay true if that
+           ever changes. A file the map stands on is not a download, and a
+           request to remove one is refused rather than obeyed. *)
+        failwith
+          (Printf.sprintf "%s is part of the basemap and cannot be removed"
+             file)
+    | Some _ -> (
     match open_base ~sw ~fs ~basemap_dir with
     | None -> failwith "there is no downloaded map to remove from"
     | Some b -> (
@@ -1021,7 +1461,7 @@ let run_remove t ~fs ~basemap_dir ~id =
                 (fun out ->
                   let written = ref 0 in
                   let append str = Eio.Flow.copy_string str out in
-                  let copy ~origin:_ ~offset ~length =
+                  let copy ~index:_ ~origin:_ ~offset ~length =
                     check_cancel t;
                     Eio.Flow.copy_string
                       (b.Pmtiles.Archive.src.Pmtiles.Archive.read ~offset
@@ -1054,7 +1494,7 @@ let run_remove t ~fs ~basemap_dir ~id =
                 | None -> before
               in
               max 0 (before - after)
-            end)
+            end))
   with
   | freed_bytes ->
       (* This job held the writer's seat, so a clear asked for meanwhile is
@@ -1081,6 +1521,478 @@ let run_remove t ~fs ~basemap_dir ~id =
       discard_part ();
       honor_clear t ~fs ~basemap_dir;
       set t (Basemap_job.Failed (friendly e))
+
+(* ----------------------------------------------------------------- export *)
+
+(* Writing one recorded region out as a file to carry to another machine.
+
+   This is the removal machinery pointed somewhere harmless. Removal prunes
+   the archive down to the tiles an entry does NOT cover and renames the
+   result over map.pmtiles; an export prunes down to the tiles it DOES cover
+   and writes that beside it. The live archive is opened read-only and never
+   renamed, so an export that dies halfway costs a partial file in the export
+   directory and nothing the user was using.
+
+   The exported archive carries a ledger of its own holding just that entry.
+   That is what makes the trip survivable: the machine importing it reads the
+   region, the granted depth, the name and the build it came from out of the
+   file itself. Nothing has to be typed in on the far side, and a region
+   cannot arrive as an anonymous box that the importer has to guess at. *)
+
+
+let export_path ~fs ~basemap_dir name =
+  Eio.Path.(fs / basemap_dir / export_dir_name / name)
+
+let run_export t ~fs ~basemap_dir ~id =
+  let dir = Eio.Path.(fs / basemap_dir / export_dir_name) in
+  match
+    Eio.Switch.run @@ fun sw ->
+    (* Nothing to hand over. Every package ships an overview, so the machine
+       this file would be carried to already has one, and copying tens of
+       megabytes onto a stick to deliver what came in the installer is not a
+       favour. Refused here as well as hidden in the UI: the id is visible
+       now, so the button not being there is no longer the whole answer. *)
+    if id = overview_id then
+      failwith
+        "the world overview ships with every install and does not need \
+         carrying";
+    match home_of ~sw ~fs ~basemap_dir ~id with
+    | None -> failwith "no such downloaded map"
+    | Some (file, _) when Tile_set.is_region file ->
+        (* Nothing to do. The download wrote this file and nothing has
+           merged it into anything since, so the file to carry to the other
+           machine is already sitting there, already named after the region
+           and the day it was fetched, and already reachable at
+           /basemap/<file>. This is the whole point of one file per region:
+           the wait that used to sit between "downloaded" and "can I have
+           it" was the cost of undoing a merge that no longer happens. *)
+        let bytes =
+          match Eio.Path.stat ~follow:true Eio.Path.(fs / basemap_dir / file) with
+          | st -> Optint.Int63.to_int st.Eio.File.Stat.size
+          | exception Eio.Io _ -> 0
+        in
+        (file, bytes)
+    | Some (file, _) when file <> base_file ->
+        (* Same refusal as removal's, for the same reason: whatever the map
+           stands on is not somebody's download to be handed out under a
+           region's name. *)
+        failwith
+          (Printf.sprintf "%s is part of the basemap, not a downloaded region"
+             file)
+    | Some _ -> (
+    match open_base ~sw ~fs ~basemap_dir with
+    | None -> failwith "there is no downloaded map to export"
+    | Some b -> (
+        let _base_meta, led = base_ledger (Some b) in
+        match Ledger.find led ~id with
+        | None -> failwith "no such downloaded map"
+        | Some entry ->
+            let file = region_filename ~entry ~id in
+            let out_path = Eio.Path.(dir / file) in
+            let part_path = Eio.Path.(dir / (file ^ ".part")) in
+            (* Everything this entry does not cover is dropped, which is the
+               whole archive minus one region. *)
+            let drop = Ledger.outside ~entry in
+            let pruned, _dropped =
+              Pmtiles.Merge.prune ~on_entry:(breathe ~cancel:t ()) ~base:b
+                ~drop ()
+            in
+            if Array.length pruned.Pmtiles.Merge.tiles = 0 then
+              failwith
+                "that map has no tiles of its own to export -- every tile it \
+                 covers belongs to another region too";
+            (* A ledger of one. The importing machine reads this and knows
+               what it was handed; [previous] is "{}" rather than the live
+               archive's metadata because none of the OTHER entries' records
+               may travel in a file that holds none of their tiles. *)
+            let metadata =
+              match Ledger.to_metadata [ entry ] ~previous:"{}" with
+              | Ok m -> m
+              | Error m -> failwith m
+            in
+            Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 dir;
+            let total = pruned.Pmtiles.Merge.total_bytes in
+            set t (Basemap_job.Exporting { done_bytes = 0; total_bytes = total });
+            let bh = b.Pmtiles.Archive.header in
+            let e7f v = float_of_int v /. 1e7 in
+            (* The exported header describes the REGION, not the archive it
+               came out of: an importer reads these bounds to decide what it
+               is being offered, and the live archive's box is every region
+               the user ever downloaded. *)
+            let r_min_lon, r_min_lat, r_max_lon, r_max_lat =
+              union_boxes
+                (List.map
+                   (fun (r : Basemap_job.request) ->
+                     (r.min_lon, r.min_lat, r.max_lon, r.max_lat))
+                   entry.Ledger.regions)
+            in
+            let r_depth =
+              List.fold_left
+                (fun acc (r : Basemap_job.request) -> max acc r.max_zoom)
+                bh.Pmtiles.Header.min_zoom entry.Ledger.regions
+            in
+            let written = ref 0 in
+            let new_header = ref None in
+            Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part_path
+              (fun out ->
+                let append str = Eio.Flow.copy_string str out in
+                let copy ~index:_ ~origin:_ ~offset ~length =
+                  check_cancel t;
+                  Eio.Flow.copy_string
+                    (b.Pmtiles.Archive.src.Pmtiles.Archive.read ~offset ~length)
+                    out;
+                  written := !written + length;
+                  set t
+                    (Basemap_job.Exporting
+                       { done_bytes = min !written total; total_bytes = total })
+                in
+                new_header :=
+                  Some
+                    (Pmtiles.Merge.write ~metadata pruned bh
+                       ~min_zoom:bh.Pmtiles.Header.min_zoom ~max_zoom:r_depth
+                       ~min_lon:(Float.max r_min_lon (e7f bh.Pmtiles.Header.min_lon_e7))
+                       ~min_lat:(Float.max r_min_lat (e7f bh.Pmtiles.Header.min_lat_e7))
+                       ~max_lon:(Float.min r_max_lon (e7f bh.Pmtiles.Header.max_lon_e7))
+                       ~max_lat:(Float.min r_max_lat (e7f bh.Pmtiles.Header.max_lat_e7))
+                       ~append ~copy));
+            (* Renamed only once whole, exactly as a download is: a half
+               written export that looked like a finished one would be
+               carried to an offline machine and fail there, which is the
+               worst place to discover it. *)
+            Eio.Path.rename part_path out_path;
+            let bytes =
+              match !new_header with
+              | Some (nh : Pmtiles.Header.t) ->
+                  nh.Pmtiles.Header.data_offset + nh.Pmtiles.Header.data_length
+              | None -> !written
+            in
+            (file, bytes)))
+  with
+  | file, bytes -> set t (Basemap_job.Exported { file; bytes })
+  | exception Cancelled_by_user -> set t Basemap_job.Cancelled
+  | exception e -> set t (Basemap_job.Failed (friendly e))
+
+let start_export t ~sw ~fs ~basemap_dir ~id =
+  if not (claim t) then Error "a download is already running"
+  else begin
+    Eio.Fiber.fork ~sw (fun () -> run_export t ~fs ~basemap_dir ~id);
+    Ok ()
+  end
+
+(* What is sitting in the export directory, so the UI can offer the files
+   for saving and say how much disk they are holding. Listed from the
+   directory rather than remembered in the job: exports outlive the run that
+   made them, which is the point -- a user collects several over an evening
+   and copies them all to a stick at the end. *)
+let exports_json ~fs ~basemap_dir =
+  let dir = Eio.Path.(fs / basemap_dir / export_dir_name) in
+  let names =
+    match Eio.Path.read_dir dir with
+    | names -> List.sort String.compare names
+    | exception _ -> []
+  in
+  `List
+    (List.filter_map
+       (fun name ->
+         if not (Filename.check_suffix name ".pmtiles") then None
+         else
+           match Eio.Path.stat ~follow:true Eio.Path.(dir / name) with
+           | stat when stat.Eio.File.Stat.kind = `Regular_file ->
+               Some
+                 (`Assoc
+                    [
+                      ("file", `String name);
+                      ( "bytes",
+                        `Int (Optint.Int63.to_int stat.Eio.File.Stat.size) );
+                    ])
+           | _ -> None
+           | exception _ -> None)
+       names)
+
+(* Deleting one export. The name is checked against the directory listing
+   rather than trusted: it arrives from a request, and a name is the one
+   thing here that could reach outside the export directory if it held a
+   separator. *)
+let delete_export ~fs ~basemap_dir ~file =
+  let dir = Eio.Path.(fs / basemap_dir / export_dir_name) in
+  let listed =
+    match Eio.Path.read_dir dir with names -> names | exception _ -> []
+  in
+  if not (List.mem file listed) then Error "no such export"
+  else
+    match Eio.Path.unlink Eio.Path.(dir / file) with
+    | () -> Ok ()
+    | exception e -> Error (friendly e)
+
+(* ----------------------------------------------------------------- import *)
+
+(* Taking a map file someone carried here on a stick and folding it in.
+
+   The trick is that this is not a new kind of download -- it is the ordinary
+   one with a different source. [Pmtiles_source.open_url] already falls
+   through to a plain file for anything that is not an http URL, and
+   [run_download] already merges from whatever source it is handed. So an
+   import is: receive the bytes, then run the download that was always
+   there, pointed at the file instead of at a planet build on the internet.
+
+   Everything downstream therefore comes free and stays identical to a
+   networked download -- the merge that keeps what is already on disk, the
+   ledger entry, the browse-cache prune, the search index rebuild. There is
+   no second code path to keep in step, which matters more here than
+   anywhere: the machine doing this is the one with no way to fetch a fix.
+
+   Two steps, not one. The bytes land first and are described back to the
+   user -- what regions, how deep, how big -- and only then does a second
+   request commit them. A multi-gigabyte file that turns out to be the wrong
+   country should cost a glance, not a merge. *)
+
+let import_dir_name = "import"
+let staged_file = "staged.pmtiles"
+let staged_path ~fs ~basemap_dir = Eio.Path.(fs / basemap_dir / import_dir_name / staged_file)
+
+(* Where the staged file lives, as the string [run_download] wants for a
+   source. Built from the same pieces as the path above so the two cannot
+   drift apart. *)
+let staged_source ~basemap_dir =
+  List.fold_left Filename.concat basemap_dir [ import_dir_name; staged_file ]
+
+(* Receiving the upload. Streamed straight to disk under a .part name: the
+   file is the size of a country and must never be held in memory, and a
+   dropped connection must not leave something that looks like a finished
+   import.
+
+   [expected] is what Content-Length promised. A body that stops short is
+   refused rather than kept, because a truncated PMTiles archive answers
+   every directory lookup and fails half its reads -- it would import
+   cleanly and then draw holes. *)
+let receive_import ~fs ~basemap_dir ~expected ~src =
+  let dir = Eio.Path.(fs / basemap_dir / import_dir_name) in
+  Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 dir;
+  let part = Eio.Path.(dir / (staged_file ^ ".part")) in
+  let discard () = try Eio.Path.unlink part with _ -> () in
+  match
+    let received = ref 0 in
+    Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part (fun out ->
+        let buf = Cstruct.create (1 lsl 20) in
+        let rec pump () =
+          match Eio.Flow.single_read src buf with
+          | 0 -> ()
+          | n ->
+              Eio.Flow.copy_string (Cstruct.to_string (Cstruct.sub buf 0 n)) out;
+              received := !received + n;
+              pump ()
+          | exception End_of_file -> ()
+        in
+        pump ());
+    !received
+  with
+  | received when received <> expected ->
+      discard ();
+      Error
+        (Printf.sprintf
+           "the upload stopped early: %d bytes arrived of the %d it declared"
+           received expected)
+  | _ -> (
+      (* Whether it is a map at all, decided before it is published under a
+         name the commit will trust. *)
+      match
+        Eio.Switch.run @@ fun sw ->
+        let file = Eio.Path.open_in ~sw part in
+        Pmtiles.Archive.open_ (Pmtiles_source.file_source file)
+      with
+      | _archive ->
+          Eio.Path.rename part (staged_path ~fs ~basemap_dir);
+          Ok ()
+      | exception _ ->
+          discard ();
+          Error "that file is not a PMTiles map archive")
+  | exception e ->
+      discard ();
+      Error (friendly e)
+
+(* What is sitting staged, described from the file itself.
+
+   The regions come out of the exported archive's own ledger, which is what
+   makes the far side of the trip need no typing: the file says which places
+   it holds, how deep, and what it was called. A file from somewhere else --
+   any valid PMTiles archive -- has no ledger, and is described by its header
+   instead, as one box at whatever depth it reaches. *)
+let import_summary ~fs ~basemap_dir =
+  match
+    Eio.Switch.run @@ fun sw ->
+    let path = staged_path ~fs ~basemap_dir in
+    let stat = Eio.Path.stat ~follow:true path in
+    let file = Eio.Path.open_in ~sw path in
+    let archive = Pmtiles.Archive.open_ (Pmtiles_source.file_source file) in
+    let h = archive.Pmtiles.Archive.header in
+    let entries =
+      match Ledger.of_metadata (Pmtiles.Archive.metadata archive) with
+      | Ok l -> l
+      | Error _ -> []
+    in
+    (stat, h, entries)
+  with
+  | stat, h, entries ->
+      let e7f v = float_of_int v /. 1e7 in
+      let named =
+        match entries with
+        | [] -> None
+        | e :: _ -> Some e.Ledger.name
+      in
+      let regions =
+        match entries with
+        | [] ->
+            [
+              `Assoc
+                [
+                  ("min_lon", `Float (e7f h.Pmtiles.Header.min_lon_e7));
+                  ("min_lat", `Float (e7f h.Pmtiles.Header.min_lat_e7));
+                  ("max_lon", `Float (e7f h.Pmtiles.Header.max_lon_e7));
+                  ("max_lat", `Float (e7f h.Pmtiles.Header.max_lat_e7));
+                  ("max_zoom", `Int h.Pmtiles.Header.max_zoom);
+                ];
+            ]
+        | l -> List.concat_map (fun e -> List.map Ledger.json_of_region e.Ledger.regions) l
+      in
+      Ok
+        (`Assoc
+           [
+             ("staged", `Bool true);
+             ( "name",
+               match named with Some n -> `String n | None -> `Null );
+             ("bytes", `Int (Optint.Int63.to_int stat.Eio.File.Stat.size));
+             ("min_zoom", `Int h.Pmtiles.Header.min_zoom);
+             ("max_zoom", `Int h.Pmtiles.Header.max_zoom);
+             ("tiles", `Int h.Pmtiles.Header.addressed_tiles);
+             ("regions", `List regions);
+           ])
+  | exception _ -> Ok (`Assoc [ ("staged", `Bool false) ])
+
+let discard_import ~fs ~basemap_dir =
+  (try Eio.Path.unlink (staged_path ~fs ~basemap_dir) with _ -> ());
+  Ok ()
+
+(* Merging what was staged. The regions and their names come from the staged
+   file's ledger, so an imported region lands in this machine's ledger under
+   the name it was exported as -- listed, updatable and removable exactly
+   like one that was downloaded here. *)
+let start_import t ~sw ~fs ~net ~basemap_dir ~budget ~now =
+  if not (claim t) then Error "a download is already running"
+  else begin
+    Eio.Fiber.fork ~sw (fun () ->
+        match
+          Eio.Switch.run @@ fun usw ->
+          let path = staged_path ~fs ~basemap_dir in
+          let file = Eio.Path.open_in ~sw:usw path in
+          let archive = Pmtiles.Archive.open_ (Pmtiles_source.file_source file) in
+          let h = archive.Pmtiles.Archive.header in
+          let entries =
+            match Ledger.of_metadata (Pmtiles.Archive.metadata archive) with
+            | Ok l -> l
+            | Error m -> failwith m
+          in
+          let e7f v = float_of_int v /. 1e7 in
+          match entries with
+          | [] ->
+              (* No ledger: an archive from somewhere else, whose origin
+                 nobody recorded. Left blank rather than invented. *)
+              (* No ledger: an archive from somewhere else. Its header box at
+                 its own depth is the honest description of what it holds. *)
+              let r =
+                {
+                  Basemap_job.min_lon = e7f h.Pmtiles.Header.min_lon_e7;
+                  min_lat = e7f h.Pmtiles.Header.min_lat_e7;
+                  max_lon = e7f h.Pmtiles.Header.max_lon_e7;
+                  max_lat = e7f h.Pmtiles.Header.max_lat_e7;
+                  max_zoom = h.Pmtiles.Header.max_zoom;
+                  polygon = None;
+                }
+              in
+              (None, [ r ], [ "" ], "")
+          | l ->
+              let name = (List.hd l).Ledger.name in
+              let regions = List.concat_map (fun e -> e.Ledger.regions) l in
+              ( Some name,
+                regions,
+                List.map (fun _ -> name) regions,
+                (List.hd l).Ledger.source )
+        with
+        | name, regions, labels, origin ->
+            (* One record means this file already IS a region file: it is
+               what a download writes and what an export hands over, and the
+               way to import it is to put it where the others are.
+
+               A rename, so importing a country is instant and costs no
+               second copy of it -- which on the machine most likely to be
+               short of disk is what matters. It also lands under the name
+               its own record gives it, so a file imported here and a file
+               downloaded here are the same file with the same name, and one
+               carried on to a third machine is the same again.
+
+               Anything else takes the long way. An archive with no record
+               is nobody's region and would be unlistable and unremovable
+               under a region's name; one with several records would answer
+               a request to remove one of them by unlinking all of them. Both
+               are read tile by tile into a file of their own instead. *)
+            let placed =
+              match
+                Eio.Switch.run @@ fun usw ->
+                let path = staged_path ~fs ~basemap_dir in
+                let archive =
+                  Pmtiles.Archive.open_
+                    (Pmtiles_source.file_source (Eio.Path.open_in ~sw:usw path))
+                in
+                match Ledger.of_metadata (Pmtiles.Archive.metadata archive) with
+                | Ok [ e ] ->
+                    let file = region_filename ~entry:e ~id:(Ledger.id e) in
+                    let bytes =
+                      Optint.Int63.to_int
+                        (Eio.Path.stat ~follow:true path).Eio.File.Stat.size
+                    in
+                    Some (e, file, bytes)
+                | _ -> None
+              with
+              | v -> v
+              | exception _ -> None
+            in
+            (match placed with
+            | Some (e, file, bytes) -> (
+                match
+                  Eio.Path.rename
+                    (staged_path ~fs ~basemap_dir)
+                    Eio.Path.(fs / basemap_dir / file)
+                with
+                | () ->
+                    (* Same tail a download has, for the same reasons: a
+                       browsed copy of a tile this file now holds would
+                       shadow it forever, and the names it can offer are only
+                       findable once it is on disk. *)
+                    (try prune_cache t ~fs ~basemap_dir ~regions:e.Ledger.regions
+                     with err ->
+                       Logs.warn (fun m ->
+                           m "browse cache prune failed: %s"
+                             (Printexc.to_string err)));
+                    (try reindex t ~fs ~basemap_dir
+                     with err ->
+                       Logs.warn (fun m ->
+                           m "search index build failed: %s"
+                             (Printexc.to_string err)));
+                    set t (Basemap_job.Done { total_bytes = bytes; parts = 1 })
+                | exception err -> set t (Basemap_job.Failed (friendly err)))
+            | None ->
+                run_download t ~fs ~net ~source:(staged_source ~basemap_dir)
+                  ~origin
+                  (* No glyph fetch: see [fetch_assets]. *)
+                  ~assets:"" ~basemap_dir ~budget ~name ~now ~refresh:false
+                  ~replaces:None ~target:Detail ~labels:(Some labels) regions);
+            (* The staged file has done its job either way. Left behind it is
+               a second copy of a country sitting in the user's data
+               directory, which on the machine most likely to be short of
+               disk is the last thing to leave lying around. *)
+            (try Eio.Path.unlink (staged_path ~fs ~basemap_dir) with _ -> ())
+        | exception e -> set t (Basemap_job.Failed (friendly e)));
+    Ok ()
+  end
 
 (* ----------------------------------------------------------------- browse *)
 
@@ -1160,7 +2072,7 @@ let run_compact t ~fs ~basemap_dir =
           (fun out ->
             let written = ref 0 in
             let append str = Eio.Flow.copy_string str out in
-            let copy ~origin ~offset ~length =
+            let copy ~index:_ ~origin ~offset ~length =
               check_cancel t;
               let bytes =
                 match origin with
@@ -1275,25 +2187,38 @@ let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
                 archive ~min_zoom:zoom ~max_zoom:zoom ~min_lon:req.min_lon
                 ~min_lat:req.min_lat ~max_lon:req.max_lon ~max_lat:req.max_lat
             in
-            let main = open_base ~sw:bsw ~fs ~basemap_dir in
-            let cache = open_cache ~sw:bsw ~fs ~basemap_dir in
-            (* Same refusal as a download's: a source whose compression no
-               longer matches what is on disk must not write a single blob.
-               The cache matters as much as the main archive here -- its
-               header is what compaction later stamps over everything. *)
-            guard_compression ~h main;
-            guard_compression ~h cache;
-            let held archive id =
-              match archive with
-              | None -> false
-              | Some a -> Pmtiles.Archive.locate a id <> None
+            (* Every downloaded archive, not just the merged one: with a
+               file per region, the tiles a browse must not re-fetch are
+               spread across as many files as the user has kept. *)
+            let downloaded =
+              List.filter_map (open_readable ~sw:bsw ~fs ~basemap_dir)
+                (downloaded_files ~fs ~basemap_dir)
             in
-            (* Tiles either archive holds are not fetched again; the tile
+            let cache = open_cache ~sw:bsw ~fs ~basemap_dir in
+            (* Same refusal as a download's, and against the same two files:
+               a source whose compression no longer matches what a browse
+               would WRITE into must not write a single blob. That is the
+               cache, whose header compaction later stamps over everything,
+               and map.pmtiles, which is what compaction folds it into.
+
+               Not the region files. Nothing merges those with anything, and
+               each one is read through its own header, so two regions in two
+               compressions are two files that both draw. Refusing a browse
+               over that would be refusing on behalf of a merge that cannot
+               happen. *)
+            guard_compression ~h (open_base ~sw:bsw ~fs ~basemap_dir);
+            guard_compression ~h cache;
+            let held_in a id = Pmtiles.Archive.locate a id <> None in
+            let held id =
+              (match cache with None -> false | Some c -> held_in c id)
+              || List.exists (fun a -> held_in a id) downloaded
+            in
+            (* Tiles any archive holds are not fetched again; the tile
                endpoint already serves them. *)
             let wanted =
               Array.of_list
                 (List.filter
-                   (fun (id, _) -> not (held main id || held cache id))
+                   (fun (id, _) -> not (held id))
                    (Array.to_list plan.Pmtiles.Extract.tiles))
             in
             if Array.length wanted = 0 then (0, zoom)
@@ -1310,7 +2235,7 @@ let run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget
               Eio.Path.with_open_out ~create:(`Or_truncate 0o644) part_path
                 (fun out ->
                   let append str = Eio.Flow.copy_string str out in
-                  let copy ~origin ~offset ~length =
+                  let copy ~index:_ ~origin ~offset ~length =
                     let bytes =
                       match origin with
                       | Pmtiles.Merge.Base -> (
@@ -1421,8 +2346,8 @@ let covers_the_planet (reqs : Basemap_job.request list) =
       && r.Basemap_job.min_lat <= -85. && r.Basemap_job.max_lat >= 85.
   | _ -> false
 
-let start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~world ~now
-    reqs =
+let start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~labels
+    ~world ~now reqs =
   let target = if world then World else Detail in
   if world && not (covers_the_planet reqs) then
     Error "a world overview has to cover the whole world"
@@ -1430,7 +2355,7 @@ let start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~world ~now
   else begin
     Eio.Fiber.fork ~sw (fun () ->
         run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~now
-          ~refresh:false ~replaces:None ~target reqs);
+          ~refresh:false ~replaces:None ~target ~labels reqs);
     Ok ()
   end
 
@@ -1440,22 +2365,42 @@ let start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~world ~now
    from by id -- explicitly, so a budget change that alters the granted
    depth cannot leave two records claiming the same place. *)
 let start_update t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now ~id =
-  if not (claim t) then Error "a download is already running"
+  (* Before the seat is claimed, so a refusal costs nothing and leaves no
+     job behind to explain. An update is a re-download of an entry's regions
+     under its recorded name, and the overview has no entry: there is
+     nothing to re-download and nothing to name it. Deepening the planet is
+     a world download, which the card already offers in its own right. *)
+  if id = overview_id then
+    Error "the world overview is not updated from the downloads list"
+  else if not (claim t) then Error "a download is already running"
   else begin
     Eio.Fiber.fork ~sw (fun () ->
         match
-          Eio.Switch.run @@ fun usw ->
-          let base = open_base ~sw:usw ~fs ~basemap_dir in
-          let _meta, led = base_ledger base in
-          Ledger.find led ~id
+          Eio.Switch.run @@ fun usw -> home_of ~sw:usw ~fs ~basemap_dir ~id
         with
         | None -> set t (Basemap_job.Failed "no such downloaded map")
-        | Some e ->
+        (* Same line as removal's, for a reason of its own: an update lands
+           in a NEW file and leaves the merged row where it is, so the row
+           would be duplicated by something that cannot then be undone --
+           the original is in the base archive and nothing removes from
+           there. The button is gone from the card too. *)
+        | Some (file, _) when file = base_file ->
+            set t
+              (Basemap_job.Failed
+                 "that map is part of the base map this server is drawing \
+                  from and is not updated from here")
+        | Some (_, e) ->
             (* Updates come from ledger entries, and only the detail
                archive has one. *)
             run_download t ~fs ~net ~source ~assets ~basemap_dir ~budget
               ~name:(Some e.Ledger.name) ~now ~refresh:true ~replaces:(Some id)
-              ~target:Detail e.Ledger.regions
+              ~target:Detail
+              (* Every box in a recorded entry was downloaded under one name,
+                 so they all carry it: an update of "France and Germany"
+                 draws the rows it was saved as, not two anonymous boxes. *)
+              ~labels:
+                (Some (List.map (fun _ -> e.Ledger.name) e.Ledger.regions))
+              e.Ledger.regions
         | exception e -> set t (Basemap_job.Failed (friendly e)));
     Ok ()
   end
@@ -1473,8 +2418,48 @@ let start_remove t ~sw ~fs ~basemap_dir ~id =
 let ledger_json ~fs ~basemap_dir =
   match
     Eio.Switch.run @@ fun sw ->
-    let base = open_base ~sw ~fs ~basemap_dir in
-    let _meta, led = base_ledger base in
+    let led = homes ~sw ~fs ~basemap_dir in
+    (* The map under the map, listed first because it is underneath.
+
+       It has no ledger record and never will -- packages ship it, the
+       extraction tool writes it, and the world download merges into it
+       without recording anything -- so this row is assembled from the file
+       itself: its size on disk and the depth its header claims. Everything
+       a record would supply is absent and says so. [completed] is 0, which
+       the page already renders as "age unknown"; the source is empty
+       because nothing wrote down where this one came from.
+
+       Listing it is the fix for a real complaint, and the complaint was not
+       that a button was wrong. Leaving the overview out meant the panel's
+       answer to "what maps do I have" omitted the largest and most
+       important file on disk, so a small download named for the viewport
+       read as the world map, and its Remove button as the button that
+       deletes the world. A row with a size and no verbs answers the
+       question and closes the door in the same line. *)
+    let overview =
+      List.filter_map
+        (fun (e : Tile_set.entry) ->
+          if e.Tile_set.name <> world_file then None
+          else
+            Some
+              (`Assoc
+                 [
+                   ("id", `String overview_id);
+                   ("file", `String "");
+                   (* Named by the page, not here. A row the user reads has
+                      to be in the user's language, and this server has no
+                      opinion about which that is. *)
+                   ("name", `String "");
+                   ("completed", `Int 0);
+                   ("source", `String "");
+                   ("bytes", `Int e.Tile_set.size);
+                   ("regions", `Int 1);
+                   ("overview", `Bool true);
+                   ( "max_zoom",
+                     `Int e.Tile_set.header.Pmtiles.Header.max_zoom );
+                 ]))
+        (Tile_set.entries ~dir:Eio.Path.(fs / basemap_dir))
+    in
     `Assoc
       [
         (* Whether there is a map on disk at all, which is NOT whether the
@@ -1488,23 +2473,38 @@ let ledger_json ~fs ~basemap_dir =
         ( "held",
           `Bool
             (List.exists
-               (fun name ->
-                 match Eio.Path.kind ~follow:true Eio.Path.(fs / basemap_dir / name) with
-                 | `Regular_file -> true
-                 | _ -> false)
-               [ base_file; world_file ]) );
+               (fun name -> name <> cache_file)
+               (tile_files ~fs ~basemap_dir)) );
         ( "entries",
           `List
-            (List.map
-               (fun (e : Ledger.entry) ->
+            (overview
+            @ List.map
+               (fun (file, (e : Ledger.entry)) ->
                  `Assoc
                    [
                      ("id", `String (Ledger.id e));
+                     (* The file this region's tiles are in, which is the
+                        file to carry away: a download IS its own archive
+                        now, so there is nothing to build and nothing to
+                        wait for. Empty for a region still living inside the
+                        old merged map.pmtiles, which has to be extracted
+                        out of it -- the export path below, kept for exactly
+                        that case. *)
+                     ( "file",
+                       `String (if file = base_file then "" else file) );
                      ("name", `String e.Ledger.name);
                      ("completed", `Int e.Ledger.completed);
                      ("source", `String e.Ledger.source);
                      ("bytes", `Int e.Ledger.bytes);
                      ("regions", `Int (List.length e.Ledger.regions));
+                     (* The row is real and its tiles are really there, so
+                        it is listed and can still be brought up to date --
+                        but it is the ground under everything else, and the
+                        UI must not offer to take it away. Sent as a fact
+                        about the entry rather than left for the page to
+                        work out, so the two locks agree on one answer. *)
+                     ("overview",
+                       `Bool (file = base_file && Ledger.spans_world e));
                      ( "max_zoom",
                        `Int
                          (List.fold_left
@@ -1546,7 +2546,10 @@ let max_coverage_tiles = 4096
    This one answers "how deep does detail go", and it is the question the
    coverage clamp below needs. *)
 let detail_depth ~sw ~fs ~basemap_dir =
-  match List.filter_map (open_readable ~sw ~fs ~basemap_dir) detail_files with
+  match
+    List.filter_map (open_readable ~sw ~fs ~basemap_dir)
+      (detail_files ~fs ~basemap_dir)
+  with
   | [] -> None
   | archives ->
       Some
@@ -1611,7 +2614,8 @@ let coverage ~fs ~basemap_dir (req : Basemap_job.request) =
          calling it absent would wash a drawn map grey and offer a download
          for something already on screen. *)
       let archives =
-        List.filter_map (open_readable ~sw ~fs ~basemap_dir) tile_files
+        List.filter_map (open_readable ~sw ~fs ~basemap_dir)
+          (tile_files ~fs ~basemap_dir)
       in
       let held ~z ~x ~y =
         let id = Pmtiles.Tile_id.of_zxy ~z ~x ~y in
@@ -1666,7 +2670,9 @@ let coverage ~fs ~basemap_dir (req : Basemap_job.request) =
          view. Told only the depth, the client would promise "this is the
          wider map" over ground with no wider map on it. *)
       let floor_here =
-        floor_depth (whole_archives ~sw ~fs ~basemap_dir tile_files) >= 0
+        floor_depth
+          (whole_archives ~sw ~fs ~basemap_dir (tile_files ~fs ~basemap_dir))
+        >= 0
       in
       `Assoc
         [
@@ -1689,9 +2695,9 @@ let ops t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now =
       (fun ~world reqs ->
         estimate ~fs ~net ~source ~basemap_dir ~budget ~world reqs);
     start =
-      (fun ~name ~world reqs ->
-        start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~world
-          ~now reqs);
+      (fun ~name ~labels ~world reqs ->
+        start t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~name ~labels
+          ~world ~now reqs);
     cancel = (fun () -> cancel t);
     status = (fun () -> status t);
     ledger = (fun () -> ledger_json ~fs ~basemap_dir);
@@ -1700,6 +2706,16 @@ let ops t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now =
         start_update t ~sw ~fs ~net ~source ~assets ~basemap_dir ~budget ~now
           ~id);
     remove = (fun ~id -> start_remove t ~sw ~fs ~basemap_dir ~id);
+    export = (fun ~id -> start_export t ~sw ~fs ~basemap_dir ~id);
+    exports = (fun () -> exports_json ~fs ~basemap_dir);
+    delete_export = (fun ~file -> delete_export ~fs ~basemap_dir ~file);
+    staged =
+      (fun () ->
+        match import_summary ~fs ~basemap_dir with
+        | Ok j -> j
+        | Error _ -> `Assoc [ ("staged", `Bool false) ]);
+    import = (fun () -> start_import t ~sw ~fs ~net ~basemap_dir ~budget ~now);
+    discard_import = (fun () -> discard_import ~fs ~basemap_dir);
     browse =
       (fun req -> run_browse t ~sw ~fs ~net ~source ~basemap_dir ~budget req);
     clear_cache = (fun () -> clear_cache t ~fs ~basemap_dir);

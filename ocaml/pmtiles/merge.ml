@@ -232,6 +232,14 @@ let prune ?(on_entry = fun () -> ()) ~(base : Archive.t) ~drop () =
     },
     !dropped_tiles )
 
+(* [copy] is handed [index], the blob's position in [p.blobs], as well as
+   where to read it from. The index is what lets a caller attribute bytes to
+   whatever it decided that blob belongs to -- the download uses it to say
+   which REGION each blob was fetched for, which cannot be recovered from the
+   offset alone once the merge has deduplicated across regions. Blobs are
+   copied in ascending index order, but a caller that needs the index should
+   take it from here rather than counting calls: the order is [write_tiles]'s
+   business, not part of this contract. *)
 let write ?metadata (p : plan) (source : Header.t) ~min_zoom ~max_zoom
     ~min_lon ~min_lat ~max_lon ~max_lat ~append ~copy =
   Extract.write_tiles ?metadata ~source ~min_zoom ~max_zoom ~min_lon ~min_lat
@@ -240,5 +248,5 @@ let write ?metadata (p : plan) (source : Header.t) ~min_zoom ~max_zoom
     ~append
     ~copy_blob:(fun i ->
       let origin, offset, length = p.blobs.(i) in
-      copy ~origin ~offset ~length)
+      copy ~index:i ~origin ~offset ~length)
     ()

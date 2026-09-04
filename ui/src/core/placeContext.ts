@@ -299,7 +299,7 @@ export function containingSubdivision(
 const R_KM = 6371;
 const rad = (d: number) => (d * Math.PI) / 180;
 
-/* Great-circle distance, rounded to whole kilometres. */
+/* Great-circle distance, given back in whole kilometres. */
 export function distanceKm(
   fromLon: number,
   fromLat: number,

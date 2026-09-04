@@ -17,6 +17,12 @@ type t =
           downloaded, and the floor underneath it, which is cut shallow so
           that it is never asked for a tile it has not got *)
   | Api of string  (** the API sub-path, e.g. "session" *)
+  | Import
+      (** a map file being uploaded to be merged in. Its own route rather
+          than an [Api] endpoint because the body is gigabytes of tiles
+          streamed to disk, and every /api/ body is read whole into memory
+          under a 4 MiB bound -- which is the right bound for every other
+          endpoint and the wrong one for exactly this. *)
   | Not_found
   | Method_not_allowed
 
@@ -56,6 +62,7 @@ let of_request ~meth ~target =
       | Some _ -> Not_found
       | None -> (
           match segments with
+          | [ "import" ] -> if meth = `POST then Import else Method_not_allowed
           | [ "tiles.json" ] ->
               if readable then Tile_json { floor = false }
               else Method_not_allowed

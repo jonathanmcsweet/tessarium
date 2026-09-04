@@ -195,7 +195,7 @@ const keyWords = (hex) =>
   Array.from({ length: 8 }, (_, i) => {
     const w = hex.slice(i * 8, i * 8 + 8);
     return BigInt(
-      "0x" + w.slice(6, 8) + w.slice(4, 6) + w.slice(2, 4) + w.slice(0, 2),
+      `0x${w.slice(6, 8)}${w.slice(4, 6)}${w.slice(2, 4)}${w.slice(0, 2)}`,
     );
   });
 

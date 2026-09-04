@@ -34,11 +34,23 @@ jobs:
           mkdir -p ~/toolchain && cd ~/toolchain
           curl -fsSL -o fstar.tar.gz \
             "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
-          tar -xzf fstar.tar.gz && mv fstar* fstar
+          tar -xzf fstar.tar.gz
+          # The tarball's top directory has been both a versioned name and a
+          # bare `fstar`, and `mv fstar* fstar` only survives the first: once
+          # the archive unpacks to `fstar` the glob also catches the tarball
+          # and mv is asked to move a directory into itself. Normalise
+          # whichever arrived instead, which is a no-op for the bare one.
+          # Same rule as tools/setup.sh, which does this for a workstation.
+          find . -maxdepth 1 -type d -name 'fstar*' ! -name fstar \
+            -exec mv {} fstar \;
+          # ~/toolchain is what gets cached, and the tarball is 230 MB of it
+          # that nothing reads again. tools/setup.sh drops it for the same
+          # reason.
+          rm -f fstar.tar.gz
 
       # `make verify` passes --report_assumes error, so every escape hatch --
       # admit, assume, magic -- is an error rather than something to remember to
-      # look for. An admit otherwise verifies silently and nothing fails on it.
+      # look for.
       - name: Verify every module, refusing proof holes
         run: |
           export PATH="$HOME/toolchain/fstar/bin:$PATH"
@@ -47,7 +59,7 @@ jobs:
 
   build:
     name: Build, extract and test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -64,7 +76,19 @@ jobs:
           mkdir -p ~/toolchain && cd ~/toolchain
           curl -fsSL -o fstar.tar.gz \
             "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
-          tar -xzf fstar.tar.gz && mv fstar* fstar
+          tar -xzf fstar.tar.gz
+          # The tarball's top directory has been both a versioned name and a
+          # bare `fstar`, and `mv fstar* fstar` only survives the first: once
+          # the archive unpacks to `fstar` the glob also catches the tarball
+          # and mv is asked to move a directory into itself. Normalise
+          # whichever arrived instead, which is a no-op for the bare one.
+          # Same rule as tools/setup.sh, which does this for a workstation.
+          find . -maxdepth 1 -type d -name 'fstar*' ! -name fstar \
+            -exec mv {} fstar \;
+          # ~/toolchain is what gets cached, and the tarball is 230 MB of it
+          # that nothing reads again. tools/setup.sh drops it for the same
+          # reason.
+          rm -f fstar.tar.gz
 
       - uses: ocaml/setup-ocaml@v3
         with:
@@ -83,8 +107,7 @@ jobs:
           opam exec -- make -C fstar fstarlib
 
       # The rule is that extracted OCaml is a build artifact and is never
-      # hand-edited. This is what makes that enforceable instead of merely
-      # stated: regenerate it, and fail if it differs from what was committed.
+      # hand-edited.
       - name: Extracted OCaml matches a fresh extraction
         run: |
           export PATH="$HOME/toolchain/fstar/bin:$PATH"
@@ -155,9 +178,7 @@ jobs:
       # The KDF's two committed artifacts: the vendored Argon2 reference C
       # must match the pinned upstream release byte for byte, and
       # wasm/argon2.wasm must match a fresh build of it (the SAME C the
-      # server's FFI links -- one implementation, two hosts). The
-      # behavioural wall (js/argon2-differential.mjs, in dune test) rings
-      # on live-code drift; dead-region bytes only these diffs catch.
+      # server's FFI links -- one implementation, two hosts).
       - name: Vendored Argon2 matches the pinned release
         run: make sync-argon2
 
@@ -186,6 +207,11 @@ jobs:
             exit 1
           fi
 
+      # Before setup-node, which wants a package manager present to key its
+      # cache on. The version comes from the `packageManager` field in
+      # package.json, so CI and a developer's checkout cannot drift.
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -193,7 +219,7 @@ jobs:
       # The differential oracle's one dependency (keyed BLAKE2s -- see
       # package.json at the root). Locked install, no scripts.
       - name: Oracle dependencies
-        run: npm ci --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build
         run: opam exec -- dune build
@@ -211,38 +237,15 @@ jobs:
       - name: Embed the UI in the binary
         run: opam exec -- dune build
 
-      # Lint, types, message catalogues and the browser payload budgets. After
-      # the UI build because it needs ui/node_modules, and after the dune build
-      # because ui/test/payload.mjs measures the bundle where dune writes it.
-      # Without this step nothing in CI holds ocaml/js/dune's two size
-      # settings, and deleting them would ship a 5 MB bundle to a green build.
       - name: Static checks
         run: opam exec -- make test-static
-
-      # Through the Makefile, not by hand. The suite needs FIVE servers -- a
-      # fixture archive to download from, and four clients configured
-      # differently (whole-file, multi-part, compression mismatch, cancel) --
-      # and it takes their URLs as arguments. Starting one server and passing
-      # one URL leaves base3/base4/base5 pointing at ports nothing is
-      # listening on, which is what this step used to do: every check past
-      # the first download section failed on a refused connection, so the
-      # resume, mismatch and cancel guarantees were not being tested at all.
-      #
-      # The recipe also owns the teardown. No --ui in it either, so this
-      # drives the UI compiled into the binary -- what ships is what is
-      # tested.
+        
       - name: Browser end-to-end
         run: |
-          cd ui && npx playwright install chromium
+          cd ui && pnpm exec playwright install chromium
           cd ..
           opam exec -- make test-ui
 
-      # Every package ships a world overview and the glyphs its labels are
-      # drawn from, so packaging needs a map to cut one out of. Kept outside
-      # the tree and cached under a fixed key: it is 21 MB of somebody else's
-      # bandwidth, it changes upstream every day, and a package built from a
-      # different day's planet is a different package for no reason anyone
-      # asked for.
       - name: Cache the map packages ship
         id: mapsrc-cache
         uses: actions/cache@v4
@@ -265,14 +268,12 @@ jobs:
           name: tessarium-linux-x86_64
           path: dist/*.tar.gz
 
-  # The first rung of "verifiable builds" (roadmap, Phase 7): the same commit
-  # built twice from clean must yield bit-identical release artifacts. The
-  # tarball and .deb are built with fixed timestamps and ownership, so any
-  # difference here is nondeterminism creeping into the pipeline -- the thing
-  # that would make published checksums unverifiable.
   reproducible:
     name: Packages build twice identically, and install
-    runs-on: ubuntu-latest
+    # Same base as the build job, and for the same reason: this one builds the
+    # .deb, .rpm and AppImage, each of which carries (or crashes on) the glibc
+    # floor of its build host. 22.04 is glibc 2.35 -- see the build job.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -289,7 +290,19 @@ jobs:
           mkdir -p ~/toolchain && cd ~/toolchain
           curl -fsSL -o fstar.tar.gz \
             "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
-          tar -xzf fstar.tar.gz && mv fstar* fstar
+          tar -xzf fstar.tar.gz
+          # The tarball's top directory has been both a versioned name and a
+          # bare `fstar`, and `mv fstar* fstar` only survives the first: once
+          # the archive unpacks to `fstar` the glob also catches the tarball
+          # and mv is asked to move a directory into itself. Normalise
+          # whichever arrived instead, which is a no-op for the bare one.
+          # Same rule as tools/setup.sh, which does this for a workstation.
+          find . -maxdepth 1 -type d -name 'fstar*' ! -name fstar \
+            -exec mv {} fstar \;
+          # ~/toolchain is what gets cached, and the tarball is 230 MB of it
+          # that nothing reads again. tools/setup.sh drops it for the same
+          # reason.
+          rm -f fstar.tar.gz
 
       - uses: ocaml/setup-ocaml@v3
         with:
@@ -302,6 +315,8 @@ jobs:
         run: |
           export PATH="$HOME/toolchain/fstar/bin:$PATH"
           opam exec -- make -C fstar fstarlib
+
+      - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
         with:
