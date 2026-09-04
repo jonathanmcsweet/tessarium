@@ -57,6 +57,11 @@ failure was real, not a flake.
 A third kind exists now: a cancelled download is neither an error nor a
 success, and had been sonner's bare `toast()`.
 
+The pin is exact, not a caret: `UNSTABLE_` means the API may change shape in
+a MINOR release, which is inside what `^` accepts, so a rename would have
+arrived with a routine update. Moving it is now an edit somebody makes on
+purpose.
+
 
 ### 2026-09-03 — Two colours that belonged to no palette
 

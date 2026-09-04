@@ -9,6 +9,13 @@
    contrast test as the rest of the application, and follows a theme change
    with no rule of its own. */
 
+/* The `UNSTABLE_` prefix is the library saying this API may change shape in a
+   MINOR release, which is inside what a caret range accepts. So
+   react-aria-components is pinned to an exact version in package.json rather
+   than carried on `^`: an unannounced rename would otherwise arrive with a
+   routine `pnpm update` and take the toasts out with it. Moving it is a
+   deliberate edit, and the end-to-end suite is what says whether the move
+   was safe. */
 import {
   Button,
   UNSTABLE_Toast as Toast,
