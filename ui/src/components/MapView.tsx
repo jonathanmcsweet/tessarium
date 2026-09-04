@@ -288,70 +288,50 @@ const basemapLayers = (
    read against the cartography, not to be a particular colour. */
 type Scheme = ResolvedTheme;
 
-const OVERLAY: Record<Scheme, {
-  blank: string;
-  blankOpacity: number;
-  edge: string;
-  grid: string;
-  /* The selected square and its pin. Hardcoded to the light accent for as
-     long as there was one theme; now the loudest mark on the map follows
-     the palette it lands in -- vermilion in the plain themes, magenta in
-     the cyberpunk ones, red in low light. */
-  select: string;
-}> = {
-  /* The two plain themes: a neutral grid over the map, and the accent that
-     palette actually uses for the selection. */
-  light: {
-    blank: "#41505f",
-    blankOpacity: 0.42,
-    edge: "#5f7183",
-    grid: "#1b3a5c",
-    select: "#d13a22",
-  },
-  dark: {
-    blank: "#9fb3c7",
-    blankOpacity: 0.26,
-    edge: "#b8c9da",
-    grid: "#8fc4ff",
-    select: "#ff6a4d",
-  },
-  /* And the two cyberpunk ones, which take the grid into the palette's own
-     family rather than leaving a blue grid over a violet map. */
-  "cyber-light": {
-    blank: "#4a3f66",
-    blankOpacity: 0.42,
-    edge: "#6d5f8f",
-    grid: "#331a5e",
-    select: "#d10c81",
-  },
-  "cyber-dark": {
-    blank: "#a89ac9",
-    blankOpacity: 0.24,
-    edge: "#c3b3e0",
-    grid: "#6ee9ff",
-    select: "#ff4fa8",
-  },
-  /* Red only, like everything else in low light: the grid is the loudest
-     thing this application draws, and a blue grid over a red screen would
-     be the one light that costs the user their night vision. */
-  /* The overlay grid is grey here, not red: red belongs to the map's own
-     warmth (roads, labels) and the selection, and a red grid laid over a
-     red-tinted map was one red too many to read. Grey is the one neutral
-     the theme allows itself, kept dim. The selection square stays red --
-     it is the one mark that has to jump off everything else. */
-  night: {
-    blank: "#8a7f7c",
-    blankOpacity: 0.22,
-    edge: "#9a8f8c",
-    grid: "#8f8582",
-    select: "#ff5346",
-  },
+/* The overlay's colours, read from the palette the document is wearing.
+
+   These lived here once, as a Record over the five schemes -- a second copy
+   of the palette that styles.css already owned, and the selection colour
+   really was a copy: it is the accent, and the two had to be edited in
+   step. Now styles.css is the only home (--color-map-* per palette), read
+   through getComputedStyle so the engine that owns the cascade -- media
+   queries included -- is the one resolving it. MapLibre needs literal
+   colour strings, not var() references, which is why this is a read and
+   not a stylesheet rule.
+
+   Called at layer-add time, never cached: applyTheme sets the attribute
+   synchronously in the store action, so by the time a style rebuild runs,
+   the document is already wearing the palette being read. A missing token
+   throws rather than painting MapLibre's silent black. */
+const overlayColors = () => {
+  const token = (name: string): string => {
+    const value = getComputedStyle(document.documentElement)
+      .getPropertyValue(name)
+      .trim();
+    if (!value) throw new Error(`css token ${name} is not defined`);
+    return value;
+  };
+  return {
+    blank: token("--color-map-blank"),
+    blankOpacity: Number(token("--map-blank-opacity")),
+    edge: token("--color-map-edge"),
+    grid: token("--color-map-grid"),
+    /* The selected square and its pin: the loudest mark on the map wears
+       the palette's own accent, the same token the address line spends. */
+    select: token("--color-accent"),
+    /* And the pin's separating ring is what the palette says sits against
+       a filled accent. It was a literal #ffffff -- a colour belonging to
+       no palette, and in low light a pure white flash on the one screen
+       built to avoid one. */
+    onSelect: token("--color-on-accent"),
+  };
 };
 
-const addOverlay = (map: maplibregl.Map, scheme: Scheme) => {
+const addOverlay = (map: maplibregl.Map) => {
   /* Adding twice throws. Cannot happen today, but the callers are event
      listeners around a style swap whose timing MapLibre does not promise. */
   if (map.getSource("coverage")) return;
+  const colors = overlayColors();
   map.addSource("coverage", { type: "geojson", data: emptyGeoJson });
   map.addSource("coverage-edge", { type: "geojson", data: emptyGeoJson });
   map.addSource("grid", { type: "geojson", data: emptyGeoJson });
@@ -373,8 +353,8 @@ const addOverlay = (map: maplibregl.Map, scheme: Scheme) => {
        which is no signal at all. What keeps it off a drawn map is the data
        it is given, not this. */
     paint: {
-      "fill-color": OVERLAY[scheme].blank,
-      "fill-opacity": OVERLAY[scheme].blankOpacity,
+      "fill-color": colors.blank,
+      "fill-opacity": colors.blankOpacity,
     },
   });
   map.addLayer({
@@ -382,7 +362,7 @@ const addOverlay = (map: maplibregl.Map, scheme: Scheme) => {
     type: "line",
     source: "coverage-edge",
     paint: {
-      "line-color": OVERLAY[scheme].edge,
+      "line-color": colors.edge,
       "line-width": 1.5,
       "line-opacity": 0.85,
     },
@@ -393,7 +373,7 @@ const addOverlay = (map: maplibregl.Map, scheme: Scheme) => {
     type: "line",
     source: "grid",
     paint: {
-      "line-color": OVERLAY[scheme].grid,
+      "line-color": colors.grid,
       "line-width": 0.6,
       /* Fades in as the squares become large enough to aim at, rather
          than appearing abruptly at a threshold. */
@@ -414,14 +394,14 @@ const addOverlay = (map: maplibregl.Map, scheme: Scheme) => {
     type: "fill",
     source: "selection",
     filter: ["==", ["geometry-type"], "Polygon"],
-    paint: { "fill-color": OVERLAY[scheme].select, "fill-opacity": 0.35 },
+    paint: { "fill-color": colors.select, "fill-opacity": 0.35 },
   });
   map.addLayer({
     id: "selection-outline",
     type: "line",
     source: "selection",
     filter: ["==", ["geometry-type"], "Polygon"],
-    paint: { "line-color": OVERLAY[scheme].select, "line-width": 2 },
+    paint: { "line-color": colors.select, "line-width": 2 },
   });
   /* A ~3 m square is sub-pixel until street level, so zoomed out the
      selection would be invisible -- exactly when someone has just looked an
@@ -437,7 +417,7 @@ const addOverlay = (map: maplibregl.Map, scheme: Scheme) => {
     maxzoom: GRID_MIN_ZOOM + 1,
     paint: {
       "circle-radius": 11,
-      "circle-color": OVERLAY[scheme].select,
+      "circle-color": colors.select,
       "circle-opacity": [
         "interpolate",
         ["linear"],
@@ -457,8 +437,8 @@ const addOverlay = (map: maplibregl.Map, scheme: Scheme) => {
     maxzoom: GRID_MIN_ZOOM + 1,
     paint: {
       "circle-radius": 5,
-      "circle-color": OVERLAY[scheme].select,
-      "circle-stroke-color": "#ffffff",
+      "circle-color": colors.select,
+      "circle-stroke-color": colors.onSelect,
       "circle-stroke-width": 2,
       "circle-opacity": [
         "interpolate",
@@ -630,7 +610,7 @@ export function MapView() {
     );
 
     map.on("load", () => {
-      addOverlay(map, schemeRef.current);
+      addOverlay(map);
       setZoom(map.getZoom());
       setReady(true);
     });
@@ -902,7 +882,7 @@ export function MapView() {
        fails, MapLibre rebuilds the style from scratch and the event fires
        asynchronously instead; registering first serves both timings. */
     map.once("style.load", () => {
-      addOverlay(map, schemeRef.current);
+      addOverlay(map);
       setStyleEpoch((epoch) => epoch + 1);
     });
     map.setStyle(buildStyle(styleVersion.current, schemeRef.current));

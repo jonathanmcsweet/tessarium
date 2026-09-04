@@ -136,6 +136,16 @@
     radial-gradient(ellipse at 12% -10%, rgb(255 79 168 / 0.16), transparent 46%),
     radial-gradient(ellipse at 95% 110%, rgb(83 241 255 / 0.13), transparent 46%);
 
+  /* The map overlay: the coverage veil (blank), its boundary (edge), the
+     address grid, at the opacity the veil is laid on with. Read by
+     MapView through getComputedStyle at style-build time -- the browser
+     is the parser -- so the palette here is the only home these colours
+     have. The selected square is not listed: it is --color-accent. */
+  --color-map-blank: #a89ac9;
+  --map-blank-opacity: 0.24;
+  --color-map-edge: #c3b3e0;
+  --color-map-grid: #6ee9ff;
+
   /* A shadow is a shape cut out of the light behind it. On a dark ground
      there is no light behind it, so a tinted rgba reads as nothing at all;
      it has to be darker than the surface it falls on. */
@@ -221,6 +231,11 @@
   --glitch-b: transparent;
   --bg-image: none;
 
+  --color-map-blank: #41505f;
+  --map-blank-opacity: 0.42;
+  --color-map-edge: #5f7183;
+  --color-map-grid: #1b3a5c;
+
   --shadow-card: 0 1px 3px rgba(18, 33, 47, 0.12),
     0 8px 24px rgba(18, 33, 47, 0.08);
 }
@@ -267,6 +282,11 @@
   --glitch-b: transparent;
   --bg-image: none;
 
+  --color-map-blank: #9fb3c7;
+  --map-blank-opacity: 0.26;
+  --color-map-edge: #b8c9da;
+  --color-map-grid: #8fc4ff;
+
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
 }
 
@@ -307,6 +327,11 @@
     --glitch-a: transparent;
     --glitch-b: transparent;
     --bg-image: none;
+
+    --color-map-blank: #9fb3c7;
+    --map-blank-opacity: 0.26;
+    --color-map-edge: #b8c9da;
+    --color-map-grid: #8fc4ff;
 
     --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
   }
@@ -376,6 +401,11 @@
     radial-gradient(ellipse at 12% -10%, rgb(209 12 129 / 0.07), transparent 46%),
     radial-gradient(ellipse at 95% 110%, rgb(0 150 176 / 0.07), transparent 46%);
 
+  --color-map-blank: #4a3f66;
+  --map-blank-opacity: 0.42;
+  --color-map-edge: #6d5f8f;
+  --color-map-grid: #331a5e;
+
   --shadow-card: 0 1px 3px rgba(26, 16, 48, 0.14),
     0 8px 24px rgba(26, 16, 48, 0.10);
 }
@@ -414,6 +444,11 @@
   --glitch-a: transparent;
   --glitch-b: transparent;
   --bg-image: none;
+
+  --color-map-blank: #8a7f7c;
+  --map-blank-opacity: 0.22;
+  --color-map-edge: #9a8f8c;
+  --color-map-grid: #8f8582;
   --color-on-ink: #120909;
   --color-on-accent: #120909;
   --color-disabled: #2b1a1a;
