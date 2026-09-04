@@ -1,4 +1,5 @@
 import { paraglideVitePlugin } from "@inlang/paraglide-js";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
@@ -9,6 +10,14 @@ import { defineConfig } from "vite";
 // the kind of difference that only shows up after a release.
 const backend = process.env.TESSARIUM_SERVER ?? "http://127.0.0.1:7373";
 
+// Vite's own default is 5173, which is the port every other Vite project on a
+// machine also wants. This one sits in the block the rest of the project
+// already uses -- 7373 is the app, 7374-7379 are the servers the end-to-end
+// suite starts -- so a second Vite service somewhere else is not a collision.
+// TESSARIUM_UI_PORT overrides it, the same way TESSARIUM_SERVER overrides the
+// backend above.
+const uiPort = Number(process.env.TESSARIUM_UI_PORT ?? 7380);
+
 // Baked in at build time from package.json -- the one version field npm
 // already requires -- so the footer cannot disagree with the package.
 const { version } = JSON.parse(readFileSync("./package.json", "utf8"));
@@ -17,6 +26,11 @@ export default defineConfig({
   define: { __APP_VERSION__: JSON.stringify(version) },
   plugins: [
     react(),
+    // Tailwind compiles at build time and emits a plain stylesheet, so the
+    // shipped app fetches nothing: no CDN, no runtime, no web font. Only the
+    // utilities the source actually mentions survive into that file, which is
+    // why the design scale can be large without the download being.
+    tailwindcss(),
     // Messages are compiled into typed functions rather than looked up from a
     // dictionary at runtime, so a key that does not exist is a build error and
     // an unused message is tree-shaken out.
@@ -59,10 +73,39 @@ export default defineConfig({
     chunkSizeWarningLimit: 1024,
   },
   server: {
+    port: uiPort,
+    // Fail rather than drift. Vite's default is to take the next free port
+    // when the one it asked for is busy, which is how a dev server ends up
+    // somewhere other than where the person running it is looking -- exactly
+    // the confusion this port exists to end.
+    strictPort: true,
+    /* Everything the app asks its own origin for that this server does not
+       itself hold. test/dev-proxy.mjs walks the source for those paths and
+       fails when one is not covered here -- which is how the map spent a long
+       while with no cartography on the dev server and cartography everywhere
+       else: the style's two TileJSON URLs were never on this list, so the
+       only map anyone saw in dev was the grid drawn over nothing. A missing
+       entry does not break the build or log anything an eye would catch. It
+       just serves index.html for a JSON request. */
     proxy: {
       "/basemap": backend,
       "/api": backend,
       "/healthz": backend,
+      /* The style's two sources. `/tiles` covers the TileJSON at
+         /tiles.json AND the tiles at /tiles/{z}/{x}/{y}.mvt, which the
+         TileJSON points at -- Vite matches these by prefix.
+
+         `changeOrigin: false` is load-bearing rather than tidy. A TileJSON
+         has to hand back an absolute URL for its tiles, and the server
+         builds that one from the request's own Host header so it names
+         whoever asked. Vite's shorthand turns changeOrigin ON, which
+         rewrites Host to the backend -- so the document served at :7380
+         gets tile URLs on :7373, fetches them cross-origin, and every one
+         is refused. Keeping the header means the tiles are advertised on
+         the origin that asked for them, and the prefix above carries
+         them. */
+      "/tiles": { target: backend, changeOrigin: false },
+      "/world.json": { target: backend, changeOrigin: false },
       // The worker's two wasm modules -- the KDF and the map core -- are
       // embedded in the backend, not in public/. So in dev they come from the
       // last `make ui` and can lag wasm/*.wasm; rerun it after `make sync-wasm`
@@ -70,5 +113,12 @@ export default defineConfig({
       "/argon2.wasm": backend,
       "/core.wasm": backend,
     },
+  },
+  // `vite preview` serves the built app and defaults to 4173, which is the
+  // same story as 5173. It proxies nothing: a preview is checking what the
+  // build produced, and the built app is served by the OCaml binary.
+  preview: {
+    port: uiPort + 1,
+    strictPort: true,
   },
 });

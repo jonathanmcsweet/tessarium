@@ -207,18 +207,12 @@ let cluster_key seen ~folded ~layer ~lon ~lat =
   done;
   Option.value !near ~default:here
 
-let build ?(max_zoom = index_zoom) ~on_tile (archive : Pmtiles.Archive.t) =
-  let gz =
-    archive.Pmtiles.Archive.header.Pmtiles.Header.tile_compression
-    = Pmtiles.Header.Gzip
-  in
-  let seen = Hashtbl.create 8192 in
-  let entries = Pmtiles.Archive.entries archive in
-  (* How many ids the walk below will actually visit. Counting a whole run
-     whenever its FIRST id is within max_zoom is not the same thing: an empty
-     ocean tile is byte-identical at zoom 12 and at 13, so one run can span
-     the boundary. Then the total counts ids the walk skips, and the progress
-     the UI is shown stops short of it and never arrives. *)
+(* How many ids a walk over this archive will actually visit. Counting a
+   whole run whenever its FIRST id is within max_zoom is not the same thing:
+   an empty ocean tile is byte-identical at zoom 12 and at 13, so one run
+   can span the boundary. Then the total counts ids the walk skips, and the
+   progress the UI is shown stops short of it and never arrives. *)
+let count ~max_zoom (archive : Pmtiles.Archive.t) =
   let within (e : Pmtiles.Directory.entry) =
     let n = ref 0 in
     for k = 0 to e.Pmtiles.Directory.run_length - 1 do
@@ -229,7 +223,27 @@ let build ?(max_zoom = index_zoom) ~on_tile (archive : Pmtiles.Archive.t) =
     done;
     !n
   in
-  let total = List.fold_left (fun acc e -> acc + within e) 0 entries in
+  List.fold_left
+    (fun acc e -> acc + within e)
+    0
+    (Pmtiles.Archive.entries archive)
+
+(* One archive's names, folded into a table shared with the others.
+
+   Shared rather than concatenated, and that is the point: the cluster
+   logic below keeps the SHALLOWEST zoom a name was seen at, because a
+   label repeated down the pyramid should be recorded once at the zoom that
+   places it best. Two archives holding the same city -- a region and the
+   world overview under it, or two regions that overlap -- must resolve the
+   same way. Concatenating two independent builds would give that city two
+   rows and two map flights. *)
+let build_one ~seen ~max_zoom ~on_tile ~offset ~grand
+    (archive : Pmtiles.Archive.t) =
+  let gz =
+    archive.Pmtiles.Archive.header.Pmtiles.Header.tile_compression
+    = Pmtiles.Header.Gzip
+  in
+  let entries = Pmtiles.Archive.entries archive in
   let done_ = ref 0 in
   List.iter
     (fun (e : Pmtiles.Directory.entry) ->
@@ -258,7 +272,7 @@ let build ?(max_zoom = index_zoom) ~on_tile (archive : Pmtiles.Archive.t) =
         let z, x, y = Pmtiles.Tile_id.to_zxy id in
         if z <= max_zoom then begin
           incr done_;
-          on_tile !done_ total;
+          on_tile (offset + !done_) grand;
           match Lazy.force blob with
           | None -> ()
           | Some plain -> (
@@ -279,6 +293,26 @@ let build ?(max_zoom = index_zoom) ~on_tile (archive : Pmtiles.Archive.t) =
         end
       done)
     entries;
+  !done_
+
+(* Every downloaded archive's names, as one index.
+
+   There is one file per region now, so this is a list rather than an
+   archive: the names a search can offer are the union of what every file on
+   disk holds. Counted before it walks so that the progress bar has a
+   denominator that spans the whole job -- a bar that restarts at each file
+   would read as several downloads. *)
+let build_many ?(max_zoom = index_zoom) ~on_tile archives =
+  let seen = Hashtbl.create 8192 in
+  let grand =
+    List.fold_left (fun acc a -> acc + count ~max_zoom a) 0 archives
+  in
+  let offset = ref 0 in
+  List.iter
+    (fun a ->
+      offset :=
+        !offset + build_one ~seen ~max_zoom ~on_tile ~offset:!offset ~grand a)
+    archives;
   let out = Hashtbl.fold (fun _ (_, e) acc -> e :: acc) seen [] in
   List.sort compare_entry out
 

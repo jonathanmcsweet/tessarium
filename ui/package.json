@@ -1,12 +1,14 @@
 {
   "name": "tessarium-ui",
   "private": true,
+  "packageManager": "pnpm@11.24.0",
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "sync-core": "rm -f public/tessarium.js && cp ../_build/default/ocaml/js/tessarium_js.bc.js public/tessarium.js && chmod +w public/tessarium.js",
-    "dev": "npm run sync-core && npm run paraglide && vite",
-    "build": "npm run sync-core && npm run paraglide && tsc -b --noEmit && vite build",
+    "dev": "../tools/dev.sh",
+    "dev:ui": "pnpm run sync-core && pnpm run paraglide && vite",
+    "build": "pnpm run sync-core && pnpm run paraglide && tsc -b --noEmit && vite build",
     "typecheck": "tsc -b --noEmit",
     "e2e": "node test/e2e.mjs",
     "preview": "vite preview",
@@ -15,14 +17,17 @@
     "format": "dprint fmt",
     "format:check": "dprint check",
     "messages": "node test/messages.mjs",
-    "check": "npm run paraglide && npm run lint && npm run format:check && npm run typecheck && npm run messages && npm run regions && npm run contrast && npm run map-coverage && npm run loading && npm run place-context && npm run payload",
+    "check": "pnpm run paraglide && pnpm run lint && pnpm run format:check && pnpm run typecheck && pnpm run messages && pnpm run regions && pnpm run contrast && pnpm run map-coverage && pnpm run night-flavor && pnpm run loading && pnpm run place-context && pnpm run dev-proxy && pnpm run icons && pnpm run payload",
     "paraglide": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide",
     "regions": "node test/regions.mjs",
     "contrast": "node test/contrast.mjs",
     "map-coverage": "node test/coverage.mjs",
     "loading": "node test/loading.mjs",
     "payload": "node test/payload.mjs",
-    "place-context": "node test/place-context.mjs"
+    "night-flavor": "node test/night-flavor.mjs",
+    "place-context": "node test/place-context.mjs",
+    "dev-proxy": "node test/dev-proxy.mjs",
+    "icons": "node test/icons.mjs"
   },
   "dependencies": {
     "@protomaps/basemaps": "5.7.2",
@@ -30,9 +35,9 @@
     "lucide-react": "^1.31.0",
     "maplibre-gl": "5.24.0",
     "react": "19.2.8",
-    "react-aria-components": "^1.20.0",
+    "react-aria": "3.51.0",
+    "react-aria-components": "1.20.0",
     "react-dom": "19.2.8",
-    "sonner": "^2.0.8",
     "zod": "^4.4.3",
     "zustand": "^5.0.15"
   },
@@ -40,6 +45,7 @@
     "@biomejs/biome": "^2.5.8",
     "@inlang/paraglide-js": "^2.24.1",
     "@inlang/plugin-message-format": "^4.4.3",
+    "@tailwindcss/vite": "4.3.3",
     "@types/geojson": "7946.0.16",
     "@types/node": "24.13.3",
     "@types/react": "19.2.18",
@@ -47,6 +53,8 @@
     "@vitejs/plugin-react": "5.2.0",
     "dprint": "^0.55.2",
     "playwright": "1.62.1",
+    "tailwindcss": "4.3.3",
+    "tailwindcss-react-aria-components": "2.2.0",
     "typescript": "5.9.3",
     "vite": "7.3.6"
   }

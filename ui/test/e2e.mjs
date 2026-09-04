@@ -9,11 +9,17 @@
    The addresses it expects come from `vectors/vectors.json`, so a UI that
    renders beautifully and computes the wrong answer still fails. */
 
-import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import http, { createServer } from "node:http";
 import { chromium } from "playwright";
 
-const base = process.argv[2] ?? "http://127.0.0.1:7373";
+const base = process.argv[2] ?? "http://127.0.0.1:7379";
 const vectors = JSON.parse(
   readFileSync(new URL("../../vectors/vectors.json", import.meta.url), "utf8"),
 );
@@ -26,14 +32,25 @@ const messages = JSON.parse(
 );
 const m = (key) => messages[key];
 
-let checks = 0;
-let failures = 0;
+/* Every check is a record in one list; the tally at the bottom is derived
+   from it. The push and the live FAIL line are the reporting edge -- the
+   one place this file mutates on purpose. */
+const results = [];
 const check = (name, ok) => {
-  checks++;
-  if (!ok) {
-    failures++;
-    console.log(`  FAIL  ${name}`);
-  }
+  results.push({ name, ok });
+  if (!ok) console.log(`  FAIL  ${name}`);
+};
+
+/* Poll until `probe` answers with something truthy, or the budget runs out;
+   the answer (or the last falsy one) is returned. Recursion rather than a
+   counter-and-flag loop: the remaining budget travels as an argument, and
+   each step is exactly one probe. Ten polling loops used to spell this out
+   longhand, each with its own let. */
+const until = async (probe, { tries = 120, delayMs = 500 } = {}) => {
+  const value = await probe();
+  if (value || tries <= 1) return value;
+  await new Promise((r) => setTimeout(r, delayMs));
+  return until(probe, { tries: tries - 1, delayMs });
 };
 
 const mnemonic = vectors.key_derivation[0].mnemonic;
@@ -88,11 +105,11 @@ const slowProxy = createServer((req, res) => {
     .then(async (upstream) => {
       const body = Buffer.from(await upstream.arrayBuffer());
       await new Promise((done) => setTimeout(done, PROXY_DELAY_MS));
-      const pass = {};
-      for (const h of ["content-type", "content-range", "accept-ranges"]) {
-        const v = upstream.headers.get(h);
-        if (v) pass[h] = v;
-      }
+      const pass = Object.fromEntries(
+        ["content-type", "content-range", "accept-ranges"]
+          .map((h) => [h, upstream.headers.get(h)])
+          .filter(([, v]) => v),
+      );
       res.writeHead(upstream.status, {
         ...pass,
         "content-length": body.length,
@@ -132,8 +149,21 @@ const expected = (url) => url.includes("/basemap/");
    exactly what this suite must fail on. */
 let basemapReady = false;
 
+/* Flipped for the one test that takes the server away on purpose. Every
+   handler below would otherwise record the refusal as a real failure, which
+   is exactly what they are for every other second of this run.
+
+   It covers argon2.wasm as well as /healthz: the KDF module is what makes
+   unlocking genuinely fail, rather than merely look like it might. And while
+   it is set, console errors and page errors are ignored wholesale -- the app
+   is SUPPOSED to be complaining, loudly, for those few seconds. */
+let serverGone = false;
+const refusedOnPurpose = (url) =>
+  serverGone && (url.includes("/healthz") || url.includes("/argon2.wasm"));
+
 page.on("console", (msg) => {
   if (msg.type() !== "error") return;
+  if (serverGone) return;
   const text = msg.text();
   /* A failed resource is already recorded from the response, with its URL
      attached; the console version has none and is pure noise. */
@@ -144,7 +174,10 @@ page.on("console", (msg) => {
   ) return;
   problems.push(`console: ${text}`);
 });
-page.on("pageerror", (err) => problems.push(`pageerror: ${err.message}`));
+page.on("pageerror", (err) => {
+  if (serverGone) return;
+  problems.push(`pageerror: ${err.message}`);
+});
 page.on("requestfailed", (req) => {
   /* MapLibre aborts its own in-flight tile requests whenever a tile leaves
      the view or the style swaps; the client cancelling itself is not a
@@ -155,11 +188,13 @@ page.on("requestfailed", (req) => {
   ) {
     return;
   }
+  if (refusedOnPurpose(req.url())) return;
   if (!expected(req.url())) {
     problems.push(`requestfailed: ${req.url()} ${req.failure()?.errorText}`);
   }
 });
 page.on("response", (res) => {
+  if (refusedOnPurpose(res.url())) return;
   if (res.status() >= 400 && !expected(res.url())) {
     problems.push(`http ${res.status()}: ${res.url()}`);
   }
@@ -189,6 +224,27 @@ await page.waitForFunction(
   null,
   { timeout: 30_000 },
 );
+/* The one secret this application handles, in a field a password manager
+   will recognise. It was a textarea with autocomplete off, so nothing ever
+   offered to remember the string that cannot be recovered if it is lost.
+   Masked by default, because it is typed on whatever screen is to hand. */
+check(
+  "the phrase is a password field a manager can save",
+  (await page.locator("#phrase").getAttribute("type")) === "password"
+    && (await page.locator("#phrase").getAttribute("autocomplete"))
+      === "current-password",
+);
+await page.locator(".gate-phrase-toggle").click();
+check(
+  "and reveals on demand, because 24 words cannot be proofread as bullets",
+  (await page.locator("#phrase").getAttribute("type")) === "text",
+);
+await page.locator(".gate-phrase-toggle").click();
+check(
+  "and hides again",
+  (await page.locator("#phrase").getAttribute("type")) === "password",
+);
+
 check(
   "short phrase is rejected",
   (await page.locator(".phrase-status").textContent()).includes(
@@ -361,7 +417,7 @@ check("map opens after derivation", true);
 const mapBox = await page.locator(".map").boundingBox();
 const wrapBox = await page.locator(".map-wrap").boundingBox();
 check(
-  `the map fills its half of the window (${Math.round(mapBox?.width ?? 0)}x${
+  `the map fills its wrapper (${Math.round(mapBox?.width ?? 0)}x${
     Math.round(mapBox?.height ?? 0)
   })`,
   mapBox !== null && wrapBox !== null
@@ -632,18 +688,18 @@ check(
    download can run start-to-done entirely between two UI polls, and the
    generation in the status envelope is exactly what makes that visible. */
 const awaitDone = async (generation) => {
-  for (let i = 0; i < 120; i++) {
+  const outcome = await until(async () => {
     const status = await (await postJson("basemap-status")).json();
-    if (status.generation === generation && status.job?.state === "done") {
-      return true;
-    }
-    if (status.job?.state === "failed") {
-      console.log(`  download failed: ${status.job.reason}`);
-      return false;
-    }
-    await new Promise((r) => setTimeout(r, 500));
+    return status.generation === generation && status.job?.state === "done"
+      ? { done: true }
+      : status.job?.state === "failed"
+      ? { done: false, reason: status.job.reason }
+      : false;
+  });
+  if (outcome && !outcome.done) {
+    console.log(`  download failed: ${outcome.reason}`);
   }
-  return false;
+  return outcome ? outcome.done : false;
 };
 
 /* With nothing on disk, the card leads with the world map. */
@@ -662,7 +718,7 @@ await worldButton.click();
 check("the world download completes at generation one", await awaitDone(1));
 await page.waitForFunction(
   () =>
-    [...document.querySelectorAll("[data-sonner-toast]")].some((t) =>
+    [...document.querySelectorAll(".app-toast")].some((t) =>
       (t.textContent ?? "").includes("Maps downloaded")
     ),
   null,
@@ -671,7 +727,52 @@ await page.waitForFunction(
 check("the download completes with a toast", true);
 check(
   "and the toast carries a close button for keyboard users",
-  (await page.locator("[data-sonner-toast] [data-close-button]").count()) >= 1,
+  (await page.locator(".app-toast button").count()) >= 1,
+);
+
+/* The toast was drawn by a library that injected its own stylesheet --
+   white background, near-black text, 8px corners, all written as literals
+   in a file this project did not own. So it stayed white in every theme and
+   round in a theme that squares every corner: the same shape of bug as
+   MapLibre's controls, and invisible to the token audit for the same
+   reason, that the colours belonged to no palette. It is this project's own
+   markup now, and these two checks are what would notice it going back.
+
+   Nothing has chosen a theme yet here, so this is the default: dark. Read
+   as painted and as geometry, because the fix is a stylesheet fighting
+   another stylesheet and only the computed value says who won. */
+const toastStyle = () =>
+  page.locator(".app-toast").first().evaluate((n) => {
+    const s = getComputedStyle(n);
+    return {
+      bg: s.backgroundColor,
+      radius: s.borderTopLeftRadius,
+      color: s.color,
+    };
+  });
+const toast = await toastStyle();
+const toastLight = (() => {
+  const n = toast.bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
+  return toast.bg.startsWith("oklab") || toast.bg.startsWith("oklch")
+    ? n[0]
+    : (n[0] + n[1] + n[2]) / (3 * 255);
+})();
+check(
+  `the toast is painted in the theme, not a library's white (${toast.bg})`,
+  toastLight < 0.5,
+);
+check(
+  `and squares its corners like everything else (${toast.radius})`,
+  toast.radius === "0px",
+);
+/* And a SUCCESS takes itself away. One short statement with nothing to
+   re-read, unlike an error -- which is the pair that has to hold: if both
+   stayed, "an error waits to be dismissed" further down would be trivially
+   true and would assert nothing at all. */
+await page.waitForTimeout(7000);
+check(
+  "a success toast takes itself away",
+  (await page.locator(".app-toast").count()) === 0,
 );
 await page.waitForFunction(() => !document.querySelector(".banner"), null, {
   timeout: 10_000,
@@ -734,27 +835,65 @@ check(
 basemapReady = true;
 
 /* Which file the world went into, which is the whole point of it having its
-   own. A region removal rewrites map.pmtiles; anything in there is reachable
-   by a Remove button, and the floor must not be. */
+   own. Every region is its own file and every region file is reachable by a
+   Remove button; the floor must not be one of them. */
 check(
   "the world overview is served from its own archive",
   (await fetch(`${base}/basemap/world.pmtiles`, { method: "HEAD" })).status
     === 200,
 );
 check(
-  "and the detail archive was not created for it",
+  "and no region archive was created for it",
   (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
     === 404,
 );
-/* It is not a region, so nothing lists it and nothing offers to remove it. */
+/* It is not a region. It writes no record, and it is listed anyway -- under
+   an id the server made up, flagged, with nothing to carry and no date,
+   because nothing recorded fetching it. Listing it is what lets the page
+   show a user the map they are standing on instead of leaving the largest
+   file on disk out of the answer to "what maps do I have". */
 const ledgerAfterWorld = await (await fetch(`${base}/api/basemap-ledger`, {
   method: "POST",
   headers: { "content-type": "application/json" },
   body: "{}",
 })).json();
 check(
-  "the world overview writes no ledger entry",
-  ledgerAfterWorld.entries?.length === 0,
+  "the world overview writes no ledger entry and is listed as itself",
+  ledgerAfterWorld.entries?.length === 1
+    && ledgerAfterWorld.entries[0].overview === true
+    && ledgerAfterWorld.entries[0].id === "world"
+    && ledgerAfterWorld.entries[0].file === ""
+    && ledgerAfterWorld.entries[0].completed === 0
+    && ledgerAfterWorld.entries[0].bytes > 0,
+);
+/* Every verb that takes an id off that list has to refuse this one.
+
+   Two locks, and the outer one answers first: the id the overview is listed
+   under is a word, every real id is hex, and the route parses ids before a
+   handler sees them -- so the request never reaches the code that removes
+   things. The inner lock is the handlers refusing the id by name, with the
+   reason a person would need ("no such downloaded map" is true of the
+   record and false of the row they are looking at); that one is driven
+   directly in ocaml/server/test/test_regions.ml, because nothing over HTTP
+   can get past the first lock to reach it. Both are kept: whichever is
+   removed, the other still holds. */
+for (
+  const [verb, endpoint] of [
+    ["removed", "basemap-remove"],
+    ["exported", "basemap-export"],
+    ["updated", "basemap-update"],
+  ]
+) {
+  const res = await postJson(endpoint, { id: "world" });
+  check(
+    `the overview cannot be ${verb} through its listed id (got ${res.status})`,
+    res.status === 400,
+  );
+}
+check(
+  "and it is still on disk after all three tried",
+  (await fetch(`${base}/basemap/world.pmtiles`, { method: "HEAD" })).status
+    === 200,
 );
 check(
   "and still counts as a map being on disk",
@@ -808,6 +947,310 @@ check(
   (await page.locator(".panel").count()) === 1,
 );
 
+/* The drawer resizes, and from the KEYBOARD, which is the half a splitter
+   usually misses. Left widens, because the key moves the separator and the
+   panel is what is to its right. */
+const panelWidth = async () =>
+  (await page.locator(".panel").boundingBox())?.width ?? 0;
+const widthBefore = await panelWidth();
+await page.locator(".panel-resizer").focus();
+await page.keyboard.press("Shift+ArrowLeft");
+const widthAfter = await panelWidth();
+check(
+  `the drawer widens from the keyboard (${Math.round(widthBefore)} -> ${
+    Math.round(widthAfter)
+  })`,
+  widthAfter > widthBefore,
+);
+/* Changed is not enough: a separator that does not carry its value announces
+   nothing to anyone not watching the pixels move. */
+check(
+  "and the separator announces the new width",
+  Number(
+    await page.locator(".panel-resizer").getAttribute("aria-valuenow"),
+  ) === Math.round(widthAfter),
+);
+/* Back to the default, so nothing downstream inherits a resized layout. */
+await page.locator(".panel-resizer").dblclick();
+
+/* The drawer is OVER the map, and this is the assertion that says so: the
+   map's own box must not change when the drawer opens, shuts or is dragged.
+   As a grid column it did change, every time, which meant MapLibre re-laid
+   out and the view moved under whoever was reading it. */
+const mapWrapWidth = async () =>
+  (await page.locator(".map-wrap").boundingBox())?.width ?? 0;
+const mapBefore = await mapWrapWidth();
+await page.locator(".panel-hide").click();
+const collapsed = await page
+  .waitForFunction(
+    () => document.querySelector(".panel")?.classList.contains("collapsed"),
+    null,
+    { timeout: 10_000 },
+  )
+  .then(() => true, () => false);
+check("the drawer collapses", collapsed);
+check(
+  `and the map does not move when it does (${Math.round(mapBefore)}px)`,
+  (await mapWrapWidth()) === mapBefore,
+);
+/* Shut means gone from the tab order too, not merely off-screen. */
+check(
+  "a collapsed drawer is out of the accessibility tree",
+  !(await page.locator(".panel").isVisible()),
+);
+check(
+  "and offers a way back",
+  (await page.locator(".panel-reopen button").count()) === 1,
+);
+/* And that way back must not be sitting on top of MapLibre's own controls.
+
+   With the drawer shut there is nothing covering the right edge, so
+   MapLibre puts its zoom and locate buttons exactly where the reopen tab
+   is. The rule that keeps that corner clear has to outrank MapLibre's own
+   stylesheet, which loads after ours -- so this is geometry, not a class
+   check: a single-class rule looks perfectly correct in the source and
+   does nothing in the page. */
+const boxesOverlap = await page.evaluate(() => {
+  const tab = document.querySelector(".panel-reopen")?.getBoundingClientRect();
+  const ctrl = document.querySelector(".map-wrap .maplibregl-ctrl-top-right")
+    ?.getBoundingClientRect();
+  if (!tab || !ctrl) return null;
+  return !(tab.right <= ctrl.left || ctrl.right <= tab.left
+    || tab.bottom <= ctrl.top || ctrl.bottom <= tab.top);
+});
+check(
+  "the reopen tab does not sit on top of the map's own controls",
+  boxesOverlap === false,
+);
+await page.locator(".panel-reopen button").click();
+const reopened = await page
+  .waitForFunction(
+    () => !document.querySelector(".panel")?.classList.contains("collapsed"),
+    null,
+    { timeout: 10_000 },
+  )
+  .then(() => true, () => false);
+check("and reopens from it", reopened);
+
+/* ------------------------------------- appearance -------------------------
+
+   Five palettes and a sixth entry that is not one. "Match my device" is a
+   deferral rather than a colour, and it has to stay distinguishable from
+   having chosen light, or a device that turns dark at dusk stops being
+   followed. The attribute is what says which, and the painted colour is what
+   proves the attribute reached anything.
+
+   The DEFAULT wears no attribute, because the stylesheet's @theme block is
+   what paints before one is set. That makes "nothing chosen" and "chose the
+   default" the same state on purpose, and it makes the assertion below --
+   that an untouched page is already dark -- the thing that would fail if the
+   default and the @theme block ever stopped being the same palette. */
+const chosen = () =>
+  page.evaluate(() => document.documentElement.getAttribute("data-theme"));
+
+/* Lightness of a painted surface, on one scale. The computed colour arrives
+   as oklab() in this browser, whose first number IS lightness; rgb() is
+   normalised to the same 0..1 range. */
+const surfaceLightness = async (sel) => {
+  const bg = await page.locator(sel).first()
+    .evaluate((n) => getComputedStyle(n).backgroundColor);
+  const nums = bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
+  return bg.startsWith("oklab") || bg.startsWith("oklch")
+    ? nums[0]
+    : (nums[0] + nums[1] + nums[2]) / (3 * 255);
+};
+
+check("nobody has chosen a theme to begin with", (await chosen()) === null);
+check(
+  `and the default is a dark one (panel lightness ${
+    (await surfaceLightness(".panel")).toFixed(2)
+  })`,
+  (await surfaceLightness(".panel")) < 0.5,
+);
+check(
+  "which the browser is told about, so its own chrome matches",
+  (await page.evaluate(() =>
+    getComputedStyle(document.documentElement).colorScheme
+  )) === "dark",
+);
+
+/* The map's icons are baked images, one sheet per flavour, and the style
+   names the sheet it wants. It named `light` for every theme, so a dark map
+   drew white motorway shields over it -- the one part of the map the palette
+   cannot reach, and so the one part that has to be chosen rather than
+   coloured. Read off the style the map is holding, since the bug was a
+   string that looked right in the source and was simply never varied. */
+const spriteSheet = () =>
+  page.evaluate(() =>
+    (window.__tessarium_map?.getStyle()?.sprite ?? "").toString()
+  );
+const sheetIs = (want) =>
+  page.waitForFunction(
+    (w) =>
+      (window.__tessarium_map?.getStyle()?.sprite ?? "").toString()
+        .endsWith(`/sprites/v4/${w}`),
+    want,
+    { timeout: 15_000 },
+  ).then(() => true, () => false);
+check(
+  `the default map asks for the dark sheet (${await spriteSheet()})`,
+  await sheetIs("dark"),
+);
+
+const pickTheme = async (value) => {
+  await page.locator(".panel-settings").click();
+  await page.locator(".settings-theme .dropdown-button").click();
+  await page.locator(`.dropdown-option[data-value="${value}"]`).click();
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(
+    (want) =>
+      (document.documentElement.getAttribute("data-theme") ?? "cyber-dark")
+        === want,
+    value,
+    { timeout: 10_000 },
+  );
+};
+
+/* What a palette resolves to, as four of its load-bearing tokens. Not the
+   panel's computed colour, which was the first thing tried here and is not
+   an identity: both light palettes lay their cards on plain white, so a
+   theme that silently resolved to another theme would have looked identical
+   to one that did not. Ground, card, ink and accent together do separate
+   all five. */
+const paletteId = () =>
+  page.evaluate(() => {
+    const s = getComputedStyle(document.documentElement);
+    return ["bg", "card", "ink", "accent"]
+      .map((t) => s.getPropertyValue(`--color-${t}`).trim()).join(" ");
+  });
+
+/* Every entry in the menu, each one asserted on what it paints rather than
+   on the name it set. The five identities are required to be five DIFFERENT
+   identities further down: a theme that silently resolves to another theme
+   is the failure mode a list of names cannot see, and renaming two palettes
+   without repointing one of them is exactly how it happens. */
+const painted = {};
+for (
+  const [name, wantLight] of [
+    ["light", true],
+    ["dark", false],
+    ["cyber-light", true],
+    ["cyber-dark", false],
+    ["night", false],
+  ]
+) {
+  await pickTheme(name);
+  painted[name] = await paletteId();
+  const lightness = await surfaceLightness(".panel");
+  check(
+    `choosing ${name} paints a ${wantLight ? "pale" : "dark"} panel (${
+      lightness.toFixed(2)
+    })`,
+    wantLight ? lightness > 0.5 : lightness < 0.5,
+  );
+  check(
+    `and tells the browser ${name} is a ${wantLight ? "light" : "dark"} scheme`,
+    (await page.evaluate(() =>
+      getComputedStyle(document.documentElement).colorScheme
+    )) === (wantLight ? "light" : "dark"),
+  );
+  /* The map's own controls, which are not this application's markup:
+     MapLibre ships them light-only, and they sat white over a dark map until
+     someone using the app at night pointed at them. Computed colour, not
+     class names, because the bug was a stylesheet this project does not own
+     winning -- and it is asserted for every palette because the rule that
+     fixes it is a list, and a list is a thing a sixth theme falls off. */
+  check(
+    `${name}: the zoom buttons follow the theme`,
+    (await surfaceLightness(".maplibregl-ctrl-group") < 0.5) !== wantLight,
+  );
+  check(
+    `${name}: and so does the scale bar`,
+    (await surfaceLightness(".maplibregl-ctrl-scale") < 0.5) !== wantLight,
+  );
+  /* Low light takes the dark sheet as well: there is no red one drawn, and
+     `black`, the other near-black option, is missing its points of
+     interest. */
+  check(
+    `${name}: the map asks for the ${wantLight ? "light" : "dark"} sheet`,
+    await sheetIs(wantLight ? "light" : "dark"),
+  );
+}
+
+/* Five entries, five palettes. */
+const ids = Object.values(painted);
+check(
+  `each theme resolves to its own palette (${
+    new Set(ids).size
+  } of ${ids.length})`,
+  new Set(ids).size === ids.length,
+);
+
+/* The default is the one that wears NO attribute, so choosing it has to
+   remove one rather than set it -- otherwise the stylesheet has a rule
+   nothing matches and the first frame after a reload is a different theme
+   from the one the menu says is selected. */
+await pickTheme("cyber-dark");
+check(
+  "choosing the default clears the attribute rather than setting it",
+  (await chosen()) === null,
+);
+
+/* The plain themes are plain because four tokens are held at rest, not
+   because anything is switched off elsewhere: one colour repeated across the
+   gradient's three stops is a solid button, and a transparent split shadow
+   is no split shadow. Read back resolved, because "at rest" is a property of
+   the values and not of the rule that sets them. */
+const levers = () =>
+  page.evaluate(() => {
+    const s = getComputedStyle(document.documentElement);
+    const g = (n) => s.getPropertyValue(n).trim();
+    return {
+      stops: [g("--color-cta-from"), g("--color-cta-mid"), g("--color-cta-to")],
+      glitch: [g("--glitch-a"), g("--glitch-b")],
+      wash: g("--bg-image"),
+    };
+  });
+for (const plain of ["light", "dark"]) {
+  await pickTheme(plain);
+  const { stops, glitch, wash } = await levers();
+  check(
+    `${plain}: the primary action is one colour, not a gradient`,
+    new Set(stops).size === 1 && stops[0] !== "",
+  );
+  check(
+    `${plain}: the wordmark has no split shadow`,
+    glitch.every((c) => c === "transparent"),
+  );
+  check(`${plain}: and the ground carries no wash`, wash === "none");
+}
+
+/* And the cyberpunk pair actually moves them, so the check above is a
+   statement about those themes rather than about all of them. */
+await pickTheme("cyber-dark");
+const cyber = await levers();
+check(
+  "cyberpunk dark runs a real three-stop gradient",
+  new Set(cyber.stops).size === 3,
+);
+check(
+  "and a visible split shadow",
+  cyber.glitch.every((c) => c !== "transparent"),
+);
+check("and a wash on the ground", cyber.wash !== "none");
+
+/* "Match my device" is the one entry that is not a palette. It sets an
+   attribute like any other choice -- it is no longer the absence of one --
+   and what it resolves to is the PLAIN pair, because an operating system
+   says light or dark and does not say cyberpunk. This browser reports a
+   light preference, so it has to land on plain light exactly. */
+await pickTheme("system");
+check("matching the device says so on the root", (await chosen()) === "system");
+check(
+  "and on a light device that is plain light, not a cyberpunk one",
+  (await paletteId()) === painted.light,
+);
+
 /* An overview and no region is the state every fresh install starts in, and
    two things have to be true of it at once. */
 
@@ -824,6 +1267,31 @@ check(
   "with only an overview, street zoom still offers to download the area",
   await page.waitForSelector(".map-note.action", { timeout: 20_000 })
     .then(() => true, () => false),
+);
+
+/* And the note is painted in the theme's colours, both of them. It sat on a
+   hardcoded white through the dark theme's whole first release -- white pill,
+   near-white ink -- and every token audit missed it because a literal in a
+   component class list belongs to no palette. Read back as painted, judged
+   by lightness rather than by name, so the check outlives the exact token.
+
+   Named themes rather than "match my device": what that entry resolves to
+   is a property of the machine running the suite, and this assertion is
+   about the stylesheet. */
+const noteLightness = () => surfaceLightness(".map-note.action");
+await pickTheme("dark");
+check(
+  `the note over the map goes dark with the theme (lightness ${
+    (await noteLightness()).toFixed(2)
+  })`,
+  (await noteLightness()) < 0.5,
+);
+await pickTheme("light");
+check(
+  `and light with the light theme (lightness ${
+    (await noteLightness()).toFixed(2)
+  })`,
+  (await noteLightness()) > 0.5,
 );
 
 /* Second: it must cost nothing to look around. The floor draws every tile
@@ -856,7 +1324,7 @@ check(
 /* Second download: detail for the current view, MERGED over the world map.
    The card must no longer offer the world, and afterwards every tile from
    both downloads has to be in one archive. */
-const openButton = page.locator(".map-actions .icon-button");
+const openButton = page.locator(".panel-download");
 check(
   "the map carries its own download button",
   (await openButton.count()) === 1,
@@ -866,6 +1334,43 @@ await page.waitForSelector(".download-card", { timeout: 10_000 });
 check(
   "with maps on disk the world offer is gone",
   (await page.locator(".download-world").count()) === 0,
+);
+/* The world overview is the ground under every region, and nothing may
+   offer to take it away.
+
+   It is in the list, and it has no verbs. That is the shape the complaint
+   asked for and the previous shape got wrong in the other direction:
+   leaving it out entirely meant the panel's answer to "what maps do I
+   have" skipped the largest file on disk, so a small download named for
+   the viewport read as the world map and its Remove button as the button
+   that deletes the world.
+
+   Asserted on the DOM rather than on the server's refusal, because the two
+   locks are separate and a button that should not be there is the one that
+   gets pressed. */
+check(
+  "the world overview is listed",
+  (await page.locator(".ledger-row").count()) === 1,
+);
+check(
+  "under a name that cannot be mistaken for somebody's download",
+  ((await page.locator(".ledger-row .ledger-name").textContent()) ?? "")
+    .trim() === "World map",
+);
+check(
+  "with its size, and why it is there",
+  ((await page.locator(".ledger-row .hint").textContent()) ?? "")
+    .includes("the base map every region is drawn on"),
+);
+check(
+  "and not one button on it: no Remove, no Export, no Update",
+  (await page.locator(".ledger-row .ledger-remove").count()) === 0
+    && (await page.locator(".ledger-row .ledger-export").count()) === 0
+    && (await page.locator(".ledger-row .ledger-update").count()) === 0,
+);
+check(
+  "nor a staleness nudge it could not act on",
+  (await page.locator(".ledger-row .ledger-stale").count()) === 0,
 );
 const viewButton = page.locator(".download-view button");
 await page.waitForFunction(
@@ -914,12 +1419,13 @@ await page.waitForFunction(
 await page.waitForFunction(
   async () => {
     const quiet = () => document.querySelector(".map-loading") === null;
-    if (!quiet()) return false;
-    for (let i = 0; i < 8; i++) {
-      await new Promise((done) => setTimeout(done, 100));
+    const still = async (n) => {
       if (!quiet()) return false;
-    }
-    return true;
+      if (n === 0) return true;
+      await new Promise((done) => setTimeout(done, 100));
+      return still(n - 1);
+    };
+    return still(8);
   },
   null,
   { timeout: 60_000 },
@@ -931,25 +1437,25 @@ await page.evaluate(() => {
      which is the only moment it is certain to exist. */
   window.__barWatch = new MutationObserver((records) => {
     if (window.__barSeen) return;
-    for (const record of records) {
-      for (const node of record.addedNodes) {
-        if (node.nodeType !== Node.ELEMENT_NODE) continue;
-        const bar = node.matches?.(".map-loading")
+    const bar = records
+      .flatMap((record) => [...record.addedNodes])
+      .filter((node) => node.nodeType === Node.ELEMENT_NODE)
+      .map((node) =>
+        node.matches?.(".map-loading")
           ? node
-          : node.querySelector?.(".map-loading");
-        if (bar) {
-          window.__barSeen = true;
-          window.__barLabel = bar.getAttribute("aria-label");
-          return;
-        }
-      }
+          : node.querySelector?.(".map-loading")
+      )
+      .find(Boolean);
+    if (bar) {
+      window.__barSeen = true;
+      window.__barLabel = bar.getAttribute("aria-label");
     }
   });
   window.__barWatch.observe(document.body, { childList: true, subtree: true });
 });
-let delayedTiles = 0;
+const delayedTiles = [];
 await page.route("**/tiles/**", async (route) => {
-  delayedTiles += 1;
+  delayedTiles.push(route.request().url());
   await new Promise((done) => setTimeout(done, 500));
   try {
     await route.continue();
@@ -972,10 +1478,8 @@ await page.route("**/tiles/**", async (route) => {
 
    Marked once, not once per attempt, so a retry cannot stack query
    parameters and change what is being asked for. */
-let started = false;
-for (let attempt = 0; attempt < 6 && !started; attempt++) {
-  if (attempt > 0) await page.waitForTimeout(600);
-  started = await page.evaluate(() => {
+const started = await until(() =>
+  page.evaluate(() => {
     if (document.querySelector(".map-loading")) return false;
     window.__barSeen = false;
     window.__barLabel = null;
@@ -984,15 +1488,14 @@ for (let attempt = 0; attempt < 6 && !started; attempt++) {
       src.tiles.map((u) => u.includes("e2e_bar=1") ? u : `${u}&e2e_bar=1`),
     );
     return true;
-  });
-}
+  }), { tries: 6, delayMs: 600 });
 check("the refetch was triggered against a quiet map", started);
 const barSeen = await page
   .waitForFunction(() => window.__barSeen === true, null, { timeout: 30_000 })
   .then(() => true, () => false);
 check(
-  `the refetch actually went through the delay (${delayedTiles} tiles)`,
-  delayedTiles > 0,
+  `the refetch actually went through the delay (${delayedTiles.length} tiles)`,
+  delayedTiles.length > 0,
 );
 check("slow tiles raise the loading bar", barSeen);
 /* Read off the bar as it appeared, not off the DOM afterwards. Asked
@@ -1017,18 +1520,34 @@ const settled = await page
 check("the bar hides once the map settles", settled);
 await page.evaluate(() => window.__barWatch?.disconnect());
 
-/* Merged, not replaced: bytes 100-101 of a PMTiles header are its min and
-   max zoom, and only the union of both downloads spans 0 to 15. */
-const zoomBytes = await fetch(`${base}/basemap/map.pmtiles`, {
+/* Beside, not merged. The world went to world.pmtiles and the region to a
+   file of its own, and neither one spans zoom 0 to 15 by itself -- the union
+   is a fact about the directory, which is what the map is told.
+
+   Bytes 100-101 of a PMTiles header are its min and max zoom, so the region's
+   own file is asked directly: it must reach 15, because a file carried to
+   another machine has to hold what it claims without anything beside it. */
+const ledgerFiles = await (await postJson("basemap-ledger")).json();
+/* The first DOWNLOAD, not the first row: the overview is listed above them
+   and has no file to ask about. */
+const regionFile = (ledgerFiles.entries ?? []).find((e) => !e.overview)?.file
+  ?? "";
+check("a downloaded region has a file of its own", regionFile !== "");
+const zoomBytes = await fetch(`${base}/basemap/${regionFile}`, {
   headers: { range: "bytes=100-101" },
 });
 const zooms = new Uint8Array(await zoomBytes.arrayBuffer());
 check(
-  `the merged archive spans zoom 0 to 15 (got ${zooms[0]}-${zooms[1]})`,
-  zooms[0] === 0 && zooms[1] === 15,
+  `the region's own file reaches zoom 15 (got ${zooms[0]}-${zooms[1]})`,
+  zooms[1] === 15,
 );
 check(
-  "tiles.json follows the archive's growth",
+  "and nothing was merged into a shared archive",
+  (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
+    === 404,
+);
+check(
+  "tiles.json spans the union of every archive on disk",
   (await (await fetch(`${base}/tiles.json`)).json()).maxzoom === 15,
 );
 
@@ -1075,6 +1594,35 @@ await page.waitForFunction(
   { timeout: 30_000 },
 );
 check("picking a country by name yields a real estimate", true);
+
+/* The box sits BESIDE its label, not above it.
+
+   Layout is not usually worth an end-to-end check, but this one broke
+   silently and stayed broken: `.download-card label` set `display: block`
+   at two-class specificity and outranked `.region-check`'s own `flex`, so
+   every checkbox in the picker stacked over its text and nothing failed.
+   Geometry is the only thing that catches that -- a class-name assertion
+   passes while the rule that beats it is somewhere else entirely. */
+const boxBeside = await ukEntry
+  .locator(".region-check")
+  .filter({ hasText: "The whole country" })
+  .evaluate((label) => {
+    const box = label.querySelector(".checkbox-box");
+    const text = [...label.children].find((c) =>
+      c !== box && (c.textContent ?? "").trim() !== ""
+    );
+    if (!box || !text) return null;
+    const b = box.getBoundingClientRect();
+    const t = text.getBoundingClientRect();
+    return {
+      leftOf: b.right <= t.left,
+      sameLine: b.top < t.bottom && t.top < b.bottom,
+    };
+  });
+check(
+  "the checkbox sits to the left of its label, on the same line",
+  boxBeside?.leftOf === true && boxBeside.sameLine === true,
+);
 const priceOf = async () => {
   const hint = await page
     .locator(".download-region-offer .hint")
@@ -1134,9 +1682,16 @@ check(
    sharing one border polygon. (Not Russia: its clipped land now genuinely
    affords full depth, and honestly planning it takes minutes -- the fixture
    deserves the small antimeridian country.) Its only fixture tile is the
-   world-spanning z0, already on disk from the world download, so the honest
-   answer -- and the assertion -- is "covered": the two-box polygon request
-   survived validation, planning and the merge arithmetic end to end. */
+   world-spanning z0. It used to answer "covered", because the estimate diffed
+   against the one archive everything merged into and the world download had
+   already put that tile there. It quotes a price now, and that is the change
+   working: a region is diffed against ITS OWN file, so it fetches its own
+   shallow tiles rather than borrowing the overview's. A file carried to a
+   machine with no overview has to draw on its own.
+
+   What is being proved either way is that the two-box polygon request
+   survived validation, planning and the merge arithmetic end to end -- so
+   the assertion is that a real answer arrived, not which one. */
 await page.locator("#region-filter").fill("Fiji");
 await page
   .locator(".region-tree .region-disclosure")
@@ -1146,8 +1701,9 @@ await page
   .click();
 await page.waitForFunction(
   () =>
-    (document.querySelector(".download-region-offer .hint")?.textContent ?? "")
-      .includes("already have"),
+    /already have|About /.test(
+      document.querySelector(".download-region-offer .hint")?.textContent ?? "",
+    ),
   null,
   { timeout: 30_000 },
 );
@@ -1475,18 +2031,30 @@ check(
   cover.present.length === cover.w * cover.h,
 );
 
-let agreed = true;
-for (let row = 0; row < cover.h; row++) {
-  for (let col = 0; col < cover.w; col++) {
-    const res = await fetch(
-      `${base}/tiles/${cover.zoom}/${cover.x + col}/${cover.y + row}.mvt`,
-    );
-    await res.arrayBuffer();
-    const served = res.status === 200;
-    if (served !== (cover.present[row * cover.w + col] === "1")) agreed = false;
-  }
-}
-check("the mask agrees with the tile endpoint, cell for cell", agreed);
+const cells = Array.from({ length: cover.h * cover.w }, (_, i) => ({
+  row: Math.floor(i / cover.w),
+  col: i % cover.w,
+}));
+/* Sequential on purpose -- one request at a time, the way the old loop ran
+   -- and the fold carries the disagreements, so a failure names its cells
+   instead of saying only that one exists. */
+const disagreed = await cells.reduce(async (acc, { row, col }) => {
+  const prior = await acc;
+  const res = await fetch(
+    `${base}/tiles/${cover.zoom}/${cover.x + col}/${cover.y + row}.mvt`,
+  );
+  await res.arrayBuffer();
+  const served = res.status === 200;
+  return served === (cover.present[row * cover.w + col] === "1")
+    ? prior
+    : [...prior, `${row},${col}`];
+}, Promise.resolve([]));
+check(
+  `the mask agrees with the tile endpoint, cell for cell (off: ${
+    disagreed.join(" ") || "none"
+  })`,
+  disagreed.length === 0,
+);
 
 /* The other side of the world: nothing at street level, but the world
    overview underneath is still real, which is why the note there offers
@@ -1593,7 +2161,7 @@ check(
   await page.waitForSelector(".download-card", { timeout: 10_000 })
     .then(() => true, () => false),
 );
-await page.locator(".map-actions button").click();
+await page.locator(".panel-download").click();
 await page.waitForFunction(
   () => !document.querySelector(".download-card"),
   null,
@@ -1737,12 +2305,14 @@ check(
    among them: it went to its own file and wrote no entry, which is what
    makes it un-removable.
 
-   First, adoption: covered tiles with no entry (here, a patch inside a
-   downloaded region; in the field, an archive from before the ledger
-   existed) are claimed by re-requesting them, and the entry lands with
-   "age unknown", which counts as stale. */
+   A patch inside an already-downloaded region used to be ADOPTED: the tiles
+   were in the one shared archive, nothing was fetched, and an entry landed
+   claiming them with "age unknown". There is no shared archive to adopt out
+   of any more. The patch is its own region with its own file, so it is its
+   own download -- which is the trade this layout makes, and the reason a
+   file can be carried away on its own. */
 await postJson("basemap-download", {
-  name: "Adopted patch",
+  name: "Overlapping patch",
   regions: [{
     min_lon: -0.2,
     min_lat: 51.46,
@@ -1752,28 +2322,45 @@ await postJson("basemap-download", {
   }],
 });
 check(
-  "re-requesting covered tiles records them instead of failing",
+  "a region inside another is downloaded rather than refused",
   await awaitDone(4),
 );
 const ledger1 = await (await postJson("basemap-ledger")).json();
+const downloads1 = (ledger1.entries ?? []).filter((e) => !e.overview);
+/* The name a download of the current view gets. Nothing was picked from the
+   list, so it is named after where its middle actually is -- which is the
+   whole difference between a row that says which download it is and one
+   that says only that a download happened. The generic phrase this replaced
+   is what got the row mistaken for the map underneath everything. */
+check(
+  `a download of the view is named after where it is (${
+    downloads1.map((e) => e.name).join(", ")
+  })`,
+  downloads1.some((e) => e.name === "London"),
+);
 check(
   "the archive records every region download by name",
-  ledger1.entries?.length === 3
-    && ["Map view", "United Kingdom and London", "Adopted patch"]
-      .every((n) => ledger1.entries.some((e) => e.name === n)),
+  downloads1.length === 3
+    && ["London", "United Kingdom and London", "Overlapping patch"]
+      .every((n) => downloads1.some((e) => e.name === n)),
+);
+/* The overview is in the list and is not one of them: it is flagged, and
+   the flag is what every caller sorts by -- never the name, which on an
+   install from before the split is whatever the picker happened to say. */
+check(
+  "and the world overview is beside them rather than among them",
+  (ledger1.entries ?? []).filter((e) => e.overview).length === 1,
+);
+const patchEntry = downloads1.find((e) => e.name === "Overlapping patch");
+check(
+  "it gets a file of its own, not a share of somebody else's",
+  (patchEntry?.file ?? "") !== ""
+    && downloads1.every((e) => e.file !== "")
+    && new Set(downloads1.map((e) => e.file)).size === 3,
 );
 check(
-  "and does not record the world overview among them",
-  !ledger1.entries?.some((e) => e.name === "World overview"),
-);
-const adoptedEntry = ledger1.entries?.find((e) => e.name === "Adopted patch");
-check(
-  "adopted tiles admit their age is unknown",
-  adoptedEntry?.completed === 0 && adoptedEntry?.bytes === 0,
-);
-check(
-  "real downloads record when and how much",
-  ledger1.entries?.filter((e) => e.completed > 0 && e.bytes > 0).length === 2,
+  "every download records when and how much",
+  downloads1.filter((e) => e.completed > 0 && e.bytes > 0).length === 3,
 );
 
 await openButton.click();
@@ -1782,21 +2369,81 @@ await page.waitForSelector(".download-ledger", { timeout: 10_000 });
    than racing the request. */
 const listedRows = await page
   .waitForFunction(
-    () => document.querySelectorAll(".ledger-row").length === 3,
+    () => document.querySelectorAll(".ledger-row").length === 4,
     null,
     { timeout: 30_000 },
   )
   .then(() => true, () => false);
-check("the card lists the downloaded maps", listedRows);
+check("the card lists the downloaded maps, and the map under them", listedRows);
+/* Three rows can be removed and one cannot, which is the whole point of the
+   fourth being there. */
 check(
-  "only the age-unknown entry is flagged for update",
-  (await page.locator(".ledger-stale").count()) === 1
-    && (await page.locator(".ledger-row").filter({ hasText: "Adopted patch" })
-        .locator(".ledger-stale").count()) === 1,
+  "Remove is on every download and on nothing else",
+  (await page.locator(".ledger-row .ledger-remove").count()) === 3,
+);
+/* The rule behind that count, checked against the server's own answer
+   rather than against a number: a row may offer Remove only if its entry
+   has an archive of its own to unlink. An empty `file` means the tiles are
+   in map.pmtiles, shared with the base map, and removing one of those
+   rewrites or unlinks the file the whole application draws from.
+
+   Cross-referenced by name because that is what a person reads off the row.
+   This is the check that would have caught "Map view" -- a merged London
+   box, offering Remove, indistinguishable from the base map in the panel
+   and part of it on disk. */
+const rowVerbs = await page.$$eval(".ledger-row", (els) =>
+  els.map((el) => ({
+    name: el.querySelector(".ledger-name")?.textContent?.trim() ?? "",
+    removable: el.querySelector(".ledger-remove") !== null,
+    updatable: el.querySelector(".ledger-update") !== null,
+  })));
+const ownsFile = new Map(
+  (ledger1.entries ?? []).map((e) => [
+    e.overview ? "World map" : e.name,
+    e.file !== "",
+  ]),
+);
+check(
+  `no row without a file of its own offers to remove or update it (${
+    rowVerbs
+      .filter((r) => (r.removable || r.updatable) && !ownsFile.get(r.name))
+      .map((r) => r.name).join(", ") || "none do"
+  })`,
+  rowVerbs.length === 4
+    && rowVerbs.every((r) =>
+      ownsFile.get(r.name) === true
+        ? r.removable && r.updatable
+        : !r.removable && !r.updatable
+    ),
+);
+check(
+  "nothing just downloaded is flagged for update",
+  (await page.locator(".ledger-stale").count()) === 0,
+);
+/* Every row offers its file directly. Nothing is built and nothing is
+   waited on: the download already wrote the file this points at, which is
+   what the export step used to spend minutes producing. */
+check(
+  "each row hands over its own file",
+  (await page.locator(".ledger-row .ledger-export").count()) === 3
+    && (await page.locator(".ledger-row a.ledger-export").count()) === 3,
+);
+const saveHref = await page.locator(".ledger-row").filter({
+  hasText: "Overlapping patch",
+}).locator("a.ledger-export").getAttribute("href");
+check(
+  `the link points at the archive on disk (got ${saveHref})`,
+  (saveHref ?? "").startsWith("/basemap/")
+    && (saveHref ?? "").endsWith(".pmtiles"),
+);
+check(
+  "and it is really there",
+  (await fetch(`${base}${saveHref}`, { method: "HEAD" })).status === 200,
 );
 check(
   "a fresh download names its date",
-  ((await page.locator(".ledger-row").filter({ hasText: "Map view" })
+  ((await page.locator(".ledger-row")
+    .filter({ has: page.locator(".ledger-name", { hasText: /^London$/ }) })
     .locator(".hint").textContent()) ?? "").includes("updated"),
 );
 
@@ -1810,13 +2457,12 @@ check(
 await chooseFrom(".ledger-reminder", "30");
 /* The save is a request; let the server confirm it before the card closes,
    or the reopened card can read the old value in perfect honesty. */
-let saved30 = false;
-for (let i = 0; i < 40 && !saved30; i++) {
-  const s = await (await postJson("basemap-settings")).json();
-  saved30 = s.update_reminder_days === 30;
-  if (!saved30) await new Promise((r) => setTimeout(r, 250));
-}
-check("the reminder write reaches the server", saved30);
+check(
+  "the reminder write reaches the server",
+  await until(async () =>
+    (await (await postJson("basemap-settings")).json())
+      .update_reminder_days === 30, { tries: 40, delayMs: 250 }),
+);
 await page.locator(".download-card .icon-button").click();
 await page.waitForFunction(
   () => !document.querySelector(".download-card"),
@@ -1837,17 +2483,38 @@ check(
 /* Remove is two presses of the same button, because it discards gigabytes.
    The view download's tiles sit inside the United Kingdom pick, so removing
    it must keep the archive intact -- entries own records, not tiles. */
-const viewRow = page.locator(".ledger-row").filter({ hasText: "Map view" });
-await viewRow.locator("button").nth(1).click();
+/* Matched on the name cell exactly. "London" is a substring of the pick
+   named "United Kingdom and London", so hasText on the row would find two.
+   Which is the point of the name: it says which download this is. */
+const londonRow = {
+  has: page.locator(".ledger-name", { hasText: /^London$/ }),
+};
+const viewRow = page.locator(".ledger-row").filter(londonRow);
+
+/* The name has to have a column to sit in. Unwrapped, the row's three
+   buttons took the full width and left the name a few pixels, which
+   `overflow-wrap` then honoured by breaking the name one letter per line --
+   a tall thin stack of characters. Wider than it is tall is the cheap way to
+   say "this is a line of text", and it fails loudly on the broken layout. */
+const nameBox = await viewRow.locator(".ledger-name").boundingBox();
+check(
+  `the ledger name reads as a line, not a column (${
+    Math.round(nameBox?.width ?? 0)
+  }x${Math.round(nameBox?.height ?? 0)})`,
+  nameBox !== null && nameBox.width > nameBox.height,
+);
+
+await viewRow.locator(".ledger-remove").click();
 check(
   "remove asks to be sure",
-  ((await viewRow.locator("button").nth(1).textContent()) ?? "")
+  ((await viewRow.locator(".ledger-remove").textContent()) ?? "")
     .includes("Really"),
 );
-await viewRow.locator("button").nth(1).click();
+await viewRow.locator(".ledger-remove").click();
+/* Three, not two: the overview row is one of them and does not leave. */
 const rowGone = await page
   .waitForFunction(
-    () => document.querySelectorAll(".ledger-row").length === 2,
+    () => document.querySelectorAll(".ledger-row").length === 3,
     null,
     { timeout: 30_000 },
   )
@@ -1856,7 +2523,7 @@ check("the removed entry leaves the list", rowGone);
 const removedToast = await page
   .waitForFunction(
     () =>
-      [...document.querySelectorAll("[data-sonner-toast]")].some((t) => {
+      [...document.querySelectorAll(".app-toast")].some((t) => {
         const text = t.textContent ?? "";
         /* Either wording is correct: bytes freed, or all tiles shared. */
         return text.includes("Maps removed") || text.includes("Map removed");
@@ -1867,23 +2534,81 @@ const removedToast = await page
   .then(() => true, () => false);
 check("removal announces what it freed", removedToast);
 const ledger2 = await (await postJson("basemap-ledger")).json();
+const downloads2 = (ledger2.entries ?? []).filter((e) => !e.overview);
 check(
   "the archive agrees the entry is gone",
-  ledger2.entries?.length === 2
-    && !ledger2.entries.some((e) => e.name === "Map view"),
+  downloads2.length === 2
+    && !downloads2.some((e) => e.name === "London"),
 );
 /* And the floor is untouched by a removal, which is the reason the overview
-   has its own file: this rewrote map.pmtiles from end to end. */
+   has its own file. */
 check(
   "removing a region leaves the world overview alone",
   (await fetch(`${base}/basemap/world.pmtiles`, { method: "HEAD" })).status
     === 200,
 );
-check(
-  "the shared tiles survived the removal",
-  (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
-    === 200,
+/* The other regions are untouched too, and now that is a fact about files
+   rather than about a rewrite: a removal unlinks one archive and cannot
+   reach into the others. */
+const survivors = await Promise.all(
+  downloads2.map(async (e) =>
+    (await fetch(`${base}/basemap/${e.file}`, { method: "HEAD" })).status
+  ),
 );
+check(
+  "every region that was not removed still has its file",
+  survivors.length > 0 && survivors.every((s) => s === 200),
+);
+
+/* ---------------- a row that lives in the base archive --------------------
+
+   The shape this rule exists for, and one no download can produce any more:
+   an entry whose tiles are inside map.pmtiles, with no file of its own. That
+   is what an install from before the one-file-per-region split looks like,
+   and what tools/fetch-basemap.sh leaves behind -- the base map the server
+   draws from, carrying a record named whatever the picker said at the time.
+   On the install that prompted this it said "Map view", and it sat there
+   offering Remove.
+
+   Dropped in from the fixture rather than downloaded, because downloading one
+   is exactly what stopped being possible. Taken away again afterwards so the
+   assertions below meet the directory they expect.
+
+   The DOM only. The server's own refusal is driven in
+   ocaml/server/test/test_regions.ml, which can assert the REASON it gives; a
+   refused removal here would still be a job, and every later check on this
+   server counts job generations. */
+const basemapDir = new URL("../../_build/e2e-basemap/", import.meta.url);
+const reopenCard = async () => {
+  const close = page.locator(".download-card header button");
+  if (await close.count()) await close.click();
+  await openButton.click();
+  await page.waitForSelector(".download-ledger", { timeout: 10_000 });
+};
+copyFileSync(
+  new URL("../../_build/e2e-fixture/map-legacy.pmtiles", import.meta.url),
+  new URL("map.pmtiles", basemapDir),
+);
+await reopenCard();
+const legacyRow = page.locator(".ledger-row").filter({ hasText: "Map view" });
+await legacyRow.waitFor({ state: "visible", timeout: 20_000 });
+check(
+  "an entry inside the base archive is listed like anything else",
+  (await legacyRow.count()) === 1,
+);
+check(
+  "and offers nothing that would rewrite the file it shares",
+  (await legacyRow.locator(".ledger-remove").count()) === 0
+    && (await legacyRow.locator(".ledger-update").count()) === 0,
+);
+/* Carrying it away is not deleting it, and extraction is the only way one of
+   these ever reaches another machine. That stays. */
+check(
+  "but can still be carried off, which is how a merged region escapes",
+  (await legacyRow.locator(".ledger-export").count()) === 1,
+);
+rmSync(new URL("map.pmtiles", basemapDir), { force: true });
+await reopenCard();
 
 /* Update through the card, on the clipped country pick: the one deliberate
    way to refresh held tiles, exercised over a polygon region. The card
@@ -1891,8 +2616,7 @@ check(
 await page
   .locator(".ledger-row")
   .filter({ hasText: "United Kingdom" })
-  .locator("button")
-  .nth(0)
+  .locator(".ledger-update")
   .click();
 check("an update of a clipped region completes", await awaitDone(6));
 await page.waitForFunction(
@@ -1930,22 +2654,16 @@ check(
   "a box over the budget splits instead of clamping",
   est3.max_zooms?.[0] === 6 && est3.covered === false && est3.tiles > 0,
 );
-const finalJob3 = async (generation) => {
-  for (let i = 0; i < 120; i++) {
+const finalJob3 = async (generation) =>
+  (await until(async () => {
     const status = await (await post3("basemap-status")).json();
-    if (
-      status.generation === generation
-      && !["planning", "fetching", "assets", "removing"].includes(
-        status.job?.state,
-      )
-      && status.job?.state !== "idle"
-    ) {
-      return status.job;
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  return null;
-};
+    return status.generation === generation
+        && !["planning", "fetching", "assets", "removing", "idle"].includes(
+          status.job?.state,
+        )
+      ? status.job
+      : false;
+  }, { tries: 120, delayMs: 250 })) || null;
 await post3("basemap-download", { regions: [world] });
 const done3 = await finalJob3(1);
 check(
@@ -2013,14 +2731,23 @@ check(
   (await post3("basemap-settings", { update_reminder_days: 9999 })).status
     === 400,
 );
-/* Removing the only entry removes the archive itself: an empty archive and
-   a missing one are the same state, spelled the honest way. */
+/* Removing an entry removes the archive itself: the record lives inside the
+   file it describes, so the two leave together and there is nothing left
+   behind holding tiles nobody can name. */
+const led3file = (await (await post3("basemap-ledger")).json()).entries
+  ?.find((e) => e.id === id3)?.file ?? "";
+check("the region under test has a file of its own", led3file !== "");
+check(
+  "and it is on disk before the removal",
+  (await fetch(`${base3}/basemap/${led3file}`, { method: "HEAD" })).status
+    === 200,
+);
 await post3("basemap-remove", { id: id3 });
 const rem3 = await finalJob3(4);
 check(
-  "removing the last region deletes the archive",
+  "removing the last region deletes its archive",
   rem3?.state === "removed"
-    && (await fetch(`${base3}/basemap/map.pmtiles`, { method: "HEAD" }))
+    && (await fetch(`${base3}/basemap/${led3file}`, { method: "HEAD" }))
         .status === 404,
 );
 const led3c = await (await post3("basemap-ledger")).json();
@@ -2101,20 +2828,16 @@ check("a settled view fetches its missing tiles", browsed.fetched > 0);
    arrived, so a wrong or missing number is a map that never fills in. */
 check("the browse answers with the depth it wrote", browsed.zoom === 15);
 /* The one-byte threshold compacts immediately; wait for the writer to rest. */
-let compacted = false;
-for (let i = 0; i < 120 && !compacted; i++) {
-  const st = await (await post3("basemap-status")).json();
-  if (
-    !["planning", "fetching", "assets", "removing", "compacting"]
+check(
+  "the cache folds into the main archive past the threshold",
+  await until(async () => {
+    const st = await (await post3("basemap-status")).json();
+    return !["planning", "fetching", "assets", "removing", "compacting"]
       .includes(st.job?.state)
-  ) {
-    compacted = (await fetch(`${base3}/basemap/cache.pmtiles`, {
-      method: "HEAD",
-    })).status === 404;
-  }
-  if (!compacted) await new Promise((r) => setTimeout(r, 250));
-}
-check("the cache folds into the main archive past the threshold", compacted);
+      && (await fetch(`${base3}/basemap/cache.pmtiles`, { method: "HEAD" }))
+          .status === 404;
+  }, { tries: 120, delayMs: 250 }),
+);
 check(
   "the browsed tile serves after compaction",
   (await fetch(`${base3}/tiles/15/${lt.x}/${lt.y}.mvt`)).status === 200,
@@ -2135,17 +2858,19 @@ check("a second look fetches nothing", browsedAgain.fetched === 0);
    world missing => the offer is back". The old rule -- offer only on an
    empty map -- is exactly how the Georgia-first user never saw it. */
 const worldPage = await context.newPage();
-await worldPage.route("**/api/basemap-estimate", async (route) => {
-  let world = false;
+const isWorldAsk = (data) => {
   try {
-    const body = JSON.parse(route.request().postData() ?? "{}");
+    const body = JSON.parse(data ?? "{}");
     const r = body.regions?.[0];
-    world = body.regions?.length === 1 && r?.min_lon === -180
+    return body.regions?.length === 1 && r?.min_lon === -180
       && r?.max_lon === 180 && r?.min_lat === -85 && r?.max_zoom === 6;
   } catch {
     /* not JSON: not ours */
+    return false;
   }
-  if (world) {
+};
+await worldPage.route("**/api/basemap-estimate", async (route) => {
+  if (isWorldAsk(route.request().postData())) {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
@@ -2162,7 +2887,7 @@ await worldPage.locator("#phrase").fill(sampleMnemonic);
 await worldPage.waitForSelector(".valid", { timeout: 30_000 });
 await worldPage.locator("button[type=submit]").click();
 await worldPage.waitForSelector(".map-wrap", { timeout: 60_000 });
-await worldPage.locator(".map-actions .icon-button").click();
+await worldPage.locator(".panel-download").click();
 await worldPage.waitForSelector(".download-card", { timeout: 10_000 });
 await worldPage.waitForSelector(".download-world", { timeout: 30_000 });
 check("with maps on disk but no world overview, the offer is back", true);
@@ -2210,7 +2935,7 @@ const goToAddress = async (address) => {
    evidence that a person can do it. */
 await goToAddress(sample.address);
 
-const lookupFailed = await page.locator("[data-sonner-toast][data-type=error]")
+const lookupFailed = await page.locator(".app-toast[data-kind=error]")
   .count();
 check(`looking up ${sample.address} succeeds`, lookupFailed === 0);
 
@@ -2243,6 +2968,112 @@ const shownCoords = await page.locator(".coords dd").allTextContents();
 check(
   "the coordinates eye reveals them",
   shownCoords.length === 2 && shownCoords.every((t) => /\d/.test(t)),
+);
+
+/* ---------------------------------------- what a toast has to keep doing
+
+   Two behaviours here are TUNED rather than default, which means they are
+   the two a change of library would silently undo. Named through this
+   application's own `app-toast` class rather than through the current
+   library's data attributes, so these assertions outlive it.
+
+   The first: an error waits to be dismissed. Sonner's default five seconds
+   is shorter than a long message being read aloud, and the message vanished
+   mid-sentence. Nothing in a screenshot would show that; it needs a clock.
+
+   Raised by making the clipboard refuse, which is a real failure -- a
+   permissions policy or a non-secure context does exactly this -- and the
+   only error path in the app that can be provoked on demand. */
+const anyToast = page.locator(".app-toast");
+/* The coordinates' own copy control, revealed just above. */
+const toastCopy = page.locator(".coords-row .icon-button").nth(1);
+await page.evaluate(() => {
+  globalThis.__realWrite = navigator.clipboard.writeText.bind(
+    navigator.clipboard,
+  );
+  navigator.clipboard.writeText = () => Promise.reject(new Error("refused"));
+});
+await toastCopy.click();
+check(
+  "a failed copy is reported as a toast",
+  await anyToast.first().waitFor({ state: "visible", timeout: 10_000 })
+    .then(() => true, () => false),
+);
+
+/* Legible before it is timed: the text a toast carries is 13px, and the
+   library's own tinted palette put it under AA -- which is why richColors
+   is off. Computed, because the colours live in a stylesheet this project
+   does not own and no token audit can reach them. */
+const toastContrast = await anyToast.first().evaluate((box) => {
+  const n = box.querySelector(".app-toast-message") ?? box;
+  const s = getComputedStyle(n);
+  const parse = (c) => (c.match(/-?[\d.]+/g) ?? []).map(Number).slice(0, 3);
+  const lin = (v) => {
+    const x = v / 255;
+    return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = (c) => {
+    const [r, g, b] = parse(c).map(lin);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const bg = getComputedStyle(box).backgroundColor;
+  const [hi, lo] = [lum(s.color), lum(bg)].sort((a, b) => b - a);
+  return {
+    ratio: (hi + 0.05) / (lo + 0.05),
+    fg: s.color,
+    bg,
+  };
+});
+check(
+  `toast text passes AA (${
+    toastContrast.ratio.toFixed(2)
+  }:1, ${toastContrast.fg} on ${toastContrast.bg})`,
+  toastContrast.ratio >= 4.5,
+);
+
+/* Past the success duration, and still there. This is the whole point. */
+await page.waitForTimeout(7000);
+check(
+  "an error toast is still on screen after a success would have gone",
+  (await anyToast.count()) >= 1,
+);
+
+/* And it can be got rid of, which is what makes waiting acceptable. A
+   toast that never leaves and cannot be dismissed is a trap for anyone
+   who cannot reach for a pointer. */
+const closer = anyToast.first().locator("button").first();
+check("it carries a control to dismiss it", (await closer.count()) === 1);
+/* By its own text, not by "a toast is gone": the queue shows one at a time,
+   so anything waiting behind takes the closed one's place and a bare count
+   would read as nothing having happened. */
+const dismissing = (await anyToast.first().textContent() ?? "").trim();
+await closer.click();
+const dismissed = await page.waitForFunction(
+  (text) =>
+    ![...document.querySelectorAll(".app-toast")]
+      .some((t) => (t.textContent ?? "").trim() === text),
+  dismissing,
+  { timeout: 10_000 },
+).then(() => true, () => false);
+check(
+  `and dismissing it works (left: ${
+    (await anyToast.allTextContents()).join(" | ") || "nothing"
+  })`,
+  dismissed,
+);
+
+/* The real clipboard back, so the copy checks further down are still
+   reading the browser's own and not a stub left behind by this one. */
+await page.evaluate(() => {
+  navigator.clipboard.writeText = globalThis.__realWrite;
+});
+
+/* Announced, or it is not a message at all: a toast reports the outcome of
+   something a person just did, and someone not looking at that corner of
+   the screen has only the live region. */
+check(
+  "toasts are announced through a live region",
+  (await page.locator("[aria-live]").count()) >= 1,
 );
 
 /* Zoomed out, a ~3 m square is sub-pixel; a pin has to mark it or a fresh
@@ -2330,6 +3161,38 @@ const clicked = await page.locator(".address").textContent();
 check(
   `clicking that square yields ${sample.address} (got ${clicked})`,
   clicked === sample.address,
+);
+
+/* And it is painted in the colour the palettes reserve for it. --color-accent-alt
+   is the address's own colour -- cyan in dark, deep cyan in light, soft red in
+   low light -- and it painted NOTHING: the element carried `text-accent-alt` as
+   a base class and `text-accent-text` in the revealed branch, so the later class
+   won every time the address was on screen and the token was spent only in the
+   one state where the text is blurred out anyway. Every palette defined it,
+   contrast.mjs audited it as "the address itself", and no pixel had ever been
+   that colour.
+
+   Compared against the resolved custom property rather than a literal, so the
+   check says "the address wears its own token" and survives a repaint of it. */
+const paintedAs = async (prop) =>
+  await page.evaluate((p) => {
+    const el = document.querySelector(".address");
+    if (!el) return ["", ""];
+    const want = getComputedStyle(document.documentElement)
+      .getPropertyValue(p).trim();
+    /* Resolved through a throwaway element so the token's hex and the
+       computed colour are in the same notation before they are compared. */
+    const probe = document.createElement("span");
+    probe.style.color = want;
+    document.body.appendChild(probe);
+    const normalised = getComputedStyle(probe).color;
+    probe.remove();
+    return [getComputedStyle(el).color, normalised];
+  }, prop);
+const [addressInk, altToken] = await paintedAs("--color-accent-alt");
+check(
+  `the revealed address is painted in its own token (${addressInk} vs ${altToken})`,
+  addressInk === altToken && altToken !== "",
 );
 
 /* Version-skew detection, against the worker rather than the DOM. The served
@@ -2753,8 +3616,7 @@ const showsSquareFor = async (lat, lon) => {
    caught up. */
 const inspectAt = async (lat, lon) => {
   const box = await page.locator(".map").boundingBox();
-  let corner = null;
-  for (let attempt = 1; attempt <= 3 && corner === null; attempt++) {
+  const attempt = async () => {
     await page.evaluate(([la, lo]) => {
       const map = window.__tessarium_map;
       if (!map) return;
@@ -2768,13 +3630,11 @@ const inspectAt = async (lat, lon) => {
     const showed = await page
       .waitForSelector(".address", { timeout: 10_000 })
       .then(() => true, () => false);
-    if (!showed) continue;
+    if (!showed) return null;
     await reveal();
-    for (let i = 0; i < 20 && corner === null; i++) {
-      corner = await showsSquareFor(lat, lon);
-      if (corner === null) await page.waitForTimeout(250);
-    }
-  }
+    return until(() => showsSquareFor(lat, lon), { tries: 20, delayMs: 250 });
+  };
+  const corner = (await until(attempt, { tries: 3, delayMs: 0 })) || null;
   check(
     `a square containing ${lat.toFixed(4)},${lon.toFixed(4)} was selected`,
     corner !== null,
@@ -2819,8 +3679,8 @@ await relock(sampleMnemonic);
 
 /* Saved once, the way a user saves them: click the square, write down what
    the panel says, and note where looking the address back up goes. */
-const saved = [];
-for (const point of savedPoints) {
+const saved = await savedPoints.reduce(async (acc, point) => {
+  const prior = await acc;
   const at = { lat: point.lat_ns / 1e9, lon: point.lon_ns / 1e9 };
   const seen = await inspectAt(at.lat, at.lon);
   check(
@@ -2828,10 +3688,10 @@ for (const point of savedPoints) {
       + `(${point.address})`,
     seen.address === point.address,
   );
-  saved.push({ at, ...seen, landed: await flyToAddress(seen.address) });
-}
+  return [...prior, { at, ...seen, landed: await flyToAddress(seen.address) }];
+}, Promise.resolve([]));
 
-for (let cycle = 1; cycle <= 3; cycle++) {
+for (const cycle of [1, 2, 3]) {
   await relock(sampleMnemonic);
   for (const [i, s] of saved.entries()) {
     const landed = await flyToAddress(s.address);
@@ -2943,6 +3803,161 @@ check(
   `zooming past what was downloaded keeps it (${deepDrawn} features rendered)`,
   deepDrawn > 0,
 );
+
+/* ------------------------ the server going away --------------------------
+
+   The failure this answers, which cost an afternoon: with no server the gate
+   still renders, the phrase still validates and the checksum still goes
+   green -- all three run in the browser -- so the app looks fine right up
+   until "Open my map", which fails with "Could not open the map." That
+   blames the phrase. Nothing said the server was missing.
+
+   It is not an exotic state either: it is what `pnpm run dev` is in, every
+   time, without the backend behind it, because the two wasm modules the key
+   is derived with are embedded in the server binary rather than served from
+   public/.
+
+   /healthz is refused rather than the whole origin, because the page itself
+   has to keep loading for there to be anywhere to put a banner. */
+
+const bannerSays = (text, timeout = 30_000) =>
+  page
+    .waitForFunction(
+      (t) =>
+        [...document.querySelectorAll(".banner p")].some((p) =>
+          (p.textContent ?? "").includes(t)
+        ),
+      text,
+      { timeout },
+    )
+    .then(() => true, () => false);
+
+serverGone = true;
+await page.route(
+  "**/healthz",
+  (route) => route.fulfill({ status: 503, body: "" }),
+);
+/* Reloading drops the key with it, so this lands on the gate -- which is the
+   screen that matters: it is the one a person is looking at when they cannot
+   get in. */
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.waitForSelector("#phrase", { timeout: 30_000 });
+check(
+  "an unreachable server is reported in a banner, at the gate",
+  await bannerSays("Cannot reach the server"),
+);
+
+/* And pressing the button anyway must not blame the phrase. argon2.wasm is
+   refused too, so unlocking genuinely fails -- which is the case that used
+   to answer "Could not open the map" over a phrase whose checksum had gone
+   green one second earlier. */
+await page.route(
+  "**/argon2.wasm",
+  (route) => route.fulfill({ status: 503, body: "" }),
+);
+await page.locator("#phrase").fill(mnemonic);
+await page.waitForSelector(".valid", { timeout: 30_000 });
+await page.locator("button[type=submit]").click();
+const toastNamesServer = await page
+  .waitForFunction(
+    () =>
+      [...document.querySelectorAll(".app-toast")].some((t) =>
+        (t.textContent ?? "").includes("Cannot reach the server")
+      ),
+    null,
+    { timeout: 30_000 },
+  )
+  .then(() => true, () => false);
+check(
+  "and Open my map then blames the server, not the phrase",
+  toastNamesServer,
+);
+await page.unroute("**/argon2.wasm");
+
+await page.unroute("**/healthz");
+serverGone = false;
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.waitForSelector("#phrase", { timeout: 30_000 });
+/* And it goes away by itself: a banner that outlives its cause teaches
+   people to ignore banners. */
+const cleared = await page
+  .waitForFunction(
+    () =>
+      ![...document.querySelectorAll(".banner p")].some((p) =>
+        (p.textContent ?? "").includes("Cannot reach the server")
+      ),
+    null,
+    { timeout: 30_000 },
+  )
+  .then(() => true, () => false);
+check("and it clears once the server answers again", cleared);
+
+/* One download, described once.
+
+   The card used to render its own progress bar and its own cancel button
+   while a job ran, and MapProgress renders both -- per region, which is the
+   richer report -- one section up the same panel. While the card floated
+   over the map those were two places; once both were in the panel they were
+   the same download said twice, with two ways to cancel it.
+
+   The job is faked rather than started: a real one against the fixture
+   server finishes between polls, so there is no running state to look at.
+   What is under test is what the panel DRAWS for a running job, which is
+   exactly what the fake supplies. Installed before the reload because the
+   status query stops polling once a job is idle -- the fetch on mount is
+   the one that has to see it.
+
+   Last in this browser on purpose: it reloads, which costs the key. */
+await page.route("**/api/basemap-status", (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      generation: 4242,
+      job: {
+        state: "fetching",
+        done_bytes: 33_000_000,
+        total_bytes: 668_000_000,
+        part: 1,
+        parts: 1,
+        regions: [{
+          label: "Georgia",
+          done_bytes: 31_000_000,
+          total_bytes: 665_000_000,
+          planned: true,
+        }],
+      },
+    }),
+  }));
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.locator("#phrase").fill(mnemonic);
+await page.waitForSelector(".valid", { timeout: 30_000 });
+await page.locator("button[type=submit]").click();
+await page.waitForSelector(".map-wrap", { timeout: 60_000 });
+await page.locator(".panel-download").click();
+await page.waitForSelector(".download-card", { timeout: 10_000 });
+
+const reportedOnce = await page
+  .waitForFunction(
+    () => document.querySelectorAll(".downloads progress").length > 0,
+    null,
+    { timeout: 20_000 },
+  )
+  .then(() => true, () => false);
+check("a running download is reported once, by MapProgress", reportedOnce);
+check(
+  "and the card does not report it a second time",
+  (await page.locator(".download-card progress").count()) === 0,
+);
+/* Two cancel buttons for one download is the worse half of it: whichever is
+   pressed, the other stays on screen offering to do it again. */
+check(
+  "nor offers a second way to cancel it",
+  (await page.locator(".download-card").getByRole("button").filter({
+    hasText: /cancel/i,
+  }).count()) === 0,
+);
+await page.unroute("**/api/basemap-status");
 
 await browser.close();
 
@@ -3099,11 +4114,12 @@ check(
 /* Whatever the second visit did pay for, name it, so a regression that
    re-downloads one large thing is legible rather than a total that drifted. */
 if (second >= first / 20) {
-  for (
-    const r of secondVisit.filter((r) => r.bytes > 4096).sort((a, b) =>
-      b.bytes - a.bytes
-    ).slice(0, 8)
-  ) console.log(`    re-sent ${Math.round(r.bytes / 1024)} KB  ${r.path}`);
+  secondVisit.filter((r) => r.bytes > 4096)
+    .sort((a, b) => b.bytes - a.bytes)
+    .slice(0, 8)
+    .forEach((r) => {
+      console.log(`    re-sent ${Math.round(r.bytes / 1024)} KB  ${r.path}`);
+    });
 }
 
 /* The map's own bytes are most of the weight, so a run where the map never
@@ -3234,11 +4250,11 @@ check(
 );
 /* Named, so a regression is legible rather than a total that drifted. */
 if (gateBytes >= 200 * 1024) {
-  for (
-    const r of atGate.filter((r) => r.bytes > 4096).sort((a, b) =>
-      b.bytes - a.bytes
-    )
-  ) console.log(`    ${Math.round(r.bytes / 1024)} KB  ${r.path}`);
+  atGate.filter((r) => r.bytes > 4096)
+    .sort((a, b) => b.bytes - a.bytes)
+    .forEach((r) => {
+      console.log(`    ${Math.round(r.bytes / 1024)} KB  ${r.path}`);
+    });
 }
 
 const jsAssets = (rows) =>
@@ -3514,17 +4530,15 @@ check(
    operations; the multipart server's one-byte threshold folds it away the
    moment it exists. Driven over the API -- the page is gone, so nothing
    auto-browses underneath these steps. */
-const awaitRemoved = async (generation) => {
-  for (let i = 0; i < 120; i++) {
+const awaitRemoved = async (generation) =>
+  (await until(async () => {
     const status = await (await postJson("basemap-status")).json();
-    if (status.generation === generation && status.job?.state === "removed") {
-      return true;
-    }
-    if (status.job?.state === "failed") return false;
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  return false;
-};
+    return status.generation === generation && status.job?.state === "removed"
+      ? "removed"
+      : status.job?.state === "failed"
+      ? "failed"
+      : false;
+  })) === "removed";
 const cacheStatus = async () =>
   (await fetch(`${base}/basemap/cache.pmtiles`, { method: "HEAD" })).status;
 const deepTile = async () =>
@@ -3584,7 +4598,7 @@ check(
     (prunedLedger.entries ?? []).map((e) => e.name).join(", ")
   })`,
   prunedLedger.entries?.some((e) => e.name === "London borrowed back")
-    && prunedLedger.entries?.length === 2,
+    && (prunedLedger.entries ?? []).filter((e) => !e.overview).length === 2,
 );
 await postJson("basemap-settings", { browse_cache: false });
 
@@ -3637,24 +4651,28 @@ await post5("basemap-download", {
     max_zoom: 12,
   }],
 });
-/* The archive file appearing IS a part having landed, which is the only
-   thing that makes the run own a region. */
-let landed = false;
-for (let i = 0; i < 600 && !landed; i++) {
-  landed = (await cancelHas("map.pmtiles")) === 200;
-  if (!landed) await new Promise((r) => setTimeout(r, 25));
-}
-check("a part of the download reached the archive", landed);
+/* A part having landed is what makes the run own a region, and now it can be
+   asked directly: the record is published with every part, not only the last,
+   so an entry appearing IS a part on disk. That is the property that makes a
+   cancelled download resumable -- and it is why this no longer waits on a
+   file name it had to know in advance. */
+check(
+  "a part of the download reached the archive",
+  await until(
+    async () =>
+      ((await (await post5("basemap-ledger")).json()).entries ?? []).length
+        > 0,
+    { tries: 600, delayMs: 25 },
+  ),
+);
 check(
   "cancelling it is accepted",
   (await (await post5("basemap-cancel")).json()).ok === true,
 );
-let stopped = "";
-for (let i = 0; i < 300; i++) {
-  stopped = (await (await post5("basemap-status")).json()).job?.state ?? "";
-  if (["cancelled", "done", "failed"].includes(stopped)) break;
-  await new Promise((r) => setTimeout(r, 100));
-}
+const stopped = (await until(async () => {
+  const state = (await (await post5("basemap-status")).json()).job?.state ?? "";
+  return ["cancelled", "done", "failed"].includes(state) ? state : false;
+}, { tries: 300, delayMs: 100 })) || "still running";
 /* Finishing first would make the next check vacuous rather than wrong, so
    it fails loudly instead of passing quietly. */
 check(
@@ -3665,16 +4683,50 @@ check(
   "a cancelled download still prunes the region it published",
   (await cancelHas("cache.pmtiles")) === 404,
 );
+/* What it leaves behind, which used to be nothing anyone could name. The
+   parts that landed are in a file of the region's own and the record inside
+   it says so, because the record is published with every part rather than
+   only the last. Tiles from a cancelled download used to sit in the shared
+   archive claimed by no entry: unlistable, unremovable, and invisible to
+   everything except the map drawing them. */
+const cancelLedger = await (await post5("basemap-ledger")).json();
+const partial = cancelLedger.entries?.[0];
+check(
+  "a cancelled download leaves a region that can be named",
+  (partial?.file ?? "") !== "",
+);
+check(
+  "and its tiles really are on disk under that name",
+  (await cancelHas(partial?.file ?? "nothing")) === 200,
+);
+/* And it is removable, which is the part that was impossible before. */
+await post5("basemap-remove", { id: partial?.id });
+const removedPartial = (await until(async () => {
+  const state = (await (await post5("basemap-status")).json()).job?.state ?? "";
+  return ["removed", "failed"].includes(state) ? state : false;
+}, { tries: 300, delayMs: 100 })) || "still running";
+check(
+  `an interrupted download can be removed (got ${removedPartial})`,
+  removedPartial === "removed"
+    && (await cancelHas(partial?.file ?? "nothing")) === 404,
+);
 await post5("basemap-settings", { browse_cache: false });
 
 /* ------------------ a source that changed compression ---------------------
 
    Tile bytes are copied verbatim and the header says how to read them, so
-   an archive built from a gzipped source and then merged with an
+   an archive built from a gzipped source and then MERGED with an
    uncompressed one would relabel every tile it already held. Unreadable,
    silently, and only at render time. This server's source disagrees with
    the archive seeded beside it, so every path that would merge them has to
-   refuse instead. */
+   refuse instead.
+
+   Which is now fewer paths, and that is the point. A region download merges
+   with nothing: it writes its own file, and the tile endpoint reads every
+   file through that file's own header, so two regions in two compressions
+   are two files that both draw. Refusing there would be refusing on behalf
+   of a merge that cannot happen. A browse still writes into the cache, and
+   the cache is still folded into map.pmtiles, so that one still refuses. */
 const base4 = process.argv[4] ?? "http://127.0.0.1:7376";
 const post4 = async (endpoint, body) =>
   await fetch(`${base4}/api/${endpoint}`, {
@@ -3686,11 +4738,9 @@ const post4 = async (endpoint, body) =>
 const mismatchEstimate = await post4("basemap-estimate", {
   regions: [{ ...lb, max_zoom: 15 }],
 });
-const mismatchBody = await mismatchEstimate.json();
 check(
-  "an estimate against a differently compressed source is refused",
-  mismatchEstimate.status === 502
-    && (mismatchBody.error ?? "").includes("compression"),
+  "an estimate for a region of its own is answered, not refused",
+  mismatchEstimate.status === 200,
 );
 await post4("basemap-settings", { browse_cache: true });
 const mismatchBrowse = await post4("basemap-browse", { ...lb, zoom: 15 });
@@ -3714,8 +4764,8 @@ await post4("basemap-settings", { browse_cache: false });
    was renamed in between produced `200 OK, content-length: N` followed by a
    closed socket with nothing in it -- and a truncated body against a promised
    length is the one failure a client cannot tell from a network fault. The
-   application opens that window itself: the downloader renames `map.pmtiles`
-   into place under the very root this endpoint serves.
+   application opens that window itself: the downloader renames every region
+   archive into place under the very root this endpoint serves.
 
    Driven the way it was measured. A file under the basemap root is moved away
    and back while the same file is fetched in a loop, and the rule is that
@@ -3731,7 +4781,6 @@ const racyAside = new URL("racy.bin.aside", racyRoot);
 const racyBytes = Buffer.alloc(128 * 1024, 7);
 writeFileSync(racyPath, racyBytes);
 
-let racyComplete = 0, racyTruncated = 0, racyMissing = 0, racyOther = 0;
 /* 600 rather than a round hundred, and the reason is worth stating: the
    window this opens is narrow. Measured against the unfixed server, 2 of 300
    requests truncated -- so a short loop would clear a broken build about one
@@ -3742,66 +4791,69 @@ const ROUNDS = 600;
 /* Away and back, so the name is genuinely absent for part of every cycle.
    Replacing it in place would not do: the old code would open the
    replacement, stream a file of the same length, and look correct. */
-const flipper = (async () => {
-  for (let i = 0; i < ROUNDS; i++) {
-    try {
-      renameSync(racyPath, racyAside);
-      renameSync(racyAside, racyPath);
-    } catch { /* lost a race with ourselves; the next round re-tries */ }
-    await new Promise((resolve) => setTimeout(resolve, 1));
-  }
-})();
-
-for (let i = 0; i < ROUNDS; i++) {
-  let res;
+const flip = async (n) => {
+  if (n === 0) return;
   try {
-    res = await fetch(`${base}/basemap/racy.bin`);
-  } catch {
-    racyOther += 1;
-    continue;
-  }
-  if (res.status === 404) {
-    racyMissing += 1;
-    await res.arrayBuffer().catch(() => {});
-    continue;
-  }
-  if (res.status !== 200) {
-    racyOther += 1;
-    await res.arrayBuffer().catch(() => {});
-    continue;
-  }
+    renameSync(racyPath, racyAside);
+    renameSync(racyAside, racyPath);
+  } catch { /* lost a race with ourselves; the next round re-tries */ }
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  return flip(n - 1);
+};
+const flipper = flip(ROUNDS);
+
+/* One round, one verdict. undici rejects the body when it is shorter than
+   the length that was promised, which is exactly the failure being looked
+   for -- so the throw counts as a truncation rather than as an error in
+   this harness. */
+const racyRound = async () => {
+  const res = await fetch(`${base}/basemap/racy.bin`).catch(() => null);
+  if (res === null) return "other";
   const promised = Number(res.headers.get("content-length"));
-  /* undici rejects the body when it is shorter than the length that was
-     promised, which is exactly the failure being looked for -- so the throw
-     counts as a truncation rather than as an error in this harness. */
   const got = await res.arrayBuffer().then((b) => b.byteLength, () => -1);
-  if (got === promised && promised === racyBytes.length) racyComplete += 1;
-  else racyTruncated += 1;
-}
+  if (res.status === 404) return "missing";
+  if (res.status !== 200) return "other";
+  return got === promised && promised === racyBytes.length
+    ? "complete"
+    : "truncated";
+};
+/* Sequential, the fold carrying the verdicts: the point is many separate
+   requests racing the flipper, not one burst racing it once. */
+const racyVerdicts = await Array.from({ length: ROUNDS }).reduce(
+  async (acc) => {
+    const prior = await acc;
+    return [...prior, await racyRound()];
+  },
+  Promise.resolve([]),
+);
 await flipper;
 rmSync(racyPath, { force: true });
 rmSync(racyAside, { force: true });
 
+const racy = (verdict) => racyVerdicts.filter((v) => v === verdict).length;
 check(
   `a file renamed mid-flight never truncates a promised body `
-    + `(${racyComplete} complete, ${racyTruncated} truncated, `
-    + `${racyMissing} absent, ${racyOther} other, of ${ROUNDS})`,
-  racyTruncated === 0,
+    + `(${racy("complete")} complete, ${racy("truncated")} truncated, `
+    + `${racy("missing")} absent, ${racy("other")} other, of ${ROUNDS})`,
+  racy("truncated") === 0,
 );
 /* Guards the check above from passing because nothing was ever served: if the
    loop only ever saw 404s it has proved nothing about promised bodies. */
 check(
-  `and the loop actually served the file (${racyComplete} times)`,
-  racyComplete > 0,
+  `and the loop actually served the file (${racy("complete")} times)`,
+  racy("complete") > 0,
 );
 
 slowProxy.close();
 
-for (const p of problems) console.log(`  PAGE  ${p}`);
+problems.forEach((p) => {
+  console.log(`  PAGE  ${p}`);
+});
 check(
   "no console errors, CSP violations or failed requests",
   problems.length === 0,
 );
 
-console.log(`\n${checks} checks, ${failures} failures`);
-process.exit(failures ? 1 : 0);
+const failed = results.filter((r) => !r.ok).length;
+console.log(`\n${results.length} checks, ${failed} failures`);
+process.exit(failed ? 1 : 0);

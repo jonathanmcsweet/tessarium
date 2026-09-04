@@ -58,6 +58,14 @@ export const WORLD: Region = {
   max_zoom: 6,
 };
 
+const RegionProgress = z.object({
+  label: z.string(),
+  done_bytes: z.number().int().nonnegative(),
+  total_bytes: z.number().int().nonnegative(),
+  planned: z.boolean(),
+});
+export type RegionProgress = z.infer<typeof RegionProgress>;
+
 const Job = z.discriminatedUnion("state", [
   z.object({ state: z.literal("idle") }),
   z.object({ state: z.literal("planning") }),
@@ -68,6 +76,13 @@ const Job = z.discriminatedUnion("state", [
     /* Giants are fetched in parts; a small download is part 1 of 1. */
     part: z.number().int().min(1),
     parts: z.number().int().min(1),
+    /* One row per picked region, in the order they were asked for. Bytes
+       here are what the network delivered for that region -- tiles already
+       on disk belong to whoever fetched them, so these do not sum to
+       done_bytes above, which counts the whole archive being rewritten.
+       `planned` is false while a region big enough to be split still has
+       parts to plan, so its total can still grow. */
+    regions: z.array(RegionProgress),
   }),
   z.object({ state: z.literal("assets") }),
   z.object({
@@ -90,7 +105,20 @@ const Job = z.discriminatedUnion("state", [
     total_bytes: z.number(),
     parts: z.number().int().min(1),
   }),
+  z.object({
+    state: z.literal("exporting"),
+    done_bytes: z.number(),
+    total_bytes: z.number(),
+  }),
   z.object({ state: z.literal("removed"), freed_bytes: z.number() }),
+  /* An export finished and is sitting in the export directory, ready to be
+     saved. Its own state rather than "done" because there is somewhere to
+     send the user: the file. */
+  z.object({
+    state: z.literal("exported"),
+    file: z.string(),
+    bytes: z.number().int().nonnegative(),
+  }),
   z.object({ state: z.literal("failed"), reason: z.string() }),
   z.object({ state: z.literal("cancelled") }),
 ]);
@@ -106,23 +134,49 @@ const JobStatus = z.object({
 });
 export type JobStatus = z.infer<typeof JobStatus>;
 
-export const isRunning = (job: Job): boolean =>
-  job.state === "planning" || job.state === "fetching"
-  || job.state === "assets" || job.state === "removing"
-  || job.state === "compacting" || job.state === "indexing";
+/* The states with work still in flight, as data rather than a chain of
+   comparisons. Typed against the union, so a state the Job schema does not
+   know cannot sit here unnoticed. */
+const RUNNING: ReadonlySet<Job["state"]> = new Set(
+  [
+    "planning",
+    "fetching",
+    "assets",
+    "removing",
+    "compacting",
+    "indexing",
+    "exporting",
+  ] satisfies Job["state"][],
+);
+
+export const isRunning = (job: Job): boolean => RUNNING.has(job.state);
 
 /* One row of the download ledger: a region the archive was asked to hold,
-   as recorded inside the archive itself. `completed` is epoch seconds;
-   zero means the tiles predate the ledger and their age is unknown --
-   which the UI treats as "probably stale" rather than "fresh". */
+   as recorded inside the archive itself. `completed` is epoch seconds; zero
+   means the tiles predate the ledger and their age is unknown -- which the
+   UI treats as "probably stale" rather than "fresh". */
 const LedgerEntry = z.object({
   id: z.string(),
   name: z.string(),
+  /* The file holding this region's tiles, which is the file to carry away:
+     a download writes its own archive, so there is nothing to build and
+     nothing to wait for. Empty for a region still living inside the old
+     merged map.pmtiles, which has to be extracted out of it first -- the
+     export flow below, which exists for exactly that case. */
+  file: z.string(),
   completed: z.number().int().nonnegative(),
   source: z.string(),
   bytes: z.number().int().nonnegative(),
   regions: z.number().int().positive(),
   max_zoom: z.number().int().nonnegative(),
+  /* The world overview, which is the ground under every region rather than
+     a place of its own. Since downloads split into one file per region it
+     has its own archive and writes no record, so nothing made today is
+     flagged here -- but an install from before that split has it inside the
+     old merged map.pmtiles as an ordinary entry, under whatever the picker
+     called it. The server decides this from what the entry holds, not from
+     its name, and says so here rather than leaving the page to guess. */
+  overview: z.boolean(),
 });
 export type LedgerEntry = z.infer<typeof LedgerEntry>;
 const Ledger = z.object({
@@ -240,15 +294,21 @@ export function useBasemapDownload() {
        able to take it away, and the server checks that a download claiming
        to be one really covers the planet. */
     mutationFn: (
-      { regions, name, world }: {
+      { regions, name, labels, world }: {
         regions: Region[];
         name?: string;
+        /* One label per region, in the same order. The server echoes these
+           back in the status so the progress rows keep their names across a
+           reload -- the ledger stores only the one combined name, which
+           cannot label six separate bars. */
+        labels?: string[];
         world?: boolean;
       },
     ) =>
       post(z.object({ ok: z.boolean() }), "basemap-download", {
         regions,
         ...(name !== undefined ? { name } : {}),
+        ...(labels !== undefined ? { labels } : {}),
         ...(world ? { world: true } : {}),
       }),
     /* Refetch immediately so the poll loop sees the running state and starts
@@ -282,6 +342,167 @@ export function useBasemapRemove() {
     mutationFn: (id: string) =>
       post(z.object({ ok: z.boolean() }), "basemap-remove", { id }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["basemap-status"] }),
+  });
+}
+
+/* ------------------------------------------------- carrying maps by hand */
+
+/* Writing a downloaded region out as a file, so it can be carried to a
+   machine with no internet. The file is built server-side into the export
+   directory and then saved by the browser over an ordinary GET, which is
+   what makes a multi-gigabyte export resumable and keeps it off the
+   JavaScript heap entirely. */
+export function useBasemapExport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      post(z.object({ ok: z.boolean() }), "basemap-export", { id }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["basemap-status"] }),
+  });
+}
+
+const Exports = z.array(
+  z.object({ file: z.string(), bytes: z.number().int().nonnegative() }),
+);
+export type Exports = z.infer<typeof Exports>;
+
+/* What is sitting in the export directory. Listed from disk rather than
+   remembered, because these outlive the session that made them: the point is
+   to collect several over an evening and copy them all at once. */
+export function useBasemapExports() {
+  return useQuery({
+    queryKey: ["basemap-exports"],
+    queryFn: () => post(Exports, "basemap-exports"),
+  });
+}
+
+export function useDeleteExport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (file: string) =>
+      post(z.object({ ok: z.boolean() }), "basemap-export-delete", { file }),
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: ["basemap-exports"] }),
+  });
+}
+
+/* Where the browser saves an export from. Same origin, so the CSP is happy
+   and nothing leaves this machine. */
+export const exportUrl = (file: string) =>
+  `/basemap/export/${encodeURIComponent(file)}`;
+
+/* And where it saves a downloaded region from: the archive the download
+   itself wrote, served from the basemap directory it already lives in. No
+   copy is made anywhere -- this URL is the file. */
+export const regionUrl = (file: string) =>
+  `/basemap/${encodeURIComponent(file)}`;
+
+const Staged = z.discriminatedUnion("staged", [
+  z.object({ staged: z.literal(false) }),
+  z.object({
+    staged: z.literal(true),
+    name: z.string().nullable(),
+    bytes: z.number().int().nonnegative(),
+    min_zoom: z.number().int().nonnegative(),
+    max_zoom: z.number().int().nonnegative(),
+    tiles: z.number().int().nonnegative(),
+    regions: z.array(z.object({
+      min_lon: z.number(),
+      min_lat: z.number(),
+      max_lon: z.number(),
+      max_lat: z.number(),
+      max_zoom: z.number().int().nonnegative(),
+    })),
+  }),
+]);
+export type Staged = z.infer<typeof Staged>;
+/* The half of [Staged] that actually describes a file. Named because a
+   conditional expression widens back to the whole union, so the component
+   holding "the staged file, or nothing" has to say which half it means. */
+export type StagedReady = Extract<Staged, { staged: true; }>;
+
+/* What has been uploaded and is waiting to be merged. */
+export function useStagedImport() {
+  return useQuery({
+    queryKey: ["basemap-staged"],
+    queryFn: () => post(Staged, "basemap-staged"),
+  });
+}
+
+/* Sending the file up.
+
+   XHR rather than fetch, for one reason: fetch cannot report upload
+   progress, and this is a multi-gigabyte body going to a server the user is
+   watching. A progress bar that sits at zero for four minutes reads as a
+   hang. The File is handed over as-is, so the browser streams it from disk
+   and it never lands on the JavaScript heap. */
+export function useUploadImport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      { file, onProgress }: {
+        file: File;
+        onProgress?: (sent: number, total: number) => void;
+      },
+    ) =>
+      new Promise<Staged>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/import");
+        xhr.setRequestHeader("content-type", "application/octet-stream");
+        xhr.upload.addEventListener("progress", (e) => {
+          if (e.lengthComputable) onProgress?.(e.loaded, e.total);
+        });
+        xhr.addEventListener("load", () => {
+          let json: unknown = null;
+          try {
+            json = JSON.parse(xhr.responseText) as unknown;
+          } catch {
+            json = null;
+          }
+          if (xhr.status < 200 || xhr.status >= 300) {
+            const message = json && typeof json === "object" && "error" in json
+              ? String((json as { error: unknown; }).error)
+              : `upload failed (${xhr.status})`;
+            reject(new Error(message));
+            return;
+          }
+          const parsed = Staged.safeParse(json);
+          if (!parsed.success) {
+            reject(new Error("the server described that file oddly"));
+            return;
+          }
+          resolve(parsed.data);
+        });
+        xhr.addEventListener("error", () =>
+          reject(new Error("the upload could not reach the app")));
+        xhr.addEventListener("abort", () =>
+          reject(new Error("the upload was stopped")));
+        xhr.send(file);
+      }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["basemap-staged"] }),
+  });
+}
+
+/* Merging what was uploaded. Everything downstream is the ordinary download
+   path with a file for a source, so the region lands in the ledger and the
+   search index exactly as a downloaded one does. */
+export function useCommitImport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => post(z.object({ ok: z.boolean() }), "basemap-import"),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["basemap-status"] });
+      void client.invalidateQueries({ queryKey: ["basemap-staged"] });
+    },
+  });
+}
+
+export function useDiscardImport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      post(z.object({ ok: z.boolean() }), "basemap-import-discard"),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["basemap-staged"] }),
   });
 }
 

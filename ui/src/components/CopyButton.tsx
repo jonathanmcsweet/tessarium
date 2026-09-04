@@ -60,7 +60,7 @@ export function CopyButton(
     <IconButton
       label={copied ? copiedLabel : label}
       onClick={copy}
-      {...(copied ? { className: "copied" } : {})}
+      {...(copied ? ({ tone: "ok" } as const) : {})}
       icon={copied
         ? <Check size={18} aria-hidden />
         : <Copy size={18} aria-hidden />}

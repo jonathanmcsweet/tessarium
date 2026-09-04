@@ -9,8 +9,8 @@
  (alias runtest)
  (deps tessarium.mjs %{project_root}/wordlist/english.txt bands.json
   %{project_root}/vectors/vectors.json
-  ; the oracle's npm manifest: a version bump must re-run this
-  %{project_root}/package.json %{project_root}/package-lock.json)
+  ; the oracle's manifest and lockfile: a version bump must re-run this
+  %{project_root}/package.json %{project_root}/pnpm-lock.yaml)
  (action (run node %{dep:test_vectors.mjs})))
 
 ; The differential sweep. Sized for CI rather than for thoroughness: the
@@ -23,7 +23,7 @@
   tessarium.mjs
   %{project_root}/wordlist/english.txt
   bands.json
-  %{project_root}/package.json %{project_root}/package-lock.json
+  %{project_root}/package.json %{project_root}/pnpm-lock.yaml
   (glob_files %{project_root}/ocaml/tools/*.ml))
  ; Piped rather than written to a file: an action with a target is cached as a
  ; build artifact and will not re-run under `dune test --force`, which makes a
@@ -57,7 +57,7 @@
 (rule
  (alias runtest)
  (deps argon2-differential.mjs %{project_root}/wasm/argon2.wasm
-  %{project_root}/package.json %{project_root}/package-lock.json)
+  %{project_root}/package.json %{project_root}/pnpm-lock.yaml)
  (action (run node %{dep:argon2-differential.mjs} %{project_root}/wasm/argon2.wasm)))
 
 ; The real browser worker, driven in node against the extracted core. Unlike

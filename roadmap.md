@@ -454,6 +454,36 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
+- [ ] **No red sprite sheet for the low-light theme.** Low light draws
+      Protomaps' `dark` icons — near-black shields, the whole POI set — which
+      is the darkest sheet that exists, and its shield badges are the one
+      part of that map still drawn in a neutral rather than in red. Sprites
+      are raster images with no SDF channel, so `icon-color` cannot tint
+      them and no flavour key reaches them; a red one has to be DRAWN.
+      Protomaps draws all five of theirs with `spritegen`, a Rust tool over
+      a master `refill.svg` plus a per-flavour JSON of colours, so the shape
+      of the work is a sixth config and a generation step in
+      `tools/fetch-basemap.sh` / `tools/stage-bundle.sh`, plus roughly 50 KB
+      in the offline bundle. There is no documented custom-flavour path
+      upstream, which is what makes this a packaging decision and not a
+      config line. Runtime canvas tinting was the considered alternative and
+      is rejected: `setStyle` discards added images and the style rebuilds on
+      theme AND locale change, so it would re-run on every rebuild, after an
+      async sprite load, showing the untinted sheet first. The shield TEXT
+      already takes the label tint.
+
+- [ ] **`run_remove`'s merged-archive branch is unreachable.** Nothing inside
+      `map.pmtiles` may be removed, so the path that prunes one entry out of
+      the shared archive — rewriting it, or unlinking it when the last entry
+      goes — can no longer be reached from the API. It is roughly ninety
+      lines, and it is the code that destroys the file the map is drawn from,
+      which is the worst kind to leave lying behind a guard someone might
+      later decide to relax. Deleting it is mechanical but wants its own diff:
+      `Ledger.remove` and `Ledger.drops` are used by nothing else, while
+      `Pmtiles.Merge.prune` is shared with export and stays. Left in place for
+      now because removing it in the same commit as the guard would have meant
+      the guard's test could no longer demonstrate what it prevents.
+
 - [ ] **No response carries a `Date`.** RFC 9110 6.6.1 requires an origin
       server with a clock to send one, and it is what a shared cache computes
       `age` from. Harmless today — everything is either `no-cache`, where the
@@ -705,21 +735,6 @@ not cover.
       regions tested against the view's centre -- a second read per query,
       plus a decision about what an unreadable ledger should say, since
       guessing either way puts a false sentence on screen.
-- [ ] **sonner is the last thing outside React Aria.** Everything else moved
-      (ledger, 2026-08-23): the search box, the tooltip, both dropdowns, both
-      disclosures and the checkboxes. React Aria has `Toast` at 1.20, and the
-      reason this has not followed is that sonner's behaviour here is tuned
-      rather than default — errors never auto-dismiss, because a five-second
-      timeout cuts off a long message being read aloud, and `richColors` is
-      off because its palette fails AA at 13px and lives where the contrast
-      audit cannot see it (`ui/src/toast.ts`, `ui/src/main.tsx`). Moving it
-      means re-deriving both against a different library, and a toast that
-      auto-dismisses under a screen reader is the kind of regression the
-      suite would not catch.
-
-      Worth doing for one library rather than two, but only with those two
-      behaviours restated as checks first, so the move cannot quietly lose
-      them.
 - [ ] **Verifiable builds — so a user can tell a legitimate build from an
       imposter.** The naive version does not work and must not be shipped as
       if it did: anything the app DISPLAYS, an imposter displays too — a fake
@@ -861,6 +876,77 @@ not cover.
       `dpkg -i` or `dnf install` on a clean system — the scriptlets, the
       desktop database refresh, the icon cache — which needs a container this
       repository does not have.
+
+- [ ] **Nothing publishes an installable package.** The packaging scripts for
+      the tarball, `.deb`, `.rpm` and the AppImage all work, and the Flatpak
+      manifest is written; CI runs only `tools/package.sh` and uploads the
+      tarball as an Actions artifact, which expires and needs a GitHub login
+      to fetch. So a person who wants to put this on a machine with no
+      internet has nothing to download. A tagged release job should build all
+      four, publish `SHA256SUMS` beside them, and attach them to a GitHub
+      release.
+
+      One thing that job cannot paper over: a single-file `.flatpak` bundle
+      installs offline only when `org.freedesktop.Platform//24.08` is already
+      on the target. For a genuinely bare machine the honest instruction is
+      `flatpak create-usb`, which carries the runtime too, and that belongs in
+      the offline documentation rather than in the build.
+
+- [ ] **`tessarium-basemap` replaces its output rather than merging into it.**
+      `Pmtiles.Merge` exists and is what the in-app downloader uses; the CLI
+      never got a path to it, so fetching a second region over an existing
+      file discards the first. The release tarball's `README.txt` says the
+      opposite — "Downloads merge rather than replace" — under a heading about
+      the CLI, which is true of the app and false of the tool it is describing.
+      Fix the tool, then the sentence.
+
+- [ ] **An archive copied in by hand has no search index.** `search.idx` is
+      built by the downloader when the archives change, which now covers
+      import as well. Someone who sidesteps both and drops a region file into
+      `basemap/` themselves — which is the whole point of one file per region,
+      and the plainest way to carry one — gets working tiles and a search box
+      that finds nothing. A startup check — index missing, or older than the archive —
+      would close it, and would also repair an index lost to a crash mid-build.
+
+- [ ] **A region still inside `map.pmtiles` costs a copy to export.** Every
+      region downloaded since downloads stopped merging has a file of its own,
+      and handing it over is handing over that file. An install from before
+      the split has its regions inside one shared archive, and taking one out
+      still writes a second copy into `basemap/export/` — on the machine most
+      likely to be short of disk, with no check that there is room, and the
+      user finds out after waiting. Eio exposes no portable `statvfs`, which
+      is why this is recorded rather than done. A migration that split the
+      shared archive into region files once, on first run, would retire the
+      export path along with it.
+- [ ] **An imported file is trusted on its face.** A download over HTTPS is
+      checked against compiled-in NSS trust anchors. A file that arrived on a
+      USB stick gets none of that, and the confirm step describes what the
+      file claims to hold without offering anything to check it against. The
+      archive is hashed end to end while being received anyway, so showing
+      that digest at the confirm step — and writing it beside the file at
+      export — is a small change that closes the asymmetry.
+
+- [ ] **Exports go one region to a file, one at a time.** Which is the right
+      default — the person on the other end may want only Tokyo — but someone
+      moving a whole map library makes one round trip per region and gets no
+      way to say "all of it". A multi-select over the downloaded list, writing
+      either several files or one combined archive, is the obvious follow-on
+      and was deliberately left until the single-region path had been used.
+
+- [ ] **`pnpm run check` needs the network on a cold cache.** dprint resolves
+      its TypeScript and JSON formatters as WASM plugins fetched from
+      `plugins.dprint.dev`. Both URLs now carry a `@sha256` pin, so what
+      arrives is verified rather than trusted — but it still has to arrive,
+      and on the air-gapped machine this phase exists to serve, the formatter
+      check cannot run at all. The cache lives in `~/.cache/dprint`, outside
+      the tree, so it survives a clean checkout but not a fresh machine.
+
+      Vendoring the two `.wasm` files and pointing the plugin entries at
+      local paths would close it. Left out because that is ~15 MB of binary
+      in git to spare a developer a one-time download, and the offline
+      requirement this phase is built around is about the shipped
+      application, not the toolchain that builds it. Worth revisiting if
+      anyone actually has to develop disconnected.
 
 ## Phase 8 — Later, unscheduled
 

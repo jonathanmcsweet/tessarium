@@ -26,7 +26,10 @@ type refusal =
       (** text/plain, form-urlencoded and multipart are the three shapes a
           page can post with no preflight, so JSON is required: the browser
           then has to ask permission first, and nothing here answers. *)
-  | Too_large  (** past [max_body] *)
+  | Too_large  (** past [max_body], or an upload that declared no size *)
+  | Not_binary
+      (** an upload that was not application/octet-stream. Same reasoning as
+          [Not_json], for the route that takes bytes instead. *)
 
 (** Whether the refused body could be taken off the socket. It cannot be when
     it is over the bound -- that is what over the bound means -- and then the
@@ -46,6 +49,18 @@ val check :
   declares_body:bool ->
   read:(unit -> string option) ->
   outcome
+
+type stream
+(** An upload that passed the same-origin and content-type checks and
+    declared its size. Abstract for the same reason [t] is: the route that
+    streams a file to disk cannot be reached without these having run. *)
+
+val check_stream :
+  header:(string -> string option) -> declares_body:bool -> (stream, refusal) result
+
+val declared_length : stream -> int
+(** What Content-Length said. Checked against the disk before a byte is
+    written, and against the bytes actually received afterwards. *)
 
 (** Exposed so the tests can state what a browser sends. Neither is needed to
     use this module. *)

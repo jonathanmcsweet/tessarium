@@ -29,35 +29,60 @@ import {
   DisclosurePanel,
 } from "react-aria-components";
 import {
+  exportUrl,
   isRunning,
   type Job,
   type LedgerEntry,
   type Region,
-  useBasemapCancel,
+  regionUrl,
   useBasemapDownload,
   useBasemapEstimate,
+  useBasemapExport,
+  useBasemapExports,
   useBasemapLedger,
   useBasemapPresent,
   useBasemapRemove,
   useBasemapSettings,
   useBasemapUpdate,
+  useCommitImport,
+  useDeleteExport,
+  useDiscardImport,
   useSaveBasemapSettings,
+  useStagedImport,
+  useUploadImport,
   WORLD,
 } from "../core/basemap";
+import type { StagedReady } from "../core/basemap";
 import { formatBytes, formatList, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import {
   citiesOf,
   countries,
   countryRegions,
+  placeAt,
   subdivisionRegions,
   subdivisionsOf,
   toRegion,
 } from "../regions";
 import { useAppStore } from "../store";
-import { toastError } from "../toast";
+import { toastError, toastSuccess } from "../toast";
 import { Dropdown } from "./Dropdown";
 import { IconButton } from "./IconButton";
+
+/* The checkbox. React Aria renders a real input, visually hidden, and hands
+   the appearance over, so this is the box and `selected` on the label is what
+   fills it. The tick inside is scaled to nothing until then rather than
+   mounted and unmounted, so it cannot reflow the row. */
+const BOX = "checkbox-box flex size-4.5 flex-none items-center justify-center "
+  + "border border-line-strong bg-card text-on-ink "
+  + "group-selected/check:border-accent group-selected/check:bg-accent "
+  + "[&>svg]:scale-0 group-selected/check:[&>svg]:scale-100";
+
+/* The save control and the import control have to read as buttons without
+   being one: the first is an <a> because the browser fetches the file, the
+   second a <label> because an <input type=file> cannot be replaced by
+   something that is not one. */
+const LINK_BUTTON = "btn btn-quiet border-line-strong hover:border-accent";
 
 /* A refused start -- another download already running, a server gone away
    -- must be audible, not swallowed. */
@@ -65,89 +90,6 @@ const loudly = {
   onError: (e: unknown) =>
     toastError(e instanceof Error ? e.message : String(e)),
 };
-
-function Progress({ job }: { job: Job; }) {
-  if (job.state === "planning") {
-    return <p className="hint">{m.map_download_planning()}</p>;
-  }
-  if (job.state === "assets") {
-    return <p className="hint">{m.map_download_assets()}</p>;
-  }
-  if (job.state === "compacting") {
-    const text = m.map_compacting_progress({
-      done: formatBytes(job.done_bytes),
-      total: formatBytes(job.total_bytes),
-    });
-    return (
-      <>
-        <progress
-          value={job.done_bytes}
-          max={Math.max(1, job.total_bytes)}
-          aria-label={text}
-        />
-        <p className="hint">{text}</p>
-      </>
-    );
-  }
-  if (job.state === "indexing") {
-    /* Tiles, not bytes: what is being read is the archive's labels, and a
-       byte count of that would mean nothing to anyone. */
-    const text = m.map_indexing_progress({
-      done: job.done_tiles.toLocaleString(),
-      total: job.total_tiles.toLocaleString(),
-    });
-    return (
-      <>
-        <progress
-          value={job.done_tiles}
-          max={Math.max(1, job.total_tiles)}
-          aria-label={text}
-        />
-        <p className="hint">{text}</p>
-      </>
-    );
-  }
-  if (job.state === "removing") {
-    const text = m.map_removing_progress({
-      done: formatBytes(job.done_bytes),
-      total: formatBytes(job.total_bytes),
-    });
-    return (
-      <>
-        <progress
-          value={job.done_bytes}
-          max={Math.max(1, job.total_bytes)}
-          aria-label={text}
-        />
-        <p className="hint">{text}</p>
-      </>
-    );
-  }
-  if (job.state !== "fetching") return null;
-  const done = formatBytes(job.done_bytes);
-  const total = formatBytes(job.total_bytes);
-  /* The bar tracks the CURRENT part -- part sizes are not known up front,
-     and a bar that restarts per labelled part is more honest than one
-     guessing at a total it cannot know. */
-  const text = job.parts > 1
-    ? m.map_download_progress_part({
-      part: job.part,
-      parts: job.parts,
-      done,
-      total,
-    })
-    : m.map_download_progress({ done, total });
-  return (
-    <>
-      <progress
-        value={job.done_bytes}
-        max={Math.max(1, job.total_bytes)}
-        aria-label={text}
-      />
-      <p className="hint">{text}</p>
-    </>
-  );
-}
 
 /* What the ledger will call a download. The server caps names at 120 bytes
    of printable UTF-8; a selection of many picks is clamped to "first + N"
@@ -211,7 +153,7 @@ function Offer(
         <p className="hint">{m.map_download_estimating()}</p>
       )}
       {estimate.isError && (
-        <p className="hint invalid">
+        <p className="hint invalid text-danger">
           {estimate.error instanceof Error
             ? estimate.error.message
             : String(estimate.error)}
@@ -233,14 +175,18 @@ function Offer(
             : m.map_download_depth_hint()}
         </p>
       )}
-      <div className="download-actions">
+      <div className="download-actions mt-2.5 flex flex-wrap gap-2">
         <button
           type="button"
+          className="btn btn-primary"
           onClick={() =>
             regions
             && download.mutate({
               regions,
               ...(ledgerLabel !== undefined ? { name: ledgerLabel } : {}),
+              /* Already aligned with regions for the depth warning, and
+                 exactly what the progress rows need to name themselves. */
+              ...(names !== undefined ? { labels: names } : {}),
               ...(world ? { world: true } : {}),
             }, loudly)}
           disabled={regions === null || !estimate.isSuccess
@@ -292,12 +238,12 @@ function CheckRow({ text, checked, onChange, disabled }: {
 }) {
   return (
     <Checkbox
-      className="region-check"
+      className="region-check group/check flex cursor-pointer items-center gap-2 disabled:cursor-default disabled:opacity-55"
       isSelected={checked}
       onChange={onChange}
       isDisabled={disabled ?? false}
     >
-      <span className="checkbox-box" aria-hidden="true">
+      <span className={BOX} aria-hidden="true">
         <Check size={14} />
       </span>
       <span>{text}</span>
@@ -341,16 +287,25 @@ function RegionPicker() {
 
   return (
     <div className="download-option download-region">
-      <label htmlFor="region-filter">{m.map_download_region_label()}</label>
+      <label
+        htmlFor="region-filter"
+        className="mt-0.5 mb-1.5 block text-sm font-semibold"
+      >
+        {m.map_download_region_label()}
+      </label>
       <input
         id="region-filter"
-        className="region-filter"
+        className="region-filter field min-h-10 px-2.5 py-2"
         type="search"
         placeholder={m.map_download_region_filter()}
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
       />
-      <ul className="region-tree">
+      {
+        /* The picker's tree. It scrolls inside the card so the selection's
+          estimate and its download button stay in reach below the list. */
+      }
+      <ul className="region-tree my-2 max-h-[min(45vh,21rem)] divide-y divide-line overflow-y-auto border border-line">
         {list.map(({ country, label }) => {
           const code = country.code ?? country.name;
           const subs = subdivisionsOf(country);
@@ -373,7 +328,7 @@ function RegionPicker() {
                   no filter the browser owns the disclosure state. */
               }
               <Disclosure
-                className="region-disclosure"
+                className="region-disclosure group/disclosure"
                 isExpanded={needle !== "" || opened.has(code)}
                 onExpandedChange={(open) =>
                   setOpened((previous) => {
@@ -383,8 +338,15 @@ function RegionPicker() {
                     return next;
                   })}
               >
-                <Button slot="trigger" className="region-summary">
-                  <ChevronRight size={14} aria-hidden="true" />
+                <Button
+                  slot="trigger"
+                  className="region-summary focus-ring flex min-h-10 w-full cursor-pointer items-center gap-1.5 p-2.5 text-left text-sm group-expanded/disclosure:font-semibold"
+                >
+                  <ChevronRight
+                    size={14}
+                    aria-hidden="true"
+                    className="flex-none text-ink-soft transition-transform group-expanded/disclosure:rotate-90"
+                  />
                   {label}
                 </Button>
                 <DisclosurePanel>
@@ -394,7 +356,7 @@ function RegionPicker() {
                     onChange={() => toggle(whole)}
                   />
                   {subs.length > 0 && (
-                    <p className="region-group">
+                    <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
                       {m.map_download_region_sub_label()}
                     </p>
                   )}
@@ -414,7 +376,7 @@ function RegionPicker() {
                     );
                   })}
                   {cities.length > 0 && (
-                    <p className="region-group">
+                    <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
                       {m.map_download_region_cities()}
                     </p>
                   )}
@@ -467,58 +429,381 @@ function LedgerRow({ entry, days, busy }: {
 }) {
   const update = useBasemapUpdate();
   const remove = useBasemapRemove();
+  const exportMap = useBasemapExport();
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
     if (!confirming) return;
     const id = setTimeout(() => setConfirming(false), 5000);
     return () => clearTimeout(id);
   }, [confirming]);
+  /* Whether this row is part of the base map rather than somebody's
+     download, which is the one question that decides if it has verbs.
+
+     An empty `file` means the entry has no archive of its own: its tiles are
+     in map.pmtiles, shared with whatever else merged there. That is the base
+     archive -- what tools/fetch-basemap.sh writes, and what installs from
+     before the one-file-per-region split grew -- and removing an entry from
+     it rewrites the whole file, or unlinks it when the last entry goes.
+
+     Deciding by where the tiles live rather than by what they cover is the
+     correction. Judging by coverage protected a merged world overview and
+     left a merged London box called "Map view" sitting there with Remove
+     beside it, indistinguishable from the base map to anyone reading the
+     panel -- because as far as the file on disk is concerned it IS part of
+     the base map. The base map is removed with a file manager, not from
+     here. */
+  const partOfBaseMap = entry.overview || entry.file === "";
   const ageUnknown = entry.completed === 0;
-  const stale = days > 0
+  /* Never on the overview. It has no recorded date to be old, no verb to
+     act on the nudge with, and nagging about a file the user cannot update
+     from this row is just a permanent red mark on the base map. */
+  const stale = !entry.overview
+    && days > 0
     && (ageUnknown
       || Date.now() / 1000 - entry.completed > days * 86_400);
   const size = formatBytes(entry.bytes);
-  const meta = ageUnknown
+  const meta = entry.overview
+    /* Says what the row IS, which is also why it has no buttons. A row with
+       a size and nothing to press invites the question; answering it in the
+       line that was going to be there anyway costs nothing. */
+    ? m.map_ledger_overview({ size })
+    : ageUnknown
     ? m.map_ledger_age_unknown({ size })
     : m.map_ledger_meta({
       size,
       date: new Intl.DateTimeFormat(getLocale(), { dateStyle: "medium" })
         .format(new Date(entry.completed * 1000)),
     });
+  /* Wraps, and that is the whole fix. Unwrapped, three buttons took the full
+     width and left the name column a few pixels, which the name's own
+     wrapping then honoured by breaking "Map view" one letter per line. The
+     text keeps a real basis and the buttons drop to their own line when they
+     no longer fit beside it. */
   return (
-    <li className="ledger-row">
-      <div className="ledger-row-text">
-        <span className="ledger-name">{entry.name}</span>
+    <li className="ledger-row flex flex-wrap items-center justify-between gap-2 py-2">
+      <div className="ledger-row-text flex min-w-0 flex-1 basis-40 flex-col gap-0.5">
+        {
+          /* break-words, not anywhere: this only has to rescue a single
+            unbroken name too long for the column, and `anywhere` is what
+            let a normal name be shredded the moment the column got
+            tight. */
+        }
+        <span className="ledger-name text-sm font-semibold break-words">
+          {
+            /* The overview is named here rather than by the server, which
+               has no opinion about the reader's language. The name it
+               carries is not usable either way: the row is synthesised from
+               a file with no record and arrives blank, and an install from
+               before the split has the overview recorded under whatever the
+               picker called it -- "Map view" on the one that started
+               this. */
+          }
+          {entry.overview ? m.map_name_world() : entry.name}
+        </span>
         <span className="hint">
           {meta}
           {stale && (
             <>
               {" "}
-              <span className="ledger-stale">{m.map_ledger_stale()}</span>
+              {
+                /* The staleness nudge is text, not a traffic light:
+                  accent-text holds 4.5:1 on the card, where the brighter
+                  accent would not. */
+              }
+              <span className="ledger-stale font-semibold text-accent-text">
+                {m.map_ledger_stale()}
+              </span>
             </>
           )}
         </span>
       </div>
-      <div className="download-actions">
-        <button
-          type="button"
-          onClick={() => update.mutate(entry.id, loudly)}
-          disabled={busy || update.isPending || remove.isPending}
-        >
-          {m.map_ledger_update()}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (!confirming) setConfirming(true);
-            else remove.mutate(entry.id, loudly);
-          }}
-          disabled={busy || update.isPending || remove.isPending}
-        >
-          {confirming ? m.map_ledger_confirm() : m.map_ledger_remove()}
-        </button>
+      {
+        /* Classed, not just ordered. What each button DOES is the stable
+           thing about it; its position in the row is not, and a fourth verb
+           added here should not silently retarget anything that reaches for
+           one of these -- which is exactly what adding the third did. */
+      }
+      <div className="download-actions flex flex-shrink flex-wrap gap-2">
+        {
+          /* No Update either, so the overview row carries no verbs at all.
+
+             An update is a re-download of an entry's own regions under its
+             own recorded name, and the overview has no record: the row is
+             built from the file. On an install from before the split it
+             does have one, and following it would re-fetch the whole planet
+             AS DETAIL under the name the picker gave it -- a download the
+             size of the world that leaves a removable duplicate of the
+             thing this row exists to protect.
+
+             Deepening the planet is a world download, and the card already
+             offers exactly that above the list whenever the estimate says
+             the overview does not cover what is being asked for.
+
+             Off for every base-map row for a second reason: an update lands
+             in a NEW file of its own and leaves the merged row where it is,
+             so following it would leave a duplicate that can never be taken
+             away again. */
+          !partOfBaseMap && (
+            <button
+              type="button"
+              className="ledger-update btn btn-quiet border-line-strong"
+              onClick={() => update.mutate(entry.id, loudly)}
+              disabled={busy || update.isPending || remove.isPending}
+            >
+              {m.map_ledger_update()}
+            </button>
+          )
+        }
+        {
+          /* Nothing to carry. Every package ships the world overview --
+            tools/package.sh, both the .deb and the .rpm, and the offline
+            bundle all put one in basemap/ -- so the machine this file would
+            be walked over to already has it. Exporting it would be copying
+            a gigabyte-scale file onto a USB stick to hand someone something
+            they were installed with. */
+          !entry.overview
+          /* A link, not a button, when the region has a file of its own --
+             which is every region downloaded since downloads stopped
+             merging. There is nothing to build: the file the download wrote
+             IS the file to carry, so this saves it directly and there is no
+             job to wait on and no second copy on disk.
+
+             A region still inside the old merged archive keeps the button.
+             That one really does have to be extracted first, and the wait
+             is the extraction. */
+          && (entry.file
+            ? (
+              <a
+                className={`button-link ledger-export ${LINK_BUTTON}`}
+                href={regionUrl(entry.file)}
+                download={entry.file}
+              >
+                {m.map_ledger_save()}
+              </a>
+            )
+            : (
+              <button
+                type="button"
+                className="ledger-export btn btn-quiet border-line-strong"
+                onClick={() => exportMap.mutate(entry.id, loudly)}
+                disabled={busy || update.isPending || remove.isPending
+                  || exportMap.isPending}
+              >
+                {m.map_export_action()}
+              </button>
+            ))
+        }
+        {
+          /* No Remove on anything that is part of the base map. The
+            overview is the map underneath every region, and a merged entry
+            shares the one archive with it -- so either way this button
+            would be rewriting or unlinking the file the whole application
+            is drawing from, to take away one row. On the machine this is
+            all for there is no getting it back.
+
+            The server refuses these ids as well; this is the half that
+            keeps the button from being there to press. */
+          !partOfBaseMap && (
+            <button
+              type="button"
+              className="ledger-remove btn btn-quiet border-line-strong"
+              onClick={() => {
+                if (!confirming) setConfirming(true);
+                else remove.mutate(entry.id, loudly);
+              }}
+              disabled={busy || update.isPending || remove.isPending}
+            >
+              {confirming ? m.map_ledger_confirm() : m.map_ledger_remove()}
+            </button>
+          )
+        }
       </div>
     </li>
+  );
+}
+
+/* Files waiting to be carried away.
+
+   Saving is an ordinary link to an ordinary GET on this server, not a blob
+   the page built: the file is on disk already, and a country-sized download
+   assembled in JavaScript would be several gigabytes on the heap for no
+   reason. The link streams and resumes; the heap never sees it. */
+function ExportedFiles({ busy }: { busy: boolean; }) {
+  const exports = useBasemapExports();
+  const remove = useDeleteExport();
+  if (!exports.isSuccess || exports.data.length === 0) return null;
+  return (
+    <div className="download-option download-exports">
+      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
+        {m.map_export_title()}
+      </p>
+      <p className="hint">{m.map_export_hint()}</p>
+      <ul className="ledger-rows divide-y divide-line">
+        {exports.data.map((f) => (
+          <li
+            className="ledger-row flex flex-wrap items-center justify-between gap-2 py-2"
+            key={f.file}
+          >
+            <div className="ledger-row-text flex min-w-0 flex-1 basis-40 flex-col gap-0.5">
+              <span className="ledger-name text-sm font-semibold break-words">
+                {f.file}
+              </span>
+              <span className="hint">{formatBytes(f.bytes)}</span>
+            </div>
+            <div className="download-actions flex flex-shrink flex-wrap gap-2">
+              {
+                /* `download` names the saved file rather than navigating to
+                  it; same origin, so the CSP is untroubled. */
+              }
+              <a
+                className={`button-link ${LINK_BUTTON}`}
+                href={exportUrl(f.file)}
+                download={f.file}
+              >
+                {m.map_export_save()}
+              </a>
+              <button
+                type="button"
+                className="btn btn-quiet border-line-strong"
+                onClick={() => remove.mutate(f.file, loudly)}
+                disabled={busy || remove.isPending}
+              >
+                {m.map_export_delete()}
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* Adding maps from a file, which is the whole offline story in one control.
+
+   A file input, not a path box: the operating system's own picker is what
+   reaches a USB stick, a phone, a network share or the downloads folder
+   without this app knowing anything about any of them -- and it is the only
+   thing that works under Flatpak, where the app is sandboxed away from the
+   filesystem entirely but the browser is not.
+
+   Two steps. The file goes up and is DESCRIBED first -- what it holds, how
+   deep, how big -- and only a second press merges it. A gigabyte of the
+   wrong country should cost a glance, not a merge. */
+function ImportFromFile({ busy }: { busy: boolean; }) {
+  const staged = useStagedImport();
+  const upload = useUploadImport();
+  const commit = useCommitImport();
+  const discard = useDiscardImport();
+  const [sent, setSent] = useState<{ done: number; total: number; } | null>(
+    null,
+  );
+
+  /* Annotated rather than inferred: a conditional expression widens back to
+     the whole union, so the narrowing done here would be lost by the time
+     the fields are read below. */
+  const stagedData = staged.data;
+  const waiting: StagedReady | null = stagedData?.staged ? stagedData : null;
+
+  return (
+    <div className="download-option download-import">
+      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
+        {m.map_import_title()}
+      </p>
+      <p className="hint">{m.map_import_hint()}</p>
+
+      {waiting === null && (
+        <>
+          {
+            /* A real file input, labelled: an icon or a bare button here
+              would leave the control unnamed for assistive technology and
+              unreachable by keyboard on some platforms. The picker's own
+              control is hidden, not removed -- it stays in the
+              accessibility tree and keeps its keyboard behaviour, and the
+              visible label drives it.
+
+              The input comes FIRST in the DOM, which is the only reason the
+              label can show its focus: the thing actually focused is the
+              input, and the input is off screen. As a later sibling the
+              label reads the focus sideways with `peer`. */
+          }
+          <input
+            id="import-file"
+            className="peer sr-only"
+            type="file"
+            accept=".pmtiles,application/octet-stream"
+            disabled={busy || upload.isPending}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              /* Cleared so choosing the same file twice fires again --
+                 which happens when the first attempt failed. */
+              e.target.value = "";
+              if (!file) return;
+              setSent({ done: 0, total: file.size });
+              upload.mutate({
+                file,
+                onProgress: (done, total) => setSent({ done, total }),
+              }, {
+                ...loudly,
+                onSettled: () => setSent(null),
+              });
+            }}
+          />
+          <label
+            className={`button-link file-input mt-2.5 ${LINK_BUTTON} peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent`}
+            htmlFor="import-file"
+          >
+            {m.map_import_choose()}
+          </label>
+          {upload.isPending && sent !== null && (
+            <p className="hint" role="status">
+              {m.map_import_uploading({
+                done: formatBytes(sent.done),
+                total: formatBytes(sent.total),
+              })}
+            </p>
+          )}
+        </>
+      )}
+
+      {waiting !== null && (
+        <>
+          <p className="hint">
+            {waiting.name !== null
+              ? m.map_import_staged_named({
+                name: waiting.name,
+                size: formatBytes(waiting.bytes),
+                zoom: waiting.max_zoom,
+              })
+              : m.map_import_staged_unnamed({
+                size: formatBytes(waiting.bytes),
+                zoom: waiting.max_zoom,
+              })}
+          </p>
+          <div className="download-actions mt-2.5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() =>
+                commit.mutate(undefined, {
+                  ...loudly,
+                  onSuccess: () => toastSuccess(m.map_import_added()),
+                })}
+              disabled={busy || commit.isPending}
+            >
+              {m.map_import_confirm()}
+            </button>
+            <button
+              type="button"
+              className="btn btn-quiet border-line-strong"
+              onClick={() => discard.mutate(undefined, loudly)}
+              disabled={busy || commit.isPending || discard.isPending}
+            >
+              {m.map_import_discard()}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -533,14 +818,16 @@ function DownloadedMaps({ busy }: { busy: boolean; }) {
   const days = settings.data?.update_reminder_days ?? 90;
   return (
     <div className="download-option download-ledger">
-      <p className="region-group">{m.map_ledger_title()}</p>
-      <ul className="ledger-rows">
+      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
+        {m.map_ledger_title()}
+      </p>
+      <ul className="ledger-rows divide-y divide-line">
         {ledger.data.entries.map((entry) => (
           <LedgerRow key={entry.id} entry={entry} days={days} busy={busy} />
         ))}
       </ul>
       <Dropdown
-        className="ledger-reminder"
+        className="ledger-reminder mt-2.5 text-sm [&>.dropdown-button]:w-auto [&>.dropdown-button]:flex-none"
         label={m.map_ledger_reminder()}
         value={String(days)}
         onChange={(value) =>
@@ -589,7 +876,29 @@ export function DownloadCard({ region, job }: {
   /* Only certainty leads with the world offer: while the HEAD is in flight
      the card shows the other options rather than guessing. */
   const worldFirst = present.data === false;
-  const cancel = useBasemapCancel();
+
+  /* What a download of the current view will be called. Named after where
+     its middle is -- "London", not "Map view" -- because a row in a list has
+     to say which download it is, and the generic phrase said only that a
+     download had happened. It read like something the application had put
+     there rather than something a person chose, which is exactly how it got
+     mistaken for the map underneath everything.
+
+     Undefined over open water, where the catalogue has nothing to offer. The
+     Offer then sends no name and the server writes one from the box's own
+     corners: ugly, and true, which beats a generic phrase that is neither.
+
+     Recomputed only when the view actually moves. The lookup walks 1198 city
+     boxes and up to 177 border polygons, which is nothing next to a render
+     but is pure waste on every unrelated state change. */
+  const viewName = useMemo(
+    () =>
+      placeAt(
+        (region.min_lon + region.max_lon) / 2,
+        (region.min_lat + region.max_lat) / 2,
+      ),
+    [region.min_lon, region.max_lon, region.min_lat, region.max_lat],
+  );
 
   const running = job !== undefined && isRunning(job);
   /* The world overview used to be offered ONLY on an empty map, so anyone
@@ -609,10 +918,21 @@ export function DownloadCard({ region, job }: {
     && !worldEstimate.data.covered
     && worldEstimate.data.tiles > 0;
 
+  /* A section of the side panel, not a card over the map. It used to float in
+     the top-left corner, where it covered the tiles it was talking about and
+     could never grow past the viewport; here it scrolls with the panel and is
+     as tall as it needs to be. The padding matches the panel head so its
+     heading lines up with the panel's own, and nothing inside may push the
+     drawer wider than the user set it. */
   return (
-    <section className="download-card" aria-labelledby="download-title">
-      <header>
-        <h2 id="download-title">{m.map_download_title()}</h2>
+    <section
+      className="download-card min-w-0 border-t border-line px-4.5 py-3.5"
+      aria-labelledby="download-title"
+    >
+      <header className="flex items-center justify-between gap-2">
+        <h2 id="download-title" className="panel-title">
+          {m.map_download_title()}
+        </h2>
         <IconButton
           label={m.map_download_close()}
           icon={<X size={16} aria-hidden />}
@@ -620,55 +940,56 @@ export function DownloadCard({ region, job }: {
         />
       </header>
 
-      {running
-        ? (
-          <>
-            <Progress job={job} />
-            <div className="download-actions">
-              <button
-                type="button"
-                onClick={() => cancel.mutate(undefined, loudly)}
-                disabled={cancel.isPending}
-              >
-                {m.map_download_cancel()}
-              </button>
-            </div>
-          </>
-        )
-        : (
-          <>
-            {worldFirst && (
-              <Offer
-                regions={[WORLD]}
-                world
-                ledgerLabel={undefined}
-                describe={(size) => m.map_download_world_estimate({ size })}
-                confirmLabel={m.map_download_world_confirm()}
-                className="download-world"
-              />
-            )}
+      {
+        /* No progress bar and no cancel here, deliberately. Both live in
+          MapProgress, one section up the same panel, which reports per
+          REGION rather than as one total and stays put when this card is
+          closed. When the card floated over the map the two were in
+          different places and merely doubled up; in one panel they were the
+          same download, described twice, with two cancel buttons. */
+      }
+      {
+        /* What is hidden while a download runs is only the ways to start
+          another one. Everything below stays, disabled through `busy` --
+          which is what that prop was always for, and could never be true
+          before, because this branch replaced the whole body. */
+      }
+      {!running && (
+        <>
+          {worldFirst && (
             <Offer
-              regions={[region]}
-              ledgerLabel={m.map_name_view()}
-              describe={(size) => m.map_download_estimate({ size })}
-              confirmLabel={m.map_download_confirm()}
-              className="download-view"
+              regions={[WORLD]}
+              world
+              ledgerLabel={undefined}
+              describe={(size) => m.map_download_world_estimate({ size })}
+              confirmLabel={m.map_download_world_confirm()}
+              className="download-world"
             />
-            {worldMissing && (
-              <Offer
-                regions={[WORLD]}
-                world
-                ledgerLabel={undefined}
-                describe={(size) => m.map_download_world_add({ size })}
-                confirmLabel={m.map_download_world_confirm()}
-                className="download-world"
-              />
-            )}
-            <RegionPicker />
-            <DownloadedMaps busy={running} />
-            <BrowseToggle />
-          </>
-        )}
+          )}
+          <Offer
+            regions={[region]}
+            ledgerLabel={viewName}
+            describe={(size) => m.map_download_estimate({ size })}
+            confirmLabel={m.map_download_confirm()}
+            className="download-view"
+          />
+          {worldMissing && (
+            <Offer
+              regions={[WORLD]}
+              world
+              ledgerLabel={undefined}
+              describe={(size) => m.map_download_world_add({ size })}
+              confirmLabel={m.map_download_world_confirm()}
+              className="download-world"
+            />
+          )}
+          <RegionPicker />
+        </>
+      )}
+      <DownloadedMaps busy={running} />
+      <ExportedFiles busy={running} />
+      <ImportFromFile busy={running} />
+      <BrowseToggle />
     </section>
   );
 }

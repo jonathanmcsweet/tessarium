@@ -101,6 +101,17 @@ if command -v opam >/dev/null 2>&1 && opam switch list --short 2>/dev/null | gre
     opam install --switch="$SWITCH" . --deps-only --with-test -y
     ok "dependencies"
   fi
+
+  # Not a build dependency: the tool `make test-core` audits the build's
+  # dependency declarations with. It cannot come from tessarium.opam,
+  # because it exists to check that file.
+  say "opam-dune-lint (checks dune against dune-project)"
+  if need "opam-dune-lint" "opam exec --switch=$SWITCH -- sh -c 'command -v opam-dune-lint'"; then
+    if ! $check_only; then
+      opam install --switch="$SWITCH" opam-dune-lint -y
+      ok "opam-dune-lint"
+    fi
+  fi
 fi
 
 say "node (from .nvmrc)"

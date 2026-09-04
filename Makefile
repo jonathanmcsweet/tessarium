@@ -11,6 +11,11 @@
 FSTAR_BIN := $(HOME)/toolchain/fstar/bin
 SWITCH    := tessarium
 PORT      ?= 7373
+# The app under test. Its own port, NOT $(PORT): the e2e used to reuse 7373,
+# which meant leaving `make dev` running made the whole browser suite die on
+# "Address already in use" -- partway through, so it read as four unrelated
+# download checks failing rather than as a port conflict.
+E2E_PORT ?= 7379
 # A second server instance the e2e downloads its basemap from.
 FIXTURE_PORT ?= 7374
 MULTIPART_PORT ?= 7375
@@ -23,7 +28,7 @@ CANCEL_PORT ?= 7377
 # The delaying proxy itself, run by the e2e script.
 PROXY_PORT ?= 7378
 
-.PHONY: all env verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run package package-deb package-rpm package-appimage test-install clean
+.PHONY: all env dev verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run package package-deb package-rpm package-appimage test-install clean
 
 # The wall's stages share files (gen_check outputs, .checked caches, the
 # port 737x range); they are cheap to run in order and wrong to interleave.
@@ -169,7 +174,7 @@ build:
 # compiles it into the server binary. ui/dist itself is not depended on
 # directly: that would put ui/node_modules in dune's view.
 ui:
-	cd ui && npm ci --no-audit --no-fund && npm run build
+	cd ui && pnpm install --frozen-lockfile && pnpm run build
 	cp wasm/argon2.wasm ui/dist/argon2.wasm
 	cp wasm/core.wasm ui/dist/core.wasm
 	rm -rf ocaml/server/ui_dist
@@ -183,22 +188,30 @@ test: test-core test-static test-extraction test-lowstar test-ui
 # differential check once stopped running for several commits.
 #
 # check-doc-constants.mjs is here rather than in test-static because it needs
-# no browser and no npm install. It holds the prose to the code: the message
+# no browser and no package install. It holds the prose to the code: the message
 # length is transcribed BY HAND into the Low* module, so nothing else can
 # catch a document that still describes the shape before a constant moved --
 # which is exactly what the project rename left behind in two files.
+# check-deps.sh holds dune-project to the dune files, which nothing else
+# can -- a dependency that is only ever satisfied transitively builds fine on
+# the machine that already has it and fails on a fresh
+# `opam install . --deps-only`, and CI cannot see the difference because its
+# switch comes from cache. It is opam-dune-lint under a stable name; the tool
+# comes from tools/setup.sh, not tessarium.opam, because it exists to check
+# that file.
 test-core:
 	tools/check-suites.sh
 	node tools/check-doc-constants.mjs
+	tools/check-deps.sh
 
 # Lint, types, message catalogues and the browser payload budgets. Fast, needs
 # no server, and catches the class of mistake the browser test cannot see: a
 # message a locale is missing, a placeholder a translator dropped, an
 # accessibility rule broken, a bundle that quietly grew by a megabyte. Needs
 # `dune build` first -- payload.mjs measures the bundle where dune writes it --
-# and `npm ci` in ui/, which `make ui` does.
+# and `pnpm install` in ui/, which `make ui` does.
 test-static:
-	@cd ui && npm run check
+	@cd ui && pnpm run check
 
 # The browser test needs both halves running, so it starts the server it is
 # about to drive rather than assuming one is up. No --ui: this exercises the
@@ -229,7 +242,7 @@ test-ui: ui
 	  --port $(FIXTURE_PORT) --basemap _build/e2e-fixture --no-open & \
 	  echo $$! > .fixture.pid; \
 	  ./_build/default/ocaml/server/bin/main.exe \
-	  --port $(PORT) --basemap _build/e2e-basemap --no-open \
+	  --port $(E2E_PORT) --basemap _build/e2e-basemap --no-open \
 	  --basemap-source http://127.0.0.1:$(FIXTURE_PORT)/basemap/map.pmtiles \
 	  --basemap-assets http://127.0.0.1:$(FIXTURE_PORT)/basemap/assets.tar.gz & \
 	  echo $$! > .server.pid; \
@@ -256,7 +269,7 @@ test-ui: ui
 	    rm -f .server.pid .fixture.pid .multipart.pid .mismatch.pid \
 	      .cancel.pid' EXIT; \
 	  for i in $$(seq 40); do \
-	    curl -sf -o /dev/null http://127.0.0.1:$(PORT)/healthz \
+	    curl -sf -o /dev/null http://127.0.0.1:$(E2E_PORT)/healthz \
 	    && curl -sf -o /dev/null http://127.0.0.1:$(FIXTURE_PORT)/healthz \
 	    && curl -sf -o /dev/null http://127.0.0.1:$(MULTIPART_PORT)/healthz \
 	    && curl -sf -o /dev/null http://127.0.0.1:$(MISMATCH_PORT)/healthz \
@@ -265,13 +278,26 @@ test-ui: ui
 	  done; \
 	  ( cd ui && E2E_PROXY_PORT=$(PROXY_PORT) \
 	      E2E_FIXTURE=http://127.0.0.1:$(FIXTURE_PORT) \
-	      node test/e2e.mjs http://127.0.0.1:$(PORT) \
+	      node test/e2e.mjs http://127.0.0.1:$(E2E_PORT) \
 	      http://127.0.0.1:$(MULTIPART_PORT) http://127.0.0.1:$(MISMATCH_PORT) \
 	      http://127.0.0.1:$(CANCEL_PORT) )
 
 # No --ui: the binary serves the UI it was built with. Pass --ui to override
-# with a directory, which is what `npm run dev` wants.
-run: build
+# with a directory, which is what `pnpm run dev` wants.
+# The whole stack, for development: the server, and Vite in front of it with
+# hot reload. `pnpm run dev` in ui/ is only the UI half -- Vite proxies the
+# api, the basemap and both wasm modules to the server, so on its own it
+# renders a gate that cannot open. tools/dev.sh starts both and stops both.
+dev:
+	tools/dev.sh
+
+# Same world overview the packages ship. A file target, so it is fetched once
+# and never again -- and so `make run` cannot open on the empty-map state that
+# no installed copy is ever in.
+basemap/world.pmtiles:
+	tools/fetch-basemap.sh -z ""
+
+run: build basemap/world.pmtiles
 	./_build/default/ocaml/server/bin/main.exe --port $(PORT) --basemap basemap
 
 package: build
