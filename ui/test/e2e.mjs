@@ -707,7 +707,7 @@ await worldButton.click();
 check("the world download completes at generation one", await awaitDone(1));
 await page.waitForFunction(
   () =>
-    [...document.querySelectorAll("[data-sonner-toast]")].some((t) =>
+    [...document.querySelectorAll(".app-toast")].some((t) =>
       (t.textContent ?? "").includes("Maps downloaded")
     ),
   null,
@@ -716,21 +716,22 @@ await page.waitForFunction(
 check("the download completes with a toast", true);
 check(
   "and the toast carries a close button for keyboard users",
-  (await page.locator("[data-sonner-toast] [data-close-button]").count()) >= 1,
+  (await page.locator(".app-toast button").count()) >= 1,
 );
 
-/* The toast is drawn by sonner, which injects its own stylesheet: white
-   background, near-black text, 8px corners, all of it written as literals
-   in a file this project does not own. So it stayed white in every theme
-   and round in a theme that squares every corner -- the same shape of bug
-   as MapLibre's controls, and invisible to the token audit for the same
-   reason, that the colours belong to no palette.
+/* The toast was drawn by a library that injected its own stylesheet --
+   white background, near-black text, 8px corners, all written as literals
+   in a file this project did not own. So it stayed white in every theme and
+   round in a theme that squares every corner: the same shape of bug as
+   MapLibre's controls, and invisible to the token audit for the same
+   reason, that the colours belonged to no palette. It is this project's own
+   markup now, and these two checks are what would notice it going back.
 
    Nothing has chosen a theme yet here, so this is the default: dark. Read
    as painted and as geometry, because the fix is a stylesheet fighting
    another stylesheet and only the computed value says who won. */
 const toastStyle = () =>
-  page.locator("[data-sonner-toast]").first().evaluate((n) => {
+  page.locator(".app-toast").first().evaluate((n) => {
     const s = getComputedStyle(n);
     return {
       bg: s.backgroundColor,
@@ -746,7 +747,7 @@ const toastLight = (() => {
     : (n[0] + n[1] + n[2]) / (3 * 255);
 })();
 check(
-  `the toast is painted in the theme, not sonner's white (${toast.bg})`,
+  `the toast is painted in the theme, not a library's white (${toast.bg})`,
   toastLight < 0.5,
 );
 check(
@@ -2502,7 +2503,7 @@ check("the removed entry leaves the list", rowGone);
 const removedToast = await page
   .waitForFunction(
     () =>
-      [...document.querySelectorAll("[data-sonner-toast]")].some((t) => {
+      [...document.querySelectorAll(".app-toast")].some((t) => {
         const text = t.textContent ?? "";
         /* Either wording is correct: bytes freed, or all tiles shared. */
         return text.includes("Maps removed") || text.includes("Map removed");
@@ -2922,7 +2923,7 @@ const goToAddress = async (address) => {
    evidence that a person can do it. */
 await goToAddress(sample.address);
 
-const lookupFailed = await page.locator("[data-sonner-toast][data-type=error]")
+const lookupFailed = await page.locator(".app-toast[data-kind=error]")
   .count();
 check(`looking up ${sample.address} succeeds`, lookupFailed === 0);
 
@@ -2991,7 +2992,8 @@ check(
    library's own tinted palette put it under AA -- which is why richColors
    is off. Computed, because the colours live in a stylesheet this project
    does not own and no token audit can reach them. */
-const toastContrast = await anyToast.first().evaluate((n) => {
+const toastContrast = await anyToast.first().evaluate((box) => {
+  const n = box.querySelector(".app-toast-message") ?? box;
   const s = getComputedStyle(n);
   const parse = (c) => (c.match(/-?[\d.]+/g) ?? []).map(Number).slice(0, 3);
   const lin = (v) => {
@@ -3002,11 +3004,12 @@ const toastContrast = await anyToast.first().evaluate((n) => {
     const [r, g, b] = parse(c).map(lin);
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   };
-  const [hi, lo] = [lum(s.color), lum(s.backgroundColor)].sort((a, b) => b - a);
+  const bg = getComputedStyle(box).backgroundColor;
+  const [hi, lo] = [lum(s.color), lum(bg)].sort((a, b) => b - a);
   return {
     ratio: (hi + 0.05) / (lo + 0.05),
     fg: s.color,
-    bg: s.backgroundColor,
+    bg,
   };
 });
 check(
@@ -3028,11 +3031,23 @@ check(
    who cannot reach for a pointer. */
 const closer = anyToast.first().locator("button").first();
 check("it carries a control to dismiss it", (await closer.count()) === 1);
+/* By its own text, not by "a toast is gone": the queue shows one at a time,
+   so anything waiting behind takes the closed one's place and a bare count
+   would read as nothing having happened. */
+const dismissing = (await anyToast.first().textContent() ?? "").trim();
 await closer.click();
+const dismissed = await page.waitForFunction(
+  (text) =>
+    ![...document.querySelectorAll(".app-toast")]
+      .some((t) => (t.textContent ?? "").trim() === text),
+  dismissing,
+  { timeout: 10_000 },
+).then(() => true, () => false);
 check(
-  "and dismissing it works",
-  await anyToast.first().waitFor({ state: "detached", timeout: 10_000 })
-    .then(() => true, () => false),
+  `and dismissing it works (left: ${
+    (await anyToast.allTextContents()).join(" | ") || "nothing"
+  })`,
+  dismissed,
 );
 
 /* The real clipboard back, so the copy checks further down are still
@@ -3837,7 +3852,7 @@ await page.locator("button[type=submit]").click();
 const toastNamesServer = await page
   .waitForFunction(
     () =>
-      [...document.querySelectorAll("[data-sonner-toast]")].some((t) =>
+      [...document.querySelectorAll(".app-toast")].some((t) =>
         (t.textContent ?? "").includes("Cannot reach the server")
       ),
     null,

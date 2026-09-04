@@ -1,6 +1,8 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
   "a11y_dismiss_banner": "Ignorer ce message",
+  "a11y_toast_region": "Notifications",
+  "a11y_dismiss_toast": "Fermer cette notification",
   "a11y_language": "Langue",
   "a11y_settings": "Paramètres",
   "settings_theme": "Apparence",

@@ -30,7 +30,6 @@ import {
   ListBoxItem,
   Popover,
 } from "react-aria-components";
-import { toast } from "sonner";
 import { type PlaceResult, usePlaceSearch } from "../core/basemap";
 import {
   bearing8,
@@ -55,6 +54,7 @@ import {
   countryName,
   subdivisionsOf,
 } from "../regions";
+import { toastSuccess } from "../toast";
 
 const DIRECTION_LABEL: Record<Direction, () => string> = {
   n: m.search_dir_n,
@@ -312,7 +312,7 @@ export function PlaceSearch(
      which is the exposure the panel's toggle exists to prevent. */
   const pickAddress = (option: Option) => {
     onPickAddress(option.lon, option.lat);
-    toast.success(m.search_found());
+    toastSuccess(m.search_found());
     setText("");
   };
 

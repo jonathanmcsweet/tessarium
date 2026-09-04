@@ -21,6 +21,43 @@ than a git log.
 
 ---
 
+### 2026-09-04 — Toasts move to React Aria
+
+**Phase:** 6
+
+**What:** sonner is gone. Toasts are React Aria's `ToastQueue` and
+`ToastRegion` (still `UNSTABLE_`-prefixed at 1.20, so the version is pinned),
+drawn by `ui/src/components/Toasts.tsx` in this project's own markup wearing
+its own utilities. One behaviour library instead of two, and the dependency
+is dropped.
+
+**Rationale:** The prize was not "one library instead of two". sonner
+injected its own stylesheet with white, near-black, 8px and a black-on-white
+shadow written as literals, which is a second source of truth for colour that
+the contrast audit structurally could not see -- the same blind spot that
+produced `bg-white/95` on the map note and MapLibre's light-only controls.
+Theming it at all meant beating its specificity, and the first attempt at
+that silently did nothing. A toast is now audited like everything else.
+
+The two tuned behaviours were written down as checks FIRST, against sonner,
+and neither was edited for the move: an error waits to be dismissed
+(omitting React Aria's `timeout` is what does it), and the text passes AA at
+13px. They are named through this project's own `app-toast` class rather
+than any library's data attributes, which is what let them survive.
+
+Two things the move surfaced. `maxVisibleToasts: 1` was wrong: this queue
+HOLDS what it cannot show rather than dropping it, so a low ceiling turns a
+burst into a backlog draining one timeout at a time, and a message about
+something half a minute old arrives as if it had just happened. Three, which
+is what sonner showed. And the dismissal check had to name the toast by its
+own text -- with one showing at a time, whatever was queued behind took the
+closed one's place and a bare count read as nothing having happened. That
+failure was real, not a flake.
+
+A third kind exists now: a cancelled download is neither an error nor a
+success, and had been sonner's bare `toast()`.
+
+
 ### 2026-09-03 — Two colours that belonged to no palette
 
 **Phase:** 6

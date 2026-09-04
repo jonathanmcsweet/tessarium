@@ -10,7 +10,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
 import {
   fetchCoverage,
   isRunning,
@@ -35,7 +34,7 @@ import { formatBytes, getLocale } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
 import { type ResolvedTheme, useResolvedTheme } from "../theme";
-import { toastError } from "../toast";
+import { toastError, toastNote, toastSuccess } from "../toast";
 import { PlaceSearch } from "./PlaceSearch";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -1088,7 +1087,7 @@ export function MapView() {
     }
     const job = current.job;
     if (job.state === "done") {
-      toast.success(m.map_download_done());
+      toastSuccess(m.map_download_done());
       /* The archive exists now; the cached "absent" answer must not outlive
          it and resurrect the banner, and every cached estimate is stale --
          tiles just landed on disk that the numbers do not know about.
@@ -1109,7 +1108,7 @@ export function MapView() {
       closeDownload();
       rebuildBasemap();
     } else if (job.state === "removed") {
-      toast.success(
+      toastSuccess(
         job.freed_bytes === 0
           ? m.map_removed_none()
           : m.map_removed_done({ size: formatBytes(job.freed_bytes) }),
@@ -1147,7 +1146,7 @@ export function MapView() {
       client.invalidateQueries({ queryKey: ["basemap-estimate"] });
       client.invalidateQueries({ queryKey: ["basemap-present"] });
     } else if (job.state === "cancelled") {
-      toast(m.map_download_cancelled());
+      toastNote(m.map_download_cancelled());
       client.invalidateQueries({ queryKey: ["basemap-ledger"] });
       client.invalidateQueries({ queryKey: ["basemap-coverage"] });
       client.removeQueries({

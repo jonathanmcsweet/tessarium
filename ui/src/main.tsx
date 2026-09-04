@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { Toaster } from "sonner";
 import { App } from "./App";
+import { Toasts } from "./components/Toasts";
 import "./i18n";
 import "./styles.css";
 
@@ -32,29 +32,11 @@ createRoot(root).render(
       }
       <App />
       {
-        /* Top centre so it does not sit over the address panel on desktop or
-          under a thumb on mobile. `closeButton` because a toast that can
-          only be waited out is a trap for anyone using a keyboard. */
+        /* Top centre so it sits over neither the address panel on desktop
+          nor a thumb on mobile. Its two timings are not defaults and are
+          asserted end to end -- see ../toast.ts. */
       }
-      {
-        /* No richColors: sonner's tinted palette puts 13px toast text
-          under AA (error red on pink is 4.35:1) and lives outside the
-          stylesheet where the contrast audit cannot see it. The default
-          theme is near-black on white. */
-      }
-      {
-        /* `app-toast` is this application's own name for a toast, and it is
-          here so the end-to-end suite never has to name sonner's. The two
-          behaviours that matter -- an error that waits to be dismissed, and
-          text that passes AA -- are tuned rather than default, so they are
-          asserted; asserting them through `[data-sonner-toast]` would tie
-          the assertions to the library and lose them the day it changes. */
-      }
-      <Toaster
-        position="top-center"
-        closeButton
-        toastOptions={{ duration: 5000, className: "app-toast" }}
-      />
+      <Toasts />
     </QueryClientProvider>
   </StrictMode>,
 );
