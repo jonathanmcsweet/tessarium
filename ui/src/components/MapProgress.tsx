@@ -14,7 +14,12 @@
    only, so the rows never sum past what was fetched. */
 
 import { X } from "lucide-react";
-import { type Job, useBasemapCancel, useBasemapStatus } from "../core/basemap";
+import {
+  isRunning,
+  type Job,
+  useBasemapCancel,
+  useBasemapStatus,
+} from "../core/basemap";
 import { formatBytes } from "../i18n";
 import { m } from "../paraglide/messages";
 import { toastError } from "../toast";
@@ -128,12 +133,7 @@ export function MapProgress() {
 
   /* Quiet unless there is something happening. A panel that always carried a
      "no downloads" line would spend its life saying nothing. */
-  if (!job) return null;
-  const busy = job.state === "planning" || job.state === "fetching"
-    || job.state === "assets" || job.state === "removing"
-    || job.state === "compacting" || job.state === "indexing"
-    || job.state === "exporting";
-  if (!busy) return null;
+  if (!job || !isRunning(job)) return null;
 
   const rows = job.state === "fetching" ? job.regions : [];
 

@@ -134,11 +134,20 @@ const JobStatus = z.object({
 });
 export type JobStatus = z.infer<typeof JobStatus>;
 
-export const isRunning = (job: Job): boolean =>
-  job.state === "planning" || job.state === "fetching"
-  || job.state === "assets" || job.state === "removing"
-  || job.state === "compacting" || job.state === "indexing"
-  || job.state === "exporting";
+/* The states with work still in flight, as data rather than a chain of
+   comparisons. Typed against the union, so a state the Job schema does not
+   know cannot sit here unnoticed. */
+const RUNNING: ReadonlySet<Job["state"]> = new Set([
+  "planning",
+  "fetching",
+  "assets",
+  "removing",
+  "compacting",
+  "indexing",
+  "exporting",
+] satisfies Job["state"][]);
+
+export const isRunning = (job: Job): boolean => RUNNING.has(job.state);
 
 /* One row of the download ledger: a region the archive was asked to hold,
    as recorded inside the archive itself. `completed` is epoch seconds; zero
