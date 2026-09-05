@@ -560,6 +560,23 @@ let () =
   check "json is" (json [ ("content-type", "application/json") ]);
   check "json with a charset still is"
     (json [ ("content-type", "application/json; charset=utf-8") ]);
+  (* The upload route asks the same question of a different type, through the
+     same parser: casing, surrounding space and parameters are the header's
+     business and not each caller's. *)
+  let binary l =
+    Result.is_ok
+      (G.check_stream ~header:(hdr (("content-length", "7") :: l))
+         ~declares_body:true)
+  in
+  check "a media type is read the same way whichever type is wanted"
+    (json [ ("content-type", "  APPLICATION/JSON ;  charset=UTF-8 ") ]
+    && binary [ ("content-type", "  APPLICATION/OCTET-STREAM ; v=1 ") ]);
+  check "an upload of anything else is not binary"
+    ((not (binary [ ("content-type", "application/json") ]))
+    && not (binary [ ("content-type", "multipart/form-data; boundary=x") ]));
+  check "and a type that merely starts the same is neither"
+    ((not (json [ ("content-type", "application/json-seq") ]))
+    && not (binary [ ("content-type", "application/octet-stream-ish") ]));
 
   (* And the guard itself, which is the thing a handler cannot be reached
      without. What matters is not that these predicates are right but that
@@ -629,8 +646,8 @@ let () =
           calls := `Estimate (world, req) :: !calls;
           Ok (`Assoc []));
       start =
-        (fun ~name ~labels ~world req ->
-          calls := `Start (name, labels, world, req) :: !calls;
+        (fun ~name ~world req ->
+          calls := `Start (name, world, req) :: !calls;
           Ok ());
       cancel =
         (fun () ->
@@ -663,6 +680,11 @@ let () =
       delete_export =
         (fun ~file ->
           calls := `Delete_export file :: !calls;
+          Ok ());
+      receive =
+        (fun ~expected ~read ->
+          calls := `Receive expected :: !calls;
+          ignore read;
           Ok ());
       staged =
         (fun () ->
@@ -751,7 +773,7 @@ let () =
   let box = {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15}|} in
   let wrap boxes = {|{"regions":[|} ^ String.concat "," boxes ^ "]}" in
   (match run ~endpoint:"basemap-download" ~body:(wrap [ box ]) with
-  | [ `Start (_, _, _, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
+  | [ `Start (_, _, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
       check "a good box starts a download with the parsed values"
         (req.min_lon = -0.25 && req.max_lat = 51.55 && req.max_zoom = 15);
       (* max_lon arrived as the JSON integer 0 and must still be a number. *)
@@ -763,7 +785,7 @@ let () =
   (* Several regions ride in one request, in order: the picker sends its
      whole selection at once and reads the depths back by position. *)
   (match run ~endpoint:"basemap-download" ~body:(wrap [ box; paris ]) with
-  | [ `Start (_, _, _, [ (a : Tessarium_server.Basemap_job.request); b ]) ] ->
+  | [ `Start (_, _, [ (a : Tessarium_server.Basemap_job.request); b ]) ] ->
       check "two regions arrive as one download, in order"
         (a.min_lon = -0.25 && b.min_lon = 2.1)
   | _ -> check "two regions arrive as one download, in order" false);
@@ -792,7 +814,7 @@ let () =
     {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15,"polygon":[[[-0.2,51.46],[-0.05,51.46],[-0.1,51.54]]]}|}
   in
   (match run ~endpoint:"basemap-download" ~body:(wrap [ with_polygon ]) with
-  | [ `Start (_, _, _, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
+  | [ `Start (_, _, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
       check "a polygon rides in with its region"
         (match req.polygon with
         | Some [| ring |] -> Array.length ring = 3 && fst ring.(0) = -0.2
@@ -891,11 +913,11 @@ let () =
        run ~endpoint:"basemap-download"
          ~body:({|{"name":"France","regions":[|} ^ box ^ "]}")
      with
-    | [ `Start (Some "France", _, false, _) ] -> true
+    | [ `Start (Some "France", false, _) ] -> true
     | _ -> false);
   check "a download without a name still starts"
     (match run ~endpoint:"basemap-download" ~body:(wrap [ box ]) with
-    | [ `Start (None, _, false, _) ] -> true
+    | [ `Start (None, false, _) ] -> true
     | _ -> false);
   check "a name with control characters reaches nothing"
     (run ~endpoint:"basemap-download"
@@ -909,7 +931,7 @@ let () =
        run ~endpoint:"basemap-download"
          ~body:({|{"world":true,"regions":[|} ^ box ^ "]}")
      with
-    | [ `Start (_, _, true, _) ] -> true
+    | [ `Start (_, true, _) ] -> true
     | _ -> false);
   (* And its estimate is quoted against the same one. A quote taken against
      the detail archive would price a world overview the user mostly has. *)
@@ -921,34 +943,63 @@ let () =
     | [ `Estimate (true, _) ] -> true
     | _ -> false);
   (* Per-region labels. They exist so the progress view can name its bars,
-     which means a labels array that does not line up with the regions is
-     worse than none: every bar would carry its neighbour's name. Refused,
-     not trimmed. *)
-  check "labels ride along with the regions they name"
+     and each one rides ON the region it names rather than in an array beside
+     the list -- so there is no length to agree on, and a label cannot end up
+     against its neighbour's bar however many regions are sent. *)
+  let labelled name b =
+    {|{"label":"|} ^ name ^ {|",|} ^ String.sub b 1 (String.length b - 1)
+  in
+  check "a label rides on the region it names"
+    (match
+       run ~endpoint:"basemap-download" ~body:(wrap [ labelled "France" box ])
+     with
+    | [ `Start (_, false, [ (r : Tessarium_server.Basemap_job.request) ]) ] ->
+        r.label = Some "France"
+    | _ -> false);
+  check "and each region keeps its own, whatever order they arrive in"
     (match
        run ~endpoint:"basemap-download"
-         ~body:({|{"labels":["France"],"regions":[|} ^ box ^ "]}")
+         ~body:(wrap [ labelled "France" box; labelled "Spain" paris ])
      with
-    | [ `Start (_, Some [ "France" ], false, _) ] -> true
+    | [ `Start (_, false, [ (a : Tessarium_server.Basemap_job.request); b ]) ]
+      ->
+        a.label = Some "France" && b.label = Some "Spain"
     | _ -> false);
-  check "a download without labels still starts"
+  check "a download without labels still starts, unlabelled"
     (match run ~endpoint:"basemap-download" ~body:(wrap [ box ]) with
-    | [ `Start (_, None, false, _) ] -> true
+    | [ `Start (_, false, [ (r : Tessarium_server.Basemap_job.request) ]) ] ->
+        r.label = None
     | _ -> false);
-  check "labels that do not match the regions reach nothing"
+  check "some labelled and some not is fine, because there is nothing to line up"
+    (match
+       run ~endpoint:"basemap-download" ~body:(wrap [ labelled "France" box; paris ])
+     with
+    | [ `Start (_, false, [ (a : Tessarium_server.Basemap_job.request); b ]) ]
+      ->
+        a.label = Some "France" && b.label = None
+    | _ -> false);
+  check "a label that is not a string reaches nothing"
     (run ~endpoint:"basemap-download"
-       ~body:({|{"labels":["France","Spain"],"regions":[|} ^ box ^ "]}")
-     = []
-    && run ~endpoint:"basemap-download"
-         ~body:({|{"labels":[7],"regions":[|} ^ box ^ "]}")
-       = []
-    && run ~endpoint:"basemap-download"
-         ~body:({|{"labels":"France","regions":[|} ^ box ^ "]}")
-       = []);
+       ~body:(wrap [ {|{"label":7,"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15}|} ])
+     = []);
   check "a label with control characters reaches nothing"
     (run ~endpoint:"basemap-download"
-       ~body:({|{"labels":["a\nb"],"regions":[|} ^ box ^ "]}")
+       ~body:(wrap [ labelled "a\nb" box ])
      = []);
+  check "an over-long label reaches nothing"
+    (run ~endpoint:"basemap-download"
+       ~body:(wrap [ labelled (String.make 121 'x') box ])
+     = []);
+  (* The array that used to carry them is gone, and an old client sending one
+     is not an error -- the regions simply carry no labels. *)
+  check "a stray top-level labels array is ignored rather than obeyed"
+    (match
+       run ~endpoint:"basemap-download"
+         ~body:({|{"labels":["France","Spain"],"regions":[|} ^ box ^ "]}")
+     with
+    | [ `Start (_, false, [ (r : Tessarium_server.Basemap_job.request) ]) ] ->
+        r.label = None
+    | _ -> false);
 
   (* Carrying maps by hand. Export names its entry the same way remove does;
      an export file name is checked downstream against the directory, so what
@@ -978,7 +1029,7 @@ let () =
        run ~endpoint:"basemap-download"
          ~body:({|{"world":"yes","regions":[|} ^ box ^ "]}")
      with
-    | [ `Start (_, _, false, _) ] -> true
+    | [ `Start (_, false, _) ] -> true
     | _ -> false);
 
   (* And what the server does with that claim. A box that does not reach the
@@ -1176,9 +1227,9 @@ let () =
      failure on anything it cannot read back perfectly. *)
   let module L = Tessarium_server.Ledger in
   let module J = Tessarium_server.Basemap_job in
-  let reg ?polygon ~z (a, b, c, d) =
+  let reg ?polygon ?label ~z (a, b, c, d) =
     Result.get_ok
-      (J.validate ?polygon ~min_lon:a ~min_lat:b ~max_lon:c ~max_lat:d
+      (J.validate ?polygon ?label ~min_lon:a ~min_lat:b ~max_lon:c ~max_lat:d
          ~max_zoom:z ())
   in
   let france = reg ~z:15 (-5.1, 41.3, 9.6, 51.1) in
@@ -1237,17 +1288,69 @@ let () =
      in
      L.of_metadata m = Ok [ entry [ france_clipped ] ]);
 
-  (* Edits: same id replaces in place, new id appends, remove is exact. *)
+  (* ------------------------------------------------- names on the regions *)
+
+  (* What the picker called each place travels ON the place, so the names
+     survive the trip into an archive and back out of it -- which is what lets
+     an update, an export and an import draw the bars the download was made
+     with instead of re-inventing them from the entry's one combined name.
+
+     Display only, and deliberately not part of identity: naming a box must
+     not make it a different box, or re-downloading a region under a new name
+     would start a second copy of it beside the first. *)
+  let labelled = reg ~z:15 ~label:"France" (-5.1, 41.3, 9.6, 51.1) in
+  check "a region's label survives the trip through archive metadata"
+    (match L.of_metadata (Result.get_ok (L.to_metadata [ entry [ labelled ] ] ~previous:"{}")) with
+    | Ok [ e ] -> (
+        match e.L.regions with
+        | [ (r : J.request) ] -> r.J.label = Some "France"
+        | _ -> false)
+    | _ -> false);
+  check "naming a region does not change what region it is"
+    (L.id (entry [ labelled ]) = L.id (entry [ france ]));
+  check "an unlabelled region writes no label key, so old archives are unchanged"
+    (L.to_metadata [ entry [ france ] ] ~previous:"{}"
+    = L.to_metadata [ entry [ france ] ] ~previous:"{}"
+      && not
+           (let m = Result.get_ok (L.to_metadata [ entry [ france ] ] ~previous:"{}") in
+            let rec mentions i =
+              i + 5 <= String.length m
+              && (String.sub m i 5 = "label" || mentions (i + 1))
+            in
+            mentions 0));
+  check "and a ledger written before labels existed still reads, unlabelled"
+    (match
+       L.of_metadata
+         {|{"tessarium_ledger":{"v":1,"entries":[{"name":"France","completed":1,"source":"s","bytes":1,"regions":[{"min_lon":-5.1,"min_lat":41.3,"max_lon":9.6,"max_lat":51.1,"max_zoom":15}]}]}}|}
+     with
+    | Ok [ e ] -> (
+        match e.L.regions with
+        | [ (r : J.request) ] -> r.J.label = None
+        | _ -> false)
+    | _ -> false);
+  check "a stored label that is not a string is corruption, not a blank"
+    (match
+       L.of_metadata
+         {|{"tessarium_ledger":{"v":1,"entries":[{"name":"France","completed":1,"source":"s","bytes":1,"regions":[{"label":7,"min_lon":-5.1,"min_lat":41.3,"max_lon":9.6,"max_lat":51.1,"max_zoom":15}]}]}}|}
+     with
+    | Error _ -> true
+    | Ok _ -> false);
+  check "and a label is bounded and printable, exactly as an entry name is"
+    (Result.is_error (J.validate ~label:"a\nb" ~min_lon:0. ~min_lat:0.
+                        ~max_lon:1. ~max_lat:1. ~max_zoom:5 ())
+    && Result.is_error
+         (J.validate ~label:(String.make 121 'x') ~min_lon:0. ~min_lat:0.
+            ~max_lon:1. ~max_lat:1. ~max_zoom:5 ())
+    && Result.is_ok
+         (J.validate ~label:"Île-de-France" ~min_lon:0. ~min_lat:0.
+            ~max_lon:1. ~max_lat:1. ~max_zoom:5 ()));
+
+  (* Looking one up is all that is left of editing a ledger: a region is its
+     own file, so entries are never added to or taken out of a list. *)
   let e2 = entry ~name:"Georgia" [ georgia ] in
-  check "recording a new region appends"
-    (L.record [ e1 ] e2 = [ e1; e2 ]);
-  check "recording the same regions replaces in place"
-    (L.record [ e1; e2 ] (entry ~bytes:999 [ france ])
-    = [ entry ~bytes:999 [ france ]; e2 ]);
-  check "remove returns the entry and the rest"
-    (L.remove [ e1; e2 ] ~id:(L.id e2) = Some (e2, [ e1 ]));
-  check "remove of an unknown id is None" (L.remove [ e1 ] ~id:"nope" = None);
   check "find locates by id" (L.find [ e1; e2 ] ~id:(L.id e2) = Some e2);
+  check "and answers None for an id nothing here has"
+    (L.find [ e1; e2 ] ~id:"nope" = None);
 
   (* Corruption is loud, never an empty ledger. *)
   let unreadable = function Error _ -> true | Ok _ -> false in

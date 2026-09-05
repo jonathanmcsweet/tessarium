@@ -43,17 +43,21 @@ let from_another_site header =
           let host = Option.value (header "host") ~default:"" in
           not (same_origin_as_host o host))
 
-let is_json header =
-  match header "content-type" with
-  | None -> false
-  | Some v ->
+(* The media type with its parameters cut off: "application/json;
+   charset=utf-8" is application/json. Lowercased and trimmed on both sides
+   of the semicolon, because a header is whatever the client wrote. Two
+   endpoints ask this question and used to carry a copy of the answer each,
+   differing only in the string they compared against. *)
+let content_type_base header =
+  Option.map
+    (fun v ->
       let v = String.lowercase_ascii (String.trim v) in
-      let base =
-        match String.index_opt v ';' with
-        | Some i -> String.trim (String.sub v 0 i)
-        | None -> v
-      in
-      String.equal base "application/json"
+      match String.index_opt v ';' with
+      | Some i -> String.trim (String.sub v 0 i)
+      | None -> v)
+    (header "content-type")
+
+let is_json header = content_type_base header = Some "application/json"
 
 (* A streamed upload: same origin check, but the body is bytes rather than
    JSON and is far too large to hold in memory, so it never passes through
@@ -66,16 +70,7 @@ type stream = { declared : int }
 let declared_length s = s.declared
 
 let is_octet_stream header =
-  match header "content-type" with
-  | None -> false
-  | Some v ->
-      let v = String.lowercase_ascii (String.trim v) in
-      let base =
-        match String.index_opt v ';' with
-        | Some i -> String.trim (String.sub v 0 i)
-        | None -> v
-      in
-      String.equal base "application/octet-stream"
+  content_type_base header = Some "application/octet-stream"
 
 (* An upload must say how big it is. Not pedantry: it is the only way the
    receiver can tell a file that finished from one whose connection dropped

@@ -312,15 +312,18 @@ let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which =
          is the truth about an empty basemap directory. *)
       json ~min_zoom:0 ~max_zoom:(max 0 (floor_depth ())) ~bounds:whole_planet
   | `Detail ->
+      (* Headers, and nothing but headers -- so they come from the stamped
+         cache that already holds them rather than from opening every archive
+         on disk again. This document is fetched on every style load and
+         re-fetched after every job transition, and it was paying one open per
+         downloaded region for bytes [Tile_set] had already read. The floor
+         branch above still opens: it needs [Archive.locate], which a header
+         cannot answer. *)
       let headers =
         List.map
-          (fun (_, a) -> a.Pmtiles.Archive.header)
-          (open_tile_archives ~basemap_root ~sw
-             (List.filter
-                (fun n -> n <> Tile_set.world_file)
-                (Tile_set.names ~dir:basemap_root)))
+          (fun (e : Tile_set.entry) -> e.Tile_set.header)
+          (Tile_set.detail ~dir:basemap_root)
       in
-      let e7f v = float_of_int v /. 1e7 in
       let min_zoom, max_zoom, bounds =
         match headers with
         (* Nothing downloaded: an empty range, which is a source that
@@ -346,10 +349,10 @@ let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which =
             ( fold min (fun (h : Pmtiles.Header.t) -> h.Pmtiles.Header.min_zoom),
               fold max (fun h -> h.Pmtiles.Header.max_zoom),
               [
-                e7f (fold min (fun h -> h.Pmtiles.Header.min_lon_e7));
-                e7f (fold min (fun h -> h.Pmtiles.Header.min_lat_e7));
-                e7f (fold max (fun h -> h.Pmtiles.Header.max_lon_e7));
-                e7f (fold max (fun h -> h.Pmtiles.Header.max_lat_e7));
+                Degrees.of_e7 (fold min (fun h -> h.Pmtiles.Header.min_lon_e7));
+                Degrees.of_e7 (fold min (fun h -> h.Pmtiles.Header.min_lat_e7));
+                Degrees.of_e7 (fold max (fun h -> h.Pmtiles.Header.max_lon_e7));
+                Degrees.of_e7 (fold max (fun h -> h.Pmtiles.Header.max_lat_e7));
               ] )
       in
       (* The two documents describe one archive cut in two, and this is where
@@ -939,8 +942,21 @@ let parse_region json =
   | Some min_lon, Some min_lat, Some max_lon, Some max_lat, Some max_zoom -> (
       match parse_polygon json with
       | Error e -> Error e
-      | Ok polygon ->
-          Basemap_job.validate ?polygon ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom ())
+      | Ok polygon -> (
+          (* What the picker called this one place, so the progress view can
+             name its bars. It arrives ON the region rather than in an array
+             beside the list, which is what makes an off-by-one impossible
+             rather than merely refused: there is no second list to fall out
+             of step with, so there is no alignment check here and no silent
+             blanking downstream. The validator bounds the string. *)
+          match json_field "label" json with
+          | None | Some `Null ->
+              Basemap_job.validate ?polygon ~min_lon ~min_lat ~max_lon
+                ~max_lat ~max_zoom ()
+          | Some (`String label) ->
+              Basemap_job.validate ?polygon ~label ~min_lon ~min_lat ~max_lon
+                ~max_lat ~max_zoom ()
+          | Some _ -> Error "a region's label must be a string"))
   | _ -> Error "missing min_lon, min_lat, max_lon, max_lat or max_zoom"
 
 (* One request names one or more regions -- the picker lets several countries,
@@ -1223,36 +1239,11 @@ let handle_basemap cfg (ops : Basemap_download.ops)
                    with one has nowhere to go; it is ignored rather than
                    refused, because the client sends the same shape either
                    way. *)
-                (* Per-region display labels, so the progress view can name
-                   its bars. Optional, and refused rather than trimmed when
-                   they do not line up with the regions: a labels array off
-                   by one would put every name against the wrong bar, which
-                   is worse than no names at all. *)
-                let labels =
-                  match json_field "labels" json with
-                  | None | Some `Null -> Ok None
-                  | Some (`List l) when List.length l = List.length reqs ->
-                      let rec collect acc = function
-                        | [] -> Ok (Some (List.rev acc))
-                        | `String s :: rest when Ledger.valid_name s ->
-                            collect (s :: acc) rest
-                        | _ -> Error ()
-                      in
-                      collect [] l
-                  | Some _ -> Error ()
-                in
-                match labels with
-                | Error () ->
-                    bad
-                      "labels must be one name per region, each 1-120 bytes \
-                       of printable UTF-8"
-                | Ok labels -> (
-                    match json_field "name" json with
-                    | Some (`String s) when Ledger.valid_name s ->
-                        started (ops.start ~name:(Some s) ~labels ~world reqs)
-                    | Some _ ->
-                        bad "name must be 1-120 bytes of printable UTF-8"
-                    | None -> started (ops.start ~name:None ~labels ~world reqs))))
+                match json_field "name" json with
+                | Some (`String s) when Ledger.valid_name s ->
+                    started (ops.start ~name:(Some s) ~world reqs)
+                | Some _ -> bad "name must be 1-120 bytes of printable UTF-8"
+                | None -> started (ops.start ~name:None ~world reqs)))
   | _ -> error cfg ~status:`Not_found "no such endpoint"
 
 (* Whether a request declared a body. Both mistakes around this are real and
@@ -1296,7 +1287,7 @@ let refused cfg (r : Api_guard.refusal) (d : Api_guard.disposal) =
 
 let status_code s = Http.Status.to_int s
 
-let handler cfg ~sw ~fs ~ui_root ~basemap_root ~sessions ~limiter ~clock
+let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock
     ~random ~basemap_ops ~settings_ops =
   (* The status the log records travels WITH the response. It used to be a
      literal beside each call, and both /api/ branches passed `OK for every
@@ -1364,15 +1355,20 @@ let handler cfg ~sw ~fs ~ui_root ~basemap_root ~sessions ~limiter ~clock
           | Error r -> simple (refused cfg r Api_guard.Connection_must_close)
           | Ok stream -> (
               match
-                Basemap_download.receive_import ~fs
-                  ~basemap_dir:cfg.basemap_dir
+                basemap_ops.receive
                   ~expected:(Api_guard.declared_length stream)
-                  ~src:body
+                  ~read:(fun buf -> Eio.Flow.single_read body buf)
               with
               | Ok () ->
                   simple
                     (respond_json cfg ~status:`OK (basemap_ops.staged ()))
-              | Error e -> simple (error cfg ~status:`Bad_request e)))
+              (* A seat that is taken is a conflict: another upload or a
+                 running job holds it, and the same request will work in a
+                 moment. A body that is not a map archive will not. *)
+              | Error (Basemap_download.Busy e) ->
+                  simple (error cfg ~status:`Conflict e)
+              | Error (Basemap_download.Rejected e) ->
+                  simple (error cfg ~status:`Bad_request e)))
       | Route.Tile { z; x; y } ->
           serve_tile cfg ~basemap_root ~meth
             ~client_headers:(Http.Request.headers request) ~z ~x ~y
@@ -1485,7 +1481,7 @@ let run env ~sw ~port cfg =
   in
   let settings_ops = Settings.ops ~fs ~basemap_dir:cfg.basemap_dir in
   let callback =
-    handler cfg ~sw ~fs ~ui_root ~basemap_root ~sessions ~limiter ~clock
+    handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock
       ~random ~basemap_ops ~settings_ops
   in
   let server = Cohttp_eio.Server.make_response_action ~callback () in

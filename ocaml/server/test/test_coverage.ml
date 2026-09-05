@@ -23,58 +23,15 @@ let check name ok =
     Printf.printf "  FAIL  %s\n" name
   end
 
-(* An archive holding exactly [ids], every one pointing at the same byte.
-   Uncompressed directories, so this is the format's own layout with
-   nothing in the way. *)
+(* An archive holding exactly [ids], every one pointing at the same byte, over
+   the whole planet down to [max_zoom]. Uncompressed directories, so this is
+   the format's own layout with nothing in the way. *)
 let archive_of ~max_zoom ids =
-  let tile = "x" in
-  let entries =
-    Array.of_list
-      (List.map
-         (fun id ->
-           {
-             Pmtiles.Directory.tile_id = id;
-             offset = 0;
-             length = String.length tile;
-             run_length = 1;
-           })
-         ids)
-  in
-  let root = Pmtiles.Directory.serialize entries in
-  let metadata = "{}" in
-  let root_offset = Pmtiles.Header.size in
-  let metadata_offset = root_offset + String.length root in
-  let data_offset = metadata_offset + String.length metadata in
-  let e7 v = int_of_float (Float.round (v *. 1e7)) in
-  let header =
-    {
-      Pmtiles.Header.root_offset;
-      root_length = String.length root;
-      metadata_offset;
-      metadata_length = String.length metadata;
-      leaf_offset = data_offset;
-      leaf_length = 0;
-      data_offset;
-      data_length = String.length tile;
-      addressed_tiles = Array.length entries;
-      tile_entries = Array.length entries;
-      tile_contents = 1;
-      clustered = true;
-      internal_compression = Pmtiles.Header.None_;
-      tile_compression = Pmtiles.Header.None_;
-      tile_type = Pmtiles.Header.Mvt;
-      min_zoom = 0;
-      max_zoom;
-      min_lon_e7 = e7 (-180.);
-      min_lat_e7 = e7 (-85.);
-      max_lon_e7 = e7 180.;
-      max_lat_e7 = e7 85.;
-      center_zoom = 0;
-      center_lon_e7 = 0;
-      center_lat_e7 = 0;
-    }
-  in
-  Pmtiles.Header.serialize header ^ root ^ metadata ^ tile
+  snd
+    (Pmtiles.Build.archive ~min_zoom:0 ~max_zoom ~min_lon:(-180.)
+       ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
+       ~tiles:(List.map (fun id -> (id, "x")) ids)
+       ())
 
 let write dir name content =
   Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / name) content

@@ -21,59 +21,15 @@ let check name ok =
     Printf.printf "  FAIL  %s\n" name
   end
 
-let e7 v = int_of_float (Float.round (v *. 1e7))
-
 (* An archive holding exactly [ids], with the bounds and zoom range it
    claims in its header -- which is what [may_hold] reads and therefore the
-   only part of it these tests care about. *)
+   only part of it these tests care about. Every id points at the same byte:
+   nothing here reads a tile body. *)
 let archive_of ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ids =
-  let tile = "x" in
-  let entries =
-    Array.of_list
-      (List.map
-         (fun id ->
-           {
-             Pmtiles.Directory.tile_id = id;
-             offset = 0;
-             length = String.length tile;
-             run_length = 1;
-           })
-         ids)
-  in
-  let root = Pmtiles.Directory.serialize entries in
-  let metadata = "{}" in
-  let root_offset = Pmtiles.Header.size in
-  let metadata_offset = root_offset + String.length root in
-  let data_offset = metadata_offset + String.length metadata in
-  let header =
-    {
-      Pmtiles.Header.root_offset;
-      root_length = String.length root;
-      metadata_offset;
-      metadata_length = String.length metadata;
-      leaf_offset = data_offset;
-      leaf_length = 0;
-      data_offset;
-      data_length = String.length tile;
-      addressed_tiles = Array.length entries;
-      tile_entries = Array.length entries;
-      tile_contents = 1;
-      clustered = true;
-      internal_compression = Pmtiles.Header.None_;
-      tile_compression = Pmtiles.Header.None_;
-      tile_type = Pmtiles.Header.Mvt;
-      min_zoom;
-      max_zoom;
-      min_lon_e7 = e7 min_lon;
-      min_lat_e7 = e7 min_lat;
-      max_lon_e7 = e7 max_lon;
-      max_lat_e7 = e7 max_lat;
-      center_zoom = min_zoom;
-      center_lon_e7 = 0;
-      center_lat_e7 = 0;
-    }
-  in
-  (header, Pmtiles.Header.serialize header ^ root ^ metadata ^ tile)
+  Pmtiles.Build.archive ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
+    ~max_lat
+    ~tiles:(List.map (fun id -> (id, "x")) ids)
+    ()
 
 (* Roughly the state of Georgia, USA -- the region the download UI is
    usually driven with. *)
@@ -81,9 +37,8 @@ let georgia = (-85.6, 30.3, -80.8, 35.0)
 let london = (-0.5, 51.3, 0.3, 51.7)
 
 let box_archive ?(min_zoom = 0) ?(max_zoom = 12) (min_lon, min_lat, max_lon, max_lat) =
-  archive_of ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
-    (Pmtiles.Tile_id.covering ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
-       ~max_lat)
+  Pmtiles.Build.of_box ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
+    ~body:(fun _ -> "x") ()
 
 let () =
   Eio_main.run @@ fun env ->
@@ -246,6 +201,50 @@ let () =
     (held swap ~z:12 ~lon:(-0.1) ~lat:51.5);
   check "and no longer for the ground it used to hold"
     (not (held swap ~z:12 ~lon:(-84.4) ~lat:33.7));
+
+  (* ------------------------------------------------ files that will not open *)
+
+  (* A file that cannot be read is remembered as such, against the same stamp
+     a good one is remembered against.
+
+     Forgetting it instead -- which is what this did -- meant it was re-opened
+     and re-logged on EVERY tile request: at the pan rate this cache exists
+     for, hundreds of opens and hundreds of warning lines a second over a file
+     that is not going to start working. A truncated copy off a bad USB stick
+     is the case this module was written for, so it was the case that hurt.
+
+     Observed through the count of remembered names, because the alternative
+     is counting log lines. *)
+  let listed () = List.length (Tile_set.names ~dir) in
+  let broken = "Broken-2026-01-01-eeeeee.pmtiles" in
+  write broken "this is not a PMTiles archive";
+  ignore (Tile_set.entries ~dir);
+  check "an unreadable archive is not offered for lookups"
+    (not
+       (List.exists
+          (fun (e : Tile_set.entry) -> e.Tile_set.name = broken)
+          (Tile_set.entries ~dir)));
+  check "but it is remembered, so it is not re-opened on the next tile"
+    (Tile_set.remembered_count () = listed ());
+  (* And the memory is of THIS file, not of the name: replace the bytes with
+     something readable and it must start answering. *)
+  write broken ga;
+  check "and a file that starts working is picked up when it changes"
+    (held broken ~z:12 ~lon:(-84.4) ~lat:33.7);
+
+  (* ------------------------------------------------------------- eviction *)
+
+  (* Every removed, renamed or re-dated archive used to leave its header
+     behind for the life of the process: a user who keeps a region up to date
+     for a year accumulates an entry per download. The listing is the only
+     thing that knows what is really there, so that is where the forgetting
+     goes. *)
+  Eio.Path.unlink Eio.Path.(dir / broken);
+  Eio.Path.unlink Eio.Path.(dir / swap);
+  check "a name that has left the directory stops being remembered"
+    (Tile_set.remembered_count () = listed ());
+  check "and what is still there is still remembered"
+    (Tile_set.remembered_count () = List.length (Tile_set.entries ~dir));
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1;

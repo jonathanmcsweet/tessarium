@@ -27,66 +27,15 @@ let check name ok =
     Printf.printf "  FAIL  %s\n" name
   end
 
-let e7 v = int_of_float (Float.round (v *. 1e7))
-
 (* A source archive: every tile of a box between two zooms, each with its
    own bytes so a merge that mixed two of them up would be visible. *)
-let source_archive ?(metadata = "{}") ~min_zoom ~max_zoom ~min_lon ~min_lat
-    ~max_lon ~max_lat () =
-  let ids =
-    Pmtiles.Tile_id.covering ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
-      ~max_lat
-  in
-  let body = Buffer.create 4096 in
-  let entries =
-    Array.of_list
-      (List.map
-         (fun id ->
-           let blob = Printf.sprintf "tile-%d;" id in
-           let offset = Buffer.length body in
-           Buffer.add_string body blob;
-           {
-             Pmtiles.Directory.tile_id = id;
-             offset;
-             length = String.length blob;
-             run_length = 1;
-           })
-         ids)
-  in
-  let data = Buffer.contents body in
-  let root = Pmtiles.Directory.serialize entries in
-  let root_offset = Pmtiles.Header.size in
-  let metadata_offset = root_offset + String.length root in
-  let data_offset = metadata_offset + String.length metadata in
-  let header =
-    {
-      Pmtiles.Header.root_offset;
-      root_length = String.length root;
-      metadata_offset;
-      metadata_length = String.length metadata;
-      leaf_offset = data_offset;
-      leaf_length = 0;
-      data_offset;
-      data_length = String.length data;
-      addressed_tiles = Array.length entries;
-      tile_entries = Array.length entries;
-      tile_contents = Array.length entries;
-      clustered = true;
-      internal_compression = Pmtiles.Header.None_;
-      tile_compression = Pmtiles.Header.None_;
-      tile_type = Pmtiles.Header.Mvt;
-      min_zoom;
-      max_zoom;
-      min_lon_e7 = e7 min_lon;
-      min_lat_e7 = e7 min_lat;
-      max_lon_e7 = e7 max_lon;
-      max_lat_e7 = e7 max_lat;
-      center_zoom = min_zoom;
-      center_lon_e7 = 0;
-      center_lat_e7 = 0;
-    }
-  in
-  Pmtiles.Header.serialize header ^ root ^ metadata ^ data
+let source_archive ?metadata ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
+    ~max_lat () =
+  snd
+    (Pmtiles.Build.of_box ?metadata ~min_zoom ~max_zoom ~min_lon ~min_lat
+       ~max_lon ~max_lat
+       ~body:(fun id -> Printf.sprintf "tile-%d;" id)
+       ())
 
 let req ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom =
   match Job.validate ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom () with
@@ -117,7 +66,7 @@ let () =
   let download ?replaces ~name reqs =
     D.run_download t ~fs ~net ~source ~assets:"" ~basemap_dir
       ~budget:D.default_budget ~name:(Some name) ~now ~refresh:false ~replaces
-      ~target:D.Detail ~labels:None reqs
+      ~target:D.Detail reqs
   in
   let listing () =
     List.filter Tile_set.is_region (Eio.Path.read_dir dir)
@@ -312,7 +261,7 @@ let () =
 
   D.run_download t ~fs ~net ~source ~assets:"" ~basemap_dir
     ~budget:D.default_budget ~name:None ~now ~refresh:false ~replaces:None
-    ~target:D.World ~labels:None
+    ~target:D.World
     [ req ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
         ~max_zoom:3 ];
   check ("the overview downloaded: " ^ outcome ()) (state () = "done");
@@ -562,7 +511,7 @@ let () =
      the overview rather than being it, and is theirs to take away again. *)
   D.run_download t ~fs ~net ~source ~assets:"" ~basemap_dir
     ~budget:D.default_budget ~name:(Some "The lot") ~now ~refresh:false
-    ~replaces:None ~target:D.Detail ~labels:None
+    ~replaces:None ~target:D.Detail
     [ req ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
         ~max_zoom:2 ];
   check ("the whole world as detail downloads: " ^ outcome ())
@@ -579,6 +528,482 @@ let () =
    | Some e -> D.run_remove t ~fs ~basemap_dir ~id:(str "id" e)
    | None -> ());
   check ("and removing it works: " ^ outcome ()) (state () = "removed");
+
+
+  (* ================================================ carrying maps by hand *)
+
+  (* Everything below drives the import side against its own directory: the
+     one above has a history, and these tests are about what a file arriving
+     on a stick does to a machine that has never seen it. *)
+
+  let fresh name =
+    let d = Filename.concat root name in
+    Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 Eio.Path.(fs / d);
+    d
+  in
+  let stage ~basemap_dir bytes =
+    Eio.Path.mkdirs ~exists_ok:true ~perm:0o755
+      Eio.Path.(fs / basemap_dir / "import");
+    Eio.Path.save ~create:(`Or_truncate 0o644)
+      Eio.Path.(fs / basemap_dir / "import" / "staged.pmtiles") bytes
+  in
+  let staged_bytes ~basemap_dir =
+    match Eio.Path.load Eio.Path.(fs / basemap_dir / "import" / "staged.pmtiles") with
+    | b -> Some b
+    | exception _ -> None
+  in
+  let import ?(budget = D.default_budget) ?(now = now) t ~basemap_dir =
+    Eio.Switch.run (fun sw ->
+        match D.start_import t ~sw ~fs ~net ~basemap_dir ~budget ~now with
+        | Ok () -> ()
+        | Error e -> check ("the import started: " ^ e) false)
+  in
+  let listing_in ~basemap_dir =
+    List.filter Tile_set.is_region (Eio.Path.read_dir Eio.Path.(fs / basemap_dir))
+  in
+  let entries_in ~basemap_dir =
+    match D.ledger_json ~fs ~basemap_dir with
+    | Error e -> failwith e
+    | Ok (`Assoc fields) -> (
+        match List.assoc_opt "entries" fields with
+        | Some (`List es) -> es
+        | _ -> [])
+    | Ok _ -> []
+  in
+  let ledger_in ~basemap_dir name =
+    Eio.Switch.run @@ fun sw ->
+    let a =
+      Pmtiles.Archive.open_
+        (Pmtiles_source.file_source
+           (Eio.Path.open_in ~sw Eio.Path.(fs / basemap_dir / name)))
+    in
+    match Ledger.of_metadata (Pmtiles.Archive.metadata a) with
+    | Ok l -> l
+    | Error e -> failwith e
+  in
+  let holds_in ~basemap_dir name ~z ~lon ~lat =
+    Eio.Switch.run @@ fun sw ->
+    let a =
+      Pmtiles.Archive.open_
+        (Pmtiles_source.file_source
+           (Eio.Path.open_in ~sw Eio.Path.(fs / basemap_dir / name)))
+    in
+    Pmtiles.Archive.locate a
+      (Pmtiles.Tile_id.of_zxy ~z
+         ~x:(Pmtiles.Tile_id.tile_x ~z ~lon)
+         ~y:(Pmtiles.Tile_id.tile_y ~z ~lat))
+    <> None
+  in
+  let with_ledger entries ~min_zoom ~max_zoom (min_lon, min_lat, max_lon, max_lat) =
+    source_archive
+      ~metadata:
+        (match Ledger.to_metadata entries ~previous:"{}" with
+        | Ok m -> m
+        | Error e -> failwith e)
+      ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ()
+  in
+
+  (* ----------------------------------------------- one upload at a time *)
+
+  (* Two uploads at once used to open the same staged .part with Or_truncate
+     and both write from byte zero. Each counted only ITS bytes against ITS
+     Content-Length, so both length checks passed over a file that was neither
+     archive -- and that file was renamed to staged.pmtiles and merged as
+     tiles. The reads below yield between chunks, which is exactly what a
+     socket does. *)
+  let up_dir = fresh "uploads" in
+  let payload_a =
+    source_archive ~min_zoom:0 ~max_zoom:3 ~min_lon:(-85.6) ~min_lat:30.3
+      ~max_lon:(-80.8) ~max_lat:35.0 ()
+  in
+  let payload_b =
+    source_archive ~min_zoom:0 ~max_zoom:4 ~min_lon:(-0.5) ~min_lat:51.3
+      ~max_lon:0.3 ~max_lat:51.7 ()
+  in
+  check "the two uploads are telling apart" (payload_a <> payload_b);
+  (* Two chunk sizes, so the writes do not land on the same boundaries: with
+     both reading the same amount at a time the later writer simply covered
+     the earlier one block for block and the damage was invisible. Sockets do
+     not agree on chunk sizes either. *)
+  let upload t ~chunk payload =
+    let pos = ref 0 in
+    let read buf =
+      if !pos >= String.length payload then 0
+      else begin
+        (* Where a real upload gives the scheduler its chance. *)
+        Eio.Fiber.yield ();
+        let n = min chunk (String.length payload - !pos) in
+        Cstruct.blit_from_string payload !pos buf 0 n;
+        pos := !pos + n;
+        n
+      end
+    in
+    D.receive_import t ~fs ~basemap_dir:up_dir ~expected:(String.length payload)
+      ~read
+  in
+  let tu = D.create () in
+  let ra = ref (Error (D.Rejected "not run")) in
+  let rb = ref (Error (D.Rejected "not run")) in
+  Eio.Fiber.both
+    (fun () -> ra := upload tu ~chunk:64 payload_a)
+    (fun () -> rb := upload tu ~chunk:100 payload_b);
+  let landed = List.filter Result.is_ok [ !ra; !rb ] in
+  check "exactly one of two simultaneous uploads is accepted"
+    (List.length landed = 1);
+  check "and the other is told the seat is taken, not that its file is bad"
+    (match (!ra, !rb) with
+     | Ok (), Error (D.Busy _) | Error (D.Busy _), Ok () -> true
+     | _ -> false);
+  check "so what is staged is one whole archive, not two interleaved"
+    (match staged_bytes ~basemap_dir:up_dir with
+     | Some b -> b = payload_a || b = payload_b
+     | None -> false);
+
+  (* An upload must not land while a job holds the writer's seat either: the
+     import merge reads staged.pmtiles, and a rename over it mid-merge swaps
+     the file out from under the reader. *)
+  D.set tu (Job.Fetching { done_bytes = 0; total_bytes = 1; part = 1; parts = 1;
+                           regions = [] });
+  check "an upload arriving while a job runs is refused"
+    (match upload tu ~chunk:64 payload_a with
+     | Error (D.Busy _) -> true
+     | _ -> false);
+  D.set tu Job.Idle;
+
+  (* And the other direction: committing an import while bytes are still
+     arriving would merge whatever had been written so far. *)
+  tu.D.staging <- true;
+  check "and an import is refused while an upload is still in flight"
+    (Eio.Switch.run (fun sw ->
+         match
+           D.start_import tu ~sw ~fs ~net ~basemap_dir:up_dir
+             ~budget:D.default_budget ~now
+         with
+         | Error _ -> true
+         | Ok () -> false));
+  tu.D.staging <- false;
+
+  (* ------------------------------------- an import keeps what it was given *)
+
+  (* Cancel a merge at 90%, or fill the disk, and the staged upload used to be
+     deleted anyway -- on the offline machine the two-step staging exists to
+     spare exactly that re-upload. Provoked here by importing the same archive
+     twice: the second time every region is already on disk, which is a
+     failure, and the file must still be there to try again with. *)
+  let keep_dir = fresh "keeps-its-upload" in
+  let georgia_entry =
+    Ledger.make ~name:"Georgia" ~completed:1 ~source:"a planet build" ~bytes:1
+      ~regions:
+        [ req ~min_lon:(-85.6) ~min_lat:30.3 ~max_lon:(-80.8) ~max_lat:35.0
+            ~max_zoom:4 ]
+  in
+  let london_entry =
+    Ledger.make ~name:"London" ~completed:2 ~source:"another planet build"
+      ~bytes:2
+      ~regions:
+        [ req ~min_lon:(-0.5) ~min_lat:51.3 ~max_lon:0.3 ~max_lat:51.7
+            ~max_zoom:4 ]
+  in
+  let two_records =
+    with_ledger [ georgia_entry; london_entry ] ~min_zoom:0 ~max_zoom:4
+      (-180., -85., 180., 85.)
+  in
+  stage ~basemap_dir:keep_dir two_records;
+  let tk = D.create () in
+  import tk ~basemap_dir:keep_dir;
+  check ("an archive of several records imports: " ^ str "state" (field "job" (D.status tk)))
+    (str "state" (field "job" (D.status tk)) = "done");
+  check "and the staged copy is cleared away once it has landed"
+    (staged_bytes ~basemap_dir:keep_dir = None);
+
+  stage ~basemap_dir:keep_dir two_records;
+  import tk ~basemap_dir:keep_dir;
+  check "importing what is already held fails"
+    (str "state" (field "job" (D.status tk)) = "failed");
+  check "and leaves the upload where it is, to be retried or discarded"
+    (staged_bytes ~basemap_dir:keep_dir = Some two_records);
+
+  (* ------------------------------------ several records, several regions *)
+
+  (* Folding a multi-record archive into one entry took the name and source of
+     whichever record happened to be first, labelled every progress bar with
+     it, and wrote a single combined row: London's name, date and byte count
+     were gone for good, and the two could only be removed as one blob. *)
+  let named n = List.find_opt (fun e -> str "name" e = n) (entries_in ~basemap_dir:keep_dir) in
+  check "each record arrives as itself" (List.length (listing_in ~basemap_dir:keep_dir) = 2);
+  check "under its own name" (named "Georgia" <> None && named "London" <> None);
+  check "with its own source, not the first record's"
+    (match (named "Georgia", named "London") with
+     | Some g, Some l -> str "source" g <> str "source" l
+     | _ -> false);
+  check "and its own file to carry on with"
+    (match (named "Georgia", named "London") with
+     | Some g, Some l -> str "file" g <> "" && str "file" l <> ""
+                         && str "file" g <> str "file" l
+     | _ -> false);
+  check "each holding the tiles of its own place and not the other's"
+    (match (named "Georgia", named "London") with
+     | Some g, Some l ->
+         holds_in ~basemap_dir:keep_dir (str "file" g) ~z:4 ~lon:(-84.4) ~lat:33.7
+         && holds_in ~basemap_dir:keep_dir (str "file" l) ~z:4 ~lon:(-0.1) ~lat:51.5
+         && not (holds_in ~basemap_dir:keep_dir (str "file" g) ~z:4 ~lon:(-0.1) ~lat:51.5)
+     | _ -> false);
+  (* The point of separate identities: one can go without the other. *)
+  (match named "London" with
+   | Some l -> D.run_remove tk ~fs ~basemap_dir:keep_dir ~id:(str "id" l)
+   | None -> ());
+  check "so removing one leaves the other"
+    (List.length (entries_in ~basemap_dir:keep_dir) = 1
+     && named "Georgia" <> None);
+
+  (* Names travel with the regions, not beside them, so an imported region
+     knows what to call each of its boxes. *)
+  check "and the imported regions carry the name they were exported under"
+    (match named "Georgia" with
+     | Some g ->
+         List.for_all
+           (fun (r : Job.request) -> r.Job.label = Some "Georgia")
+           (List.concat_map
+              (fun (e : Ledger.entry) -> e.Ledger.regions)
+              (ledger_in ~basemap_dir:keep_dir (str "file" g)))
+     | None -> false);
+
+  (* -------------------------------------- an import is not a download *)
+
+  (* The budget is a NETWORK budget. An import pays no network, so clamping it
+     is not thrift: a foreign deep archive re-planned under it comes out
+     shallow, only those zooms merge, the ledger records the clamped depth as
+     though that were what the file held, and the staged file with the rest of
+     its tiles is then thrown away. *)
+  let deep_dir = fresh "not-clamped" in
+  let deep =
+    source_archive ~min_zoom:0 ~max_zoom:5 ~min_lon:(-10.) ~min_lat:(-10.)
+      ~max_lon:10. ~max_lat:10. ()
+  in
+  stage ~basemap_dir:deep_dir deep;
+  let td = D.create () in
+  (* Far too small for the box at zoom 5: a network download would be clamped
+     to a couple of levels and say so. *)
+  let tiny = { D.full = 4; quick = 2; max_parts = 1; compact = 48_000_000 } in
+  import ~budget:tiny td ~basemap_dir:deep_dir;
+  check ("an archive with no record imports: "
+         ^ str "reason" (field "job" (D.status td)))
+    (str "state" (field "job" (D.status td)) = "done");
+  let deep_file = match listing_in ~basemap_dir:deep_dir with [ f ] -> f | _ -> "" in
+  check "into one file" (deep_file <> "");
+  check "recording the depth the source really holds, not the budget's"
+    (match ledger_in ~basemap_dir:deep_dir deep_file with
+     | [ e ] ->
+         List.for_all (fun (r : Job.request) -> r.Job.max_zoom = 5)
+           e.Ledger.regions
+     | _ -> false);
+  check "and holding the deep tiles the summary promised"
+    (holds_in ~basemap_dir:deep_dir deep_file ~z:5 ~lon:0. ~lat:0.);
+
+  (* An upload that lands while a merge is running is a different file, and
+     the merge must not delete it on its way out. The clock is read once per
+     merge, after the source is open, which is a safe moment to swap the file
+     underneath by rename -- the merge keeps reading the inode it opened. *)
+  let swap_dir = fresh "replaced-mid-merge" in
+  let first =
+    source_archive ~min_zoom:0 ~max_zoom:3 ~min_lon:(-10.) ~min_lat:(-10.)
+      ~max_lon:10. ~max_lat:10. ()
+  in
+  let replacement =
+    source_archive ~min_zoom:0 ~max_zoom:4 ~min_lon:20. ~min_lat:20.
+      ~max_lon:30. ~max_lat:30. ()
+  in
+  stage ~basemap_dir:swap_dir first;
+  let swapped = ref false in
+  let swapping_now () =
+    if not !swapped then begin
+      swapped := true;
+      Eio.Path.save ~create:(`Or_truncate 0o644)
+        Eio.Path.(fs / swap_dir / "import" / "next.tmp") replacement;
+      Eio.Path.rename
+        Eio.Path.(fs / swap_dir / "import" / "next.tmp")
+        Eio.Path.(fs / swap_dir / "import" / "staged.pmtiles")
+    end;
+    !clock
+  in
+  let ts = D.create () in
+  import ~now:swapping_now ts ~basemap_dir:swap_dir;
+  check ("the first import still finished: "
+         ^ str "reason" (field "job" (D.status ts)))
+    (str "state" (field "job" (D.status ts)) = "done");
+  check "the upload that arrived during it was swapped in" !swapped;
+  check "and the finished import did not delete somebody else's upload"
+    (staged_bytes ~basemap_dir:swap_dir = Some replacement);
+
+  (* ------------------------------------------------ one id, one row *)
+
+  (* An install upgraded from the merged layout can hold the same regions
+     twice: inside map.pmtiles, and in a file of its own, because a
+     re-download deliberately refuses to write into the base archive. Both
+     copies hash to the same id -- identity is the geometry and nothing else
+     -- so the list emitted that id twice, which is a duplicate key and a pair
+     of rows reconciling into each other, and removing the file-backed one
+     left the base copy still claiming the same ground. *)
+  let dup_dir = fresh "one-id-one-row" in
+  let kent =
+    Ledger.make ~name:"Kent" ~completed:1 ~source:"a planet build" ~bytes:1
+      ~regions:
+        [ req ~min_lon:0.2 ~min_lat:51.0 ~max_lon:1.4 ~max_lat:51.5 ~max_zoom:4 ]
+  in
+  let kent_bytes = with_ledger [ kent ] ~min_zoom:0 ~max_zoom:4 (0.2, 51.0, 1.4, 51.5) in
+  Eio.Path.save ~create:(`Or_truncate 0o644)
+    Eio.Path.(fs / dup_dir / Tile_set.base_file) kent_bytes;
+  Eio.Path.save ~create:(`Or_truncate 0o644)
+    Eio.Path.(fs / dup_dir / "Kent-2026-01-01-abcdef.pmtiles") kent_bytes;
+  let dup_rows =
+    List.filter
+      (fun e -> str "id" e = Ledger.id kent)
+      (entries_in ~basemap_dir:dup_dir)
+  in
+  check "a region held in both layouts is listed once"
+    (List.length dup_rows = 1);
+  check "as the copy that has a file of its own, which is the removable one"
+    (match dup_rows with
+     | [ e ] -> str "file" e = "Kent-2026-01-01-abcdef.pmtiles"
+     | _ -> false);
+  D.run_remove tk ~fs ~basemap_dir:dup_dir ~id:(Ledger.id kent);
+  check "and removing it takes that file"
+    (not (Eio.Path.is_file Eio.Path.(fs / dup_dir / "Kent-2026-01-01-abcdef.pmtiles")));
+
+  (* --------------------------------------- what a remembered ledger says *)
+
+  (* Ledgers are parsed once per file and remembered against the file's
+     identity, because every poll and every estimate used to re-open and
+     re-parse every archive on disk. The downloader publishes by renaming a
+     .part over a name, so the name can stay put while the bytes underneath it
+     become a different region entirely. *)
+  let swap_name = "Kent-2026-01-01-abcdef.pmtiles" in
+  Eio.Path.save ~create:(`Or_truncate 0o644)
+    Eio.Path.(fs / dup_dir / swap_name) kent_bytes;
+  check "a fresh file is read for what it says"
+    (List.exists (fun e -> str "name" e = "Kent") (entries_in ~basemap_dir:dup_dir));
+  let sussex =
+    Ledger.make ~name:"Sussex" ~completed:3 ~source:"a planet build" ~bytes:3
+      ~regions:
+        [ req ~min_lon:(-0.8) ~min_lat:50.7 ~max_lon:0.9 ~max_lat:51.1
+            ~max_zoom:4 ]
+  in
+  Eio.Path.save ~create:(`Or_truncate 0o644)
+    Eio.Path.(fs / dup_dir / (swap_name ^ ".new"))
+    (with_ledger [ sussex ] ~min_zoom:0 ~max_zoom:4 (-0.8, 50.7, 0.9, 51.1));
+  Eio.Path.rename
+    Eio.Path.(fs / dup_dir / (swap_name ^ ".new"))
+    Eio.Path.(fs / dup_dir / swap_name);
+  check "and after a rename over it, the same name says what the new file says"
+    (let rows = entries_in ~basemap_dir:dup_dir in
+     List.exists (fun e -> str "name" e = "Sussex") rows
+     (* The Kent row that survives is the base archive's, which still holds
+        that record; what must not survive is a Kent row pointing at the file
+        that is now Sussex. *)
+     && List.for_all
+          (fun e -> str "file" e <> swap_name || str "name" e = "Sussex")
+          rows);
+
+  (* ------------------------------------------- an export that stops early *)
+
+  (* Every other job discards its .part and honours a pending cache clear on
+     the way out; the export set a state and nothing else. A cancelled export
+     stranded a file the UI cannot list -- [exports_json] shows only names
+     ending in .pmtiles -- and that delete_export cannot remove, because it
+     checks the name against that same listing. Gigabytes, invisibly, on the
+     machine least likely to have the room. *)
+  let ex_dir = fresh "export-stops" in
+  Eio.Path.save ~create:(`Or_truncate 0o644)
+    Eio.Path.(fs / ex_dir / Tile_set.base_file) kent_bytes;
+  let te = D.create () in
+  te.D.cancel_requested <- true;
+  D.run_export te ~fs ~basemap_dir:ex_dir ~id:(Ledger.id kent);
+  check ("a cancelled export says so: " ^ str "state" (field "job" (D.status te)))
+    (str "state" (field "job" (D.status te)) = "cancelled");
+  check "and leaves nothing half-written in the export directory"
+    (match Eio.Path.read_dir Eio.Path.(fs / ex_dir / "export") with
+     | names -> not (List.exists (fun n -> Filename.check_suffix n ".part") names)
+     | exception _ -> true);
+
+  (* The same job holds the writer's seat, so a clear asked for while it runs
+     is its to carry out as it leaves: browsing is off by then and nothing
+     else is coming to do it. *)
+  te.D.cancel_requested <- false;
+  Eio.Path.save ~create:(`Or_truncate 0o644)
+    Eio.Path.(fs / ex_dir / Tile_set.cache_file)
+    (source_archive ~min_zoom:0 ~max_zoom:3 ~min_lon:139.0 ~min_lat:35.0
+       ~max_lon:140.0 ~max_lat:36.0 ());
+  te.D.clear_requested <- true;
+  D.run_export te ~fs ~basemap_dir:ex_dir ~id:(Ledger.id kent);
+  check ("the export finished: " ^ str "reason" (field "job" (D.status te)))
+    (str "state" (field "job" (D.status te)) = "exported");
+  check "and the cache clear asked for while it ran was not forgotten"
+    (not (Eio.Path.is_file Eio.Path.(fs / ex_dir / Tile_set.cache_file)));
+
+  (* The import's fast path -- a region file put straight into place -- held
+     the seat just as long and forgot it just the same. *)
+  let ic_dir = fresh "import-clear" in
+  stage ~basemap_dir:ic_dir
+    (with_ledger [ georgia_entry ] ~min_zoom:0 ~max_zoom:4
+       (-85.6, 30.3, -80.8, 35.0));
+  Eio.Path.save ~create:(`Or_truncate 0o644)
+    Eio.Path.(fs / ic_dir / Tile_set.cache_file)
+    (source_archive ~min_zoom:0 ~max_zoom:3 ~min_lon:139.0 ~min_lat:35.0
+       ~max_lon:140.0 ~max_lat:36.0 ());
+  let ti = D.create () in
+  ti.D.clear_requested <- true;
+  import ti ~basemap_dir:ic_dir;
+  check ("a one-record archive is put straight into place: "
+         ^ str "reason" (field "job" (D.status ti)))
+    (str "state" (field "job" (D.status ti)) = "done");
+  check "and it honours a cache clear on its way out too"
+    (not (Eio.Path.is_file Eio.Path.(fs / ic_dir / Tile_set.cache_file)));
+
+  (* ------------------------------------------- the base archive is not ours *)
+
+  (* Nothing removes from map.pmtiles, whatever the entry covers and whatever
+     it is called: the removal would rewrite or unlink the file the rest of
+     the map is standing on. The refusal has to leave the archive untouched,
+     not merely present. *)
+  let before = Eio.Path.load Eio.Path.(fs / ex_dir / Tile_set.base_file) in
+  D.run_remove te ~fs ~basemap_dir:ex_dir ~id:(Ledger.id kent);
+  check ("removing a merged entry is refused: "
+         ^ str "reason" (field "job" (D.status te)))
+    (str "state" (field "job" (D.status te)) = "failed");
+  check "and the base archive is byte for byte what it was"
+    (Eio.Path.load Eio.Path.(fs / ex_dir / Tile_set.base_file) = before);
+
+  (* --------------------------------------- one answer about the planet *)
+
+  (* Two predicates asked whether a box was the whole world, with different
+     thresholds and no idea of each other: a box starting at -179.5 was the
+     world to the ledger's overview lock and not to the world-download
+     validator. One predicate now, with the slack as its argument. *)
+  let world_box ?polygon () =
+    match
+      Job.validate ?polygon ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180.
+        ~max_lat:85. ~max_zoom:4 ()
+    with
+    | Ok r -> r
+    | Error e -> failwith e
+  in
+  let nearly =
+    req ~min_lon:(-179.5) ~min_lat:(-84.5) ~max_lon:179.5 ~max_lat:84.5
+      ~max_zoom:4
+  in
+  check "the exact question and the lenient one are the same question"
+    (D.covers_the_planet [ world_box () ]
+     && Ledger.spans_regions ~margin:1.0 [ world_box () ]);
+  check "and they differ only by the slack they are given"
+    ((not (D.covers_the_planet [ nearly ]))
+     && Ledger.spans_regions ~margin:1.0 [ nearly ]);
+  check "a clipped world is not the world to either of them"
+    ((not
+        (D.covers_the_planet
+           [ world_box ~polygon:[| [| (-1., -1.); (1., -1.); (1., 1.) |] |] () ]))
+     && not
+          (Ledger.spans_regions ~margin:1.0
+             [ world_box ~polygon:[| [| (-1., -1.); (1., -1.); (1., 1.) |] |] () ]));
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1;

@@ -12,10 +12,17 @@
    stop, an orientation, and the three `aria-value*` numbers, so the width is
    ANNOUNCED rather than merely changed. Those stay here, where they belong. */
 
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, RefObject } from "react";
+import { useRef } from "react";
 import { useMove } from "react-aria";
 import { m } from "../paraglide/messages";
-import { PANEL_DEFAULT, PANEL_MAX, PANEL_MIN, useAppStore } from "../store";
+import {
+  clampPanelWidth,
+  PANEL_DEFAULT,
+  PANEL_MAX,
+  PANEL_MIN,
+  useAppStore,
+} from "../store";
 
 /* useMove reports one pixel per arrow press, which would take four hundred
    presses to cross the range. Scaled up for the keyboard only; a pointer
@@ -48,31 +55,82 @@ const HANDLE = "before:absolute before:top-1/2 before:left-1/2 before:h-8 "
   + "before:transition-colors before:duration-100 "
   + "hover:before:bg-accent focus-visible:before:bg-accent";
 
-export function PanelResizer() {
+export function PanelResizer(
+  {
+    /* The element carrying --panel-w and --panel-offset. Handed down rather
+       than looked up, so the one thing this component reaches outside itself
+       is a ref its parent chose to give it. */
+    surface,
+  }: { surface: RefObject<HTMLDivElement | null>; },
+) {
   const panelWidth = useAppStore((s) => s.panelWidth);
   const setPanelWidth = useAppStore((s) => s.setPanelWidth);
 
+  /* The width a pointer drag is currently at, before it is committed.
+
+     A drag delivers a move roughly every frame, and writing each one to the
+     store re-rendered the whole application: the root subscribes to the
+     width to set two custom properties, and its children are deliberately
+     not memoised (see App.tsx) so that changing language reaches all of
+     them. Sixty times a second, the map's whole body and the entire panel
+     were rebuilt to move two numbers.
+
+     So the drag paints the two properties straight onto the element that
+     carries them, and the store hears the answer once, at the end. The
+     announced value (aria-valuenow) follows the store, which is why a
+     KEYBOARD step still commits immediately: for a keyboard user the
+     announcement IS the feedback, and it must not wait for the key to come
+     back up. */
+  const dragging = useRef<number | null>(null);
+
+  const paint = (width: number) => {
+    const node = surface.current;
+    if (!node) return;
+    node.style.setProperty("--panel-w", `${width}px`);
+    /* The resizer only exists while the drawer is open, so the width and
+       the covered width are the same number here. */
+    node.style.setProperty("--panel-offset", `${width}px`);
+  };
+
   const { moveProps } = useMove({
+    onMoveStart() {
+      dragging.current = useAppStore.getState().panelWidth;
+    },
     onMove(event) {
-      /* Read through the store rather than the render closure: a fast drag
-         delivers several moves inside one React batch, and a stale closure
-         would apply each delta to the same starting width. */
-      const current = useAppStore.getState().panelWidth;
+      /* Accumulated here rather than read back from the store, for the
+         reason the store read was there before: several moves arrive inside
+         one batch, and each delta has to apply to the last width and not to
+         the one the render started with. */
+      const from = dragging.current ?? useAppStore.getState().panelWidth;
       const scale = event.pointerType === "keyboard"
         ? (event.shiftKey ? COARSE : STEP)
         : 1;
       /* Minus, because the panel is on the RIGHT: the handle moving left is
          a negative deltaX and has to make the panel wider. */
-      setPanelWidth(current - event.deltaX * scale);
+      const next = clampPanelWidth(from - event.deltaX * scale);
+      dragging.current = next;
+      if (event.pointerType === "keyboard") setPanelWidth(next);
+      else paint(next);
+    },
+    onMoveEnd() {
+      if (dragging.current !== null) setPanelWidth(dragging.current);
+      dragging.current = null;
     },
   });
 
   /* Composed rather than replacing: useMove owns the arrow keys, and these
-     two are the rest of the splitter pattern -- jump to either end. */
+     two are the rest of the splitter pattern -- jump to either end.
+
+     Home is the MINIMUM and End the maximum, matching the value this widget
+     announces and every other slider in the pattern. They were the other way
+     round -- spatially consistent with ArrowLeft widening a right-hand panel,
+     but unstated, and it meant a screen-reader user pressing Home heard the
+     value jump to 720. The announced number is what a keyboard user has;
+     it is the thing the convention is about. */
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
-      setPanelWidth(event.key === "Home" ? PANEL_MAX : PANEL_MIN);
+      setPanelWidth(event.key === "Home" ? PANEL_MIN : PANEL_MAX);
       return;
     }
     moveProps.onKeyDown?.(event);

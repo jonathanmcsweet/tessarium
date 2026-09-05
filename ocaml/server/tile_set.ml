@@ -74,10 +74,28 @@ let is_region name =
    Not synchronised. Eio runs these fibers in one domain, and two fibers
    that race to fill the same key compute the same value from the same file,
    so the loser overwrites the winner with what it was going to say
-   anyway. *)
+   anyway.
+
+   The key is the bare name, and the stamp is what makes that safe: a name
+   that means a different file -- a different directory, a rename-over, a
+   recycled inode -- carries a different device, inode, size or mtime, so it
+   misses and is read again. What the name alone cannot do is decide when an
+   entry may be forgotten, which is what the eviction in [names] is for. *)
 type stamp = { dev : Int64.t; ino : Int64.t; size : int; mtime : float }
 
-let cache : (string, stamp * Pmtiles.Header.t) Hashtbl.t = Hashtbl.create 16
+(* A file that would not open is remembered too, as a failure against the
+   stamp that produced it.
+
+   Forgetting it instead -- which is what this did -- meant an unreadable
+   archive was re-opened and re-logged on EVERY tile request: hundreds of
+   opens and hundreds of warning lines a second while a pan is in flight,
+   over a file that is not going to start working. A truncated import copy
+   is this module's own motivating case, so it is the one that hurt. Held
+   against the stamp, the retry and the log line happen exactly when the file
+   changes, which is what the comment below has always promised. *)
+type remembered = Readable of Pmtiles.Header.t | Unreadable
+
+let cache : (string, stamp * remembered) Hashtbl.t = Hashtbl.create 16
 
 let stamp_of (st : Eio.File.Stat.t) =
   {
@@ -101,7 +119,8 @@ let header_of ~dir name =
   | st -> (
       let stamp = stamp_of st in
       match Hashtbl.find_opt cache name with
-      | Some (s, h) when s = stamp -> Some (h, stamp.size)
+      | Some (s, Readable h) when s = stamp -> Some (h, stamp.size)
+      | Some (s, Unreadable) when s = stamp -> None
       | _ -> (
           match
             Eio.Switch.run @@ fun sw ->
@@ -112,14 +131,18 @@ let header_of ~dir name =
             a.Pmtiles.Archive.header
           with
           | h ->
-              Hashtbl.replace cache name (stamp, h);
+              Hashtbl.replace cache name (stamp, Readable h);
               Some (h, stamp.size)
           | exception e ->
-              Hashtbl.remove cache name;
+              Hashtbl.replace cache name (stamp, Unreadable);
               Logs.warn (fun m ->
                   m "tile archive %s: unreadable header: %s" name
                     (Printexc.to_string e));
               None))
+
+(* How many headers are being remembered, so a test can say that a name which
+   left the directory stopped being remembered. Nothing else needs it. *)
+let remembered_count () = Hashtbl.length cache
 
 (* ------------------------------------------------------------- the list *)
 
@@ -146,6 +169,17 @@ let names ~dir =
   match Eio.Path.read_dir dir with
   | exception Eio.Io _ -> []
   | all ->
+      (* A name that has left the directory is a header nothing will ask for
+         again: every removed region, every rename, every re-dated
+         re-download used to leave its entry behind for the life of the
+         process. Done here because this is the one place that knows what is
+         actually present, and it costs a hash lookup per remembered name
+         against a listing this function has already paid a syscall for. *)
+      (let present = Hashtbl.create (List.length all) in
+       List.iter (fun n -> Hashtbl.replace present n ()) all;
+       Hashtbl.filter_map_inplace
+         (fun name v -> if Hashtbl.mem present name then Some v else None)
+         cache);
       let regions =
         List.filter is_region all
         |> List.map (fun name ->
@@ -209,11 +243,10 @@ let may_hold (h : Pmtiles.Header.t) ~z ~x ~y =
   let open Pmtiles.Header in
   if z < h.min_zoom || z > h.max_zoom then false
   else
-    let e7f v = float_of_int v /. 1e7 in
-    let min_lon = e7f h.min_lon_e7
-    and min_lat = e7f h.min_lat_e7
-    and max_lon = e7f h.max_lon_e7
-    and max_lat = e7f h.max_lat_e7 in
+    let min_lon = Degrees.of_e7 h.min_lon_e7
+    and min_lat = Degrees.of_e7 h.min_lat_e7
+    and max_lon = Degrees.of_e7 h.max_lon_e7
+    and max_lat = Degrees.of_e7 h.max_lat_e7 in
     (* An archive written by something that left the bounds at zero, or that
        recorded them the other way round, has not told us where it is. *)
     if min_lon >= max_lon || min_lat >= max_lat then true

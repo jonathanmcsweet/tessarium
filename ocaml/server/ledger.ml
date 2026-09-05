@@ -112,54 +112,24 @@ let make ~name ~regions ~completed ~source ~bytes =
 
 (* --------------------------------------------------------------- names *)
 
-(* Client-supplied and stored, so bounded and printable. Multi-byte UTF-8 is
-   welcome -- the picker speaks six locales -- but a name that is not UTF-8
-   would come back out of Yojson as invalid JSON, and invisible characters
-   (C0/C1 controls, zero-width, bidi overrides) exist mostly to make one
-   string display as another, so both die here. *)
-let max_name_bytes = 120
-
-let visible_uchar u =
-  not
-    (u < 0x20
-    || (u >= 0x7f && u <= 0x9f)
-    || (u >= 0x200b && u <= 0x200f)
-    || (u >= 0x202a && u <= 0x202e)
-    || (u >= 0x2066 && u <= 0x2069)
-    || u = 0xfeff)
-
-let valid_name s =
-  String.length s > 0
-  && String.length s <= max_name_bytes
-  && String.is_valid_utf_8 s
-  &&
-  let ok = ref true in
-  let i = ref 0 in
-  while !ok && !i < String.length s do
-    let d = String.get_utf_8_uchar s !i in
-    if not (visible_uchar (Uchar.to_int (Uchar.utf_decode_uchar d))) then
-      ok := false;
-    i := !i + Uchar.utf_decode_length d
-  done;
-  !ok
+(* An entry's name obeys the same rule a region's label does, and it is the
+   same function: see [Basemap_job.valid_name] for what it refuses and why.
+   Aliased rather than re-implemented because a region carries a label of its
+   own and a region is defined there, below this module. *)
+let max_name_bytes = Basemap_job.max_name_bytes
+let valid_name = Basemap_job.valid_name
 
 (* ---------------------------------------------------------------- edits *)
 
+(* Finding an entry by id, which is all that is left of editing a ledger.
+
+   There used to be [record] and [remove] beside this, for adding an entry to
+   a list and taking one out. A region is its own file now: a download writes
+   a one-entry ledger inside the archive it just wrote, and removing a region
+   unlinks the file, ledger and all. Nothing adds to or subtracts from a list
+   of entries any more, and the code that did was unreachable behind a guard
+   that refuses to rewrite the base archive. *)
 let find t ~id:wanted = List.find_opt (fun e -> id e = wanted) t
-
-(* Same regions replace their entry in place -- a re-download or update is
-   the same map, newer -- and a new region appends, so the list reads in
-   the order things were first downloaded. *)
-let record t e =
-  let eid = id e in
-  if List.exists (fun e' -> id e' = eid) t then
-    List.map (fun e' -> if id e' = eid then e else e') t
-  else t @ [ e ]
-
-let remove t ~id:wanted =
-  match find t ~id:wanted with
-  | None -> None
-  | Some e -> Some (e, List.filter (fun e' -> id e' <> wanted) t)
 
 (* ------------------------------------------------------------ coverage *)
 
@@ -218,40 +188,46 @@ let drops ~(removed : entry) ~(kept : t) =
     List.exists (fun p -> fetches p ~z ~x ~y) gone
     && not (List.exists (fun p -> fetches p ~z ~x ~y) stays)
 
-(* Does this entry's box span the planet?
+(* Do these regions span the planet?
 
-   Half of the test for the world overview, and only half -- see
-   [Basemap_download.run_remove], which pairs it with the archive the entry
-   lives in. Spanning the planet is not on its own disqualifying: a user may
-   ask for the whole world AS DETAIL, and that lands in a file of its own,
-   sits beside the overview rather than being it, and is theirs to remove.
-   The end-to-end suite does exactly that, which is how this was caught.
+   ONE predicate, with the slack as its argument, because two locks ask this
+   question and they have to answer alike. The lenient reading below decides
+   whether an entry in the old merged archive is the map everything else
+   stands on and so cannot be removed; the exact reading -- margin zero --
+   decides whether a download claiming to be a world overview may be written
+   to world.pmtiles. They were separate functions with separate thresholds,
+   each comment justifying its own without acknowledging the other, so a box
+   starting at -179.5 longitude was the world to one and not to the other.
 
-   What cannot be removed is a world-spanning entry inside the old merged
-   map.pmtiles. That is the shape an install from before the per-region
-   split has: back then the overview merged into that one archive and took a
-   row in the list like any region, under whatever the picker called it.
-   Pruning it takes the tiles the whole map falls back to, everywhere.
-
-   Judged by what the entry SAYS it holds, never by its name: the name is
+   Judged by what the regions SAY they hold, never by any name: the name is
    display only, and the row a user is looking at may well read "Map view".
-   One region, no clipping polygon, and a box reaching the ends of the
-   usable projection.
+   One region, no clipping polygon, and a box reaching the ends of the usable
+   projection.
 
-   The margin is a whole degree, which is far wider than any rounding and
-   far narrower than any real pick: the picker's own world box stops at
-   +/-85 latitude, where Mercator does. *)
+   [margin] is how far short of those ends still counts. A whole degree is
+   far wider than any rounding and far narrower than any real pick -- the
+   picker's own world box stops at +/-85 latitude, where Mercator does -- and
+   zero means the box must really reach them. *)
 let world_margin = 1.0
 
-let spans_world (e : entry) =
-  match e.regions with
+let spans_regions ?(margin = 0.0) (regions : Basemap_job.request list) =
+  match regions with
   | [ r ] ->
       r.Basemap_job.polygon = None
-      && r.Basemap_job.min_lon <= -180.0 +. world_margin
-      && r.Basemap_job.max_lon >= 180.0 -. world_margin
-      && r.Basemap_job.min_lat <= -85.0 +. world_margin
-      && r.Basemap_job.max_lat >= 85.0 -. world_margin
+      && r.Basemap_job.min_lon <= -180.0 +. margin
+      && r.Basemap_job.max_lon >= 180.0 -. margin
+      && r.Basemap_job.min_lat <= -85.0 +. margin
+      && r.Basemap_job.max_lat >= 85.0 -. margin
   | _ -> false
+
+(* Spanning the planet is not on its own disqualifying: a user may ask for the
+   whole world AS DETAIL, and that lands in a file of its own, sits beside the
+   overview rather than being it, and is theirs to remove. The end-to-end
+   suite does exactly that, which is how this was caught. What cannot be
+   removed is a world-spanning entry inside the old merged map.pmtiles --
+   pruning that takes the tiles the whole map falls back to, everywhere -- so
+   the caller pairs this with the archive the entry lives in. *)
+let spans_world (e : entry) = spans_regions ~margin:world_margin e.regions
 
 (* The mirror of [drops], for export rather than removal: [drops] answers
    "is this tile leaving with the entry being removed", this answers "is this
@@ -274,6 +250,11 @@ let json_of_region (r : Basemap_job.request) : Yojson.Safe.t =
       ("max_lat", `Float r.max_lat);
       ("max_zoom", `Int r.max_zoom);
     ]
+    (* Written only when there is one, so an entry recorded before regions
+       carried labels serialises to the same bytes it always did -- and so
+       does one whose picker sent no name. The key is optional on the way back
+       in for the same reason. *)
+    @ (match r.label with None -> [] | Some l -> [ ("label", `String l) ])
   in
   match r.polygon with
   | None -> `Assoc box
@@ -358,10 +339,16 @@ let region_of_json = function
             Ok (Some (Array.of_list rings))
         | Some _ -> Error "polygon must be a list of rings"
       in
+      let* label =
+        match List.assoc_opt "label" fields with
+        | None | Some `Null -> Ok None
+        | Some (`String s) -> Ok (Some s)
+        | Some _ -> Error "a region's label must be a string"
+      in
       (* Stored regions were validated when they arrived; validating again on
          the way back in is how ledger corruption gets caught instead of
          planned against. *)
-      Basemap_job.validate ?polygon ~min_lon ~min_lat ~max_lon ~max_lat
+      Basemap_job.validate ?polygon ?label ~min_lon ~min_lat ~max_lon ~max_lat
         ~max_zoom ()
   | _ -> Error "a region must be an object"
 

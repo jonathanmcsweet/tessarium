@@ -99,6 +99,42 @@ let progress ?(regions = []) ~done_bytes ~total_bytes ~part ~parts () =
       regions = List.map clamp_region regions;
     }
 
+(* Names, whether a region's or a whole entry's, are client-supplied and
+   stored, so they are bounded and printable. Multi-byte UTF-8 is welcome --
+   the picker speaks six locales -- but a name that is not UTF-8 would come
+   back out of Yojson as invalid JSON, and invisible characters (C0/C1
+   controls, zero-width, bidi overrides) exist mostly to make one string
+   display as another, so both die here.
+
+   Here rather than in [Ledger] because a region carries its own label and a
+   region is defined in this file; [Ledger.valid_name] is this function, under
+   the name its other callers already use. *)
+let max_name_bytes = 120
+
+let visible_uchar u =
+  not
+    (u < 0x20
+    || (u >= 0x7f && u <= 0x9f)
+    || (u >= 0x200b && u <= 0x200f)
+    || (u >= 0x202a && u <= 0x202e)
+    || (u >= 0x2066 && u <= 0x2069)
+    || u = 0xfeff)
+
+let valid_name s =
+  String.length s > 0
+  && String.length s <= max_name_bytes
+  && String.is_valid_utf_8 s
+  &&
+  let ok = ref true in
+  let i = ref 0 in
+  while !ok && !i < String.length s do
+    let d = String.get_utf_8_uchar s !i in
+    if not (visible_uchar (Uchar.to_int (Uchar.utf_decode_uchar d))) then
+      ok := false;
+    i := !i + Uchar.utf_decode_length d
+  done;
+  !ok
+
 (* The request the UI sends, validated. Server-side, because the server does
    the fetching: a malformed box must die here, not 40,000 range requests
    later. *)
@@ -112,6 +148,22 @@ type request = {
      download is clipped to it, so a country stops at its border instead of
      its bounding box. Optional -- a viewport is honestly a box. *)
   polygon : (float * float) array array option;
+  (* What the picker called this one place, so a download of six countries
+     reads as six named bars rather than six anonymous ones.
+
+     On the region rather than beside it, and that is the whole point. Labels
+     used to ride in a parallel array that had to stay length-aligned with the
+     requests, enforced two contradictory ways -- a 400 at the door and a
+     silent blanking in the downloader -- and re-invented from the entry name
+     on every path that did not come from the picker. A label attached to the
+     thing it labels cannot come adrift from it, so it survives the sort into
+     a ledger entry, the round trip through an archive's metadata, an update,
+     an export and an import.
+
+     Display only, and never part of a region's identity: [Ledger.id] reads
+     the geometry alone, so naming a box does not make it a different box and
+     re-downloading it under a new name still finds its own file. *)
+  label : string option;
 }
 
 (* Bounded, because the server walks every ring segment per quadtree node:
@@ -137,7 +189,7 @@ let valid_polygon = function
                   ring)
            rings
 
-let validate ?polygon ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom () =
+let validate ?polygon ?label ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom () =
   let finite v = Float.is_finite v in
   if not (finite min_lon && finite min_lat && finite max_lon && finite max_lat)
   then Error "bounds must be numbers"
@@ -149,7 +201,9 @@ let validate ?polygon ~min_lon ~min_lat ~max_lon ~max_lat ~max_zoom () =
     Error "max_zoom must be between 0 and 15"
   else if not (valid_polygon polygon) then
     Error "polygon must be 1..64 rings of 3+ in-range points, 2048 total"
-  else Ok { min_lon; min_lat; max_lon; max_lat; max_zoom; polygon }
+  else if not (match label with None -> true | Some l -> valid_name l) then
+    Error "a region's label must be 1-120 bytes of printable UTF-8"
+  else Ok { min_lon; min_lat; max_lon; max_lat; max_zoom; polygon; label }
 
 let to_json = function
   | Idle -> `Assoc [ ("state", `String "idle") ]
@@ -165,7 +219,7 @@ let to_json = function
           ( "regions",
             `List
               (List.map
-                 (fun r ->
+                 (fun (r : region_progress) ->
                    `Assoc
                      [
                        ("label", `String r.label);

@@ -145,6 +145,23 @@
   --map-blank-opacity: 0.24;
   --color-map-edge: #c3b3e0;
   --color-map-grid: #6ee9ff;
+  /* The keyboard reticle: the small square at the centre of the view marking
+     which cell Enter will take. It is the only thing on screen saying so, so
+     it has to be legible on THIS palette's cartography -- it was a literal
+     rgba(18,33,47,0.55), the old light theme's ink, which is near-black on a
+     near-black map and belonged to no palette, so no completeness check
+     could see it was missing from four of the five. */
+  --color-map-reticle: #c9b6ef;
+
+  /* Whether the map sits on a pale ground. One classification, two readers:
+     the MapLibre control-icon rule at the bottom of this file spends it as
+     `invert(calc(1 - ...))`, and MapView reads it through getComputedStyle
+     to choose the Protomaps flavour and the sprite sheet. It was a list of
+     theme names in TypeScript AND a list of [data-theme] selectors here, and
+     a palette added to one but not the other ships light control icons on a
+     dark map with nothing failing. Living beside the colours, it is policed
+     by the same completeness checks they are. */
+  --map-light-ground: 0;
 
   /* A shadow is a shape cut out of the light behind it. On a dark ground
      there is no light behind it, so a tinted rgba reads as nothing at all;
@@ -235,6 +252,9 @@
   --map-blank-opacity: 0.42;
   --color-map-edge: #5f7183;
   --color-map-grid: #1b3a5c;
+  --color-map-reticle: #3b4a58;
+
+  --map-light-ground: 1;
 
   --shadow-card: 0 1px 3px rgba(18, 33, 47, 0.12),
     0 8px 24px rgba(18, 33, 47, 0.08);
@@ -286,6 +306,9 @@
   --map-blank-opacity: 0.26;
   --color-map-edge: #b8c9da;
   --color-map-grid: #8fc4ff;
+  --color-map-reticle: #c2d1e0;
+
+  --map-light-ground: 0;
 
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
 }
@@ -332,6 +355,9 @@
     --map-blank-opacity: 0.26;
     --color-map-edge: #b8c9da;
     --color-map-grid: #8fc4ff;
+    --color-map-reticle: #c2d1e0;
+
+    --map-light-ground: 0;
 
     --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
   }
@@ -405,6 +431,9 @@
   --map-blank-opacity: 0.42;
   --color-map-edge: #6d5f8f;
   --color-map-grid: #331a5e;
+  --color-map-reticle: #413764;
+
+  --map-light-ground: 1;
 
   --shadow-card: 0 1px 3px rgba(26, 16, 48, 0.14),
     0 8px 24px rgba(26, 16, 48, 0.10);
@@ -449,6 +478,9 @@
   --map-blank-opacity: 0.22;
   --color-map-edge: #9a8f8c;
   --color-map-grid: #8f8582;
+  --color-map-reticle: #c9938b;
+
+  --map-light-ground: 0;
   --color-on-ink: #120909;
   --color-on-accent: #120909;
   --color-disabled: #2b1a1a;
@@ -572,6 +604,41 @@ code {
   & + & {
     @apply mt-3 border-t border-line pt-3;
   }
+}
+
+/* The small-caps label over a group inside the download card -- the picker's
+   states and cities, the exported files, the downloaded maps, the import
+   control. Five elements wore this as the same twenty-eight characters of
+   Tailwind pasted five times, so a spacing tweak was five synchronised
+   edits and four chances to miss one. */
+@utility region-group {
+  @apply mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft
+    uppercase;
+}
+
+/* One row of a list of files: a downloaded region, or an export waiting to
+   be carried away. Two different renderers draw these and they must not
+   drift -- the wrap below is a fix, not a preference, and it was applied to
+   one of the two.
+
+   Wraps, and that is the whole of it. Unwrapped, three buttons took the full
+   width and left the name column a few pixels, which the name's own wrapping
+   then honoured by breaking "Map view" one letter per line. */
+@utility ledger-row {
+  @apply flex flex-wrap items-center justify-between gap-2 py-2;
+}
+
+/* The text side of such a row. `basis-40` is what keeps a real basis under
+   the name so the buttons drop to their own line rather than crushing it. */
+@utility ledger-row-text {
+  @apply flex min-w-0 flex-1 basis-40 flex-col gap-0.5;
+}
+
+/* And the name itself. break-words, not anywhere: this only has to rescue a
+   single unbroken name too long for the column, and `anywhere` is what let a
+   normal name be shredded the moment the column got tight. */
+@utility ledger-name {
+  @apply text-sm font-semibold break-words;
 }
 
 /* Secondary text: the sentence under a control that says what it will do.
@@ -721,29 +788,19 @@ code {
 /* MapLibre's control icons are background-image SVGs with #333 baked in,
    which no token can reach, so they are inverted instead and land near #ccc.
 
-   Stated as "inverted, unless the palette is a light one" rather than as a
-   list of the dark ones. There are three dark palettes and two light, the
-   default is dark, and a list of the dark ones is a list that a sixth theme
-   silently falls off -- which is how these controls stayed light through the
-   dark theme's whole first release. Opting OUT is the safe direction: a new
-   theme that forgets this rule gets inverted icons on a dark ground, which
-   is right, instead of black icons on a black one. */
+   Which palettes need that is not a list of theme names here. It is
+   --map-light-ground, defined beside the colours in every palette block
+   above, and `invert(0)` is the identity -- so ONE declaration covers both
+   cases and there is nothing for a sixth palette to fall off. It used to be
+   three hand-written [data-theme] selectors plus a prefers-color-scheme
+   re-invert, encoding a classification MapView also encoded in TypeScript:
+   add a light palette to the palette blocks and not to the selector list and
+   you ship light control icons on a dark map with nothing failing. That is
+   how these controls stayed light through the dark theme's whole first
+   release. Now the palette answers it once, MapView reads the same token,
+   and the completeness checks police it like any other. */
 .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
-  filter: invert(1);
-}
-
-:root[data-theme="system"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon,
-:root[data-theme="light"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon,
-:root[data-theme="cyber-light"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
-  filter: none;
-}
-
-/* And back again when the device someone is matching is itself dark. Same
-   specificity as the rule above, so this has to stay below it. */
-@media (prefers-color-scheme: dark) {
-  :root[data-theme="system"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
-    filter: invert(1);
-  }
+  filter: invert(calc(1 - var(--map-light-ground)));
 }
 
 /* The theme squares every corner, and the map's own controls -- zoom,

@@ -52,15 +52,11 @@ done
 say "F* $FSTAR_VERSION and Z3"
 if need "fstar.exe" "PATH=$TOOLCHAIN/fstar/bin:\$PATH command -v fstar.exe"; then
   if ! $check_only; then
-    mkdir -p "$TOOLCHAIN"
-    url="https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
-    echo "    downloading $url"
-    curl -fsSL -o "$TOOLCHAIN/fstar.tar.gz" "$url"
-    tar -xzf "$TOOLCHAIN/fstar.tar.gz" -C "$TOOLCHAIN"
-    rm -f "$TOOLCHAIN/fstar.tar.gz"
-    # The tarball's top directory is versioned; normalise it so PATH is stable.
-    find "$TOOLCHAIN" -maxdepth 1 -type d -name 'fstar*' ! -name fstar \
-      -exec mv {} "$TOOLCHAIN/fstar" \;
+    # The download, the unpack and the top-directory normalisation live in
+    # tools/fetch-fstar.sh, which CI's three jobs call as well: this used to
+    # be a fourth copy of them, and a fix to one copy was a fix to none of
+    # the others.
+    tools/fetch-fstar.sh "$FSTAR_VERSION" "$TOOLCHAIN"
     ok "installed to $TOOLCHAIN/fstar (Z3 ships with it)"
   fi
 fi

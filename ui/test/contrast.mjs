@@ -12,22 +12,18 @@
    one list, and the only effects are the two prints and the exit code at
    the bottom. */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { blockEnd, sourceFiles } from "./source.mjs";
 
 const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
 /* The components are read alongside the stylesheet, because a token is only
    audited honestly if something actually spends it -- and what spends it is
    a Tailwind class in a component, not a rule in here. */
-const sourceFiles = (dir) =>
-  readdirSync(dir, { withFileTypes: true })
-    .filter((e) => e.name !== "paraglide")
-    .flatMap((e) => {
-      const child = new URL(`${e.name}${e.isDirectory() ? "/" : ""}`, dir);
-      if (e.isDirectory()) return sourceFiles(child);
-      return /\.tsx?$/.test(e.name) ? [readFileSync(child, "utf8")] : [];
-    });
-const sources = [css, ...sourceFiles(new URL("../src/", import.meta.url))];
+const sources = [
+  css,
+  ...sourceFiles(new URL("../src/", import.meta.url)).map((f) => f.text),
+];
 
 const check = (name, ok) => ({ name, ok });
 
@@ -40,24 +36,6 @@ const check = (name, ok) => ({ name, ok });
    "match my device" -- because CSS cannot say "the device prefers dark OR
    the user chose dark" in a single selector. Both are read, and they are
    required to agree. */
-
-/* The index just past the brace that closes the block opening at `open`.
-   A scan carried by reduce: the running state is the depth and the answer,
-   and the answer, once found, is simply carried to the end. */
-const blockEnd = (text, open) =>
-  [...text.slice(open)].reduce(
-    (state, c, i) =>
-      state.end >= 0
-        ? state
-        : c === "{"
-        ? { depth: state.depth + 1, end: -1 }
-        : c === "}" && state.depth === 1
-        ? { depth: 0, end: open + i }
-        : c === "}"
-        ? { depth: state.depth - 1, end: -1 }
-        : state,
-    { depth: 0, end: -1 },
-  ).end;
 
 /* A palette block's tokens. Two kinds: --color-* hex values, which the
    audits below can reason about, and --map-* numbers (the overlay wash's

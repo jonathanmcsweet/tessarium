@@ -17,6 +17,11 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { z } from "zod";
+/* The four upload failures below are shown to the user verbatim, through the
+   card's toast handler, so they are catalogue messages like every other
+   sentence this application says. They were English literals: someone
+   working in French who unplugged mid-upload got an English toast. */
+import { m } from "../paraglide/messages";
 
 export type Region = {
   min_lon: number;
@@ -29,6 +34,19 @@ export type Region = {
      border instead of its bounding box. */
   polygon?: [number, number][][];
 };
+
+/* A region with the name to show while it is being fetched, which is a
+   thing only a download needs -- the estimate is a question about tiles and
+   has no rows to label.
+
+   The label rides INSIDE the region. It used to be a top-level array
+   parallel to the regions, which is a shape that can be one element short
+   or one element out of order and still be accepted: the "download this
+   view" offer sent a ledger name and no array at all, so the progress panel
+   said "Unnamed area" for the several minutes the user watched it while the
+   ledger row said "London". A field on the object it names cannot fall out
+   of step with it. */
+export type LabelledRegion = Region & { label?: string; };
 
 const Estimate = z.object({
   /* Bytes still to fetch: tiles already on disk are excluded server-side,
@@ -214,14 +232,17 @@ async function post<T>(
   if (!res.ok) {
     const message = json && typeof json === "object" && "error" in json
       ? String((json as { error: unknown; }).error)
-      : `request failed (${res.status})`;
+      : m.err_request_failed({ status: res.status });
     throw new Error(message);
   }
   const parsed = schema.safeParse(json);
   if (!parsed.success) {
-    throw new Error(
+    /* The endpoint and the validator's complaint are for whoever is debugging
+       this; the toast says the same thing in a language the reader chose. */
+    console.error(
       `server returned an unexpected shape for "${endpoint}": ${parsed.error.message}`,
     );
+    throw new Error(m.err_server_shape());
   }
   return parsed.data;
 }
@@ -272,13 +293,26 @@ export function useBasemapEstimate(regions: Region[] | null, world = false) {
 
 /* Polled while a download runs, quiet otherwise. Always mounted alongside the
    map, so a download keeps reporting even with the card closed, and progress
-   survives closing and reopening it. */
-export function useBasemapStatus() {
+   survives closing and reopening it.
+
+   `follow` marks an observer that only wants to SEE what the map's copy
+   already knows. It matters because the poll stops when nothing is running:
+   a job that began and ended without the map asking again leaves its ending
+   undelivered, and a fresh observer mounting would fetch it right then. The
+   ending would arrive as though it had just happened -- re-toasted, and (the
+   reason this exists) handed to the terminal-state watcher, which closes the
+   download card. Opening the card would mount an observer, deliver the old
+   ending, and shut the card again: one press, nothing on screen, no error.
+   A follower reads the cache and waits for the poll like everyone else. */
+export function useBasemapStatus(
+  { follow = false }: { follow?: boolean; } = {},
+) {
   return useQuery({
     queryKey: ["basemap-status"],
     queryFn: () => post(JobStatus, "basemap-status"),
     refetchInterval: (query) =>
       query.state.data && isRunning(query.state.data.job) ? 1000 : false,
+    refetchOnMount: !follow,
   });
 }
 
@@ -294,21 +328,19 @@ export function useBasemapDownload() {
        able to take it away, and the server checks that a download claiming
        to be one really covers the planet. */
     mutationFn: (
-      { regions, name, labels, world }: {
-        regions: Region[];
+      { regions, name, world }: {
+        /* Each region carries its own label. The server echoes it back in
+           the status so the progress rows keep their names across a reload
+           -- the ledger stores only the one combined name, which cannot
+           label six separate bars. */
+        regions: LabelledRegion[];
         name?: string;
-        /* One label per region, in the same order. The server echoes these
-           back in the status so the progress rows keep their names across a
-           reload -- the ledger stores only the one combined name, which
-           cannot label six separate bars. */
-        labels?: string[];
         world?: boolean;
       },
     ) =>
       post(z.object({ ok: z.boolean() }), "basemap-download", {
         regions,
         ...(name !== undefined ? { name } : {}),
-        ...(labels !== undefined ? { labels } : {}),
         ...(world ? { world: true } : {}),
       }),
     /* Refetch immediately so the poll loop sees the running state and starts
@@ -462,21 +494,21 @@ export function useUploadImport() {
           if (xhr.status < 200 || xhr.status >= 300) {
             const message = json && typeof json === "object" && "error" in json
               ? String((json as { error: unknown; }).error)
-              : `upload failed (${xhr.status})`;
+              : m.err_upload_failed({ status: xhr.status });
             reject(new Error(message));
             return;
           }
           const parsed = Staged.safeParse(json);
           if (!parsed.success) {
-            reject(new Error("the server described that file oddly"));
+            reject(new Error(m.err_upload_shape()));
             return;
           }
           resolve(parsed.data);
         });
         xhr.addEventListener("error", () =>
-          reject(new Error("the upload could not reach the app")));
+          reject(new Error(m.err_upload_unreachable())));
         xhr.addEventListener("abort", () =>
-          reject(new Error("the upload was stopped")));
+          reject(new Error(m.err_upload_stopped())));
         xhr.send(file);
       }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["basemap-staged"] }),

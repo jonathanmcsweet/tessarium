@@ -21,32 +21,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The `-notar` suffix is doing work, and it is the only thing that can.
+      # ~/toolchain used to be saved with the 230 MB release tarball still in
+      # it, downloaded on every job that missed and restored on every job that
+      # hit. Dropping the tarball happens in the install step, which runs ONLY
+      # on a miss -- so with the old key every warm run restores the old entry,
+      # skips the step, and saves nothing new. Changing the key once is what
+      # retires it, and it has to change in all three jobs or the two that
+      # still ask for the old entry keep it alive.
       - name: Cache the F* release
         id: fstar-cache
         uses: actions/cache@v4
         with:
           path: ~/toolchain
-          key: fstar-${{ env.FSTAR_VERSION }}-z3-${{ env.Z3_VERSION }}
+          key: fstar-${{ env.FSTAR_VERSION }}-z3-${{ env.Z3_VERSION }}-notar
 
+      # The script, not a copy of it. The download, the unpack, the
+      # top-directory normalisation and the tarball cleanup were written out
+      # here three times and a fourth time in tools/setup.sh -- and the fix to
+      # the `mv fstar*` glob had to land in three of them in lockstep, which is
+      # the argument against ever doing that again. A workstation runs the same
+      # file.
       - name: Install F* and Z3
         if: steps.fstar-cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p ~/toolchain && cd ~/toolchain
-          curl -fsSL -o fstar.tar.gz \
-            "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
-          tar -xzf fstar.tar.gz
-          # The tarball's top directory has been both a versioned name and a
-          # bare `fstar`, and `mv fstar* fstar` only survives the first: once
-          # the archive unpacks to `fstar` the glob also catches the tarball
-          # and mv is asked to move a directory into itself. Normalise
-          # whichever arrived instead, which is a no-op for the bare one.
-          # Same rule as tools/setup.sh, which does this for a workstation.
-          find . -maxdepth 1 -type d -name 'fstar*' ! -name fstar \
-            -exec mv {} fstar \;
-          # ~/toolchain is what gets cached, and the tarball is 230 MB of it
-          # that nothing reads again. tools/setup.sh drops it for the same
-          # reason.
-          rm -f fstar.tar.gz
+        run: tools/fetch-fstar.sh "$FSTAR_VERSION"
 
       # `make verify` passes --report_assumes error, so every escape hatch --
       # admit, assume, magic -- is an error rather than something to remember to
@@ -59,36 +57,33 @@ jobs:
 
   build:
     name: Build, extract and test
-    runs-on: ubuntu-latest
+    # Pinned, NOT latest: this job packages the release tarball, and a binary
+    # takes the glibc floor of whatever built it (tools/check-glibc-floor.sh).
+    # 22.04 is glibc 2.35, the floor this project declares and roadmap.md
+    # names. `ubuntu-latest` moved to 24.04 (2.39), which raised the floor
+    # above 2.35 and failed that check -- correctly. Moving this forward is a
+    # decision to drop every user below the new base, not a version bump.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
+      # Same key as the verify job, `-notar` included -- see the note there.
       - name: Cache the F* release
         id: fstar-cache
         uses: actions/cache@v4
         with:
           path: ~/toolchain
-          key: fstar-${{ env.FSTAR_VERSION }}-z3-${{ env.Z3_VERSION }}
+          key: fstar-${{ env.FSTAR_VERSION }}-z3-${{ env.Z3_VERSION }}-notar
 
+      # The script, not a copy of it. The download, the unpack, the
+      # top-directory normalisation and the tarball cleanup were written out
+      # here three times and a fourth time in tools/setup.sh -- and the fix to
+      # the `mv fstar*` glob had to land in three of them in lockstep, which is
+      # the argument against ever doing that again. A workstation runs the same
+      # file.
       - name: Install F* and Z3
         if: steps.fstar-cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p ~/toolchain && cd ~/toolchain
-          curl -fsSL -o fstar.tar.gz \
-            "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
-          tar -xzf fstar.tar.gz
-          # The tarball's top directory has been both a versioned name and a
-          # bare `fstar`, and `mv fstar* fstar` only survives the first: once
-          # the archive unpacks to `fstar` the glob also catches the tarball
-          # and mv is asked to move a directory into itself. Normalise
-          # whichever arrived instead, which is a no-op for the bare one.
-          # Same rule as tools/setup.sh, which does this for a workstation.
-          find . -maxdepth 1 -type d -name 'fstar*' ! -name fstar \
-            -exec mv {} fstar \;
-          # ~/toolchain is what gets cached, and the tarball is 230 MB of it
-          # that nothing reads again. tools/setup.sh drops it for the same
-          # reason.
-          rm -f fstar.tar.gz
+        run: tools/fetch-fstar.sh "$FSTAR_VERSION"
 
       - uses: ocaml/setup-ocaml@v3
         with:
@@ -96,6 +91,14 @@ jobs:
 
       - name: Install dependencies
         run: opam install . --deps-only --with-test -y
+
+      # Not a build dependency, and deliberately not in tessarium.opam: it is
+      # the tool tools/check-deps.sh audits that file WITH, and a checker
+      # declared in the thing it checks is no checker. tools/setup.sh installs
+      # it on a workstation; without this line the guard exists only there,
+      # which is the one place the failure it catches cannot happen.
+      - name: Install the dependency-declaration linter
+        run: opam install opam-dune-lint -y
 
       # F*'s support library ships as precompiled objects built by a
       # zstd-enabled compiler; OCaml 5.3 compresses .cmi when it can, so those
@@ -227,10 +230,15 @@ jobs:
       - name: Build
         run: opam exec -- dune build
 
-      # The dune suites, enumerated in tools/check-suites.sh, which fails if
-      # any of them stops producing output.
+      # Through the Makefile, not by restating what it runs. `make test-core`
+      # is several checks and CI used to call one of them by hand, so the rest
+      # ran only on developer machines -- which for the dependency guard means
+      # it ran nowhere that mattered: it exists for a failure that is invisible
+      # to CI precisely because its switch comes from cache, and it was the one
+      # place never running it. A check added to that target is now a check CI
+      # runs, rather than a line someone also has to add here.
       - name: Test
-        run: opam exec -- tools/check-suites.sh
+        run: opam exec -- make test-core
 
       # Copies ui/dist to ocaml/server/ui_dist, which the next build compiles
       # into the server binary.
@@ -301,36 +309,30 @@ jobs:
   # that would make published checksums unverifiable.
   reproducible:
     name: Packages build twice identically, and install
-    runs-on: ubuntu-latest
+    # Same base as the build job, and for the same reason: this one builds the
+    # .deb, .rpm and AppImage, each of which carries (or crashes on) the glibc
+    # floor of its build host. 22.04 is glibc 2.35 -- see the build job.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
+      # Same key as the verify job, `-notar` included -- see the note there.
       - name: Cache the F* release
         id: fstar-cache
         uses: actions/cache@v4
         with:
           path: ~/toolchain
-          key: fstar-${{ env.FSTAR_VERSION }}-z3-${{ env.Z3_VERSION }}
+          key: fstar-${{ env.FSTAR_VERSION }}-z3-${{ env.Z3_VERSION }}-notar
 
+      # The script, not a copy of it. The download, the unpack, the
+      # top-directory normalisation and the tarball cleanup were written out
+      # here three times and a fourth time in tools/setup.sh -- and the fix to
+      # the `mv fstar*` glob had to land in three of them in lockstep, which is
+      # the argument against ever doing that again. A workstation runs the same
+      # file.
       - name: Install F* and Z3
         if: steps.fstar-cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p ~/toolchain && cd ~/toolchain
-          curl -fsSL -o fstar.tar.gz \
-            "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
-          tar -xzf fstar.tar.gz
-          # The tarball's top directory has been both a versioned name and a
-          # bare `fstar`, and `mv fstar* fstar` only survives the first: once
-          # the archive unpacks to `fstar` the glob also catches the tarball
-          # and mv is asked to move a directory into itself. Normalise
-          # whichever arrived instead, which is a no-op for the bare one.
-          # Same rule as tools/setup.sh, which does this for a workstation.
-          find . -maxdepth 1 -type d -name 'fstar*' ! -name fstar \
-            -exec mv {} fstar \;
-          # ~/toolchain is what gets cached, and the tarball is 230 MB of it
-          # that nothing reads again. tools/setup.sh drops it for the same
-          # reason.
-          rm -f fstar.tar.gz
+        run: tools/fetch-fstar.sh "$FSTAR_VERSION"
 
       - uses: ocaml/setup-ocaml@v3
         with:

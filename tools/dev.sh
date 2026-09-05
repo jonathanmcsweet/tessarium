@@ -32,7 +32,7 @@ if ! command -v pnpm >/dev/null 2>&1 && [ -s "$HOME/.nvm/nvm.sh" ]; then
   . "$NVM_DIR/nvm.sh"
 fi
 
-for tool in dune pnpm; do
+for tool in dune pnpm make; do
   command -v "$tool" >/dev/null 2>&1 || {
     echo "dev: $tool not found. Run tools/setup.sh, or eval \"\$(make env)\"." >&2
     exit 1
@@ -48,11 +48,14 @@ done
 #
 # TESSARIUM_NO_BASEMAP=1 skips it -- for working offline, or for testing the
 # empty state on purpose.
-if [ ! -f basemap/world.pmtiles ] && [ "${TESSARIUM_NO_BASEMAP:-}" != "1" ]; then
-  echo "dev: no world overview yet; fetching the one the packages ship (~6 MB)"
-  tools/fetch-basemap.sh -z "" \
-    || echo "dev: basemap fetch failed -- carrying on without one" >&2
-fi
+#
+# Through `make basemap`, which `make run` depends on as well: one recipe for
+# when the map is fetched, when it is skipped, and what a failed or
+# half-finished fetch means. This was a second copy of that rule written by
+# hand, and the two had already drifted -- only this one honoured the
+# environment variable or survived a failed download, so `make run` refused to
+# start at all on a machine with no network.
+make basemap
 
 up() { curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:$1/healthz" 2>/dev/null; }
 

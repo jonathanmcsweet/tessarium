@@ -46,6 +46,13 @@ export const PANEL_MIN = 300;
 export const PANEL_MAX = 720;
 export const PANEL_DEFAULT = 340;
 
+/* The bounds, applied. Exported because a drag paints the width straight
+   onto the shell's custom properties before it is committed here, and the
+   two must clamp identically or the pixels and the announced value disagree
+   at the ends of the range. */
+export const clampPanelWidth = (width: number): number =>
+  Math.min(PANEL_MAX, Math.max(PANEL_MIN, Math.round(width)));
+
 type AppState = {
   unlocked: boolean;
   selection: Selection | null;
@@ -77,6 +84,13 @@ type AppState = {
   /* Whether the offline-maps card is open. In the store rather than local to
      the map because the missing-basemap banner opens it from outside. */
   downloadOpen: boolean;
+  /* Whether the running job is a merge the user started from a file rather
+     than a download. The server answers both with the same states, so only
+     the page that pressed the button knows which words are true when one
+     reaches Done -- and the ending is reported from the map, which stays
+     mounted after the card is closed. Set when the merge is accepted,
+     cleared by whoever reports the ending. */
+  importing: boolean;
   /* Mirrors Paraglide's in-memory locale. Kept here so that changing language
      re-renders the tree: the message functions read the locale when they are
      called, and nothing would call them again otherwise. */
@@ -104,6 +118,8 @@ type AppState = {
   clearBasemapFailed: () => void;
   openDownload: () => void;
   closeDownload: () => void;
+  startImport: () => void;
+  endImport: () => void;
 };
 
 export const useAppStore = create<AppState>()((set) => ({
@@ -114,6 +130,7 @@ export const useAppStore = create<AppState>()((set) => ({
   coordsConcealed: true,
   basemapFailed: false,
   downloadOpen: false,
+  importing: false,
   downloadRegion: null,
   panelWidth: PANEL_DEFAULT,
   panelCollapsed: false,
@@ -137,6 +154,7 @@ export const useAppStore = create<AppState>()((set) => ({
       concealed: true,
       coordsConcealed: true,
       downloadOpen: false,
+      importing: false,
       downloadRegion: null,
     }),
   select: (selection) => set({ selection }),
@@ -161,14 +179,20 @@ export const useAppStore = create<AppState>()((set) => ({
     }),
   setDownloadRegion: (region: ViewRegion | null) =>
     set({ downloadRegion: region }),
-  setPanelWidth: (width: number) =>
-    set({
-      panelWidth: Math.min(PANEL_MAX, Math.max(PANEL_MIN, Math.round(width))),
-    }),
+  setPanelWidth: (width: number) => set({ panelWidth: clampPanelWidth(width) }),
   togglePanel: () =>
     set((state) => ({ panelCollapsed: !state.panelCollapsed })),
   setBasemapFailed: () => set({ basemapFailed: true }),
   clearBasemapFailed: () => set({ basemapFailed: false }),
-  openDownload: () => set({ downloadOpen: true }),
+  /* Opening the card has to open the DRAWER as well. The card is drawn
+     inside it, and a shut drawer is `invisible translate-x-full` -- so this
+     used to mount the downloader off screen for everyone who reached it from
+     outside the panel: the missing-basemap banner's action, and the coverage
+     note's button. The note's case was worse than a no-op, because the note
+     hides itself once the card is "open" -- one press and both the note and
+     the thing it opened were gone. */
+  openDownload: () => set({ downloadOpen: true, panelCollapsed: false }),
   closeDownload: () => set({ downloadOpen: false }),
+  startImport: () => set({ importing: true }),
+  endImport: () => set({ importing: false }),
 }));

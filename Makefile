@@ -28,7 +28,7 @@ CANCEL_PORT ?= 7377
 # The delaying proxy itself, run by the e2e script.
 PROXY_PORT ?= 7378
 
-.PHONY: all env dev verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run package package-deb package-rpm package-appimage test-install clean
+.PHONY: all env dev verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run basemap package package-deb package-rpm package-appimage test-install clean
 
 # The wall's stages share files (gen_check outputs, .checked caches, the
 # port 737x range); they are cheap to run in order and wrong to interleave.
@@ -197,12 +197,20 @@ test: test-core test-static test-extraction test-lowstar test-ui
 # the machine that already has it and fails on a fresh
 # `opam install . --deps-only`, and CI cannot see the difference because its
 # switch comes from cache. It is opam-dune-lint under a stable name; the tool
-# comes from tools/setup.sh, not tessarium.opam, because it exists to check
-# that file.
+# comes from tools/setup.sh on a workstation and from a step in the workflow
+# on the runner, not from tessarium.opam, because it exists to check that
+# file. CI runs THIS target rather than the list -- a check added here is a
+# check CI runs.
+# check-basemap-target.sh is the build checking itself: `make run` has to open
+# the app on a machine with no network, and has to notice a download that only
+# half finished. Nothing else here can see either, because both are properties
+# of a recipe rather than of code -- so it runs that recipe against a stubbed
+# fetcher, compiler and server.
 test-core:
 	tools/check-suites.sh
 	node tools/check-doc-constants.mjs
 	tools/check-deps.sh
+	tools/check-basemap-target.sh
 
 # Lint, types, message catalogues and the browser payload budgets. Fast, needs
 # no server, and catches the class of mistake the browser test cannot see: a
@@ -291,13 +299,52 @@ test-ui: ui
 dev:
 	tools/dev.sh
 
-# Same world overview the packages ship. A file target, so it is fetched once
-# and never again -- and so `make run` cannot open on the empty-map state that
-# no installed copy is ever in.
-basemap/world.pmtiles:
-	tools/fetch-basemap.sh -z ""
+# The same world overview, glyphs and sprites the packages ship, so a
+# checkout does not open on the one state an installed copy is never in.
+#
+# A STAMP rather than basemap/world.pmtiles itself, because the overview is
+# not the whole payload: tools/fetch-basemap.sh writes it BEFORE fetching the
+# fonts and sprites, so a fetch that died on the tarball left a file that
+# satisfied the old file target forever -- every later `make run` skipped the
+# recipe and served a map whose glyphs 404, which draws as unlabelled shapes
+# and says nothing. The stamp is written only once both halves are on disk, so
+# a half-finished fetch is retried instead of being mistaken for a finished
+# one (and the retry is cheap: the script skips whichever half it already has).
+#
+# Tolerant of a failed fetch, and of TESSARIUM_NO_BASEMAP=1, which skips it
+# outright -- for working offline, or for looking at the empty state on
+# purpose. This is offline-first software; a machine with no network gets the
+# documented empty map and its download banner, not a build failure. That rule
+# lives here now, and tools/dev.sh calls this target rather than restating it.
+BASEMAP_STAMP := basemap/.fetched
+# What "a complete map" means, written once and spent twice: to decide whether
+# there is anything to fetch, and to decide whether the fetch may be recorded.
+# Two spellings of that condition is how the two could ever disagree.
+BASEMAP_HAVE := [ -f basemap/world.pmtiles ] && [ -d basemap/fonts ] \
+  && [ -d basemap/sprites ]
+$(BASEMAP_STAMP):
+	@mkdir -p basemap
+	@if $(BASEMAP_HAVE); then \
+	  echo "basemap: already here"; \
+	elif [ "$${TESSARIUM_NO_BASEMAP:-}" = "1" ]; then \
+	  echo "basemap: TESSARIUM_NO_BASEMAP=1 -- starting with an empty map"; \
+	else \
+	  echo "basemap: fetching the overview the packages ship (~6 MB)"; \
+	  tools/fetch-basemap.sh -z "" \
+	    || echo "basemap: fetch failed -- carrying on without one" >&2; \
+	fi
+	@if $(BASEMAP_HAVE); then \
+	  touch $@; \
+	else \
+	  echo "basemap: no complete map yet -- this will try again next time" >&2; \
+	fi
 
-run: build basemap/world.pmtiles
+# The name to ask for it by. Phony, standing in front of the stamp, so that
+# `make basemap` reads as an instruction rather than as a path -- and so that
+# tools/dev.sh has one thing to call.
+basemap: $(BASEMAP_STAMP)
+
+run: build $(BASEMAP_STAMP)
 	./_build/default/ocaml/server/bin/main.exe --port $(PORT) --basemap basemap
 
 package: build

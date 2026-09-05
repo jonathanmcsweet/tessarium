@@ -31,7 +31,7 @@ import {
 import {
   exportUrl,
   isRunning,
-  type Job,
+  type LabelledRegion,
   type LedgerEntry,
   type Region,
   regionUrl,
@@ -43,6 +43,7 @@ import {
   useBasemapPresent,
   useBasemapRemove,
   useBasemapSettings,
+  useBasemapStatus,
   useBasemapUpdate,
   useCommitImport,
   useDeleteExport,
@@ -65,7 +66,7 @@ import {
   toRegion,
 } from "../regions";
 import { useAppStore } from "../store";
-import { toastError, toastSuccess } from "../toast";
+import { toastError } from "../toast";
 import { Dropdown } from "./Dropdown";
 import { IconButton } from "./IconButton";
 
@@ -110,7 +111,16 @@ function ledgerName(labels: string[]): string | undefined {
    the current view, and the picker's selection, so the three cannot
    drift. */
 function Offer(
-  { regions, names, ledgerLabel, describe, confirmLabel, className, world }: {
+  {
+    regions,
+    names,
+    regionLabel,
+    ledgerLabel,
+    describe,
+    confirmLabel,
+    className,
+    world,
+  }: {
     regions: Region[] | null;
     /* Whether this offer is the world overview, which lives in its own
        archive and keeps no ledger entry. */
@@ -119,6 +129,17 @@ function Offer(
      too big for street level; the world and the view have no names worth
      saying and get the generic wording. */
     names?: string[];
+    /* What to call each of this offer's regions in the progress panel when
+       there are no per-pick names -- the world and the current view, which
+       are one region apiece. Every download path sends one: a progress bar
+       reading "Unnamed area" for the several minutes a country takes, beside
+       a ledger row that says "London", is the same download described two
+       ways.
+
+       Explicitly `| undefined`: exactOptionalPropertyTypes is on, so an
+       optional property and one that may be undefined are different types,
+       and over open water the catalogue has no name to give. */
+    regionLabel?: string | undefined;
     /* What the downloaded-maps list will call this, in the user's locale.
        Undefined for the world overview, which is not listed there. */
     ledgerLabel: string | undefined;
@@ -127,8 +148,18 @@ function Offer(
     className: string;
   },
 ) {
+  /* Priced on the bare regions: the estimate asks about tiles and has no
+     rows to name, and the label must not become part of its query key. */
   const estimate = useBasemapEstimate(regions, world);
   const download = useBasemapDownload();
+  /* And fetched with the label INSIDE each region -- see LabelledRegion.
+     Beside them, as a parallel array, it could be one short or one out of
+     order and still be accepted. */
+  const labelled: LabelledRegion[] | null = regions === null ? null : regions
+    .map((region, i) => {
+      const label = names?.[i] ?? regionLabel;
+      return label === undefined ? region : { ...region, label };
+    });
   /* The picks granted less depth than they asked for. */
   const clamped = estimate.isSuccess && regions !== null
     ? regions
@@ -147,6 +178,19 @@ function Offer(
   ];
   const showClamped = clamped.length > 0 && estimate.isSuccess
     && !estimate.data.covered && estimate.data.tiles > 0;
+  /* Whether this offer has anything to write. Covered means the archive
+     already holds every tile the source has here; zero tiles means the
+     source has none. Either way there is no download, and the sentence above
+     is the whole answer -- so there is no button.
+
+     There used to be one: a covered estimate turned the confirm into "Keep
+     track of this map", from when the server could still RECORD a held area
+     in the ledger without fetching anything. Adoption is gone -- a covered
+     area writes nothing and the job fails with "you already have the maps
+     for that area" -- so every press produced a Failed job and an error
+     toast, from a button the card itself had offered. */
+  const nothingToWrite = estimate.isSuccess
+    && (estimate.data.covered || estimate.data.tiles === 0);
   return (
     <div className={`download-option ${className}`}>
       {regions !== null && estimate.isPending && (
@@ -160,7 +204,7 @@ function Offer(
         </p>
       )}
       {estimate.isSuccess && (
-        <p className="hint">
+        <p className={`hint${nothingToWrite ? " download-held" : ""}`}>
           {estimate.data.covered
             ? m.map_download_covered()
             : estimate.data.tiles === 0
@@ -175,35 +219,25 @@ function Offer(
             : m.map_download_depth_hint()}
         </p>
       )}
-      <div className="download-actions mt-2.5 flex flex-wrap gap-2">
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() =>
-            regions
-            && download.mutate({
-              regions,
-              ...(ledgerLabel !== undefined ? { name: ledgerLabel } : {}),
-              /* Already aligned with regions for the depth warning, and
-                 exactly what the progress rows need to name themselves. */
-              ...(names !== undefined ? { labels: names } : {}),
-              ...(world ? { world: true } : {}),
-            }, loudly)}
-          disabled={regions === null || !estimate.isSuccess
-            || (estimate.data.tiles === 0 && !estimate.data.covered)
-            || download.isPending}
-        >
-          {
-            /* A covered area has nothing to fetch but can still be
-               RECORDED -- that is how an archive from before the ledger
-               gets its first entry. The server answers "you already have"
-               if it is recorded already. */
-            estimate.isSuccess && estimate.data.covered
-              ? m.map_download_adopt()
-              : confirmLabel
-          }
-        </button>
-      </div>
+      {!nothingToWrite && (
+        <div className="download-actions mt-2.5 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() =>
+              labelled
+              && download.mutate({
+                regions: labelled,
+                ...(ledgerLabel !== undefined ? { name: ledgerLabel } : {}),
+                ...(world ? { world: true } : {}),
+              }, loudly)}
+            disabled={labelled === null || !estimate.isSuccess
+              || download.isPending}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -356,7 +390,7 @@ function RegionPicker() {
                     onChange={() => toggle(whole)}
                   />
                   {subs.length > 0 && (
-                    <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
+                    <p className="region-group">
                       {m.map_download_region_sub_label()}
                     </p>
                   )}
@@ -376,7 +410,7 @@ function RegionPicker() {
                     );
                   })}
                   {cities.length > 0 && (
-                    <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
+                    <p className="region-group">
                       {m.map_download_region_cities()}
                     </p>
                   )}
@@ -454,10 +488,14 @@ function LedgerRow({ entry, days, busy }: {
      here. */
   const partOfBaseMap = entry.overview || entry.file === "";
   const ageUnknown = entry.completed === 0;
-  /* Never on the overview. It has no recorded date to be old, no verb to
-     act on the nudge with, and nagging about a file the user cannot update
-     from this row is just a permanent red mark on the base map. */
-  const stale = !entry.overview
+  /* Never on a base-map row -- the SAME rule that decides the verbs, and it
+     has to be, because the nudge is an invitation to press one of them.
+     Gated on `overview` alone, a legacy merged entry (completed = 0, so
+     ageUnknown, so stale on any threshold) wore a permanent "Update
+     available" beside no Update and no Remove, for a file the server would
+     refuse the id of anyway. The only escape was setting the reminder to
+     Never, which silences every row in the list. */
+  const stale = !partOfBaseMap
     && days > 0
     && (ageUnknown
       || Date.now() / 1000 - entry.completed > days * 86_400);
@@ -474,21 +512,14 @@ function LedgerRow({ entry, days, busy }: {
       date: new Intl.DateTimeFormat(getLocale(), { dateStyle: "medium" })
         .format(new Date(entry.completed * 1000)),
     });
-  /* Wraps, and that is the whole fix. Unwrapped, three buttons took the full
-     width and left the name column a few pixels, which the name's own
-     wrapping then honoured by breaking "Map view" one letter per line. The
-     text keeps a real basis and the buttons drop to their own line when they
-     no longer fit beside it. */
+  /* The row's shell -- ledger-row, ledger-row-text, ledger-name -- is three
+     utilities in styles.css, because the exported-files list below draws the
+     same shell and the wrap those carry is a fix rather than a preference.
+     Pasted into both, it applied to whichever one was edited next. */
   return (
-    <li className="ledger-row flex flex-wrap items-center justify-between gap-2 py-2">
-      <div className="ledger-row-text flex min-w-0 flex-1 basis-40 flex-col gap-0.5">
-        {
-          /* break-words, not anywhere: this only has to rescue a single
-            unbroken name too long for the column, and `anywhere` is what
-            let a normal name be shredded the moment the column got
-            tight. */
-        }
-        <span className="ledger-name text-sm font-semibold break-words">
+    <li className="ledger-row">
+      <div className="ledger-row-text">
+        <span className="ledger-name">
           {
             /* The overview is named here rather than by the server, which
                has no opinion about the reader's language. The name it
@@ -634,18 +665,18 @@ function ExportedFiles({ busy }: { busy: boolean; }) {
   if (!exports.isSuccess || exports.data.length === 0) return null;
   return (
     <div className="download-option download-exports">
-      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
+      <p className="region-group">
         {m.map_export_title()}
       </p>
       <p className="hint">{m.map_export_hint()}</p>
       <ul className="ledger-rows divide-y divide-line">
         {exports.data.map((f) => (
           <li
-            className="ledger-row flex flex-wrap items-center justify-between gap-2 py-2"
+            className="ledger-row"
             key={f.file}
           >
-            <div className="ledger-row-text flex min-w-0 flex-1 basis-40 flex-col gap-0.5">
-              <span className="ledger-name text-sm font-semibold break-words">
+            <div className="ledger-row-text">
+              <span className="ledger-name">
                 {f.file}
               </span>
               <span className="hint">{formatBytes(f.bytes)}</span>
@@ -694,6 +725,11 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
   const upload = useUploadImport();
   const commit = useCommitImport();
   const discard = useDiscardImport();
+  /* Recorded, not announced. The merge is a real job that runs for minutes
+     and can fail; this only says which words the ending deserves when the
+     status poll sees one, and the poll is watched from the map so that a
+     user who closed the card still hears it. */
+  const startImport = useAppStore((s) => s.startImport);
   const [sent, setSent] = useState<{ done: number; total: number; } | null>(
     null,
   );
@@ -706,7 +742,7 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
 
   return (
     <div className="download-option download-import">
-      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
+      <p className="region-group">
         {m.map_import_title()}
       </p>
       <p className="hint">{m.map_import_hint()}</p>
@@ -783,10 +819,16 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
             <button
               type="button"
               className="btn btn-primary"
+              /* No success toast here. The server answers this POST the
+                 moment it has forked the job, so "Those maps were added"
+                 used to appear while the merge still had minutes to run --
+                 and a merge that then failed contradicted it with an error
+                 toast about the same operation. The flag is set instead, and
+                 the ending is reported when the job actually reaches it. */
               onClick={() =>
                 commit.mutate(undefined, {
                   ...loudly,
-                  onSuccess: () => toastSuccess(m.map_import_added()),
+                  onSuccess: () => startImport(),
                 })}
               disabled={busy || commit.isPending}
             >
@@ -818,7 +860,7 @@ function DownloadedMaps({ busy }: { busy: boolean; }) {
   const days = settings.data?.update_reminder_days ?? 90;
   return (
     <div className="download-option download-ledger">
-      <p className="region-group mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft uppercase">
+      <p className="region-group">
         {m.map_ledger_title()}
       </p>
       <ul className="ledger-rows divide-y divide-line">
@@ -867,11 +909,22 @@ function BrowseToggle() {
   );
 }
 
-export function DownloadCard({ region, job }: {
-  region: Region;
-  job: Job | undefined;
-}) {
+export function DownloadCard({ region }: { region: Region; }) {
   const closeDownload = useAppStore((s) => s.closeDownload);
+  /* Subscribed HERE rather than passed down from the panel. This poll ticks
+     once a second for the whole life of a job, and the panel was holding it
+     solely to hand the answer to this one prop -- so the address, the
+     coordinates and the footer re-rendered every second for an hour-long
+     download, with the card closed. Nothing else is lost by moving it: the
+     map and the progress section keep their own subscriptions, which are
+     what keep the poll alive while this card is shut.
+
+     A FOLLOWER, though: mounting must not refetch. The poll is stopped
+     whenever nothing is running, so a job that ended unobserved would be
+     fetched by this mount and delivered as fresh news -- and the watcher on
+     the map closes the card on a job's ending. Opening the card would have
+     closed it again, which is exactly what it did until this said follow. */
+  const job = useBasemapStatus({ follow: true }).data?.job;
   const present = useBasemapPresent();
   /* Only certainty leads with the world offer: while the HEAD is in flight
      the card shows the other options rather than guessing. */
@@ -960,14 +1013,22 @@ export function DownloadCard({ region, job }: {
             <Offer
               regions={[WORLD]}
               world
+              regionLabel={m.map_name_world()}
               ledgerLabel={undefined}
               describe={(size) => m.map_download_world_estimate({ size })}
               confirmLabel={m.map_download_world_confirm()}
               className="download-world"
             />
           )}
+          {
+            /* One name, spent twice: the progress bar and the ledger row are
+              the same download and used to disagree, because only the ledger
+              was told. The bar said "Unnamed area" for the whole of a
+              download the list called "London". */
+          }
           <Offer
             regions={[region]}
+            regionLabel={viewName}
             ledgerLabel={viewName}
             describe={(size) => m.map_download_estimate({ size })}
             confirmLabel={m.map_download_confirm()}
@@ -977,6 +1038,7 @@ export function DownloadCard({ region, job }: {
             <Offer
               regions={[WORLD]}
               world
+              regionLabel={m.map_name_world()}
               ledgerLabel={undefined}
               describe={(size) => m.map_download_world_add({ size })}
               confirmLabel={m.map_download_world_confirm()}

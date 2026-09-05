@@ -10,7 +10,6 @@
 
 import { Download, Eye, EyeOff, PanelRightClose } from "lucide-react";
 import { lazy, Suspense } from "react";
-import { useBasemapStatus } from "../core/basemap";
 import { useCoreVersions, useLock } from "../core/queries";
 import { formatCoord } from "../i18n";
 import { m } from "../paraglide/messages";
@@ -91,7 +90,12 @@ export function AddressPanel() {
   const togglePanel = useAppStore((s) => s.togglePanel);
   const panelCollapsed = useAppStore((s) => s.panelCollapsed);
   const downloadRegion = useAppStore((s) => s.downloadRegion);
-  const basemapJob = useBasemapStatus();
+  /* The download job's status is deliberately NOT subscribed to here. It
+     polls once a second for the life of a job, and this panel held it only
+     to hand the answer to the card below -- so the address, the coordinates
+     and the footer re-rendered every second for the whole of an hour-long
+     download, card closed or open. The card asks for itself now, and the
+     map and the progress section keep the poll alive meanwhile. */
 
   /* Same treatment as the address above, scaled to the smaller type: the
      bullets are not worth selecting, and a selection highlight through a
@@ -316,7 +320,7 @@ export function AddressPanel() {
             </p>
           }
         >
-          <DownloadCard region={downloadRegion} job={basemapJob.data?.job} />
+          <DownloadCard region={downloadRegion} />
         </Suspense>
       )}
 

@@ -1,5 +1,5 @@
 import { PanelRightOpen } from "lucide-react";
-import { type CSSProperties, lazy, Suspense } from "react";
+import { type CSSProperties, lazy, Suspense, useRef } from "react";
 import { AddressPanel } from "./components/AddressPanel";
 import { Banner } from "./components/Banner";
 import { IconButton } from "./components/IconButton";
@@ -35,6 +35,14 @@ export function App() {
      If a child is ever wrapped in `memo`, it needs its own subscription, and
      the end-to-end language check is what will say so. */
   useAppStore((s) => s.locale);
+
+  /* Handed to the splitter so a drag can write the two widths below
+     straight onto this element. Every pointermove used to go through the
+     store, and because of the subscription above and the paragraph it
+     belongs to, each one rebuilt this tree -- the map's whole body and the
+     panel -- to move two custom properties. The drag paints, the store
+     hears the answer once. */
+  const surface = useRef<HTMLDivElement>(null);
 
   /* The gate is where a missing server hurts most: the phrase validates, the
      checksum goes green, and unlocking then fails with a message that blames
@@ -82,6 +90,7 @@ export function App() {
           underneath the drawer. */
       }
       <div
+        ref={surface}
         className="app relative h-full min-h-0 flex-1 overflow-hidden"
         style={{
           "--panel-w": `${panelWidth}px`,
@@ -111,7 +120,7 @@ export function App() {
         >
           <MapView />
         </Suspense>
-        {!panelCollapsed && <PanelResizer />}
+        {!panelCollapsed && <PanelResizer surface={surface} />}
         <AddressPanel />
         {
           /* The way back in. The drawer's own hide button leaves with it, so

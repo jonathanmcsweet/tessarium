@@ -45,6 +45,12 @@ function Bar(
     hint?: string | undefined;
   },
 ) {
+  /* A row with nothing left to fetch is a full bar, whatever its numbers
+     are. Drawn from `done >= total` rather than from the numbers alone
+     because a region resumed with every tile already on disk has a total of
+     zero, and `value={0} max={1}` drew it at 0% -- reading as a region that
+     never started rather than one that was finished before it began. */
+  const ceiling = Math.max(total, 1);
   return (
     <li className="download-row">
       <div className="flex items-baseline justify-between gap-2">
@@ -54,17 +60,26 @@ function Bar(
             numbers tick. */
         }
         <span className="min-w-0 text-sm break-words">{label}</span>
+        {
+          /* Through the catalogue, like the label beside it. This was a
+            hardcoded `${done} / ${total}` template while the bar's own
+            aria-label spent a message for the same fact -- one fact, two
+            spellings, and the one on screen unreachable by a translator. */
+        }
         <span
           className="flex-none text-xs tabular-nums text-ink-soft"
           aria-hidden="true"
         >
-          {hint ?? `${formatBytes(done)} / ${formatBytes(total)}`}
+          {hint ?? m.map_progress_bytes({
+            done: formatBytes(done),
+            total: formatBytes(total),
+          })}
         </span>
       </div>
       <progress
         className="mt-1 h-1.5 w-full accent-accent"
-        max={Math.max(total, 1)}
-        value={done}
+        max={ceiling}
+        value={done >= total ? ceiling : done}
         aria-label={m.map_progress_region_a11y({
           region: label,
           done: formatBytes(done),
@@ -169,6 +184,18 @@ export function MapProgress() {
         {rows.length > 0
           ? (
             <ul className="download-rows mt-2 space-y-2.5">
+              {
+                /* Each row is measured first, then finished, then in
+                  flight. Finished is `done >= total` with no floor under
+                  the total: a region whose tiles were all already on disk
+                  accrues no fresh bytes, so its total is zero and zero
+                  bytes of zero IS the whole of it. Requiring
+                  `total_bytes > 0` left such a region reading "0 MB / 0 MB"
+                  at 0% for the life of the job -- which is exactly what a
+                  resumed download looks like once the first of two
+                  countries has landed, and it reads as a region that never
+                  started. */
+              }
               {rows.map((r, i) => (
                 <Bar
                   // biome-ignore lint/suspicious/noArrayIndexKey: the server returns one row per requested region in request order, and that list is fixed for the life of the download -- position IS the identity here. Labels cannot serve as one: two cities can share a name.
@@ -176,11 +203,10 @@ export function MapProgress() {
                   label={r.label || m.map_progress_unnamed()}
                   done={r.done_bytes}
                   total={r.total_bytes}
-                  hint={r.total_bytes > 0 && r.done_bytes >= r.total_bytes
-                      && r.planned
-                    ? m.map_progress_row_done()
-                    : !r.planned
+                  hint={!r.planned
                     ? m.map_progress_row_measuring()
+                    : r.done_bytes >= r.total_bytes
+                    ? m.map_progress_row_done()
                     : undefined}
                 />
               ))}

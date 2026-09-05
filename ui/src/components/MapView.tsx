@@ -91,12 +91,32 @@ const emptyGeoJson = {
   features: [] as GeoJSON.Feature[],
 };
 
-/* Whether a palette puts the map on a pale ground. Five schemes, and every
-   map-side choice below -- the flavour, the sprite sheet, the overlay -- turns
-   on this rather than on a list of names, so a sixth palette answers one
-   question instead of being added to three lists. */
-const isLight = (scheme: Scheme) =>
-  scheme === "light" || scheme === "cyber-light";
+/* One CSS custom property off the document, or a loud failure. Every value
+   below that belongs to the palette is read this way rather than restated
+   here: the browser owns the cascade, media queries included, and a second
+   copy of the palette in TypeScript is a copy that drifts. A missing token
+   throws rather than painting MapLibre's silent black. */
+const cssToken = (name: string): string => {
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
+  if (!value) throw new Error(`css token ${name} is not defined`);
+  return value;
+};
+
+/* Whether a palette puts the map on a pale ground. Every map-side choice
+   below -- the flavour, the sprite sheet, the overlay -- turns on this rather
+   than on a list of names, so a sixth palette answers one question instead of
+   being added to three lists.
+
+   And the answer comes from the palette itself (--map-light-ground in
+   styles.css) rather than from a list of scheme names HERE, because the
+   stylesheet needed the same classification for MapLibre's control icons and
+   was keeping its own hand-written list of [data-theme] selectors. Two lists
+   for one fact is one list that a new palette silently falls off -- which is
+   exactly how those controls stayed light through the dark theme's whole
+   first release. */
+const isLight = () => cssToken("--map-light-ground") === "1";
 
 /* Which pre-drawn sprite sheet the style asks for.
 
@@ -112,7 +132,7 @@ const isLight = (scheme: Scheme) =>
    points of interest for light and dark only -- so choosing it would trade
    white shields for 35 missing icons. A red sheet would need one drawn,
    which is a basemap build step and is on the roadmap. */
-const spriteSheet = (scheme: Scheme) => (isLight(scheme) ? "light" : "dark");
+const spriteSheet = () => (isLight() ? "light" : "dark");
 
 /* The style, rebuilt whenever the archive on disk is replaced. Tiles come
    through the server's /tiles endpoint rather than from the archive file
@@ -131,7 +151,7 @@ const buildStyle = (
   glyphs: "/basemap/fonts/{fontstack}/{range}.pbf",
   /* MapLibre appends .json and .png, so this names the flavour rather
      than the directory: sprites/v4/light.json and light.png. */
-  sprite: `${window.location.origin}/basemap/sprites/v4/${spriteSheet(scheme)}`,
+  sprite: `${window.location.origin}/basemap/sprites/v4/${spriteSheet()}`,
   sources: {
     protomaps: {
       type: "vector",
@@ -264,7 +284,7 @@ const basemapLayers = (
      in a room someone is keeping dark. */
   const flavor = scheme === "night"
     ? nightFlavor(namedFlavor("black"))
-    : namedFlavor(isLight(scheme) ? "light" : "dark");
+    : namedFlavor(isLight() ? "light" : "dark");
   const floor = layers(FLOOR_SOURCE, flavor, { lang })
     .filter((layer) => layer.type !== "background")
     .map((layer) => ({ ...layer, id: `${FLOOR_SOURCE}-${layer.id}` }));
@@ -301,31 +321,21 @@ type Scheme = ResolvedTheme;
 
    Called at layer-add time, never cached: applyTheme sets the attribute
    synchronously in the store action, so by the time a style rebuild runs,
-   the document is already wearing the palette being read. A missing token
-   throws rather than painting MapLibre's silent black. */
-const overlayColors = () => {
-  const token = (name: string): string => {
-    const value = getComputedStyle(document.documentElement)
-      .getPropertyValue(name)
-      .trim();
-    if (!value) throw new Error(`css token ${name} is not defined`);
-    return value;
-  };
-  return {
-    blank: token("--color-map-blank"),
-    blankOpacity: Number(token("--map-blank-opacity")),
-    edge: token("--color-map-edge"),
-    grid: token("--color-map-grid"),
-    /* The selected square and its pin: the loudest mark on the map wears
-       the palette's own accent, the same token the address line spends. */
-    select: token("--color-accent"),
-    /* And the pin's separating ring is what the palette says sits against
-       a filled accent. It was a literal #ffffff -- a colour belonging to
-       no palette, and in low light a pure white flash on the one screen
-       built to avoid one. */
-    onSelect: token("--color-on-accent"),
-  };
-};
+   the document is already wearing the palette being read. */
+const overlayColors = () => ({
+  blank: cssToken("--color-map-blank"),
+  blankOpacity: Number(cssToken("--map-blank-opacity")),
+  edge: cssToken("--color-map-edge"),
+  grid: cssToken("--color-map-grid"),
+  /* The selected square and its pin: the loudest mark on the map wears
+     the palette's own accent, the same token the address line spends. */
+  select: cssToken("--color-accent"),
+  /* And the pin's separating ring is what the palette says sits against
+     a filled accent. It was a literal #ffffff -- a colour belonging to
+     no palette, and in low light a pure white flash on the one screen
+     built to avoid one. */
+  onSelect: cssToken("--color-on-accent"),
+});
 
 const addOverlay = (map: maplibregl.Map) => {
   /* Adding twice throws. Cannot happen today, but the callers are event
@@ -578,6 +588,7 @@ export function MapView() {
   const downloadOpen = useAppStore((s) => s.downloadOpen);
   const openDownload = useAppStore((s) => s.openDownload);
   const closeDownload = useAppStore((s) => s.closeDownload);
+  const endImport = useAppStore((s) => s.endImport);
 
   /* ------------------------------------------------------------- setup */
   useEffect(() => {
@@ -1066,8 +1077,21 @@ export function MapView() {
       return;
     }
     const job = current.job;
+    /* Which words are true about the ending. A merge from a file and a
+       download reach the same Done, and the flag is the only thing that
+       tells them apart -- read here rather than in the card, because the
+       card is closed by then and the ending still has to be reported. Read
+       through the store instead of a subscription so a flag set moments ago
+       cannot arrive after the poll that ends it. */
+    const wasImport = useAppStore.getState().importing;
+    if (!isRunning(job) && wasImport) endImport();
     if (job.state === "done") {
-      toastSuccess(m.map_download_done());
+      /* Fired HERE and not from the accepted POST. The server answers as
+         soon as it has forked the job, and the merge that follows runs for
+         minutes and can still fail -- so "Those maps were added" used to be
+         shown, and then contradicted by a failure toast about the same
+         operation. */
+      toastSuccess(wasImport ? m.map_import_added() : m.map_download_done());
       /* The archive exists now; the cached "absent" answer must not outlive
          it and resurrect the banner, and every cached estimate is stale --
          tiles just landed on disk that the numbers do not know about.
@@ -1138,15 +1162,26 @@ export function MapView() {
       closeDownload();
     }
     /* Every ending above may have changed what is on disk -- a download
-       that finished, a removal, or a failure after some parts had already
-       landed -- so the mask is asked again here rather than left stale
-       until the next pan. */
-    if (!isRunning(job)) void refreshCoverage();
+       that finished, a removal, a merge from a file, or a failure after some
+       parts had already landed -- so the mask is asked again here rather
+       than left stale until the next pan.
+
+       The place index moves with the tiles, and its answers are cached for
+       five minutes with no refetch on focus, so nothing else would ever ask
+       again: search "Lyon" before downloading France and the empty answer is
+       served back synchronously afterwards, from a box that has the tiles
+       and cannot find them. The mirror image happens after a removal, where
+       the index keeps answering for a region that has gone. */
+    if (!isRunning(job)) {
+      client.invalidateQueries({ queryKey: ["place-search"] });
+      void refreshCoverage();
+    }
   }, [
     basemapJob.data,
     client,
     clearBasemapFailed,
     closeDownload,
+    endImport,
     rebuildBasemap,
     refreshCoverage,
   ]);
@@ -1307,11 +1342,18 @@ export function MapView() {
           "which one am I about to pick" feedback the pointer gets. */
       }
       {
-        /* Small, low-contrast, and transparent to the pointer: it is a
-          keyboard aid, not a control. */
+        /* Small, quiet, and transparent to the pointer: it is a keyboard
+          aid, not a control.
+
+          Its colour is a palette token like every other mark this
+          application draws on the map. It was a literal
+          rgba(18,33,47,0.55) -- the old light theme's ink -- which is a
+          near-black square on the near-black cartography of three of the
+          five palettes, the default among them, and an arbitrary Tailwind
+          value is invisible to the contrast audit besides. */
       }
       <div
-        className="reticle pointer-events-none absolute top-1/2 left-1/2 z-2 size-4.5 -translate-x-1/2 -translate-y-1/2 border-2 border-[rgba(18,33,47,0.55)]"
+        className="reticle pointer-events-none absolute top-1/2 left-1/2 z-2 size-4.5 -translate-x-1/2 -translate-y-1/2 border-2 border-map-reticle"
         aria-hidden
       />
       {

@@ -41,6 +41,26 @@ const check = (name, ok) => {
   if (!ok) console.log(`  FAIL  ${name}`);
 };
 
+/* How long a success toast stays, taken from the source rather than written
+   down here again. Two checks below turn on it -- that a success goes by
+   itself, and that an error is still there once one would have -- so a copy
+   that went stale would leave both waiting for the wrong moment and saying
+   so in neither. Read as text rather than imported: src/toast.ts constructs
+   a React Aria queue at module scope and wants a DOM. */
+const successMs = Number(
+  /SUCCESS_MS = (\d+)/.exec(
+    readFileSync(new URL("../src/toast.ts", import.meta.url), "utf8"),
+  )?.[1],
+);
+check(
+  `a success toast's own timeout is legible in the source (${successMs}ms)`,
+  Number.isFinite(successMs) && successMs > 0,
+);
+/* If it is not, the two waits would be nonsense rather than merely wrong. */
+const SUCCESS_MS = Number.isFinite(successMs) && successMs > 0
+  ? successMs
+  : 5000;
+
 /* Poll until `probe` answers with something truthy, or the budget runs out;
    the answer (or the last falsy one) is returned. Recursion rather than a
    counter-and-flag loop: the remaining budget travels as an argument, and
@@ -768,12 +788,17 @@ check(
 /* And a SUCCESS takes itself away. One short statement with nothing to
    re-read, unlike an error -- which is the pair that has to hold: if both
    stayed, "an error waits to be dismissed" further down would be trivially
-   true and would assert nothing at all. */
-await page.waitForTimeout(7000);
-check(
-  "a success toast takes itself away",
-  (await page.locator(".app-toast").count()) === 0,
-);
+   true and would assert nothing at all.
+   Waited for rather than slept past: this returns the moment the toast
+   leaves, which is two seconds earlier on every green run and immediate on
+   a red one, while the budget it is allowed still ends well past the
+   timeout the toast was given. */
+const successWentAway = await page.waitForFunction(
+  () => document.querySelectorAll(".app-toast").length === 0,
+  null,
+  { timeout: SUCCESS_MS + 2000 },
+).then(() => true, () => false);
+check("a success toast takes itself away", successWentAway);
 await page.waitForFunction(() => !document.querySelector(".banner"), null, {
   timeout: 10_000,
 });
@@ -1563,11 +1588,15 @@ await page.waitForFunction(
   { timeout: 30_000 },
 );
 check("re-asking for a held area says so instead of re-quoting", true);
+/* And it offers nothing to press. There USED to be a "Keep track of this
+   map" button here, but the server path behind it was removed: a covered
+   area writes no tiles, so the job it started always failed. A button that
+   cannot succeed is worse than no button, so the held state is now the hint
+   alone. */
 check(
-  "and its button turns into the record-only offer",
-  !(await page.locator(".download-view button").isDisabled())
-    && ((await page.locator(".download-view button").textContent()) ?? "")
-      .includes("Keep track"),
+  "and offers no action, because there is nothing left to download",
+  (await page.locator(".download-view .hint.download-held").count()) === 1
+    && (await page.locator(".download-view button").count()) === 0,
 );
 
 /* Third download: places picked by name from the tree -- and several at
@@ -3031,8 +3060,12 @@ check(
   toastContrast.ratio >= 4.5,
 );
 
-/* Past the success duration, and still there. This is the whole point. */
-await page.waitForTimeout(7000);
+/* Past the success duration, and still there. This is the whole point, and
+   it is the one wait here that cannot be a condition: nothing happens at
+   the end of it, so the only way to know an error stayed is to be past the
+   moment a success would have gone. Half a second past, not two -- the
+   margin covers the queue's own timer, not a slow machine. */
+await page.waitForTimeout(SUCCESS_MS + 500);
 check(
   "an error toast is still on screen after a success would have gone",
   (await anyToast.count()) >= 1,

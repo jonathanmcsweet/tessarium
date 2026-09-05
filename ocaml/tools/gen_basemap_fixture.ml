@@ -73,22 +73,20 @@ let mvt_tile =
 
 (* ---------------------------------------------------------------- pmtiles *)
 
-let e7 v = int_of_float (Float.round (v *. 1e7))
-
 (* [stride], when set, gives every tile id its OWN copy of the blob, that far
    apart in the data section. The archive says the same thing either way --
    the tiles are identical -- but the reads needed to fetch it are not: with
    one shared blob a whole region is a single range request, and with a
    stride wider than the reader's readahead window each tile costs its own.
    That is the difference between a download that finishes instantly and one
-   that can be watched, and the cancellation test needs the latter. *)
-let pmtiles ?(metadata = "{}") ?(compression = Pmtiles.Header.Gzip)
-    ?(stride = 0) ~min_lon
+   that can be watched, and the cancellation test needs the latter.
+
+   The archive itself is assembled by [Pmtiles.Build], which is also what the
+   server's suites build their fixtures with -- one header literal for all of
+   them, so a change to the format cannot leave this one describing a layout
+   nothing writes any more. *)
+let pmtiles ?metadata ?(compression = Pmtiles.Header.Gzip) ?stride ~min_lon
     ~min_lat ~max_lon ~max_lat ~max_zoom () =
-  let ids =
-    Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom ~min_lon ~min_lat ~max_lon
-      ~max_lat
-  in
   (* Gzipped, like the real planet build: this is what makes the e2e suite
      exercise the content-encoding path the browser actually decodes, not
      only the trivial identity one. *)
@@ -97,65 +95,11 @@ let pmtiles ?(metadata = "{}") ?(compression = Pmtiles.Header.Gzip)
     | Pmtiles.Header.Gzip -> Gzip.compress mvt_tile
     | _ -> mvt_tile
   in
-  (* Every id points at the one blob at data offset 0, unless a stride
-     spreads them out. *)
-  let entries =
-    List.mapi
-      (fun i id ->
-        {
-          Pmtiles.Directory.tile_id = id;
-          offset = (if stride > 0 then i * stride else 0);
-          length = String.length tile;
-          run_length = 1;
-        })
-      ids
-    |> Array.of_list
-  in
-  let data =
-    if stride = 0 then tile
-    else begin
-      let count = Array.length entries in
-      let b = Buffer.create (count * stride) in
-      for _ = 1 to count do
-        Buffer.add_string b tile;
-        Buffer.add_string b (String.make (stride - String.length tile) '\000')
-      done;
-      Buffer.contents b
-    end
-  in
-  let root = Pmtiles.Directory.serialize entries in
-  let root_offset = Pmtiles.Header.size in
-  let metadata_offset = root_offset + String.length root in
-  let data_offset = metadata_offset + String.length metadata in
-  let header =
-    {
-      Pmtiles.Header.root_offset;
-      root_length = String.length root;
-      metadata_offset;
-      metadata_length = String.length metadata;
-      leaf_offset = data_offset;
-      leaf_length = 0;
-      data_offset;
-      data_length = String.length data;
-      addressed_tiles = Array.length entries;
-      tile_entries = Array.length entries;
-      tile_contents = (if stride > 0 then Array.length entries else 1);
-      clustered = true;
-      internal_compression = Pmtiles.Header.None_;
-      tile_compression = compression;
-      tile_type = Pmtiles.Header.Mvt;
-      min_zoom = 0;
-      max_zoom;
-      min_lon_e7 = e7 min_lon;
-      min_lat_e7 = e7 min_lat;
-      max_lon_e7 = e7 max_lon;
-      max_lat_e7 = e7 max_lat;
-      center_zoom = 10;
-      center_lon_e7 = e7 ((min_lon +. max_lon) /. 2.);
-      center_lat_e7 = e7 ((min_lat +. max_lat) /. 2.);
-    }
-  in
-  Pmtiles.Header.serialize header ^ root ^ metadata ^ data
+  snd
+    (Pmtiles.Build.of_box ?metadata ~compression ?stride ~min_zoom:0 ~max_zoom
+       ~min_lon ~min_lat ~max_lon ~max_lat
+       ~center:(10, (min_lon +. max_lon) /. 2., (min_lat +. max_lat) /. 2.)
+       ~body:(fun _ -> tile) ())
 
 (* -------------------------------------------------------------------- tar *)
 

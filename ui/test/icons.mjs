@@ -17,7 +17,7 @@
    be named here with its reason, which turns "I drew a glyph" into an edit
    somebody has to justify rather than an omission nobody sees. */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { sourceFiles } from "./source.mjs";
 
 let checks = 0;
 let failures = 0;
@@ -42,22 +42,7 @@ const allowed = new Map([
   ],
 ]);
 
-const files = [];
-const walk = (dir, prefix) => {
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    /* Generated. Its contents are the message catalogues, not markup. */
-    if (e.name === "paraglide") continue;
-    const child = new URL(`${e.name}${e.isDirectory() ? "/" : ""}`, dir);
-    if (e.isDirectory()) walk(child, `${prefix}${e.name}/`);
-    else if (/\.tsx?$/.test(e.name)) {
-      files.push({
-        path: `${prefix}${e.name}`,
-        text: readFileSync(child, "utf8"),
-      });
-    }
-  }
-};
-walk(new URL("../src/", import.meta.url), "");
+const files = sourceFiles(new URL("../src/", import.meta.url));
 
 check("there is source to read", files.length > 0);
 
