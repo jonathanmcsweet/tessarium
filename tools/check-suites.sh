@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Assert that every test suite actually ran.
 #
-# This exists because of a real failure: the differential check redirected its
-# output to a file, which made it a build target, and the build system caches
-# targets — so it stopped running and everything stayed green. A suite that
-# quietly stops running is worse than one that fails, because nothing says so.
+# From a real failure: the differential check redirected its output to a file,
+# which made it a build target, and the build system caches targets — so it
+# stopped running and everything stayed green. A suite that quietly stops
+# running is worse than one that fails, because nothing says so.
 #
 # Grepping the output for each suite's own report line is crude and catches
 # exactly that: if a suite did not run, its line is absent.
@@ -18,8 +18,7 @@ cd "$root"
 #
 # Match on something the suite says about ITSELF, never on how many checks it
 # contains. A pattern like "^58 checks" makes adding a test indistinguishable
-# from a suite that stopped running, which is the exact failure this script
-# exists to catch.
+# from a suite that stopped running.
 suites=(
   "native vectors|all vectors reproduce"
   "js_of_ocaml bundle|js_of_ocaml bundle: [0-9]+ checks"
@@ -59,8 +58,8 @@ for entry in "${suites[@]}"; do
   fi
 done
 
-# A suite reporting failures is caught by dune's exit status; this only adds
-# the case dune cannot see, which is a suite that produced no output at all.
+# A suite reporting failures is caught by dune's exit status. This adds the
+# case dune cannot see: a suite that produced no output at all.
 if [ "$missing" -gt 0 ]; then
   echo
   echo "error: $missing suite(s) produced no output — they did not run." >&2

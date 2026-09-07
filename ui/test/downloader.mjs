@@ -7,9 +7,8 @@
    region drawn as one that never started, four sentences that reach a French
    user in English, and one class list pasted five times.
 
-   None of them is a type error and none throws. They are decisions written in
-   the source, so the source is what is read -- the same shape as
-   night-flavor.mjs and icons.mjs. */
+   None is a type error and none throws. They are decisions written in the
+   source, so the source is what is read. */
 
 import { readdirSync, readFileSync } from "node:fs";
 
@@ -32,9 +31,8 @@ const client = read("core/basemap.ts");
 const panel = read("components/AddressPanel.tsx");
 const mapView = read("components/MapView.tsx");
 
-/* The body of a named function declaration, to the line that closes it at
-   column zero. Enough to scope a check to one component without pretending
-   to parse TypeScript. */
+/* The body of a named function declaration, to the line closing it at column
+   zero. Enough to scope a check to one component without parsing TypeScript. */
 const body = (source, name) => {
   const at = source.indexOf(`function ${name}(`);
   if (at < 0) return null;
@@ -44,12 +42,11 @@ const body = (source, name) => {
 
 /* --------------------------------------------------- nothing to download */
 
-/* A covered estimate used to turn the confirm button into "Keep track of
-   this map", from when the server could RECORD an area it already held
-   without fetching anything. Server-side adoption is gone: a covered area
-   writes nothing and the job fails with "you already have the maps for that
-   area", so every press produced a Failed job and an error toast from a
-   button the card itself had offered. */
+/* A covered estimate used to turn the confirm button into "Keep track of this
+   map", from when the server could record an area it already held. That is
+   gone: a covered area writes nothing and the job fails with "you already
+   have the maps for that area", so every press produced a failed job and an
+   error toast from a button the card itself had offered. */
 const offer = body(card, "Offer");
 check("the offer is found", offer !== null);
 check(
@@ -68,9 +65,8 @@ check(
   "an estimate with nothing to write shows a state instead of a button",
   /nothingToWrite/.test(offer ?? ""),
 );
-/* And the button that remains is not merely disabled on the covered case:
-   the whole action row goes, so there is nothing to press and nothing that
-   looks pressable. */
+/* Not merely disabled on the covered case: the whole action row goes, so
+   there is nothing to press and nothing that looks pressable. */
 check(
   "the action row is conditional on there being something to fetch",
   /\{!nothingToWrite && \(/.test(offer ?? ""),
@@ -79,11 +75,10 @@ check(
 /* ----------------------------------------------------- naming the regions */
 
 /* Labels used to travel as a top-level array parallel to the regions -- a
-   shape that can be one element short or one out of order and still be
-   accepted. The "download this view" offer, which is the most common
-   download there is, sent a ledger name and no array at all, so the progress
-   panel read "Unnamed area" for the several minutes the user watched it
-   while the ledger row said "London". */
+   shape that can be one short or one out of order and still be accepted. The
+   "download this view" offer, the most common download there is, sent a
+   ledger name and no array, so the progress panel read "Unnamed area" for the
+   several minutes the user watched it while the ledger row said "London". */
 const download = /useBasemapDownload\(\)[\s\S]*?\n\}/.exec(client)?.[0] ?? "";
 check("the download mutation is found", download !== "");
 check(
@@ -94,7 +89,7 @@ check(
   "a region carries its own label",
   /LabelledRegion/.test(client) && /label\?:\s*string/.test(client),
 );
-/* Every offer names its regions: the picker through its per-pick names, the
+/* Every offer names its regions: the picker through its per-pick names; the
    world and the current view through the single label they have. */
 const offers = [...card.matchAll(/<Offer\b[\s\S]*?\/>/g)].map((m) => m[0]);
 check(`every offer is found (${offers.length})`, offers.length === 4);
@@ -109,12 +104,11 @@ offers.forEach((call, i) => {
 
 /* ------------------------------------------------ the import success toast */
 
-/* The server answers the merge POST as soon as it has forked the job, and
-   the merge itself runs for minutes and can fail. Announcing success there
-   showed "Those maps were added" and then contradicted it with a failure
-   toast about the same operation. The ending is reported from the status
-   poll, which is watched from the map so a user who closed the card still
-   hears it. */
+/* The server answers the merge POST as soon as it has forked the job, and the
+   merge runs for minutes and can fail. Announcing success there showed "Those
+   maps were added" and then contradicted it with a failure toast about the
+   same operation. The ending is reported from the status poll, which the map
+   watches, so a user who closed the card still hears it. */
 const importer = body(card, "ImportFromFile");
 check("the import control is found", importer !== null);
 check(
@@ -128,12 +122,12 @@ check(
 
 /* --------------------------------------------------- the staleness nudge */
 
-/* "Update available" has to point at an Update button. Both verbs are gated
-   on `partOfBaseMap` -- an entry with no archive of its own, which the server
-   refuses the id of -- and the nudge was gated on `overview` alone. A legacy
-   merged entry records completed = 0, so its age is unknown, so it is stale
-   on any threshold: a permanent accent mark beside no verbs at all, with the
-   global "Never" setting as the only escape, and that silences every row. */
+/* "Update available" has to point at an Update button. Both verbs are gated on
+   `partOfBaseMap` -- an entry with no archive of its own, whose id the server
+   refuses -- and the nudge was gated on `overview` alone. A legacy merged
+   entry records completed = 0, so its age is unknown and it is stale on any
+   threshold: a permanent accent mark beside no verbs at all, escapable only
+   through the global "Never" setting, which silences every row. */
 const stale = /const stale = ([\s\S]*?);\n/.exec(card)?.[1] ?? "";
 check("the staleness rule is found", stale !== "");
 check(
@@ -145,11 +139,11 @@ check(
 
 /* ------------------------------------------------ a region already on disk */
 
-/* A region resumed with every tile already present accrues no fresh bytes,
-   so its total is zero. Requiring `total_bytes > 0` before calling it Done
-   left it reading "0 MB / 0 MB" at 0% for the life of the job -- which reads
-   as a region that never started rather than one finished before it began.
-   Cancel a two-country download after the first lands, then restart. */
+/* A region resumed with every tile already present fetches no fresh bytes, so
+   its total is zero. Requiring `total_bytes > 0` before calling it Done left
+   it reading "0 MB / 0 MB" at 0% for the life of the job -- which reads as a
+   region that never started. To reproduce: cancel a two-country download
+   after the first lands, then restart. */
 const hint = /hint=\{([\s\S]*?)\}\n/.exec(progress)?.[1] ?? "";
 check("the row hint is found", hint !== "");
 check(
@@ -165,8 +159,8 @@ check(
 
 /* The four upload failures reach a toast verbatim through the card's error
    handler. They were English literals, so someone working in French who
-   unplugged mid-upload got an English sentence while every other string in
-   the application was translated. */
+   unplugged mid-upload got an English sentence while every other string was
+   translated. */
 const upload = /useUploadImport\(\)[\s\S]*?\n\}/.exec(client)?.[0] ?? "";
 check("the upload is found", upload !== "");
 check(
@@ -179,9 +173,9 @@ check(
 );
 
 /* One fact, one source. The visible byte readout under each bar was a
-   hardcoded template while the bar's own aria-label spent a message for the
-   same numbers -- so the words on screen were unreachable by a translator
-   and the two could drift. */
+   hardcoded template while the bar's aria-label spent a message for the same
+   numbers -- so the words on screen were unreachable by a translator, and the
+   two could drift. */
 check(
   "the visible byte readout is a message, not a template",
   /m\.map_progress_bytes/.test(progress)
@@ -191,9 +185,8 @@ check(
 /* ------------------------------------------------------- one look, one home */
 
 /* The section label was twenty-eight characters of Tailwind pasted five
-   times, and the ledger row's shell was duplicated between the two
-   renderers that draw it -- so the carefully commented wrap fix on one of
-   them would silently not apply to the other. */
+   times, and the ledger row's shell was duplicated between the two renderers
+   that draw it -- so the wrap fix on one would not apply to the other. */
 const css = read("styles.css");
 const shared = ["region-group", "ledger-row", "ledger-row-text", "ledger-name"];
 for (const name of shared) {
@@ -209,11 +202,11 @@ for (const name of shared) {
 
 /* ------------------------------------------------ who holds the status poll */
 
-/* The job poll ticks once a second for the life of a download. The panel
-   held it solely to pass the answer to the card, so the address, the
-   coordinates and the footer re-rendered every second for the whole of an
-   hour-long download, card closed or open. The card asks for itself; the map
-   and the progress section keep the poll alive meanwhile. */
+/* The job poll ticks once a second for the life of a download. The panel held
+   it only to pass the answer to the card, so the address, the coordinates and
+   the footer re-rendered every second for the whole of an hour-long download,
+   card open or shut. The card asks for itself; the map and the progress
+   section keep the poll alive meanwhile. */
 check(
   "the panel does not hold the poll on the card's behalf",
   !/useBasemapStatus/.test(panel),
@@ -222,14 +215,13 @@ check(
   "the card subscribes for itself",
   /useBasemapStatus\(\{\s*follow:\s*true\s*\}\)/.test(card),
 );
-/* And subscribes as a FOLLOWER, which is not a detail. The poll stops
-   whenever nothing is running, so a job that started and ended without the
-   map asking again leaves its ending sitting undelivered. A plain observer
-   mounting fetches it right then, and the ending arrives as fresh news --
-   to the watcher that closes the card on a job's ending. Opening the card
-   mounted the observer, delivered the old ending, and shut the card again:
-   one press, nothing on screen, nothing in the console. The end-to-end
-   suite caught it as a click that did nothing. */
+/* And as a FOLLOWER. The poll stops whenever nothing is running, so a job
+   that started and ended without the map asking again leaves its ending
+   undelivered. A plain observer mounting fetches it right then, and the
+   ending arrives as fresh news -- to the watcher that closes the card when a
+   job ends. Opening the card mounted the observer, delivered the stale
+   ending, and shut the card again: one press, nothing on screen, nothing in
+   the console. The end-to-end suite caught it as a click that did nothing. */
 check(
   "as a follower, so opening it cannot re-deliver a finished job's ending",
   /refetchOnMount:\s*!follow/.test(client),

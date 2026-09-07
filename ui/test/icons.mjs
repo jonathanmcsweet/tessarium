@@ -1,21 +1,17 @@
 /* Where a glyph is allowed to come from.
 
-   Icons come from one set, so that a tick means the same thing everywhere and
-   two dismiss controls on screen at once are the same shape. Hand-drawing one
-   breaks that quietly: an SVG path with the wrong stroke width sits next to
-   lucide's at a slightly different weight, and nothing fails -- it just looks
-   like two applications.
+   Icons come from one set, so a tick means the same thing everywhere. Drawing
+   one by hand breaks that quietly: an SVG path with the wrong stroke width
+   sits next to lucide's at a slightly different weight, nothing fails, and
+   the screen looks like two applications.
 
-   That is not hypothetical. The toast's dismiss control shipped as a
-   hand-written cross while the banner beside it used the set's, and every
-   test passed: the suite could see that a dismiss control existed, that it
-   was labelled, that it worked, and that its colours held contrast. None of
-   those is the question "is it the same X as the other X".
+   That happened. The toast's dismiss control shipped as a hand-written cross
+   while the banner beside it used the set's, and every test passed: the suite
+   could see the control existed, was labelled, worked, and held contrast.
+   None of those asks "is it the same shape as the other one".
 
-   So the source is read instead. A raw <svg> is not banned outright -- there
-   is one shape the icon set has no business supplying -- but each one has to
-   be named here with its reason, which turns "I drew a glyph" into an edit
-   somebody has to justify rather than an omission nobody sees. */
+   So the source is read. A raw <svg> is allowed, but each file that draws one
+   must be listed below with its reason. */
 
 import { sourceFiles } from "./source.mjs";
 
@@ -29,12 +25,10 @@ const check = (name, ok) => {
   }
 };
 
-/* The shapes that are not icons, and why the icon set cannot supply them.
+/* The shapes that are not icons, and why the set cannot supply them.
 
-   A tooltip's arrow is geometry, not iconography: React Aria positions an
-   OverlayArrow and leaves the shape to the caller, so the triangle that
-   points at the button is part of the tooltip's construction. No icon set
-   ships it, because it is not an icon. */
+   A tooltip's arrow is geometry, not iconography: React Aria positions the
+   OverlayArrow and leaves the shape to the caller. No icon set ships one. */
 const allowed = new Map([
   [
     "components/IconButton.tsx",
@@ -46,8 +40,8 @@ const files = sourceFiles(new URL("../src/", import.meta.url));
 
 check("there is source to read", files.length > 0);
 
-/* The set is in use at all -- if this ever went to zero the rule below would
-   pass by drawing nothing. */
+/* The set is in use at all. At zero, the rule below would pass by drawing
+   nothing. */
 const usesSet = files.filter((f) => /from "lucide-react"/.test(f.text));
 check("icons come from the shared set", usesSet.length > 0);
 
@@ -60,8 +54,8 @@ for (const f of drawn.map((f) => f.path).sort()) {
   );
 }
 
-/* And the other way: an exception that stopped being one should not stay on
-   the list, or the list becomes a place where rules go to be forgotten. */
+/* And the other way: an exception that stopped being one must leave the
+   list, or the list becomes where rules go to be forgotten. */
 for (const path of [...allowed.keys()].sort()) {
   check(
     `${path} is still listed as drawing its own shape`,

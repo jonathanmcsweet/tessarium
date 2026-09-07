@@ -4,16 +4,15 @@
 #   tools/fetch-fstar.sh 2026.08.09              # into $HOME/toolchain
 #   tools/fetch-fstar.sh 2026.08.09 /opt/tc      # or wherever
 #
-# One rule, in one place. It used to be four: three byte-identical blocks in
+# One rule, in one place. It used to be four: three identical blocks in
 # .github/workflows/ci.yml and a fourth in tools/setup.sh, each spelling out
-# the same download, the same unpack and the same normalisation with slightly
-# different paths. The cost is not hypothetical -- the `mv fstar*` glob below
-# had to be fixed in three of them in lockstep, and the copy that missed a fix
-# would install a broken toolchain, or silently re-cache a quarter of a
-# gigabyte, without anything saying so.
+# the same download, unpack and normalisation with slightly different paths.
+# The `mv fstar*` glob below had to be fixed in three of them in lockstep, and
+# a copy that missed the fix installed a broken toolchain, or silently
+# re-cached a quarter of a gigabyte, without saying so.
 #
 # The caller decides WHEN to run this: CI on a cache miss, tools/setup.sh when
-# fstar.exe is not already on PATH. This one only knows how.
+# fstar.exe is not already on PATH. This only knows how.
 
 set -euo pipefail
 
@@ -38,9 +37,9 @@ rm -f "$toolchain/fstar.tar.gz"
 
 # The tarball's top directory has been both a versioned name and a bare
 # `fstar`, and `mv fstar* fstar` only survives the first: once the archive
-# unpacks to `fstar` the glob also catches the tarball and mv is asked to move
-# a directory into itself. Normalise whichever arrived instead, which is a
-# no-op for the bare one -- so PATH is $toolchain/fstar/bin either way.
+# unpacks to `fstar`, the glob also catches the tarball and mv is asked to move
+# a directory into itself. Normalise whichever arrived instead -- a no-op for
+# the bare one -- so PATH is $toolchain/fstar/bin either way.
 find "$toolchain" -maxdepth 1 -type d -name 'fstar*' ! -name fstar \
   -exec mv {} "$toolchain/fstar" \;
 

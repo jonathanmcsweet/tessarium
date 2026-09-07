@@ -1,19 +1,15 @@
 /* Copy, with the answer on the button.
 
-   A toast said "copied" from the top of the screen, which is a long way from
-   the thing that was copied and disappears on its own. A tick in place of the
-   icon is the pattern people already know from GitHub and everywhere else: it
-   appears where the press happened, and it says the clipboard actually took
-   it rather than that the attempt was made.
+   A toast said "copied" from the top of the screen, a long way from the
+   thing that was copied. A tick in place of the icon appears where the press
+   happened, and says the clipboard actually took it.
 
    The label changes with the icon, so a screen reader hears the confirmation
-   too -- an icon swap on its own would announce nothing. Failure keeps the
-   toast: it needs to say what to do instead, which is more than a button can
-   hold.
+   too. Failure keeps the toast: it has to say what to do instead, which is
+   more than a button can hold.
 
-   The timer is cleared on unmount. Locking the map removes this button while
-   the tick is up, and a setState on a gone component is a warning in the
-   console and a leak in principle. */
+   The timer is cleared on unmount, because locking the map removes this
+   button while the tick is up. */
 
 import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";

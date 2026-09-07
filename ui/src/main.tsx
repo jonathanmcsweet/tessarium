@@ -25,10 +25,9 @@ createRoot(root).render(
     <QueryClientProvider client={queryClient}>
       {
         /* No tooltip provider. Radix needed one at the root to share its
-          open/close delay between triggers; React Aria does that grouping
-          inside TooltipTrigger, so the tree is one level shallower and the
-          delay lives next to the component that uses it -- see
-          components/IconButton.tsx. */
+          open/close delay between triggers; React Aria groups that inside
+          TooltipTrigger, so the delay lives next to the component that uses
+          it -- see components/IconButton.tsx. */
       }
       <App />
       {

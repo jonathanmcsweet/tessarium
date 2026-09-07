@@ -1,20 +1,16 @@
 /* The shared dropdown.
 
-   This was two native `<select>` elements, and the comment on one of them
-   argued the platform primitive was the right answer: keyboard-operable,
-   screen-reader announced and touch-friendly everywhere without a line of
-   behaviour code, and better than a hand-rolled listbox would be. That
-   argument was correct and it was about HAND-ROLLING. It stops applying once
-   the project has a vetted library for exactly this, which it does since the
-   search box moved to React Aria -- so what is left is the reason to change:
-   a native select is drawn by the operating system, and it is the one control
-   in the application that does not look like the application.
+   This was two native `<select>` elements. The old argument for them was
+   that the platform primitive beats a HAND-ROLLED listbox, which is true and
+   stopped applying once the project took a vetted library for exactly this
+   (React Aria, arriving with the search box). What is left is the reason to
+   change: a native select is drawn by the operating system, and it was the
+   one control that did not look like the application.
 
-   What is given up, and it is not nothing: on a phone, a native select opens
-   the platform's own picker, which some people know better than any custom
-   popover. React Aria's Select is built for touch and this is a considered
-   trade rather than an oversight -- if it turns out to matter, the thing to
-   restore is the native element on coarse pointers, not a second listbox. */
+   What is given up: on a phone a native select opens the platform's own
+   picker, which some people know better than any custom popover. If that
+   turns out to matter, restore the native element on coarse pointers rather
+   than adding a second listbox. */
 
 import { ChevronDown } from "lucide-react";
 import {
@@ -27,8 +23,8 @@ import {
   SelectValue,
 } from "react-aria-components";
 
-/* The closed control. 44px so it is a comfortable touch target rather than
-   the 22px system control it replaced. */
+/* The closed control. 44px, a comfortable touch target, against the 22px
+   system control it replaced. */
 const TRIGGER =
   "dropdown-button focus-ring flex min-h-11 max-w-full flex-1 cursor-pointer "
   + "items-center justify-between gap-2 border border-line-strong "
@@ -36,9 +32,9 @@ const TRIGGER =
   + "disabled:cursor-default disabled:opacity-55";
 
 type Props<T extends string> = {
-  /* Always present. `labelHidden` decides whether it is drawn, never
-     whether it exists -- a dropdown with no accessible name is unusable
-     and there is no way to build one with this. */
+  /* Always present. `labelHidden` decides whether it is DRAWN, never
+     whether it exists: a dropdown with no accessible name is unusable, and
+     there is no way to build one with this. */
   label: string;
   labelHidden?: boolean;
   value: T;
@@ -78,7 +74,7 @@ export function Dropdown<T extends string>({
         />
       </Button>
       {
-        /* Sized to the control it hangs from, which is the variable React
+        /* Sized to the control it hangs from, through the variable React
           Aria sets on a popover for exactly this. */
       }
       <Popover className="dropdown-popover sheet w-(--trigger-width) min-w-fit">
@@ -88,8 +84,8 @@ export function Dropdown<T extends string>({
               key={option.value}
               id={option.value}
               /* Written out rather than relying on the library's own key
-                 attribute: this is what the end-to-end suite picks options
-                 by, and a selector should not depend on an internal. */
+                 attribute: the end-to-end suite picks options by this, and a
+                 selector should not depend on a library internal. */
               data-value={option.value}
               className="dropdown-option sheet-option selected:font-semibold"
             >

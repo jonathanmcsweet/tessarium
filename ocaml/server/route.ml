@@ -1,9 +1,8 @@
 (* Request target -> what to do about it. Pure, so the routing table is
-   testable without binding a socket.
+   testable without a socket.
 
-   The effectful layer resolves [Asset] and [Basemap] against the filesystem;
-   this module only decides which root a target belongs to and whether the
-   segments are safe to open. *)
+   This module picks which root a target belongs to and whether its segments
+   are safe to open. The effectful layer does the opening. *)
 
 type t =
   | Health
@@ -12,29 +11,26 @@ type t =
   | Tile of { z : int; x : int; y : int }
       (** one vector tile, looked up across the tile archives *)
   | Tile_json of { floor : bool }
-      (** the source metadata MapLibre needs -- zoom range and bounds,
-          derived from the archive headers. Two of them: the detail the user
-          downloaded, and the floor underneath it, which is cut shallow so
-          that it is never asked for a tile it has not got *)
+      (** the source metadata MapLibre needs -- zoom range and bounds, read
+          from the archive headers. Two of them: the detail the user
+          downloaded, and the shallow floor underneath it, cut so it is
+          never asked for a tile it does not have *)
   | Api of string  (** the API sub-path, e.g. "session" *)
   | Import
-      (** a map file being uploaded to be merged in. Its own route rather
-          than an [Api] endpoint because the body is gigabytes of tiles
-          streamed to disk, and every /api/ body is read whole into memory
-          under a 4 MiB bound -- which is the right bound for every other
-          endpoint and the wrong one for exactly this. *)
+      (** a map file uploaded to be merged in. Not an [Api] endpoint: the
+          body is gigabytes of tiles streamed to disk, and every /api/ body
+          is read into memory under a 4 MiB bound *)
   | Not_found
   | Method_not_allowed
 
-(* Under the mount prefix [p], the remaining segments, if the target is under
-   it at all. *)
 let strip_prefix p segments =
   match segments with
   | first :: rest when String.equal first p -> Some rest
   | _ -> None
 
-(* /tiles/{z}/{x}/{y}.mvt. Strict: leading zeros, signs and out-of-grid
-   coordinates are Not_found, so every accepted tile names exactly one id. *)
+(* /tiles/{z}/{x}/{y}.mvt. Strict on purpose: leading zeros, signs and
+   coordinates off the grid are Not_found, so an accepted path names exactly
+   one tile id. *)
 let tile_route segments =
   let plain_int s =
     if s = "" || (String.length s > 1 && s.[0] = '0') then None
@@ -91,15 +87,14 @@ let of_request ~meth ~target =
                       if readable then Asset segments
                       else Method_not_allowed)))))
 
-(* The basemap endpoints are part of the UI, not the opt-in encode/decode API:
-   they carry a bounding box and no key material, so they stay reachable when
-   --api is off. Decided here so the gate in the effectful layer is one
-   pattern match away from this comment. *)
+(* The basemap endpoints belong to the UI, not to the opt-in encode/decode
+   API: they carry a bounding box and no key material, so they stay reachable
+   with --api off. *)
 let is_basemap_api endpoint = String.starts_with ~prefix:"basemap-" endpoint
 
-(* A path with no extension is a client-side route -- the UI is a single-page
-   app, so `/about` must return index.html rather than 404, or a reload of any
-   deep link breaks. A missing `.js` is a genuine 404 and must stay one. *)
+(* A path with no extension is a client-side route. The UI is a single-page
+   app, so `/about` must return index.html or reloading a deep link breaks. A
+   missing `.js` is a real 404 and stays one. *)
 let is_spa_fallback segments =
   match List.rev segments with
   | [] -> true

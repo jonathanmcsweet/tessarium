@@ -2,15 +2,15 @@
 # Bring the whole stack up for development, and take it back down together.
 #
 # `pnpm run dev` inside ui/ starts Vite alone, which is not enough to use the
-# app: Vite proxies /api, /basemap, /healthz and both wasm modules to the
-# OCaml server, because the wasm is embedded in that binary rather than
-# sitting in public/. Without the server the gate renders, the phrase
-# validates, and opening the map fails -- the key cannot be derived because
-# the KDF module 502s. This starts both halves and stops both.
+# app: Vite proxies /api, /basemap, /healthz and both wasm modules to the OCaml
+# server, because the wasm is embedded in that binary rather than sitting in
+# public/. Without the server the gate renders and the phrase validates, but
+# opening the map fails -- the KDF module 502s, so no key is derived. This
+# starts both halves and stops both.
 #
-# The UI is served by Vite here, not from ocaml/server/ui_dist, so edits
-# reload. `make run` is the other shape: one binary serving the built UI,
-# which is what ships.
+# Vite serves the UI here, not ocaml/server/ui_dist, so edits reload.
+# `make run` is the other shape: one binary serving the built UI, which is what
+# ships.
 
 set -euo pipefail
 
@@ -20,9 +20,9 @@ cd "$root"
 port="${PORT:-7373}"
 ui_port="${TESSARIUM_UI_PORT:-7380}"
 
-# Neither toolchain is on PATH by default -- see `make env`. Applying them
-# here is what lets this run from a shell that has not sourced it, which is
-# the shell most people already have open.
+# Neither toolchain is on PATH by default -- see `make env`. Applying them here
+# lets this run from a shell that has not sourced it, which is the shell most
+# people already have open.
 if ! command -v dune >/dev/null 2>&1 && command -v opam >/dev/null 2>&1; then
   eval "$(opam env --switch=tessarium)" || true
 fi
@@ -41,28 +41,28 @@ done
 
 # The .deb, .rpm and AppImage all ship a world overview, so a fresh install
 # opens on a map. A repo checkout ships none -- basemap/ is not in git -- so
-# `make dev` greeted you with blank grid and "No basemap found", which is the
-# first thing a new contributor sees and the one state the packages never
-# have. Fetch the same overview packaging fetches, once: zoom 4, ~6 MB,
-# countries and coastlines. Regions on top of it stay a deliberate choice.
+# `make dev` used to greet a new contributor with a blank grid and "No basemap
+# found", the one state the packages are never in. Fetch the same overview
+# packaging fetches, once: zoom 4, ~6 MB, countries and coastlines. Regions on
+# top of it stay a deliberate choice.
 #
 # TESSARIUM_NO_BASEMAP=1 skips it -- for working offline, or for testing the
 # empty state on purpose.
 #
-# Through `make basemap`, which `make run` depends on as well: one recipe for
-# when the map is fetched, when it is skipped, and what a failed or
+# Through `make basemap`, which `make run` also depends on, so one recipe
+# decides when the map is fetched, when it is skipped, and what a failed or
 # half-finished fetch means. This was a second copy of that rule written by
-# hand, and the two had already drifted -- only this one honoured the
-# environment variable or survived a failed download, so `make run` refused to
-# start at all on a machine with no network.
+# hand, and the two had drifted: only this one honoured the environment
+# variable or survived a failed download, so `make run` refused to start at all
+# on a machine with no network.
 make basemap
 
 up() { curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:$1/healthz" 2>/dev/null; }
 
 server_pid=""
 # Kill only what this script started, by pid. Never by pattern: `pkill -f`
-# matches the pattern against its own command line as readily as the
-# server's, which is a good way to kill the wrong thing.
+# matches its own command line as readily as the server's, which is a good way
+# to kill the wrong process.
 cleanup() {
   if [ -n "$server_pid" ] && kill -0 "$server_pid" 2>/dev/null; then
     echo "dev: stopping the server on $port"
@@ -94,7 +94,7 @@ fi
 
 echo "dev: starting Vite on $ui_port -- http://localhost:$ui_port"
 cd ui
-# dev:ui, not dev: ui/'s `dev` is this script, so that `pnpm run dev` brings
-# the stack up from whichever directory someone is standing in. Calling it
-# here would recurse.
+# dev:ui, not dev: ui/'s `dev` is this script, so `pnpm run dev` brings the
+# stack up from whichever directory someone is standing in. Calling `dev` here
+# would recurse.
 TESSARIUM_UI_PORT="$ui_port" TESSARIUM_SERVER="http://127.0.0.1:$port" pnpm run dev:ui

@@ -1,13 +1,11 @@
 (* What a tile lookup will search, now that it is a directory rather than
-   three names.
+   three fixed names.
 
-   Two things here can lose a tile that is really on disk, and losing tiles
-   silently is the failure this whole layout exists to avoid. One is the
-   ordering: an older copy of a region must not answer ahead of a newer one.
-   The other is [may_hold], which decides not to open a file at all -- a
-   false "no" there draws a hole in the map that nothing else in the system
-   would notice. So both are driven against real files on a real
-   filesystem. *)
+   Two things here can lose a tile that is really on disk. The ordering: an
+   older copy of a region must not answer ahead of a newer one. And
+   [may_hold], which decides not to open a file at all -- a wrong "no" leaves
+   a hole in the map nothing else would report. Both run against real files on
+   a real filesystem. *)
 
 module Tile_set = Tessarium_server.Tile_set
 
@@ -21,10 +19,9 @@ let check name ok =
     Printf.printf "  FAIL  %s\n" name
   end
 
-(* An archive holding exactly [ids], with the bounds and zoom range it
-   claims in its header -- which is what [may_hold] reads and therefore the
-   only part of it these tests care about. Every id points at the same byte:
-   nothing here reads a tile body. *)
+(* An archive holding exactly [ids], with the bounds and zoom range its header
+   claims. [may_hold] reads only the header, so that is all these tests care
+   about; every id points at the same byte. *)
 let archive_of ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ids =
   Pmtiles.Build.archive ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
     ~max_lat
@@ -51,9 +48,8 @@ let () =
   let write name content =
     Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / name) content
   in
-  (* mtime, not wall-clock order, is what the sort reads -- and a test that
-     wrote three files in a row would be at the mercy of the filesystem's
-     timestamp resolution. Set them explicitly. *)
+  (* The sort reads mtime. Writing three files in a row would leave the order
+     up to the filesystem's timestamp resolution, so set mtimes by hand. *)
   let touch name secs =
     Unix.utimes (Filename.concat dir_name name) secs secs
   in
@@ -68,8 +64,8 @@ let () =
   write Tile_set.base_file ga;
   write "Georgia-2026-01-02-aaaaaa.pmtiles" ga;
   write "London-2026-01-03-bbbbbb.pmtiles" uk;
-  (* Not archives, and not to be listed as ones: a download in flight and
-     the file the exporter is writing. *)
+  (* Neither belongs in the list: a download still in flight, and a stray
+     file. *)
   write "Georgia-2026-02-01-cccccc.pmtiles.part" ga;
   write "notes.txt" "hello";
   touch "Georgia-2026-01-02-aaaaaa.pmtiles" 1_000_000.;
@@ -91,8 +87,8 @@ let () =
     (not (List.mem "notes.txt" names));
   check "nothing else is in the list" (List.length names = 5);
 
-  (* A region downloaded again is a newer file, and it must answer ahead of
-     the copy it supersedes -- otherwise last year's tiles win forever. *)
+  (* A region downloaded again is a newer file and must answer ahead of the
+     copy it supersedes, or last year's tiles win forever. *)
   touch "Georgia-2026-01-02-aaaaaa.pmtiles" 3_000_000.;
   let names = Tile_set.names ~dir in
   check "a region touched later moves ahead of one touched earlier"
@@ -121,8 +117,8 @@ let () =
   check "a zoom deeper than the archive goes is not worth opening either"
     (not (inside ~z:14 ~lon:(-84.4) ~lat:33.7));
 
-  (* The direction that matters: a tile this archive really holds must never
-     be refused, or the map has a hole nothing else would report. *)
+  (* A tile the archive really holds must never be refused, or the map gets a
+     hole nothing else reports. *)
   let min_lon, min_lat, max_lon, max_lat = georgia in
   let corners =
     [
@@ -140,13 +136,11 @@ let () =
        (Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom:12 ~min_lon ~min_lat
           ~max_lon ~max_lat));
 
-  (* A file carried in from another tool, whose header understates its own
-     box. Ours cannot -- the extract derives its bounds from the same
-     projection [may_hold] reads them back with -- but a hand-carried file
-     was written by whatever wrote it, and an archive one tile tighter than
-     its own contents would draw a seam down the edge of every region. This
-     is what the tile of slack in [may_hold] is for, and it is the only
-     thing that shows it working. *)
+  (* A file from another tool whose header understates its own box. Our
+     extract cannot do that -- it derives bounds from the same projection
+     [may_hold] reads back -- but a hand-carried file might, and a header one
+     tile tighter than its contents would draw a seam down every region edge.
+     [may_hold] allows a tile of slack; this is the only test of it. *)
   let tight_z = 12 in
   let step = 360. /. float_of_int (1 lsl tight_z) in
   let h_tight, _ =
@@ -159,7 +153,6 @@ let () =
        ~x:(Pmtiles.Tile_id.tile_x ~z:tight_z ~lon:min_lon)
        ~y:(Pmtiles.Tile_id.tile_y ~z:tight_z ~lat:min_lat));
 
-  (* An archive that did not record where it is has not earned a "no". *)
   let h_blank, _ =
     archive_of ~min_zoom:0 ~max_zoom:12 ~min_lon:0. ~min_lat:0. ~max_lon:0.
       ~max_lat:0. []
@@ -169,12 +162,10 @@ let () =
 
   (* ---------------------------------------------------- stale headers *)
 
-  (* Headers are remembered so that a pan does not re-read a hundred of
-     them, and the downloader publishes by renaming a .part over the name it
-     is replacing. So the name can stay the same while the bytes underneath
-     it become a different region entirely. If the memory did not notice,
-     the map would keep answering from a header describing a file that is
-     gone. *)
+  (* Headers are cached so a pan does not re-read a hundred of them. The
+     downloader publishes by renaming a .part over the name it replaces, so
+     one name can end up holding a different region. A cache that missed that
+     would answer from a header for a file that is gone. *)
   let held name ~z ~lon ~lat =
     match
       List.find_opt
@@ -204,17 +195,16 @@ let () =
 
   (* ------------------------------------------------ files that will not open *)
 
-  (* A file that cannot be read is remembered as such, against the same stamp
-     a good one is remembered against.
+  (* A file that will not open is remembered as broken, in the same cache and
+     against the same file details as a good one.
 
-     Forgetting it instead -- which is what this did -- meant it was re-opened
-     and re-logged on EVERY tile request: at the pan rate this cache exists
-     for, hundreds of opens and hundreds of warning lines a second over a file
-     that is not going to start working. A truncated copy off a bad USB stick
-     is the case this module was written for, so it was the case that hurt.
+     It used to be forgotten instead, so it was re-opened and re-logged on
+     every single tile request -- hundreds of opens and warning lines a second
+     over a file that is never going to work. A half-copied archive off a bad
+     USB stick is exactly that case.
 
-     Observed through the count of remembered names, because the alternative
-     is counting log lines. *)
+     Counted through remembered names, because the only other way to see this
+     is to count log lines. *)
   let listed () = List.length (Tile_set.names ~dir) in
   let broken = "Broken-2026-01-01-eeeeee.pmtiles" in
   write broken "this is not a PMTiles archive";
@@ -226,19 +216,18 @@ let () =
           (Tile_set.entries ~dir)));
   check "but it is remembered, so it is not re-opened on the next tile"
     (Tile_set.remembered_count () = listed ());
-  (* And the memory is of THIS file, not of the name: replace the bytes with
-     something readable and it must start answering. *)
+  (* What is remembered is the file, not the name: put readable bytes there
+     and it has to start answering. *)
   write broken ga;
   check "and a file that starts working is picked up when it changes"
     (held broken ~z:12 ~lon:(-84.4) ~lat:33.7);
 
   (* ------------------------------------------------------------- eviction *)
 
-  (* Every removed, renamed or re-dated archive used to leave its header
-     behind for the life of the process: a user who keeps a region up to date
-     for a year accumulates an entry per download. The listing is the only
-     thing that knows what is really there, so that is where the forgetting
-     goes. *)
+  (* A removed, renamed or re-dated archive used to leave its header behind
+     for the life of the process -- one stale entry for every download a user
+     ever made. Only the directory listing knows what is actually there, so
+     that is where entries get dropped. *)
   Eio.Path.unlink Eio.Path.(dir / broken);
   Eio.Path.unlink Eio.Path.(dir / swap);
   check "a name that has left the directory stops being remembered"

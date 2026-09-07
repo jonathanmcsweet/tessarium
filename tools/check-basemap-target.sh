@@ -2,22 +2,21 @@
 # `make run` has to open the app on a machine with no network, and must never
 # mistake a half-finished download for a finished one.
 #
-# Both were real, and invisible to every other suite. `run` depended on the
+# Both were real bugs, invisible to every other suite. `run` depended on the
 # file target basemap/world.pmtiles, whose recipe was an unguarded
 # `tools/fetch-basemap.sh` under `set -euo pipefail`: an offline `make run`
 # aborted instead of opening on the documented empty map with its download
-# banner, which for offline-first software is exactly the wrong way round.
-# And because the fetcher writes the overview BEFORE the glyphs and sprites, a
-# fetch that died on the assets tarball left a file that satisfied that target
-# forever -- every later `make run` skipped the recipe and served a map whose
-# labels 404, drawing as unlabelled grey shapes with nothing saying why.
+# banner. And because the fetcher writes the overview BEFORE the glyphs and
+# sprites, a fetch that died on the assets tarball left a file that satisfied
+# that target forever -- every later `make run` skipped the recipe and served a
+# map whose labels 404, drawing as unlabelled grey shapes with nothing saying
+# why.
 #
-# So the target is exercised rather than described. A copy of the real
-# Makefile runs in a temporary directory against three stubs -- the fetcher,
-# `dune`, and the server binary -- which is what makes the failing cases
-# reachable at all: a check that needed a dead network to fail could only be
-# run by someone who already had one, and one that needed a real server would
-# be the browser suite over again.
+# So the target is exercised rather than described. A copy of the real Makefile
+# runs in a temporary directory against three stubs -- the fetcher, `dune`, and
+# the server binary. That is what makes the failing cases reachable: a check
+# that needed a dead network could only be run by someone who had one, and one
+# that needed a real server would be the browser suite over again.
 
 set -uo pipefail
 
@@ -27,7 +26,7 @@ cd "$root"
 checks=0
 failures=0
 # Every check is a name and a status, 0 for pass -- the shell's own convention,
-# so `check "..." "$?"` reads directly off the command above it.
+# so `check "..." "$?"` reads off the command above it.
 check() {
   checks=$((checks + 1))
   if [ "$2" != "0" ]; then
@@ -41,10 +40,10 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/tools" "$work/bin" "$work/_build/default/ocaml/server/bin"
 cp Makefile "$work/Makefile"
 
-# The fetcher, minus the network. It records every call, and writes what the
-# real one writes at the point STUB_MODE says it stops -- which is the whole
-# point: the overview lands before the assets do, so "the overview is here"
-# and "the map is usable" are not the same question.
+# The fetcher, minus the network. It records every call and writes what the
+# real one writes at the point STUB_MODE says it stops. The overview lands
+# before the assets, so "the overview is here" and "the map is usable" are two
+# different questions.
 cat > "$work/tools/fetch-basemap.sh" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -86,10 +85,10 @@ calls() { [ -f "$work/calls.log" ] && wc -l < "$work/calls.log" || echo 0; }
 started() { [ -f "$work/started.log" ]; }
 stamped() { [ -f "$work/basemap/.fetched" ]; }
 # The app, as a developer starts it. PATH carries the stub compiler; nothing
-# here reaches the network or a port. The make variables are dropped because
-# this runs from inside `make test-core`, and a nested make that inherits the
-# parent's jobserver warns, or inherits its --dry-run and silently does
-# nothing -- which would leave every check below passing on no evidence.
+# reaches the network or a port. The make variables are dropped because this
+# runs inside `make test-core`: a nested make that inherits the parent's
+# jobserver warns, or inherits its --dry-run and does nothing -- which would
+# leave every check below passing on no evidence.
 run() {
   PATH="$work/bin:$PATH" env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL \
     make -C "$work" run >"$work/out.txt" 2>&1
@@ -113,7 +112,7 @@ check "a failed fetch is retried on the next run" \
   "$([ "$(calls)" -gt "$before" ] && echo 0 || echo 1)"
 
 # 3. The overview arrives and the assets do not -- the case the old file
-#    target could not tell from success, because it only ever looked at the
+#    target could not tell from success, because it only looked at the
 #    overview.
 fresh
 STUB_MODE=assets-fail run
@@ -126,9 +125,9 @@ stamped
 [ "$?" -ne 0 ]
 check "but half a map is not recorded as a map" "$?"
 
-# 4. And the missing half is fetched next time, which is what the old target
-#    never did: the overview alone satisfied it forever, so the glyphs stayed
-#    missing for the life of the checkout.
+# 4. And the missing half is fetched next time. The old target never did: the
+#    overview alone satisfied it forever, so the glyphs stayed missing for the
+#    life of the checkout.
 before="$(calls)"
 STUB_MODE=ok run
 check "the missing half is fetched on a later run" \

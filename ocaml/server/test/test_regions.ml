@@ -1,16 +1,14 @@
 (* A download, end to end, against a source archive on disk.
 
-   The point under test is the layout: a region is downloaded to a file of
-   its own, that file carries its own record, and every operation on the
-   region afterwards -- listing it, handing it over, taking it away -- is an
-   operation on that one file. Everything here would have passed before the
-   split too, describing one growing map.pmtiles; what it pins down is that
-   the answers are the same now that there are several files.
+   Under test is the layout: a region downloads into a file of its own, that
+   file carries its own record, and listing, exporting or removing the region
+   acts on that one file. These checks would have passed before the split too,
+   describing one growing map.pmtiles; what they pin down is that the answers
+   are unchanged now that there are several files.
 
-   Driven through [run_download] rather than the HTTP endpoint because the
-   source can then be a path: [Pmtiles_source.open_url] takes a file as
-   readily as a URL, so this is a real download with real planning, real
-   merging and real renaming, and no socket. *)
+   Driven through [run_download] rather than the HTTP endpoint so the source
+   can be a path -- [Pmtiles_source.open_url] takes a file as readily as a
+   URL. Real planning, real merging, real renaming, no socket. *)
 
 module D = Tessarium_server.Basemap_download
 module Job = Tessarium_server.Basemap_job
@@ -59,8 +57,8 @@ let () =
        ~max_lon:180. ~max_lat:85. ());
 
   let t = D.create () in
-  (* Fixed, so the date in every file name below is this one and the test
-     does not change what it asserts at midnight. 2026-08-28. *)
+  (* Fixed clock, so the file names below carry this date and the assertions
+     do not change at midnight. 2026-08-28. *)
   let clock = ref 1787875200 in
   let now () = !clock in
   let download ?replaces ~name reqs =
@@ -113,9 +111,8 @@ let () =
     (not (List.exists (fun n -> Filename.check_suffix n ".part")
             (Eio.Path.read_dir dir)));
 
-  (* The record travels inside the file it describes, which is what makes
-     the file carryable: a machine handed only this file can say what it is
-     holding. *)
+  (* The record lives inside the file it describes, so a machine handed only
+     this file can say what it holds. *)
   let ledger_in name =
     Eio.Switch.run @@ fun sw ->
     let a =
@@ -157,8 +154,8 @@ let () =
   check "each pointing at its own file"
     (List.for_all (fun e -> str "file" e <> "") (entries ()));
 
-  (* Both are searched, and neither shadows the other. This is the property
-     the whole layout rests on: several files, one map. *)
+  (* Both files are searched and neither shadows the other: several files,
+     one map. *)
   let holds ~z ~lon ~lat =
     Eio.Switch.run @@ fun sw ->
     let x = Pmtiles.Tile_id.tile_x ~z ~lon and y = Pmtiles.Tile_id.tile_y ~z ~lat in
@@ -212,11 +209,10 @@ let () =
 
   (* ----------------------------------------------------------- carrying in *)
 
-  (* The other end of the trip: the file that was handed over lands on a
-     machine with no internet. It is already a region file -- one archive,
-     one record -- so importing it is putting it where the others are, and
-     the proof of that is that the bytes do not change. Anything that read
-     it tile by tile into a new archive would produce a different file. *)
+  (* The other end of the trip: the exported file lands on a machine with no
+     internet. It is already a region file -- one archive, one record -- so
+     importing it only moves it into place, and the bytes must come back
+     identical. Rebuilding it tile by tile would produce a different file. *)
   let carried_name = match listing () with f :: _ -> f | [] -> "" in
   let carried = Eio.Path.load Eio.Path.(dir / carried_name) in
   let away_dir = Filename.concat root "carried" in
@@ -251,10 +247,9 @@ let () =
 
   (* ------------------------------------------------- the map under the map *)
 
-  (* The world overview is not a download and must never be removable. It is
-     what draws everywhere a region has not been fetched, every package ships
-     one, and a user who deleted it on the machine with no internet could not
-     get it back -- which is the machine all of this is for.
+  (* The world overview is not a download and must never be removable. It
+     draws everywhere no region has been fetched, every package ships one, and
+     a user who deleted it on an offline machine could not get it back.
 
      Two locks, tested separately, because one of them is an absence and an
      absence is easy to delete by accident. *)
@@ -276,17 +271,15 @@ let () =
        (List.exists
           (fun (e : Tile_set.entry) -> e.Tile_set.name = Tile_set.world_file)
           (Tile_set.detail ~dir)));
-  (* It writes no record, and it is listed anyway, under an id of the
-     server's own making.
+  (* It writes no record, but it is listed anyway, under an id the server
+     makes up.
 
-     Invisibility used to be the whole defence: the overview appeared in no
-     list, so there was no row and no button. What that actually produced
-     was a panel that showed a three-megabyte box over London and nothing
-     about the forty-five megabytes the map is really standing on -- so the
-     box got read as the world map, and the button beside it as the button
-     that deletes it. The overview is listed now BECAUSE it must not be
-     removable: a user who can see it, sized, with no verb attached, can
-     see that it stays. *)
+     Hiding it used to be the defence: no row, so no button. What that
+     produced was a panel showing a three-megabyte box over London and nothing
+     about the forty-five megabytes the map is standing on -- so users read
+     that box as the world map, and the button beside it as the one that
+     deletes it. The overview is listed now because it must not be removable:
+     shown, sized, with no verb attached, it is visibly there to stay. *)
   let world_row () =
     List.find_opt (fun e -> bool "overview" e) (entries ())
   in
@@ -315,9 +308,9 @@ let () =
      | Some e -> field "completed" e = `Int 0
      | None -> false);
 
-  (* Being listed is what makes an id sayable, so each verb has to refuse it
-     by name rather than by never having heard of it. All three, because all
-     three take an id off the same list. *)
+  (* Listing the overview makes its id sayable, so each verb has to refuse
+     that id by name rather than by not recognising it. All three verbs take
+     an id off the same list. *)
   let says_overview () =
     let r = outcome () in
     let rec find i =
@@ -327,10 +320,9 @@ let () =
     state () = "failed" && find 0
   in
   D.run_remove t ~fs ~basemap_dir ~id:D.overview_id;
-  (* The reason, not just the refusal. Without a guard of its own this id
-     falls through to [home_of], which has never heard of it and says "no
-     such downloaded map" -- a sentence that is true of the record and false
-     of the row the user is looking at. *)
+  (* The reason matters, not just the refusal. With no guard of its own this
+     id falls through to [home_of], which says "no such downloaded map" --
+     true of the record, false of the row the user is looking at. *)
   check ("removing the overview by its listed id is refused as such: "
          ^ outcome ())
     (says_overview ());
@@ -348,10 +340,9 @@ let () =
      | Error _ -> true
      | Ok () -> false);
 
-  (* The second lock. An overview that CLAIMS to be a region -- a file
-     someone built by hand, or an export renamed on a USB stick -- must not
-     become removable by saying so. The record inside it is read by nothing
-     that removes, and the removal itself refuses the name outright. *)
+  (* Second lock. An overview claiming to be a region -- hand-built, or an
+     export renamed on a USB stick -- must not become removable by saying so.
+     Removal refuses the file name outright and reads no record inside it. *)
   let planted = Ledger.make ~name:"Pretending" ~completed:1 ~source:"nowhere"
       ~bytes:1
       ~regions:[ req ~min_lon:(-10.) ~min_lat:(-10.) ~max_lon:10. ~max_lat:10.
@@ -374,9 +365,9 @@ let () =
   check "and the overview is still there"
     (Eio.Path.is_file Eio.Path.(dir / Tile_set.world_file));
 
-  (* And removing everything that IS removable leaves it standing. Walking
-     the whole list, overview row included, because that is what a script
-     driving the API would do. *)
+  (* Removing everything that is removable leaves the overview standing.
+     Walks the whole list, overview row included, as a script driving the API
+     would. *)
   List.iter
     (fun e -> D.run_remove t ~fs ~basemap_dir ~id:(str "id" e))
     (entries ());
@@ -385,19 +376,17 @@ let () =
   check "and it is the only thing left in the list"
     (match entries () with [ e ] -> bool "overview" e | _ -> false);
 
-  (* The third lock, and the one an upgrade walks straight into.
+  (* Third lock, the one an upgrade walks straight into.
 
-     Installs from before the split have their overview INSIDE
-     map.pmtiles, recorded as an ordinary ledger entry, because that is what
-     downloading the world did then. Neither lock above sees it: the file is
-     the merged archive rather than the overview's own, and the entry is a
-     real record rather than a planted one. So the row shows up in the list
-     with a Remove button, under whatever the picker called it -- "Map view"
-     on the install that turned this up -- and pressing it prunes the tiles
-     the whole map falls back to.
+     Installs from before the split hold their overview inside map.pmtiles as
+     an ordinary ledger entry, because that is what downloading the world did
+     then. Neither lock above catches it: the file is the merged archive, not
+     the overview's own, and the entry is a real record, not a planted one. So
+     the row appeared with a Remove button, under whatever the picker called
+     it -- "Map view" on the install that turned this up -- and pressing it
+     pruned the tiles the whole map falls back to.
 
-     Judged by what the entry holds, not by its name, because the name says
-     nothing. *)
+     Judged by what the entry covers, since the name says nothing. *)
   let legacy =
     Ledger.make ~name:"Map view" ~completed:1 ~source:"nowhere" ~bytes:1
       ~regions:
@@ -438,23 +427,20 @@ let () =
   check "and the merged archive still holds its tiles"
     (Eio.Path.is_file Eio.Path.(dir / Tile_set.base_file));
 
-  (* The rule the three rounds of "it is still there" were actually about.
+  (* The rule the three locks above were really about.
 
-     [spans_world] judges what an entry HOLDS, and that is too clever for
-     what a person is looking at. The row they kept pointing to was a small
-     box over London called "Map view" -- not the overview by any reading of
-     its bounds -- and it sat in map.pmtiles offering Remove. Whether it was
-     the shipped map or a download that merged into it is not a distinction
-     the panel can draw and not one a user should have to.
+     [spans_world] judges what an entry covers, which is not enough. The row
+     users kept pointing at was a small box over London called "Map view" --
+     not the overview by any reading of its bounds -- sitting inside
+     map.pmtiles and offering Remove. Whether it is the shipped map or a
+     download that merged into it is not a distinction the panel can draw.
 
-     So the line is drawn by WHERE an entry lives, not what it covers.
-     map.pmtiles is the base archive: it is what fetch-basemap.sh writes,
-     what installs from before the split grew, and the file every merged
-     entry shares. Removing one entry from it rewrites or unlinks the file
-     the rest of the map is standing on. Nothing in it is removable from the
-     UI, whatever it covers and whatever it is called. Downloads made today
-     write their own file and are removable exactly as before -- that is
-     what having a file of your own means. *)
+     So the line is drawn by where an entry lives, not by what it covers.
+     map.pmtiles is the base archive: what fetch-basemap.sh writes, what
+     pre-split installs grew, and the file every merged entry shares. Removing
+     one entry from it rewrites or unlinks the file the rest of the map stands
+     on, so nothing in it is removable from the UI, whatever it covers or is
+     called. Downloads made today write their own file and stay removable. *)
   let sample =
     Ledger.make ~name:"Map view" ~completed:1 ~source:"nowhere" ~bytes:1
       ~regions:
@@ -484,13 +470,13 @@ let () =
   check ("removing it is refused: " ^ outcome ()) (state () = "failed");
   check "and the base archive still holds its tiles"
     (Eio.Path.is_file Eio.Path.(dir / Tile_set.base_file));
-  (* Carrying it away is not deleting it, and it is the only way a merged
-     entry ever reaches another machine. That stays. *)
+  (* Export is not deletion, and it is the only way a merged entry reaches
+     another machine, so it stays allowed. *)
   D.run_export t ~fs ~basemap_dir ~id:(Ledger.id sample);
   check ("exporting it still works: " ^ outcome ()) (state () = "exported");
-  (* Updating it is refused too, and not because updates are destructive:
-     one lands in a NEW file and leaves the merged row behind, so following
-     it would duplicate a row that nothing can then remove. *)
+  (* Update is refused too, and not because updates are destructive: an
+     update lands in a new file and leaves the merged row behind, duplicating
+     a row nothing can then remove. *)
   Eio.Switch.run (fun sw ->
       match
         D.start_update t ~sw ~fs ~net ~source ~assets:"" ~basemap_dir
@@ -504,11 +490,11 @@ let () =
     (List.length (listing ()) = 0);
   Eio.Path.unlink Eio.Path.(dir / Tile_set.base_file);
 
-  (* And the other half of the rule, which the end-to-end suite caught the
-     absence of: spanning the planet is NOT on its own disqualifying. A user
-     may ask for the whole world as DETAIL -- the scripted download in
-     ui/test/e2e.mjs does -- and that lands in a file of its own, sits beside
-     the overview rather than being it, and is theirs to take away again. *)
+  (* The other half of the rule, caught missing by the end-to-end suite:
+     spanning the planet is not on its own disqualifying. Asking for the whole
+     world as detail -- the scripted download in ui/test/e2e.mjs does -- lands
+     in a file of its own, sits beside the overview rather than being it, and
+     stays removable. *)
   D.run_download t ~fs ~net ~source ~assets:"" ~basemap_dir
     ~budget:D.default_budget ~name:(Some "The lot") ~now ~refresh:false
     ~replaces:None ~target:D.Detail
@@ -532,9 +518,9 @@ let () =
 
   (* ================================================ carrying maps by hand *)
 
-  (* Everything below drives the import side against its own directory: the
-     one above has a history, and these tests are about what a file arriving
-     on a stick does to a machine that has never seen it. *)
+  (* Everything below uses its own directory. The one above has a history,
+     and these tests are about a file arriving on a machine that has never
+     seen it. *)
 
   let fresh name =
     let d = Filename.concat root name in
@@ -606,11 +592,10 @@ let () =
   (* ----------------------------------------------- one upload at a time *)
 
   (* Two uploads at once used to open the same staged .part with Or_truncate
-     and both write from byte zero. Each counted only ITS bytes against ITS
-     Content-Length, so both length checks passed over a file that was neither
-     archive -- and that file was renamed to staged.pmtiles and merged as
-     tiles. The reads below yield between chunks, which is exactly what a
-     socket does. *)
+     and both write from byte zero. Each counted only its own bytes against
+     its own Content-Length, so both length checks passed over a file that was
+     neither archive -- and that file got renamed to staged.pmtiles and merged
+     as tiles. The reads below yield between chunks, like a socket does. *)
   let up_dir = fresh "uploads" in
   let payload_a =
     source_archive ~min_zoom:0 ~max_zoom:3 ~min_lon:(-85.6) ~min_lat:30.3
@@ -621,10 +606,9 @@ let () =
       ~max_lon:0.3 ~max_lat:51.7 ()
   in
   check "the two uploads are telling apart" (payload_a <> payload_b);
-  (* Two chunk sizes, so the writes do not land on the same boundaries: with
-     both reading the same amount at a time the later writer simply covered
-     the earlier one block for block and the damage was invisible. Sockets do
-     not agree on chunk sizes either. *)
+  (* Two chunk sizes, so the writes land on different boundaries. With equal
+     chunks the later writer covered the earlier one block for block and the
+     damage was invisible. Real sockets do not agree on chunk sizes either. *)
   let upload t ~chunk payload =
     let pos = ref 0 in
     let read buf =
@@ -659,9 +643,9 @@ let () =
      | Some b -> b = payload_a || b = payload_b
      | None -> false);
 
-  (* An upload must not land while a job holds the writer's seat either: the
-     import merge reads staged.pmtiles, and a rename over it mid-merge swaps
-     the file out from under the reader. *)
+  (* An upload must not land while a job holds the writer's seat: the import
+     merge reads staged.pmtiles, and a rename over it mid-merge swaps the file
+     out from under the reader. *)
   D.set tu (Job.Fetching { done_bytes = 0; total_bytes = 1; part = 1; parts = 1;
                            regions = [] });
   check "an upload arriving while a job runs is refused"
@@ -685,11 +669,11 @@ let () =
 
   (* ------------------------------------- an import keeps what it was given *)
 
-  (* Cancel a merge at 90%, or fill the disk, and the staged upload used to be
-     deleted anyway -- on the offline machine the two-step staging exists to
-     spare exactly that re-upload. Provoked here by importing the same archive
-     twice: the second time every region is already on disk, which is a
-     failure, and the file must still be there to try again with. *)
+  (* Cancel a merge at 90%, or fill the disk, and the staged upload used to
+     be deleted anyway -- forcing the re-upload that two-step staging exists
+     to spare. Provoked here by importing the same archive twice: the second
+     import fails because every region is already held, and the staged file
+     must still be there to retry with. *)
   let keep_dir = fresh "keeps-its-upload" in
   let georgia_entry =
     Ledger.make ~name:"Georgia" ~completed:1 ~source:"a planet build" ~bytes:1
@@ -725,10 +709,10 @@ let () =
 
   (* ------------------------------------ several records, several regions *)
 
-  (* Folding a multi-record archive into one entry took the name and source of
-     whichever record happened to be first, labelled every progress bar with
-     it, and wrote a single combined row: London's name, date and byte count
-     were gone for good, and the two could only be removed as one blob. *)
+  (* Folding a multi-record archive into one entry took the first record's
+     name and source, labelled every progress bar with it, and wrote one
+     combined row. London's name, date and byte count were lost for good, and
+     the two regions could only be removed together. *)
   let named n = List.find_opt (fun e -> str "name" e = n) (entries_in ~basemap_dir:keep_dir) in
   check "each record arrives as itself" (List.length (listing_in ~basemap_dir:keep_dir) = 2);
   check "under its own name" (named "Georgia" <> None && named "London" <> None);
@@ -770,11 +754,11 @@ let () =
 
   (* -------------------------------------- an import is not a download *)
 
-  (* The budget is a NETWORK budget. An import pays no network, so clamping it
-     is not thrift: a foreign deep archive re-planned under it comes out
-     shallow, only those zooms merge, the ledger records the clamped depth as
-     though that were what the file held, and the staged file with the rest of
-     its tiles is then thrown away. *)
+  (* The budget is a network budget, and an import uses no network. Clamping
+     an import to it makes a deep foreign archive re-plan shallow: only those
+     zooms merge, the ledger records the clamped depth as though that were all
+     the file held, and the staged file with the rest of the tiles is thrown
+     away. *)
   let deep_dir = fresh "not-clamped" in
   let deep =
     source_archive ~min_zoom:0 ~max_zoom:5 ~min_lon:(-10.) ~min_lat:(-10.)
@@ -800,10 +784,10 @@ let () =
   check "and holding the deep tiles the summary promised"
     (holds_in ~basemap_dir:deep_dir deep_file ~z:5 ~lon:0. ~lat:0.);
 
-  (* An upload that lands while a merge is running is a different file, and
-     the merge must not delete it on its way out. The clock is read once per
-     merge, after the source is open, which is a safe moment to swap the file
-     underneath by rename -- the merge keeps reading the inode it opened. *)
+  (* An upload landing during a merge is a different file, and the merge must
+     not delete it on its way out. The clock is read once per merge, after the
+     source is open, so the [now] hook is a safe place to swap the file by
+     rename -- the merge keeps reading the inode it opened. *)
   let swap_dir = fresh "replaced-mid-merge" in
   let first =
     source_archive ~min_zoom:0 ~max_zoom:3 ~min_lon:(-10.) ~min_lat:(-10.)
@@ -837,13 +821,13 @@ let () =
 
   (* ------------------------------------------------ one id, one row *)
 
-  (* An install upgraded from the merged layout can hold the same regions
-     twice: inside map.pmtiles, and in a file of its own, because a
-     re-download deliberately refuses to write into the base archive. Both
-     copies hash to the same id -- identity is the geometry and nothing else
-     -- so the list emitted that id twice, which is a duplicate key and a pair
-     of rows reconciling into each other, and removing the file-backed one
-     left the base copy still claiming the same ground. *)
+  (* An install upgraded from the merged layout can hold the same region
+     twice: inside map.pmtiles and in a file of its own, because a re-download
+     refuses to write into the base archive. Both copies hash to the same id --
+     identity is the geometry and nothing else -- so the list emitted that id
+     twice: a duplicate key, two rows reconciling into each other, and
+     removing the file-backed one left the base copy claiming the same
+     ground. *)
   let dup_dir = fresh "one-id-one-row" in
   let kent =
     Ledger.make ~name:"Kent" ~completed:1 ~source:"a planet build" ~bytes:1
@@ -872,11 +856,10 @@ let () =
 
   (* --------------------------------------- what a remembered ledger says *)
 
-  (* Ledgers are parsed once per file and remembered against the file's
-     identity, because every poll and every estimate used to re-open and
-     re-parse every archive on disk. The downloader publishes by renaming a
-     .part over a name, so the name can stay put while the bytes underneath it
-     become a different region entirely. *)
+  (* Ledgers are parsed once per file and cached against the file's identity,
+     because every poll and every estimate used to re-open and re-parse every
+     archive on disk. The downloader publishes by renaming a .part over a
+     name, so one name can end up holding a different region. *)
   let swap_name = "Kent-2026-01-01-abcdef.pmtiles" in
   Eio.Path.save ~create:(`Or_truncate 0o644)
     Eio.Path.(fs / dup_dir / swap_name) kent_bytes;
@@ -907,11 +890,11 @@ let () =
   (* ------------------------------------------- an export that stops early *)
 
   (* Every other job discards its .part and honours a pending cache clear on
-     the way out; the export set a state and nothing else. A cancelled export
-     stranded a file the UI cannot list -- [exports_json] shows only names
-     ending in .pmtiles -- and that delete_export cannot remove, because it
-     checks the name against that same listing. Gigabytes, invisibly, on the
-     machine least likely to have the room. *)
+     the way out; the export only set a state. A cancelled export stranded a
+     file the UI cannot list -- [exports_json] shows only names ending in
+     .pmtiles -- and that delete_export cannot remove, because it checks the
+     name against that same listing. Gigabytes, invisibly, on the machine
+     least likely to have the room. *)
   let ex_dir = fresh "export-stops" in
   Eio.Path.save ~create:(`Or_truncate 0o644)
     Eio.Path.(fs / ex_dir / Tile_set.base_file) kent_bytes;
@@ -925,8 +908,8 @@ let () =
      | names -> not (List.exists (fun n -> Filename.check_suffix n ".part") names)
      | exception _ -> true);
 
-  (* The same job holds the writer's seat, so a clear asked for while it runs
-     is its to carry out as it leaves: browsing is off by then and nothing
+  (* The job holds the writer's seat, so a clear asked for while it runs is
+     the job's to carry out as it leaves. Browsing is off by then and nothing
      else is coming to do it. *)
   te.D.cancel_requested <- false;
   Eio.Path.save ~create:(`Or_truncate 0o644)
@@ -961,8 +944,8 @@ let () =
 
   (* ------------------------------------------- the base archive is not ours *)
 
-  (* Nothing removes from map.pmtiles, whatever the entry covers and whatever
-     it is called: the removal would rewrite or unlink the file the rest of
+  (* Nothing is removed from map.pmtiles, whatever the entry covers and
+     whatever it is called: that would rewrite or unlink the file the rest of
      the map is standing on. The refusal has to leave the archive untouched,
      not merely present. *)
   let before = Eio.Path.load Eio.Path.(fs / ex_dir / Tile_set.base_file) in
@@ -975,9 +958,9 @@ let () =
 
   (* --------------------------------------- one answer about the planet *)
 
-  (* Two predicates asked whether a box was the whole world, with different
-     thresholds and no idea of each other: a box starting at -179.5 was the
-     world to the ledger's overview lock and not to the world-download
+  (* Two predicates used to ask whether a box was the whole world, with
+     different thresholds and no idea of each other: a box starting at -179.5
+     was the world to the ledger's overview lock but not to the world-download
      validator. One predicate now, with the slack as its argument. *)
   let world_box ?polygon () =
     match

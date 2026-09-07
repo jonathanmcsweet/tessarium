@@ -2,10 +2,10 @@
 
    The bug this suite exists to catch is not a crash. Directory entries store
    offsets relative to the data section, and an extract that treats one as
-   absolute writes a file with a perfectly valid header whose every tile is
-   garbage -- it reads tile bytes out of the root directory. Nothing detects
-   that until a map renders blank. So the round-trip below builds an archive,
-   reads it back, and compares tile payloads byte for byte. *)
+   absolute writes a perfectly valid header over garbage tiles -- it reads
+   tile bytes out of the root directory. Nothing notices until a map renders
+   blank. So the round-trip below builds an archive, reads it back, and
+   compares tile payloads byte for byte. *)
 
 module V = Pmtiles.Varint
 module T = Pmtiles.Tile_id
@@ -77,9 +77,8 @@ let () =
   in
   check "hilbert ids are a bijection and invert, zooms 0-8" bijective;
 
-  (* Locality is the reason for the curve: neighbours on the ground should be
-     close in the file. Checked as a property rather than exactly, since the
-     curve does have jumps. *)
+  (* The curve exists for locality: neighbours on the ground land close in
+     the file. Checked loosely, since the curve does jump. *)
   let z = 8 in
   let jumps =
     let total = ref 0 and far = ref 0 in
@@ -120,10 +119,10 @@ let () =
   check "directory round-trips" (back = entries);
 
   (* The entry count is the first thing off the wire and Array.make believes
-     it. A short blob claiming a huge count allocates before anything can
-     notice the bytes are not there -- and Archive.open_ arrives here with a
-     length out of the header of a downloaded file. Four columns, one byte
-     each at minimum, is the floor a real entry cannot go under. *)
+     it. A short blob claiming a huge count allocates before anything notices
+     the bytes are missing, and Archive.open_ takes that count from a
+     downloaded file's header. Four columns at one byte each is the floor a
+     real entry cannot go under. *)
   let refuses s =
     match D.deserialize s with
     | _ -> false
@@ -133,10 +132,10 @@ let () =
   let overclaim = "\x80\x80\x80\x80\x01" in
   check "a directory claiming more entries than it holds is refused"
     (refuses overclaim);
-  (* Refusing is not the point -- the truncated varint refuses anyway, one
-     column in and two gigabytes of pointers later. What has to hold is that
-     the ALLOCATION never happens, so it is the allocation that is measured.
-     Without the bound this delta is about 2e9. *)
+  (* Refusing is not enough -- the truncated varint refuses anyway, one column
+     in and two gigabytes of pointers later. What has to hold is that the
+     allocation never happens, so the allocation is what is measured. Without
+     the bound this delta is about 2e9. *)
   let allocated f =
     let before = Gc.allocated_bytes () in
     (try ignore (f ()) with _ -> ());
@@ -149,9 +148,9 @@ let () =
     (not (refuses (D.serialize entries)));
 
   (* ------------------------------------------------------------- gzip *)
-  (* Directories and tiles arrive gzipped, out of an archive the user
-     downloaded, and what comes out is bounded by nothing the compressed
-     bytes declare. Two megabytes of zeroes is a few kilobytes gzipped. *)
+  (* Directories and tiles arrive gzipped from a downloaded archive, and
+     nothing in the compressed bytes bounds what comes out. Two megabytes of
+     zeroes is a few kilobytes gzipped. *)
   let bomb = Gzip.compress (String.make (2 * 1024 * 1024) '\000') in
   check "a small blob can inflate enormously"
     (String.length bomb < 16 * 1024);
@@ -161,8 +160,8 @@ let () =
     (match Gzip.decompress ~limit:(1024 * 1024) bomb with
      | _ -> false
      | exception Gzip.Bad_gzip _ -> true);
-  (* And it stops WHILE inflating rather than after, or the bomb has already
-     been held whole and the bound bought nothing. *)
+  (* It has to stop while inflating, not after: otherwise the whole bomb was
+     already held and the limit bought nothing. *)
   let allocated_by f =
     let before = Gc.allocated_bytes () in
     (try ignore (f ()) with _ -> ());
@@ -334,11 +333,9 @@ let () =
     (Array.length run_plan.E.blobs = 1 && Array.length run_plan.E.tiles = 8);
 
   (* --------------------------------------------------------- depth_for *)
-  (* The budget that stops "download this view" from meaning forty million
-     tiles. A city fits street level inside the same limit that stops the
-     whole world at its overview zoom -- 8192 is the server's budget, and
-     the world must land on 6 under it, because that is the world map the
-     UI offers. *)
+  (* The budget that stops "download this view" meaning forty million tiles.
+     Under the server's budget of 8192 a city still fits street level, and the
+     world lands on zoom 6 -- the world map the UI offers. *)
   check "a city box affords full depth"
     (T.depth_for ~min_zoom:0 ~max_zoom:15 ~min_lon:(-0.14) ~min_lat:51.49
        ~max_lon:(-0.11) ~max_lat:51.52 ~limit:8192
@@ -388,11 +385,11 @@ let () =
      clamped && depth < 12 && List.length parts = 1);
 
   (* ------------------------------------------------------------- merge *)
-  (* Extract one box, then merge a second, overlapping box into it. Every
-     tile from BOTH must read back byte-identical, and -- base wins -- the
-     bytes fetched for the second box must exclude everything the first
-     already brought in. This is the property that makes "world map first,
-     then detail" affordable: adding a city never re-downloads the world. *)
+  (* Extract one box, then merge a second, overlapping box into it. Every tile
+     from both must read back byte-identical, and the bytes fetched for the
+     second box must exclude everything the first already brought in, because
+     the base wins ties. That is what keeps adding a city from re-downloading
+     the world. *)
   let module M = Pmtiles.Merge in
   let extract_box ~min_lon ~max_lon =
     let p =
@@ -492,10 +489,10 @@ let () =
     (String.equal (Buffer.contents multi_buf) (Buffer.contents merged_buf));
 
   (* ---------------------------------------------------- download parts *)
-  (* Splitting is what lets a giant box keep full depth: every part must
-     plan under the limit, and the union of the parts' ids must be exactly
-     the box's ids -- coverage is the correctness property, and seams may
-     overlap by a tile row without harm because the merge dedups by id. *)
+  (* Splitting is what lets a giant box keep full depth. Every part must plan
+     under the limit, and the parts' ids together must be exactly the box's
+     ids. Seams may overlap by a tile row without harm, since the merge dedups
+     by id. *)
   let europe = (-10.0, 40.0, 10.0, 55.0) in
   let ids (a, b, c, d) =
     T.covering ~min_zoom:0 ~max_zoom:8 ~min_lon:a ~min_lat:b ~max_lon:c
@@ -532,8 +529,8 @@ let () =
 
   (* -------------------------------------------------------------- clip *)
   (* The quadtree walk must agree exactly with the definition it optimises:
-     a tile is kept iff its box is not Outside the polygon. Brute force at
-     modest zooms is the oracle. *)
+     keep a tile unless its box is Outside the polygon. Brute force at modest
+     zooms is the oracle. *)
   let module C = Pmtiles.Clip in
   let triangle =
     C.of_rings [| [| (-8.0, 42.0); (6.0, 43.5); (-1.0, 53.0) |] |]
@@ -588,10 +585,10 @@ let () =
      in
      clipped ~min_zoom:2 ~max_zoom:7 clip_box two
      = brute ~min_zoom:2 ~max_zoom:7 clip_box two);
-  (* Zoom 9, not 7: at toy scales every part re-counts its shared low-zoom
-     ancestors, which swamps the limit and forbids any split -- a modelling
-     artifact of tiny numbers, not of production, where ancestors are noise
-     against millions of deep ids. *)
+  (* Zoom 9, not 7: at small scales every part re-counts its shared low-zoom
+     ancestors, which swamps the limit and forbids any split. An artifact of
+     tiny numbers -- in production those ancestors are noise against millions
+     of deep ids. *)
   check "a clipped split still covers exactly the clipped ids"
     (let a, b, c, d = clip_box in
      let full = clipped ~min_zoom:0 ~max_zoom:9 clip_box triangle in
@@ -610,9 +607,9 @@ let () =
             |> List.sort_uniq compare = full);
 
   (* --------------------------------------------------- archive metadata *)
-  (* The download ledger rides in the metadata section, so what a writer is
-     given must be exactly what a reader gets back -- byte for byte, with
-     the tiles unharmed around it. *)
+  (* The download ledger rides in the metadata section, so a writer's bytes
+     must come back to a reader unchanged, with the tiles around it
+     unharmed. *)
   let meta = {|{"tessarium_ledger":{"v":1,"entries":[]}}|} in
   let with_meta =
     let p =
@@ -724,10 +721,9 @@ let () =
 
   (* ------------------------------------------------ newest planet build *)
   (* The default source resolves "latest" against the Protomaps build
-     listing, because the old stable URL was deleted from under the project
-     and only ~60 dated builds exist at a time. These pin the parsing: the
-     listing's own order is not trusted, and junk entries are skipped rather
-     than fatal. *)
+     listing, because the old stable URL was deleted and only ~60 dated builds
+     exist at a time. These pin the parsing: the listing's order is not
+     trusted, and junk entries are skipped rather than fatal. *)
   let entry key = Printf.sprintf {|{"key":"%s","size":1}|} key in
   let listing keys = "[" ^ String.concat "," (List.map entry keys) ^ "]" in
   check "newest build wins regardless of listing order"
@@ -760,10 +756,9 @@ let () =
     | Ok _ -> false);
 
   (* ------------------------------------------------------------- mvt *)
-  (* Names come off real tiles or the search index has nothing to offer, and
-     the failure mode of a protobuf reader is silence: a misread field and
-     the layer simply looks empty. Built here rather than fetched so the
-     expected answer is known exactly. *)
+  (* The search index takes its names off real tiles, and a protobuf reader
+     fails silently: misread one field and the layer just looks empty. Built
+     here rather than fetched so the expected answer is known exactly. *)
   let varint n =
     let b = Buffer.create 4 in
     let rec go n =
@@ -800,9 +795,9 @@ let () =
       check "a tile's named feature is read whole"
         (layer_name = "places" && name = "Fixtureville" && kind = "locality"
        && weight = 4242.);
-      (* Deliberately NOT the centre of the world: at z0 the middle of the
-         extent is (0, 0), which a swapped axis, a flipped y or a missing
-         projection all still produce. *)
+      (* Weak on its own: at z0 the middle of the extent is (0, 0), which a
+         swapped axis, a flipped y or a missing projection all produce too.
+         The off-centre case further down is what rules those out. *)
       check "and placed where the geometry says"
         (Float.abs lon < 0.001 && Float.abs lat < 0.001)
   | other ->
@@ -811,12 +806,12 @@ let () =
            (List.length other))
         false);
 
-  (* What a place IS, as specifically as the basemap can say it.
+  (* Name a place as specifically as the basemap can.
 
      Every populated place has kind "locality" -- a capital, a town and a
-     hamlet of nine alike -- so a search for a name eight towns share
-     answered with eight identical rows. `kind_detail` is the word a person
-     would use, and for places it is the one to show. *)
+     hamlet of nine alike -- so a search for a name eight towns share returned
+     eight identical rows. `kind_detail` holds the word a person would use, so
+     places show that instead. *)
   let with_detail =
     bfield 3
       (vfield 15 2 ^ bfield 1 "places" ^ bfield 2 feature ^ bfield 3 "name"
@@ -870,11 +865,10 @@ let () =
   in
   check "a field this reader does not know is stepped over"
     (List.length (Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0 with_extra) = 1);
-  (* Off-centre, in a tile that is not the world: this is the assertion that
-     a swapped axis or a dropped projection fails. Tile (1,0) at z2 spans
-     lon -90..-45 and lat 66.51..85.05. The geometry is zigzag-encoded, so
-     the stored 2048 is a delta of 1024 -- a quarter into the tile, which
-     both coordinates have to agree on. *)
+  (* Off-centre, in a tile that is not the whole world -- this is the check a
+     swapped axis or a dropped projection fails. Tile (1,0) at z2 spans lon
+     -90..-45 and lat 66.51..85.05. The geometry is zigzag-encoded, so the
+     stored 2048 is a delta of 1024: a quarter into the tile, on both axes. *)
   let quarter = varint 9 ^ varint (2 * 1024) ^ varint (2 * 1024) in
   let off_centre =
     bfield 3
@@ -894,7 +888,8 @@ let () =
            lon lat)
         (Float.abs (lon -. (-67.5)) < 0.01 && Float.abs (lat -. 82.676) < 0.01)
   | _ -> check "a point off the tile's centre projects back" false);
-  (* A length that would overflow the bounds check it must fail. *)
+  (* A length big enough that offset + length overflows a naive bounds
+     check. *)
   check "a length near max_int is refused, not wrapped"
     (match
        Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0

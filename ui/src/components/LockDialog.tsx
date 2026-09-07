@@ -1,16 +1,14 @@
-/* The lock button, and the question it now asks first.
+/* The lock button, and the question it asks first.
 
    Locking forgets the derived key, and getting back in means typing the 24
-   words again -- which this application does not have and cannot show,
-   because it wipes the phrase the moment the key is derived and keeps only
-   the key, in a worker. That is the design and it is not changing here. What
-   was missing was anyone SAYING so at the one moment it matters, which is
-   the press that makes it true.
+   words again. The application cannot show them: it wipes the phrase the
+   moment the key is derived and keeps only the key, in a worker. So this
+   says so at the one moment it matters, which is the press.
 
    A refresh does the same thing and cannot be intercepted politely -- the
-   browser's own "leave site?" prompt takes no wording and is widely ignored
-   -- so the panel carries a standing note as well; this dialog is for the
-   case the user chose. */
+   browser's own "leave site?" prompt takes no wording -- so the panel
+   carries a standing note as well. This dialog is for the deliberate
+   case. */
 
 import { Lock } from "lucide-react";
 import {
@@ -52,13 +50,12 @@ export function LockDialog({ onConfirm }: { onConfirm: () => void; }) {
                   {m.lock_warning_body()}
                 </p>
                 {
-                  /* Cancel first in the DOM, so it is the first thing Tab
-                    reaches and the first thing a screen reader reads out of
-                    the pair -- and first on screen too, with the destructive
-                    one last, where a pointer expects the action it came to
-                    take. `flex-row-reverse` was tried and does the opposite:
-                    it puts the FIRST child on the right, which put "Lock the
-                    map" on the left and Cancel under the thumb. */
+                  /* Cancel first in the DOM, so Tab reaches it first and a
+                    screen reader reads it first -- and first on screen too,
+                    with the destructive button last, where a pointer expects
+                    the action it came to take. `flex-row-reverse` does the
+                    opposite: it puts the FIRST child on the right, which put
+                    Cancel under the thumb. */
                 }
                 <div className="modal-actions mt-4 flex justify-end gap-2">
                   <Button

@@ -99,16 +99,16 @@ let progress ?(regions = []) ~done_bytes ~total_bytes ~part ~parts () =
       regions = List.map clamp_region regions;
     }
 
-(* Names, whether a region's or a whole entry's, are client-supplied and
-   stored, so they are bounded and printable. Multi-byte UTF-8 is welcome --
-   the picker speaks six locales -- but a name that is not UTF-8 would come
-   back out of Yojson as invalid JSON, and invisible characters (C0/C1
-   controls, zero-width, bidi overrides) exist mostly to make one string
-   display as another, so both die here.
+(* Names come from the client and get stored, so they are capped in length and
+   have to be printable. Multi-byte UTF-8 is welcome -- the picker speaks six
+   languages -- but two kinds are refused: text that is not valid UTF-8, which
+   would come back out of the archive as broken JSON, and invisible characters
+   (controls, zero-width spaces, bidi overrides), whose main use is making one
+   string look like another.
 
-   Here rather than in [Ledger] because a region carries its own label and a
-   region is defined in this file; [Ledger.valid_name] is this function, under
-   the name its other callers already use. *)
+   It lives here because a region carries its own label and regions are
+   defined in this file. [Ledger.valid_name] is this same function under the
+   name its callers there already use. *)
 let max_name_bytes = 120
 
 let visible_uchar u =
@@ -148,21 +148,21 @@ type request = {
      download is clipped to it, so a country stops at its border instead of
      its bounding box. Optional -- a viewport is honestly a box. *)
   polygon : (float * float) array array option;
-  (* What the picker called this one place, so a download of six countries
-     reads as six named bars rather than six anonymous ones.
+  (* What the picker called this place, so downloading six countries shows six
+     named progress bars instead of six anonymous ones.
 
-     On the region rather than beside it, and that is the whole point. Labels
-     used to ride in a parallel array that had to stay length-aligned with the
-     requests, enforced two contradictory ways -- a 400 at the door and a
-     silent blanking in the downloader -- and re-invented from the entry name
-     on every path that did not come from the picker. A label attached to the
-     thing it labels cannot come adrift from it, so it survives the sort into
-     a ledger entry, the round trip through an archive's metadata, an update,
-     an export and an import.
+     It sits on the region itself, which is the point. Labels used to travel
+     in a separate list that had to stay the same length as the regions, and
+     the two ends disagreed about what to do when it was not: the server
+     answered 400, while the downloader quietly blanked every name. Paths that
+     did not come from the picker invented a name instead. Kept on the region,
+     a label cannot drift away from what it names, and it survives being
+     sorted into a ledger entry, written to an archive, updated, exported and
+     imported.
 
-     Display only, and never part of a region's identity: [Ledger.id] reads
-     the geometry alone, so naming a box does not make it a different box and
-     re-downloading it under a new name still finds its own file. *)
+     For display only. [Ledger.id] is computed from the geometry alone, so
+     renaming a box does not make it a different box, and downloading it again
+     under a new name still finds the file it already has. *)
   label : string option;
 }
 

@@ -1,16 +1,13 @@
-(* Adding a region to an archive already on disk, without losing what the
-   archive holds. This is what makes "world map first, then detail where you
-   need it" possible: without it, every download replaced map.pmtiles
-   wholesale and fetching Paris discarded London.
+(* Adds a region to an archive already on disk without losing what the archive
+   holds. Before this, every download replaced map.pmtiles wholesale, so
+   fetching Paris discarded London.
 
-   Planned first, like an extract. Every tile in any input gets exactly one
-   entry, and the base's copy wins when both have one -- so a merge never
-   re-fetches bytes already on disk, and re-downloading a region you already
-   have costs nothing. Fresh regions dedup among themselves the same way, so
-   a request naming a country and also one of its cities pays for the overlap
-   once. The trade: a merge never refreshes a stale tile on its own --
-   [refresh] inverts the tie exactly so a recorded region can be brought up
-   to date deliberately, and nothing refreshes by accident. *)
+   Planned first, like an extract. Every tile gets exactly one entry, and the
+   base's copy wins when both have one, so re-downloading a region already on
+   disk fetches nothing. Fresh regions dedup among themselves the same way: a
+   request naming a country and one of its cities pays for the overlap once.
+   The trade-off is that a merge never refreshes a stale tile on its own.
+   [refresh] flips the tie so a region can be updated on purpose. *)
 
 type origin = Base | Fresh
 
@@ -26,15 +23,14 @@ type plan = {
           plan was made with [refresh:true] *)
 }
 
-(* [on_entry] is the same cooperative-yield hook [Extract.plan] takes: a
-   base archive that has grown to a country is millions of entries, and
-   expanding them must not freeze the scheduler that is doing it.
+(* [on_entry] is the cooperative-yield hook [Extract.plan] also takes: a base
+   archive grown to a whole country is millions of entries, and expanding them
+   must not freeze the scheduler.
 
-   Arrays and a merge-join rather than a hashtable, deliberately: a giant
-   archive expands to tens of millions of entries, and a hashtable over
-   them costs several times the memory of the flat arrays. Directories in a
-   valid archive arrive sorted by tile id; that is verified rather than
-   assumed, because an unsorted merge would corrupt silently. *)
+   Arrays and a merge-join instead of a hashtable: tens of millions of entries
+   cost several times the memory in a hashtable. A valid archive's directories
+   are sorted by tile id, but sortedness is checked rather than assumed -- an
+   unsorted merge would corrupt silently. *)
 let compare_id (a, _, _) (b, _, _) = compare a b
 
 let sorted arr =
@@ -92,9 +88,9 @@ let plan ?(on_entry = fun () -> ()) ?(refresh = false)
             incr i)
           f.Extract.tiles)
       fresh;
-    (* Regions arrive as separate plans and may overlap; duplicates carry
-       identical locations (same id in the same remote archive), so any
-       survivor of the dedup below is the right one. *)
+    (* Separate region plans can overlap. Duplicates point at the same id in
+       the same remote archive, so whichever copy survives the dedup below is
+       the right one. *)
     if not (sorted arr) then Array.sort compare_id arr;
     arr
   in
@@ -127,8 +123,8 @@ let plan ?(on_entry = fun () -> ()) ?(refresh = false)
   in
   while !bi < n_base || !fi < n_fresh do
     on_entry ();
-    (* Ties go to the base -- re-downloading held tiles must cost nothing --
-       except under [refresh], where the whole point is the fresh copy. *)
+    (* Ties go to the base, so re-downloading held tiles costs nothing. Under
+       [refresh] the fresh copy wins instead. *)
     let take_base =
       !fi >= n_fresh
       || !bi < n_base
@@ -152,8 +148,8 @@ let plan ?(on_entry = fun () -> ()) ?(refresh = false)
       let id, offset, length = fresh_arr.(!fi) in
       emit id (Fresh, offset, length);
       (if !bi < n_base && id_at base_arr !bi = id then begin
-         (* The base held this id too; under [refresh] the fresh copy just
-            replaced it, and the base's duplicates are consumed here. *)
+         (* The base held this id too. Under [refresh] the fresh copy just
+            replaced it, so skip the base's copies. *)
          incr refreshed_tiles;
          while !bi < n_base && id_at base_arr !bi = id do
            incr bi
@@ -183,11 +179,10 @@ let plan ?(on_entry = fun () -> ()) ?(refresh = false)
   }
 
 (* The inverse of adding a region: every base tile survives except the ones
-   [drop] names by coordinate. The result is the same [plan] shape [write]
-   takes, with every blob a Base blob -- a removal never touches the
-   network. Blob sharing is honoured exactly as in [plan]: a blob loses its
-   bytes only when every tile referencing it is dropped, so deduplicated
-   ocean tiles survive as long as anyone needs them. *)
+   [drop] names by coordinate. Returns the same [plan] shape [write] takes,
+   with every blob a Base blob -- removal never touches the network. A shared
+   blob loses its bytes only when every tile using it is dropped, so a
+   deduplicated ocean tile survives while anything still points at it. *)
 let prune ?(on_entry = fun () -> ()) ~(base : Archive.t) ~drop () =
   let base_arr = expand_base ~on_entry base in
   let blob_index = Hashtbl.create 4096 in
@@ -232,14 +227,12 @@ let prune ?(on_entry = fun () -> ()) ~(base : Archive.t) ~drop () =
     },
     !dropped_tiles )
 
-(* [copy] is handed [index], the blob's position in [p.blobs], as well as
-   where to read it from. The index is what lets a caller attribute bytes to
-   whatever it decided that blob belongs to -- the download uses it to say
-   which REGION each blob was fetched for, which cannot be recovered from the
-   offset alone once the merge has deduplicated across regions. Blobs are
-   copied in ascending index order, but a caller that needs the index should
-   take it from here rather than counting calls: the order is [write_tiles]'s
-   business, not part of this contract. *)
+(* [copy] gets [index], the blob's position in [p.blobs], along with where to
+   read it. The index lets a caller attribute bytes to a region -- the download
+   uses it that way -- which the offset alone cannot do once the merge has
+   deduplicated across regions. Blobs happen to be copied in ascending index
+   order, but take the index from here rather than counting calls: the order is
+   [write_tiles]'s business, not a promise. *)
 let write ?metadata (p : plan) (source : Header.t) ~min_zoom ~max_zoom
     ~min_lon ~min_lat ~max_lon ~max_lat ~append ~copy =
   Extract.write_tiles ?metadata ~source ~min_zoom ~max_zoom ~min_lon ~min_lat
