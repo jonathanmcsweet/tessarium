@@ -1,8 +1,7 @@
 name: CI
 
-# Until this runs, every claim in the README about what is proved rests on one
-# machine having said so once. That is the reason this workflow exists and the
-# reason it verifies from source rather than trusting anything committed.
+# Verifies from source, so the README's claims do not rest on one machine
+# having said so once.
 
 on:
   push:
@@ -21,14 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The `-notar` suffix is doing work, and it is the only thing that can.
-      # ~/toolchain used to be saved with the 230 MB release tarball still in
-      # it, downloaded on every job that missed and restored on every job that
-      # hit. Dropping the tarball happens in the install step, which runs ONLY
-      # on a miss -- so with the old key every warm run restores the old entry,
-      # skips the step, and saves nothing new. Changing the key once is what
-      # retires it, and it has to change in all three jobs or the two that
-      # still ask for the old entry keep it alive.
+      # `-notar`: entries under the old key still hold the 230 MB tarball, and
+      # the step that drops it runs only on a miss. Retiring them means changing
+      # the key, in all three jobs.
       - name: Cache the F* release
         id: fstar-cache
         uses: actions/cache@v4
@@ -36,19 +30,14 @@ jobs:
           path: ~/toolchain
           key: fstar-${{ env.FSTAR_VERSION }}-z3-${{ env.Z3_VERSION }}-notar
 
-      # The script, not a copy of it. The download, the unpack, the
-      # top-directory normalisation and the tarball cleanup were written out
-      # here three times and a fourth time in tools/setup.sh -- and the fix to
-      # the `mv fstar*` glob had to land in three of them in lockstep, which is
-      # the argument against ever doing that again. A workstation runs the same
-      # file.
+      # The script, not a copy: this was written out three times here and once
+      # in tools/setup.sh, and the `mv fstar*` fix had to land in all of them.
       - name: Install F* and Z3
         if: steps.fstar-cache.outputs.cache-hit != 'true'
         run: tools/fetch-fstar.sh "$FSTAR_VERSION"
 
-      # `make verify` passes --report_assumes error, so every escape hatch --
-      # admit, assume, magic -- is an error rather than something to remember to
-      # look for. An admit otherwise verifies silently and nothing fails on it.
+      # --report_assumes error: an admit is a failure here rather than
+      # something to remember to look for.
       - name: Verify every module, refusing proof holes
         run: |
           export PATH="$HOME/toolchain/fstar/bin:$PATH"
@@ -57,12 +46,9 @@ jobs:
 
   build:
     name: Build, extract and test
-    # Pinned, NOT latest: this job packages the release tarball, and a binary
-    # takes the glibc floor of whatever built it (tools/check-glibc-floor.sh).
-    # 22.04 is glibc 2.35, the floor this project declares and roadmap.md
-    # names. `ubuntu-latest` moved to 24.04 (2.39), which raised the floor
-    # above 2.35 and failed that check -- correctly. Moving this forward is a
-    # decision to drop every user below the new base, not a version bump.
+    # Pinned, NOT latest: a binary takes the glibc floor of whatever built it.
+    # 22.04 is 2.35, the floor this project declares; latest moved to 2.39.
+    # Moving this forward drops every user below the new base.
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -75,12 +61,8 @@ jobs:
           path: ~/toolchain
           key: fstar-${{ env.FSTAR_VERSION }}-z3-${{ env.Z3_VERSION }}-notar
 
-      # The script, not a copy of it. The download, the unpack, the
-      # top-directory normalisation and the tarball cleanup were written out
-      # here three times and a fourth time in tools/setup.sh -- and the fix to
-      # the `mv fstar*` glob had to land in three of them in lockstep, which is
-      # the argument against ever doing that again. A workstation runs the same
-      # file.
+      # The script, not a copy: this was written out three times here and once
+      # in tools/setup.sh, and the `mv fstar*` fix had to land in all of them.
       - name: Install F* and Z3
         if: steps.fstar-cache.outputs.cache-hit != 'true'
         run: tools/fetch-fstar.sh "$FSTAR_VERSION"
@@ -92,26 +74,21 @@ jobs:
       - name: Install dependencies
         run: opam install . --deps-only --with-test -y
 
-      # Not a build dependency, and deliberately not in tessarium.opam: it is
-      # the tool tools/check-deps.sh audits that file WITH, and a checker
-      # declared in the thing it checks is no checker. tools/setup.sh installs
-      # it on a workstation; without this line the guard exists only there,
-      # which is the one place the failure it catches cannot happen.
+      # Deliberately not in tessarium.opam: it is the tool check-deps.sh audits
+      # that file WITH. Without this line the guard runs only on workstations,
+      # the one place the failure it catches cannot happen.
       - name: Install the dependency-declaration linter
         run: opam install opam-dune-lint -y
 
-      # F*'s support library ships as precompiled objects built by a
-      # zstd-enabled compiler; OCaml 5.3 compresses .cmi when it can, so those
-      # objects are unreadable to a compiler without it. Building them from the
-      # shipped sources sidesteps the question rather than chasing the flag.
+      # F*'s precompiled objects need a zstd-enabled compiler to read them.
+      # Building from the shipped sources sidesteps the question.
       - name: Vendor F*'s support modules
         run: |
           export PATH="$HOME/toolchain/fstar/bin:$PATH"
           opam exec -- make -C fstar fstarlib
 
-      # The rule is that extracted OCaml is a build artifact and is never
-      # hand-edited. This is what makes that enforceable instead of merely
-      # stated: regenerate it, and fail if it differs from what was committed.
+      # Extracted OCaml is a build artifact, never hand-edited. Enforced by
+      # regenerating it and failing on a diff.
       - name: Extracted OCaml matches a fresh extraction
         run: |
           export PATH="$HOME/toolchain/fstar/bin:$PATH"
@@ -121,12 +98,9 @@ jobs:
             exit 1
           fi
 
-      # The step above proves extraction is DETERMINISTIC; this one checks
-      # it is FAITHFUL on fixed points: the extracted binary's answers,
-      # recomputed inside F*'s own evaluator from the proved source (the
-      # runtime-law leg and the js/ oracle watch it from other angles). A
-      # divergence on any checked value -- one band-table entry, one grid
-      # cell -- fails here even though every other suite would stay green.
+      # The step above proves extraction DETERMINISTIC; this one proves it
+      # FAITHFUL, recomputing the answers inside F*'s own evaluator. A single
+      # divergent value fails here while every other suite stays green.
       - name: Extracted OCaml computes what the proved source computes
         run: |
           export PATH="$HOME/toolchain/fstar/bin:$PATH"
@@ -136,13 +110,9 @@ jobs:
             exit 1
           fi
 
-      # The KaRaMeL leg: the machine-integer core is PROVED equal to the
-      # spec (that proof runs in low-verify, inside this target), then the
-      # emitted C replays the vectors above. What this step tests at
-      # runtime, beyond the proof: F*'s .krml emission (which shares the
-      # extraction pipeline's erasure and ML translation with the OCaml it
-      # checks -- the evaluator leg watches that shared part), krml itself,
-      # and the C compiler. No ocamlopt, no zarith.
+      # The KaRaMeL leg: the machine-integer core is proved equal to the spec,
+      # then the emitted C replays the vectors. Beyond the proof this exercises
+      # .krml emission, krml itself and the C compiler. No ocamlopt, no zarith.
       - name: Emitted C computes what the proved source computes
         run: |
           export PATH="$HOME/toolchain/fstar/bin:$PATH"
@@ -152,12 +122,9 @@ jobs:
             exit 1
           fi
 
-      # The browser's half of the side-by-side story: wasm/core.wasm is
-      # the same vendored C compiled by a pinned zig. Rebuild and
-      # byte-diff -- the behavioural wall (js/wasm-differential.mjs, in
-      # dune test) rings on live-code drift, but a byte tampered in a
-      # dead region only this diff can catch. zig has its own cache
-      # entry: the fstar cache key predates it and would never save it.
+      # The browser's half: the same vendored C, compiled by a pinned zig. The
+      # behavioural wall catches live-code drift; only this byte-diff catches a
+      # tampered dead region. zig caches separately -- the fstar key predates it.
       - name: Cache zig
         uses: actions/cache@v4
         with:
@@ -179,12 +146,9 @@ jobs:
             exit 1
           fi
 
-      # The KDF's two committed artifacts: the vendored Argon2 reference C
-      # must match the pinned upstream release byte for byte, and
-      # wasm/argon2.wasm must match a fresh build of it (the SAME C the
-      # server's FFI links -- one implementation, two hosts). The
-      # behavioural wall (js/argon2-differential.mjs, in dune test) rings
-      # on live-code drift; dead-region bytes only these diffs catch.
+      # The KDF's two artifacts: the vendored C matches the pinned release, and
+      # the wasm matches a fresh build of it -- the same C the server's FFI
+      # links. Dead-region bytes only these diffs catch.
       - name: Vendored Argon2 matches the pinned release
         run: make sync-argon2
 
@@ -196,12 +160,9 @@ jobs:
             exit 1
           fi
 
-      # The side-by-side wall links a committed copy of the KaRaMeL
-      # emission (ocaml/c_core/vendor; the server still links only the
-      # extracted core). A hand edit or a stale copy after an F* change
-      # must fail: sync rewrites the module files and diffs the pinned
-      # krml headers against the toolchain, and untracked leftovers in
-      # vendor/ (a new emitted module git diff cannot see) fail too.
+      # The side-by-side wall links a committed KaRaMeL emission. A hand edit,
+      # a stale copy after an F* change, and an untracked leftover module must
+      # all fail -- hence the porcelain check beside the diff.
       - name: Committed C core matches a fresh emission
         run: |
           export PATH="$HOME/toolchain/fstar/bin:$PATH"
@@ -214,72 +175,52 @@ jobs:
           fi
 
       # Before setup-node, which wants a package manager present to key its
-      # cache on. The version comes from the `packageManager` field in
-      # package.json, so CI and a developer's checkout cannot drift.
+      # cache on. Version comes from package.json's `packageManager`.
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
 
-      # The differential oracle's one dependency (keyed BLAKE2s -- see
-      # package.json at the root). Locked install, no scripts.
+      # The differential oracle's one dependency. Locked install, no scripts.
       - name: Oracle dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build
         run: opam exec -- dune build
 
-      # Through the Makefile, not by restating what it runs. `make test-core`
-      # is several checks and CI used to call one of them by hand, so the rest
-      # ran only on developer machines -- which for the dependency guard means
-      # it ran nowhere that mattered: it exists for a failure that is invisible
-      # to CI precisely because its switch comes from cache, and it was the one
-      # place never running it. A check added to that target is now a check CI
-      # runs, rather than a line someone also has to add here.
+      # Through the Makefile, not by restating what it runs: CI used to call
+      # one of these checks by hand, so the dependency guard ran nowhere that
+      # mattered. A check added to that target is now a check CI runs.
       - name: Test
         run: opam exec -- make test-core
 
-      # Copies ui/dist to ocaml/server/ui_dist, which the next build compiles
-      # into the server binary.
+      # Copies ui/dist to ocaml/server/ui_dist for the next build to embed.
       - name: Build the UI
         run: opam exec -- make ui
 
       - name: Embed the UI in the binary
         run: opam exec -- dune build
 
-      # Lint, types, message catalogues and the browser payload budgets. After
-      # the UI build because it needs ui/node_modules, and after the dune build
-      # because ui/test/payload.mjs measures the bundle where dune writes it.
-      # Without this step nothing in CI holds ocaml/js/dune's two size
-      # settings, and deleting them would ship a 5 MB bundle to a green build.
+      # Lint, types, catalogues and payload budgets. After both builds: it
+      # needs ui/node_modules, and payload.mjs measures the bundle where dune
+      # writes it. Nothing else in CI holds ocaml/js/dune's size settings.
       - name: Static checks
         run: opam exec -- make test-static
 
-      # Through the Makefile, not by hand. The suite needs FIVE servers -- a
-      # fixture archive to download from, and four clients configured
-      # differently (whole-file, multi-part, compression mismatch, cancel) --
-      # and it takes their URLs as arguments. Starting one server and passing
-      # one URL leaves base3/base4/base5 pointing at ports nothing is
-      # listening on, which is what this step used to do: every check past
-      # the first download section failed on a refused connection, so the
-      # resume, mismatch and cancel guarantees were not being tested at all.
-      #
-      # The recipe also owns the teardown. No --ui in it either, so this
-      # drives the UI compiled into the binary -- what ships is what is
-      # tested.
+      # Through the Makefile: the suite needs FIVE servers and their URLs, and
+      # starting one leaves the resume, mismatch and cancel checks failing on
+      # refused connections. The recipe owns the teardown, and passes no --ui,
+      # so this drives the UI compiled into the binary.
       - name: Browser end-to-end
         run: |
           cd ui && pnpm exec playwright install chromium
           cd ..
           opam exec -- make test-ui
 
-      # Every package ships a world overview and the glyphs its labels are
-      # drawn from, so packaging needs a map to cut one out of. Kept outside
-      # the tree and cached under a fixed key: it is 21 MB of somebody else's
-      # bandwidth, it changes upstream every day, and a package built from a
-      # different day's planet is a different package for no reason anyone
-      # asked for.
+      # Packaging needs a map to cut an overview and glyphs out of. Cached
+      # under a fixed key: 21 MB of somebody else's bandwidth that changes
+      # upstream daily, and a different day's planet is a different package.
       - name: Cache the map packages ship
         id: mapsrc-cache
         uses: actions/cache@v4
@@ -302,16 +243,13 @@ jobs:
           name: tessarium-linux-x86_64
           path: dist/*.tar.gz
 
-  # The first rung of "verifiable builds" (roadmap, Phase 7): the same commit
-  # built twice from clean must yield bit-identical release artifacts. The
-  # tarball and .deb are built with fixed timestamps and ownership, so any
-  # difference here is nondeterminism creeping into the pipeline -- the thing
-  # that would make published checksums unverifiable.
+  # First rung of verifiable builds (roadmap, Phase 7): the same commit built
+  # twice from clean must be bit-identical. Timestamps and ownership are fixed,
+  # so a difference here is nondeterminism, and unverifiable checksums.
   reproducible:
     name: Packages build twice identically, and install
-    # Same base as the build job, and for the same reason: this one builds the
-    # .deb, .rpm and AppImage, each of which carries (or crashes on) the glibc
-    # floor of its build host. 22.04 is glibc 2.35 -- see the build job.
+    # Same base as the build job, for the same reason: these packages carry
+    # the glibc floor of their build host. See there.
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -324,12 +262,8 @@ jobs:
           path: ~/toolchain
           key: fstar-${{ env.FSTAR_VERSION }}-z3-${{ env.Z3_VERSION }}-notar
 
-      # The script, not a copy of it. The download, the unpack, the
-      # top-directory normalisation and the tarball cleanup were written out
-      # here three times and a fourth time in tools/setup.sh -- and the fix to
-      # the `mv fstar*` glob had to land in three of them in lockstep, which is
-      # the argument against ever doing that again. A workstation runs the same
-      # file.
+      # The script, not a copy: this was written out three times here and once
+      # in tools/setup.sh, and the `mv fstar*` fix had to land in all of them.
       - name: Install F* and Z3
         if: steps.fstar-cache.outputs.cache-hit != 'true'
         run: tools/fetch-fstar.sh "$FSTAR_VERSION"
@@ -352,18 +286,14 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      # rpmbuild, and the two things rpm needs to recognise a binary as ELF:
-      # without file(1) and its magic database rpm builds a package that
-      # declares no library dependencies at all, which package-rpm.sh now
-      # refuses to hand over.
+      # rpmbuild, plus file(1) and its magic database: without them rpm
+      # declares no library dependencies and package-rpm.sh refuses the result.
       - name: Install rpm build tools
         run: sudo apt-get update && sudo apt-get install -y rpm file
 
-      # Outside the working tree on purpose: `git clean` below wipes
-      # basemap/, and both builds have to cut their world overview out of
-      # the SAME source archive or the two packages differ over a map that
-      # changed upstream between them rather than over anything this
-      # repository did.
+      # Outside the tree on purpose: `git clean` below wipes basemap/, and both
+      # builds must cut from the SAME archive or they differ over the map
+      # rather than over anything this repository did.
       - name: Cache the map packages ship
         id: mapsrc-cache
         uses: actions/cache@v4
@@ -391,9 +321,9 @@ jobs:
           build_all
           sha256sum dist/*.tar.gz dist/*.deb dist/*.rpm > /tmp/first.sum
           cat /tmp/first.sum
-          # -e _opam: the local switch is the toolchain, not build output.
-          # -e ocaml/fstarlib: vendored once above; cleaning it would make
-          # the second build fail on Unbound module Prims.
+          # -e _opam: the switch is toolchain, not build output.
+          # -e ocaml/fstarlib: vendored above; cleaning it fails the second
+          # build on Unbound module Prims.
           git clean -xfd -e _opam -e ocaml/fstarlib
           build_all
           sha256sum dist/*.tar.gz dist/*.deb dist/*.rpm > /tmp/second.sum
@@ -401,8 +331,7 @@ jobs:
           diff /tmp/first.sum /tmp/second.sum
           echo "bit-identical across clean builds"
 
-      # Here rather than in its own job because this is the only job that
-      # produces packages, and the toolchain needed to produce them is ten
-      # minutes of setup that would otherwise be paid twice.
+      # Here rather than its own job: this is the only job that produces
+      # packages, and the toolchain for them is ten minutes of setup.
       - name: Install the packages and run them
         run: opam exec -- tools/test-install.sh

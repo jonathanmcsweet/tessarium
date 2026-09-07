@@ -1,17 +1,15 @@
 /* What the map downloads are doing, in the side panel.
 
-   Separate from the download card on purpose. The card is where a download
-   is CHOSEN, and it is closed the moment the choosing is done; the progress
-   of six countries fetched over an hour belongs somewhere that stays put.
-   So the card starts the work and this reports it, and closing the card
-   costs nothing.
+   Separate from the download card. The card is where a download is CHOSEN
+   and is closed as soon as the choosing is done; the progress of six
+   countries fetched over an hour belongs somewhere that stays put. So the
+   card starts the work, this reports it, and closing the card costs nothing.
 
-   The rows are per region, which is the whole point of it: "downloading, 40%"
-   over a selection of six countries tells a user nothing about whether the
-   one they actually need has arrived. Bytes per row are what the network
-   delivered for that region -- the server attributes each tile to the pick
-   that asked for it, and charges a tile wanted by two picks to the first
-   only, so the rows never sum past what was fetched. */
+   The rows are per REGION: "downloading, 40%" over six countries says
+   nothing about whether the one you need has arrived. Bytes per row are what
+   the network delivered for that region -- the server charges a tile wanted
+   by two picks to the first only, so the rows never sum past what was
+   fetched. */
 
 import { X } from "lucide-react";
 import {
@@ -31,40 +29,38 @@ const loudly = {
 };
 
 /* A bar plus its numbers, said once so every row says it the same way.
-   `<progress>` carries the value to assistive technology by itself; the
-   visible text is the same fact for everyone else, and `aria-hidden` on it
-   keeps a screen reader from reading the pair twice. */
+   `<progress>` carries the value to assistive technology by itself, so the
+   visible text is `aria-hidden` and the pair is not read twice. */
 function Bar(
   { label, done, total, hint }: {
     label: string;
     done: number;
     total: number;
     /* Explicitly `| undefined`: exactOptionalPropertyTypes is on, so an
-       optional property and one that may be undefined are different types,
-       and the caller passes undefined to mean "just show the numbers". */
+       optional property and one that may be undefined are different types.
+       The caller passes undefined to mean "just show the numbers". */
     hint?: string | undefined;
   },
 ) {
-  /* A row with nothing left to fetch is a full bar, whatever its numbers
-     are. Drawn from `done >= total` rather than from the numbers alone
-     because a region resumed with every tile already on disk has a total of
-     zero, and `value={0} max={1}` drew it at 0% -- reading as a region that
-     never started rather than one that was finished before it began. */
+  /* A row with nothing left to fetch is a full bar, whatever its numbers.
+     Drawn from `done >= total` because a region resumed with every tile
+     already on disk has a total of zero, and `value={0} max={1}` drew it at
+     0% -- reading as a region that never started. */
   const ceiling = Math.max(total, 1);
   return (
     <li className="download-row">
       <div className="flex items-baseline justify-between gap-2">
         {
-          /* The name may be a long one in any of six languages; it gets the
-            slack and the size stays put, so a row never reflows as the
-            numbers tick. */
+          /* The name may be long in any of six languages. It takes the
+            slack; the numbers keep their size, so a row never reflows as
+            they tick. */
         }
         <span className="min-w-0 text-sm break-words">{label}</span>
         {
           /* Through the catalogue, like the label beside it. This was a
-            hardcoded `${done} / ${total}` template while the bar's own
-            aria-label spent a message for the same fact -- one fact, two
-            spellings, and the one on screen unreachable by a translator. */
+            hardcoded `${done} / ${total}` while the bar's own aria-label
+            spent a message on the same fact: two spellings, and the one on
+            screen unreachable by a translator. */
         }
         <span
           className="flex-none text-xs tabular-nums text-ink-soft"
@@ -90,9 +86,9 @@ function Bar(
   );
 }
 
-/* The states that are one job with one number. Region rows only exist while
-   tiles are being fetched; everything else here is a whole-archive
-   operation and has nothing to break down. */
+/* The states that are one job with one number. Region rows exist only while
+   tiles are being fetched; everything else is a whole-archive operation with
+   nothing to break down. */
 function Simple({ job }: { job: Job; }) {
   switch (job.state) {
     case "planning":
@@ -160,8 +156,7 @@ export function MapProgress() {
       <div className="flex items-center justify-between gap-2">
         {
           /* An export is not a download, and this section said "Map
-            downloads" over "Writing the file" while one ran. Same bars,
-            honest heading. */
+            downloads" over "Writing the file" while one ran. */
         }
         <h2 id="downloads-title" className="m-0 text-sm font-semibold">
           {job.state === "exporting"
@@ -185,16 +180,13 @@ export function MapProgress() {
           ? (
             <ul className="download-rows mt-2 space-y-2.5">
               {
-                /* Each row is measured first, then finished, then in
-                  flight. Finished is `done >= total` with no floor under
-                  the total: a region whose tiles were all already on disk
-                  accrues no fresh bytes, so its total is zero and zero
-                  bytes of zero IS the whole of it. Requiring
+                /* Measured first, then finished, then in flight. Finished is
+                  `done >= total` with no floor under the total: a region
+                  whose tiles were all already on disk accrues no fresh
+                  bytes, so zero of zero IS the whole of it. Requiring
                   `total_bytes > 0` left such a region reading "0 MB / 0 MB"
-                  at 0% for the life of the job -- which is exactly what a
-                  resumed download looks like once the first of two
-                  countries has landed, and it reads as a region that never
-                  started. */
+                  at 0% for the life of the job -- exactly what a resumed
+                  download looks like, and it reads as never started. */
               }
               {rows.map((r, i) => (
                 <Bar

@@ -43,11 +43,13 @@ let from_another_site header =
           let host = Option.value (header "host") ~default:"" in
           not (same_origin_as_host o host))
 
-(* The media type with its parameters cut off: "application/json;
-   charset=utf-8" is application/json. Lowercased and trimmed on both sides
-   of the semicolon, because a header is whatever the client wrote. Two
-   endpoints ask this question and used to carry a copy of the answer each,
-   differing only in the string they compared against. *)
+(* The media type without its parameters: "application/json; charset=utf-8"
+   becomes "application/json". Lowercased, and spaces trimmed, because the
+   client writes this header however it likes.
+
+   Two endpoints need it -- one wants JSON, the other an upload -- and each
+   used to pick the header apart itself, identically apart from the name it
+   was looking for. *)
 let content_type_base header =
   Option.map
     (fun v ->

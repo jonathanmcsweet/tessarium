@@ -1,16 +1,7 @@
 /* The shell: the drawer, its splitter, and the marks drawn over the map.
 
-   These are rules about how pieces of the application fit together, and each
-   one here is a bug that shipped: a mark painted in a colour no palette owns,
-   a control that opened something behind a closed door, a splitter that
-   announced the opposite of what it did, a drag that rebuilt the application
-   sixty times a second, and a cached answer that outlived the tiles it was
-   about. None of them fails a type check or throws, which is why they are
-   read out of the source here.
-
-   Source is read as text, the same way night-flavor.mjs and icons.mjs read
-   it: the thing being checked is a decision written in a file, not a value
-   any runtime hands over. */
+   Each check here is a bug that shipped, and none of them fails a type check
+   or throws. Source is read as text, like night-flavor.mjs and icons.mjs. */
 
 import { readFileSync } from "node:fs";
 
@@ -34,14 +25,9 @@ const resizer = read("components/PanelResizer.tsx");
 
 /* ------------------------------------------------- the keyboard reticle */
 
-/* The square at the centre of the view marking which cell Enter will take.
-   It is the only thing on screen that says so, and it was painted with a
-   literal rgba(18, 33, 47, 0.55) -- the old light theme's ink -- while every
-   other overlay colour moved into per-palette --color-map-* tokens. On three
-   of the five palettes, the default among them, that is a near-black square
-   on near-black cartography: the keyboard's one piece of feedback, invisible
-   out of the box. An arbitrary Tailwind value is also structurally invisible
-   to contrast.mjs, which audits tokens. */
+/* The mark saying which cell Enter takes. It was a literal rgba(18, 33, 47,
+   0.55): near-black on the near-black default palette, and invisible to
+   contrast.mjs, which audits tokens. */
 const reticle = /className="(reticle[^"]*)"/.exec(mapView)?.[1] ?? "";
 check("the reticle is drawn", reticle !== "");
 check(
@@ -55,15 +41,9 @@ check(
 
 /* ------------------------------------------- opening the offline-maps card */
 
-/* The card is drawn inside the drawer, and a shut drawer is translated off
-   screen and made `invisible`. So opening the card without opening the drawer
-   mounts it where nobody can see it -- which is what the missing-basemap
-   banner's action did, and what the map's coverage-gap note did. The note's
-   case was worse than nothing happening: the note hides itself once the card
-   counts as open, so one press removed the note and showed nothing. */
-/* The ACTION, not its type declaration: the state object a few lines below
-   also carries `panelCollapsed: false`, as the drawer's starting value, and a
-   pattern loose enough to reach it would pass whatever the action does. */
+/* A shut drawer is translated off screen and `invisible`, so opening the card
+   without opening the drawer mounts it where nobody can see it. */
+/* The ACTION, not the state object below, which carries the same field. */
 const openDownload =
   /openDownload:\s*\(\)\s*=>\s*set\(\{([^}]*)\}\)/.exec(store)?.[1] ?? "";
 check("the store has an openDownload action", openDownload !== "");
@@ -74,11 +54,8 @@ check(
 
 /* ----------------------------------------------------- the panel splitter */
 
-/* WAI-ARIA's slider and window-splitter pattern: Home goes to the minimum
-   announced value and End to the maximum. These were the other way round --
-   spatially consistent with ArrowLeft widening a right-hand panel, but
-   unstated, and the widget announces aria-valuenow, so a screen-reader user
-   pressing Home heard the value jump to the maximum. */
+/* WAI-ARIA: Home goes to the minimum announced value, End to the maximum.
+   These were reversed, so Home announced a jump to the widest. */
 const homeEnd = /event\.key === "Home"\s*\?\s*(\w+)\s*:\s*(\w+)/.exec(resizer);
 check("Home and End jump to the ends of the range", homeEnd !== null);
 check(
@@ -90,12 +67,8 @@ check(
   homeEnd?.[2] === "PANEL_MAX",
 );
 
-/* A pointer drag delivers a move about every frame. Each one used to be
-   written to the store, and the root subscribes to the width to set two
-   custom properties with children that are deliberately not memoised -- so
-   every mouse move rebuilt the map's whole body and the entire panel to move
-   two numbers. The drag paints the properties directly and the store hears
-   the answer once, when the drag ends. */
+/* A drag delivers a move a frame, and the root's children are deliberately
+   not memoised. Paint the properties; tell the store once, at the end. */
 check(
   "a drag paints the widths rather than routing every frame through the store",
   /setProperty\("--panel-w"/.test(resizer)
@@ -108,12 +81,8 @@ check(
 
 /* ------------------------------------------------- the place-search cache */
 
-/* Search answers are cached for five minutes and nothing refetches on focus,
-   so nothing but a deliberate invalidation would ever ask again. Download
-   France after searching "Lyon" and the empty answer is served back from
-   cache, from an install that has the tiles and cannot find them; remove a
-   region and the index keeps answering for it. The jobs that move the tiles
-   are the ones that must drop the cache. */
+/* Answers cache for five minutes with no refetch on focus, so nothing but a
+   deliberate invalidation asks again. The jobs that move tiles must drop it. */
 check(
   "a finished job drops the cached place-search answers",
   /invalidateQueries\(\{\s*queryKey:\s*\["place-search"\]/.test(mapView),
@@ -121,14 +90,9 @@ check(
 
 /* --------------------------------------- which palettes are light grounds */
 
-/* One classification with two readers: the stylesheet, which inverts
-   MapLibre's baked-in #333 control icons, and MapView, which picks the
-   Protomaps flavour and the sprite sheet. It used to be written twice -- a
-   hand-enumerated [data-theme] selector list here and a list of scheme names
-   in TypeScript -- so a palette added to the palette blocks and not to the
-   selector list ships light control icons on a dark map with nothing
-   failing. That is the exact regression the dark theme's first release
-   shipped. */
+/* One classification, two readers: the stylesheet inverts MapLibre's baked-in
+   control icons, MapView picks the flavour and sprite sheet. Written twice, a
+   new palette silently falls off one of the lists. */
 check(
   "the control icons take their inversion from the palette",
   /maplibregl-ctrl-icon\s*\{[^}]*var\(--map-light-ground\)/.test(css),
@@ -142,13 +106,63 @@ check(
   /--map-light-ground/.test(mapView)
     && !/scheme === "cyber-light"/.test(mapView),
 );
-/* Six definitions: the default in @theme, the four chosen palettes, and
-   plain dark's second copy for a dark device on "match my device".
-   contrast.mjs's completeness check polices the same thing from the other
-   side -- that no palette is missing a token the default has. */
+/* Six: the @theme default, the four palettes, and plain dark's second copy
+   for a dark device on "match my device". */
 check(
   "every palette block answers it",
   (css.match(/--map-light-ground:/g) ?? []).length === 6,
+);
+
+/* ------------------------------------------- the splitter's width clamp */
+
+/* The drag paints the width and the store commits it; they agree only because
+   both call this function. Evaluated out of the source because node cannot
+   import store.ts, and grepping for the name would miss the arithmetic
+   changing under it. */
+const bounds = {
+  min: Number(/export const PANEL_MIN = (\d+)/.exec(store)?.[1]),
+  max: Number(/export const PANEL_MAX = (\d+)/.exec(store)?.[1]),
+};
+const clampSource = /export const clampPanelWidth = \([^)]*\)[^=]*=>\s*([^;]+);/
+  .exec(store)?.[1];
+
+check(
+  "the panel bounds and the clamp are all readable from the store",
+  Number.isFinite(bounds.min) && Number.isFinite(bounds.max)
+    && bounds.min < bounds.max && typeof clampSource === "string",
+);
+
+if (clampSource) {
+  const clamp = new Function(
+    "PANEL_MIN",
+    "PANEL_MAX",
+    `return (width) => ${clampSource};`,
+  )(bounds.min, bounds.max);
+
+  check(
+    `a drag past the narrow end stops at ${bounds.min}`,
+    clamp(bounds.min - 1) === bounds.min && clamp(-9999) === bounds.min,
+  );
+  check(
+    `a drag past the wide end stops at ${bounds.max}`,
+    clamp(bounds.max + 1) === bounds.max && clamp(9999) === bounds.max,
+  );
+  check(
+    "a width inside the range is kept",
+    clamp(bounds.min) === bounds.min && clamp(bounds.max) === bounds.max
+      && clamp(400) === 400,
+  );
+  check(
+    "a fractional drag lands on a whole pixel",
+    clamp(400.4) === 400 && clamp(400.6) === 401
+      && Number.isInteger(clamp(bounds.min + 0.5)),
+  );
+}
+
+/* Through the store's clamp, not a second copy of it. */
+check(
+  "the resizer clamps through the store, not a second copy",
+  /clampPanelWidth/.test(resizer) && !/Math\.min\(\s*PANEL_MAX/.test(resizer),
 );
 
 console.log(`\nshell: ${checks} checks, ${failures} failures`);

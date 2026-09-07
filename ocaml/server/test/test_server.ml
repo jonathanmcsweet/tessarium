@@ -8,8 +8,8 @@
 module C = Tessarium_server.Http_cache
 module R = Tessarium_server.Http_range
 module U = Tessarium_server.Url_path
-(* The proved resolver itself, so the runtime checks below can hold its
-   answers to its own statement of what a safe segment is. *)
+(* The proved resolver, so the checks below can test its answers against its
+   own statement of what a safe segment is. *)
 module Proved = Tessarium_UrlPath
 module Route = Tessarium_server.Route
 
@@ -109,10 +109,9 @@ let () =
   (* Percent-decoding still has to work for legitimate names. *)
   resolves "/assets/a%20b.png" (Some [ "assets"; "a b.png" ]);
 
-  (* The trusted half of Url_path: everything else in it is extracted from
-     proved F*, and these two conversions are what the proof is carried
-     across. Every byte, not a sample -- the interesting ones are 0 and the
-     high half, which is where Char.chr and Z.to_int would part company. *)
+  (* The trusted half of Url_path: the rest is extracted from proved F*, and
+     these two conversions are the bridge. Every byte, not a sample -- 0 and
+     the high half are where Char.chr and Z.to_int would part company. *)
   let all_bytes = String.init 256 Char.chr in
   check "bytes_of_string round-trips every byte"
     (U.string_of_bytes (U.bytes_of_string all_bytes) = all_bytes);
@@ -120,25 +119,23 @@ let () =
     (List.map Z.to_int (U.bytes_of_string "A/\000\255")
      = [ 65; 47; 0; 255 ]);
 
-  (* The theorems, re-asserted at runtime.
-     `Tessarium.UrlPath.theorem_no_escape` and `theorem_no_dotfile` say that
-     every segment `resolve` accepts satisfies `opens_under_root` and
-     `names_no_dotfile`. That is proved of the F*; this runs the EXTRACTED
-     resolver over a product of hostile fragments and holds its answers to the
-     EXTRACTED statements of the claims. It cannot re-prove either theorem --
-     both sides come out of the same extraction -- but it does catch the two
-     ways the proof could stop applying: the claim drifting from the code it
-     is about, and this file's conversion mangling a byte on the way through.
+  (* The theorems, re-checked at runtime.
+     `Tessarium.UrlPath.theorem_no_escape` and `theorem_no_dotfile` say every
+     segment `resolve` accepts satisfies `opens_under_root` and
+     `names_no_dotfile`. That is proved of the F*. This runs the extracted
+     resolver over a product of hostile fragments and tests its answers
+     against the extracted statements of the claims. It cannot re-prove
+     either theorem -- both sides come out of the same extraction -- but it
+     catches two ways the proof stops applying: the claim drifting from the
+     code it is about, and this file's conversion mangling a byte.
 
-     The fragments are in two groups on purpose. The first group is refused,
-     and a corpus of only those would run the claims over an empty set: what
-     it proves is that they were refused, not that the claims hold. The second
-     group is the interesting one -- names that come CLOSE to the rules
-     without breaking them, and encodings that decode into something
-     legitimate -- so that accepted segments carry dots, decoded bytes and
-     separators-turned-boundaries rather than being three literals. The check
-     below reports how many distinct segments actually reached it, because
-     that, not the number of targets, is what it covered. *)
+     Two groups of fragments, on purpose. The first is refused, and a corpus
+     of only those would run the claims over an empty set. The second is
+     names that come close to the rules without breaking them, and encodings
+     that decode into something legitimate, so accepted segments carry dots,
+     decoded bytes and separators-turned-boundaries instead of three
+     literals. The check below reports how many distinct segments reached it,
+     since that, not the number of targets, is what was covered. *)
   let refused =
     [ "."; ".."; "%2e"; "%2E%2E"; "%2f"; "%2F"; ".git"; ".env"; "a%00b";
       "a\\b"; "%"; "%2"; "%zz"; "..%2f.."; "....//"; "%2e%2e%2f" ]
@@ -190,9 +187,9 @@ let () =
   let accepted =
     List.length (List.filter (fun t -> U.resolve t <> None) hostile)
   in
-  (* Printed, not only asserted. The number of targets says how hard the
-     resolver was pushed; the other two say how much the CLAIMS were actually
-     run over, and a corpus can grow without either of them moving. *)
+  (* Printed as well as asserted. The target count says how hard the resolver
+     was pushed; the other two say how much the claims were run over, and a
+     corpus can grow without either of them moving. *)
   Printf.printf "  path safety: %d targets, %d accepted, %d distinct segments\n"
     (List.length hostile) accepted distinct;
   check
@@ -210,10 +207,10 @@ let () =
        | Some (t, s) -> Printf.sprintf " (%S gave %S)" t s))
     (!dotfile = None);
 
-  (* Without accepted targets the two checks above pass over an empty set, and
-     without VARIED ones they pass over three literals. Both numbers are
-     asserted rather than printed, because both were once much smaller than
-     the corpus size suggested. *)
+  (* With no accepted targets the two checks above pass over an empty set;
+     with unvaried ones, over three literals. Both numbers are asserted rather
+     than printed, because both were once far smaller than the corpus size
+     suggested. *)
   check
     (Printf.sprintf "%d targets were accepted, so the claims had something to \
                      hold" accepted)
@@ -271,9 +268,9 @@ let () =
   routes `GET "/tiles.json" (Route.Tile_json { floor = false });
   routes `GET "/tiles.json?v=4" (Route.Tile_json { floor = false });
   routes `POST "/tiles.json" Route.Method_not_allowed;
-  (* The floor's metadata is a separate document because it describes a
-     different depth over different bounds -- the same tiles, cut to what is
-     everywhere rather than to what is deepest. *)
+  (* The floor's metadata is its own document: a different depth over
+     different bounds -- the same tiles, cut to what is everywhere rather than
+     to what is deepest. *)
   routes `GET "/world.json" (Route.Tile_json { floor = true });
   routes `GET "/world.json?v=4" (Route.Tile_json { floor = true });
   routes `POST "/world.json" Route.Method_not_allowed;
@@ -293,11 +290,10 @@ let () =
   let module R = Tessarium_server.Rate_limit in
   let cfg = { R.rate = 1.0; burst = 3.0 } in
 
-  (* A cold bucket is full, and the first call must not be refused. *)
+  (* A cold bucket starts full. *)
   let allowed, st = R.take cfg (R.create cfg) ~now:1000.0 in
   check "first request is allowed" allowed;
 
-  (* Burst is spendable, then exhausted. *)
   let allowed2, st = R.take cfg st ~now:1000.0 in
   let allowed3, st = R.take cfg st ~now:1000.0 in
   let allowed4, st = R.take cfg st ~now:1000.0 in
@@ -306,10 +302,9 @@ let () =
   check "a refused request reports how long to wait"
     (R.retry_after cfg st ~now:1000.0 >= 1);
 
-  (* And refills at the configured rate. *)
   let allowed5, st = R.take cfg st ~now:1001.5 in
   check "refills over time" allowed5;
-  (* After an idle age the bucket is full, not overflowing: exactly `burst`
+  (* After a long idle the bucket is full, not overflowing: exactly `burst`
      requests succeed and the next does not. A refill that ignored the ceiling
      would let one quiet hour pay for unlimited derivations. *)
   check "refill stops at the burst ceiling"
@@ -319,7 +314,6 @@ let () =
      in
      drain 0 st = 3);
 
-  (* A clock that goes backwards must not create tokens. *)
   let _, back = R.take cfg (R.create cfg) ~now:1000.0 in
   let b1, back = R.take cfg back ~now:900.0 in
   let b2, back = R.take cfg back ~now:900.0 in
@@ -355,9 +349,9 @@ let () =
     && J.progress ~done_bytes:0 ~total_bytes:1 ~part:0 ~parts:0 ()
        = J.Fetching
            { done_bytes = 0; total_bytes = 1; part = 1; parts = 1; regions = [] });
-  (* Per-region rows get the same clamping as the aggregate: the download
-     credits regions from a raw counter, and a row reading past its own total
-     is the same bug as a bar past 100%. *)
+  (* Region rows get the same clamping as the aggregate: the download credits
+     regions from a raw counter, and a row past its own total is the same bug
+     as a bar past 100%. *)
   check "a region's progress is clamped to its own total"
     (J.progress ~done_bytes:0 ~total_bytes:100 ~part:1 ~parts:1
        ~regions:
@@ -485,10 +479,9 @@ let () =
      = Some "body");
 
   (* -------------------------------------------------- basemap endpoints *)
-  (* The dispatch is tested with fake ops, so what is asserted is exactly the
-     decision layer: which closure runs, with what request, and that a bad
-     body never reaches one at all. The real ops touch the network and are
-     exercised end-to-end instead. *)
+  (* Fake ops, so what is asserted is the decision layer: which closure runs,
+     with what request, and that a bad body reaches none of them. The real ops
+     touch the network and are exercised end-to-end instead. *)
   let module S = Tessarium_server.Serve in
   let module D = Tessarium_server.Basemap_download in
   check "basemap endpoints bypass the api gate"
@@ -498,12 +491,11 @@ let () =
     (not (Route.is_basemap_api "session") && not (Route.is_basemap_api "encode"));
 
   (* Who may call them. The server listens on loopback and asks for no
-     credentials, so a page the user happens to have open can reach every
-     endpoint the UI can -- and start a download, delete a map, or switch on
-     the network cache. A page cannot set either header below; the browser
-     does. So what is asserted here is what a browser will send, and the two
-     clients that send neither -- curl and a script -- stay welcome, which is
-     what --api is for. *)
+     credentials, so any page the user has open could otherwise start a
+     download, delete a map or switch on the network cache. A page cannot set
+     either header below; the browser sets them. So these assert what a
+     browser sends, while the clients that send neither -- curl and a script
+     -- stay welcome, which is what --api is for. *)
   let hdr l name = List.assoc_opt name l in
   let module G = Tessarium_server.Api_guard in
   let foreign l = G.from_another_site (hdr l) in
@@ -523,15 +515,15 @@ let () =
           [ ("origin", "http://127.0.0.1:7373"); ("host", "127.0.0.1:7373") ]));
   check "a null origin -- a sandboxed frame, a data: URL -- is foreign"
     (foreign [ ("origin", "null"); ("host", "127.0.0.1:7373") ]);
-  (* The last leg: the three body types a page can post with NO preflight.
-     Requiring JSON means the browser has to ask first, and we never answer. *)
+  (* The three body types a page can post with no preflight. Requiring JSON
+     forces the browser to preflight, and this server never answers one. *)
   let json l = G.is_json (hdr l) in
   (* ------------------------------------------------- accept-encoding *)
-  (* Tiles and embedded assets are STORED gzipped, so this decides whether a
-     client gets the stored bytes or an inflated copy. Getting it wrong in
-     the generous direction hands gzip to something that said it cannot read
-     it -- and the clients that spell this carefully are curl and scripts,
-     the exact ones the inflating path exists for. *)
+  (* Tiles and embedded assets are stored gzipped, so this decides whether a
+     client gets the stored bytes or an inflated copy. Being too generous
+     hands gzip to a client that said it cannot read it -- and the clients
+     that spell this header carefully are curl and scripts, the ones the
+     inflating path exists for. *)
   let gz v = S.accepts_gzip (hdr [ ("accept-encoding", v) ]) in
   check "a browser's header accepts gzip" (gz "gzip, deflate, br, zstd");
   check "so does a bare gzip" (gz "gzip");
@@ -560,9 +552,9 @@ let () =
   check "json is" (json [ ("content-type", "application/json") ]);
   check "json with a charset still is"
     (json [ ("content-type", "application/json; charset=utf-8") ]);
-  (* The upload route asks the same question of a different type, through the
-     same parser: casing, surrounding space and parameters are the header's
-     business and not each caller's. *)
+  (* Uploads look for a different content type, but both go through the same
+     parser -- so capitals, extra spaces and trailing parameters are handled
+     in one place rather than by every caller. *)
   let binary l =
     Result.is_ok
       (G.check_stream ~header:(hdr (("content-length", "7") :: l))
@@ -578,9 +570,9 @@ let () =
     ((not (json [ ("content-type", "application/json-seq") ]))
     && not (binary [ ("content-type", "application/octet-stream-ish") ]));
 
-  (* And the guard itself, which is the thing a handler cannot be reached
-     without. What matters is not that these predicates are right but that
-     nothing gets an Api_guard.t unless they all are. *)
+  (* The guard itself, which no handler can be reached without. What matters
+     is not that each predicate is right but that nothing gets an
+     Api_guard.t unless all of them are. *)
   let ok = [ ("content-type", "application/json"); ("host", "127.0.0.1:7373") ] in
   let run ?(declares = true) ?(read = fun () -> Some "{}") l =
     G.check ~header:(hdr l) ~declares_body:declares ~read
@@ -610,8 +602,8 @@ let () =
     (refused_with G.Not_json (run [ ("content-type", "text/plain") ]));
   check "a body over the bound is refused"
     (refused_with G.Too_large (run ok ~read:(fun () -> None)));
-  (* The half that was got wrong twice: a refusal has to clear the socket,
-     and when it cannot, the connection has to end. *)
+  (* Got wrong twice: a refusal has to drain the socket, and when it cannot,
+     the connection has to close. *)
   check "a refusal drains a body it can"
     (not (closes (run (("sec-fetch-site", "cross-site") :: ok))));
   check "and closes the connection when it cannot"
@@ -732,11 +724,10 @@ let () =
     }
   in
   (* Reading a request body must follow what the request declared. Both
-     directions of getting this wrong shipped here briefly: reading an
-     undeclared body hung a bodyless curl until timeout, and skipping a
-     declared one left its bytes in the keep-alive connection, where they
-     were parsed as the start of the next request and turned every later
-     poll on that connection into a 405. *)
+     mistakes shipped here briefly: reading an undeclared body hung a bodyless
+     curl until timeout, and skipping a declared one left its bytes in the
+     keep-alive connection, where the next request parsed them as its own
+     start and every later poll on that connection became a 405. *)
   let h ps = Http.Header.of_list ps in
   check "a declared content-length means a body to drain"
     (S.declares_body (h [ ("content-length", "2") ]));
@@ -837,19 +828,17 @@ let () =
             ])
      = []);
   (* Every key-touching endpoint shares one ceiling. Encode was once
-     unthrottled -- the security write-up's oracle arithmetic was false
-     until this held. Eleven calls against a burst of ten: the last must be
-     refused, and it must be the limiter refusing (the session id is bogus,
-     so an unthrottled server would answer 404, not 429). *)
+     unthrottled, which made the security write-up's oracle arithmetic false.
+     Eleven calls against a burst of ten: the last must be refused, and by the
+     limiter -- the session id is bogus, so an unthrottled server would answer
+     404, not 429. *)
   Eio_main.run (fun _env ->
       let sessions = S.Sessions.create () in
       let module R = Tessarium_server.Rate_limit in
       let limiter = ref (R.create R.default) in
       let random = Eio.Flow.string_source (String.make 64 'x') in
-      (* The status travels with the response now, so this asks for it
-         rather than inferring a 429 from the body being longer than a 404 --
-         which is what it had to do while the status was a literal chosen by
-         the caller three frames away. *)
+      (* The status travels with the response now, so this reads it directly
+         instead of inferring a 429 from the body being longer than a 404. *)
       let status_of endpoint body =
         let _, status, _ =
           S.handle_api scfg sessions limiter random ~endpoint
@@ -942,10 +931,10 @@ let () =
      with
     | [ `Estimate (true, _) ] -> true
     | _ -> false);
-  (* Per-region labels. They exist so the progress view can name its bars,
-     and each one rides ON the region it names rather than in an array beside
-     the list -- so there is no length to agree on, and a label cannot end up
-     against its neighbour's bar however many regions are sent. *)
+  (* Per-region labels, so the progress view can name its bars. Each label
+     rides on the region it names rather than in a parallel array, so there is
+     no length to agree on and a label cannot end up on its neighbour's bar,
+     however many regions are sent. *)
   let labelled name b =
     {|{"label":"|} ^ name ^ {|",|} ^ String.sub b 1 (String.length b - 1)
   in
@@ -1129,11 +1118,10 @@ let () =
     (run ~endpoint:"basemap-browse" ~body:browse_body = []);
   browse_on := true;
 
-  (* Coverage: the same viewport shape as browse, and deliberately NOT
-     gated on the browse setting -- it reads the archives on disk, which
-     is a question about this machine, not a reason to touch the
-     network. Turning browsing off must not blind the map to where its
-     own tiles end. *)
+  (* Coverage takes the same viewport shape as browse, but is deliberately
+     not gated on the browse setting: it reads the archives on disk and
+     touches no network. Turning browsing off must not blind the map to where
+     its own tiles end. *)
   let view =
     {|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56,"zoom":12}|}
   in
@@ -1152,11 +1140,10 @@ let () =
     (run ~endpoint:"basemap-coverage"
        ~body:{|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56}|}
      = []);
-  (* The two ways a coverage query fails are two different statuses, and
-     the message survives either way. A viewport bigger than the cap is the
-     caller asking for too much; an archive this server cannot read is this
-     server's own data gone wrong, and answering that with a 400 blamed the
-     page for it. *)
+  (* The two ways a coverage query fails get two different statuses, and the
+     message survives either way. A viewport over the cap is the caller asking
+     for too much; an unreadable archive is this server's own data gone wrong,
+     and a 400 there blamed the page for it. *)
   check "too large a viewport is the caller's mistake"
     (S.coverage_status (D.Too_large "too big") = `Bad_request);
   check "an archive this server cannot read is this server's mistake"
@@ -1204,11 +1191,10 @@ let () =
     | Error _ -> true
     | Ok _ -> false);
 
-  (* The status envelope carries a generation alongside the job: a fast
-     download can run idle-to-done between two polls, and only an identity
-     lets a poller tell fresh news from stale. Under Eio_main because the
-     runner's mutex needs a fiber context, not because anything here does
-     IO. *)
+  (* The status envelope carries a generation beside the job: a fast download
+     can go idle-to-done between two polls, and only an identity lets a poller
+     tell fresh news from stale. Under Eio_main because the runner's mutex
+     needs a fiber context, not because anything here does IO. *)
   Eio_main.run @@ fun _env ->
   let runner = D.create () in
   check "a fresh runner reports generation zero and an idle job"
@@ -1290,14 +1276,14 @@ let () =
 
   (* ------------------------------------------------- names on the regions *)
 
-  (* What the picker called each place travels ON the place, so the names
-     survive the trip into an archive and back out of it -- which is what lets
-     an update, an export and an import draw the bars the download was made
-     with instead of re-inventing them from the entry's one combined name.
+  (* What the picker called each place travels on the place, so names survive
+     into an archive and back out. That is what lets an update, an export and
+     an import draw the bars the download was made with instead of
+     re-inventing them from the entry's one combined name.
 
-     Display only, and deliberately not part of identity: naming a box must
-     not make it a different box, or re-downloading a region under a new name
-     would start a second copy of it beside the first. *)
+     Display only, never part of identity: naming a box must not make it a
+     different box, or re-downloading a region under a new name would start a
+     second copy beside the first. *)
   let labelled = reg ~z:15 ~label:"France" (-5.1, 41.3, 9.6, 51.1) in
   check "a region's label survives the trip through archive metadata"
     (match L.of_metadata (Result.get_ok (L.to_metadata [ entry [ labelled ] ] ~previous:"{}")) with
@@ -1392,11 +1378,10 @@ let () =
     (not (L.valid_name (String.make 121 'x')));
   check "names at the limit are valid" (L.valid_name (String.make 120 'x'));
 
-  (* Removal geometry, on exact tile boundaries. The rule: Remove undoes
-     the download. A tile goes exactly when the removed entry's download
-     would have fetched it -- everything its region touches, ancestors
-     included, down to the zoom it asked for -- and no kept entry's
-     download would fetch it too. *)
+  (* Removal geometry, on exact tile boundaries. Remove undoes the download:
+     a tile goes exactly when the removed entry's download would have fetched
+     it -- everything its region touches, ancestors included, down to the zoom
+     it asked for -- and no kept entry's download would fetch it too. *)
   let tl, tb, tr, tt = Pmtiles.Tile_id.tile_box ~z:3 ~x:4 ~y:3 in
   let cell = reg ~z:4 (tl, tb, tr, tt) in
   let removed = entry ~name:"cell" [ cell ] in
@@ -1429,12 +1414,12 @@ let () =
   check "a tile wholly outside the polygon is kept"
     (not (pdrops ~z:3 ~x:6 ~y:3));
 
-  (* [Ledger.fetches] must be the covering's membership function EXACTLY --
-     the review that demanded this found a geometric edge-touch test
-     claiming the west and north neighbours of a tile-aligned box, which
-     the covering never fetches. Checked as a property: for boxes plain,
-     tile-aligned and clipped, every tile in a z0..5 universe is claimed by
-     [drops] iff the planner's covering lists it. *)
+  (* [Ledger.fetches] must be exactly the covering's membership function. The
+     review that demanded this found a geometric edge-touch test claiming the
+     west and north neighbours of a tile-aligned box, which the covering never
+     fetches. Checked as a property: for plain, tile-aligned and clipped
+     boxes, every tile in a z0..5 universe is claimed by [drops] iff the
+     planner's covering lists it. *)
   let module T = Pmtiles.Tile_id in
   let universe f =
     let ok = ref true in
@@ -1478,12 +1463,12 @@ let () =
   check "drops = covering, clipped to the padded quad"
     (agrees ~polygon:quad ~z:4 (tl -. pad, tb -. pad, tr +. pad, tt +. pad));
 
-  (* [outside] is what an export prunes with, and it has to be the EXACT
-     complement of the entry's own covering. Too eager and the file arrives
-     on the other machine with holes in the middle of the country; too shy
-     and it carries tiles belonging to regions the user did not export. With
-     [kept] empty, [drops] is precisely "this tile is in the entry", so the
-     two must disagree on every tile in the universe and agree on none. *)
+  (* [outside] is what an export prunes with, and it has to be the exact
+     complement of the entry's own covering. Too eager and the file arrives on
+     the other machine with holes in the middle of the country; too shy and it
+     carries tiles from regions the user did not export. With [kept] empty,
+     [drops] means "this tile is in the entry", so the two must disagree on
+     every tile in the universe and agree on none. *)
   let complements ?polygon ~z:max_zoom (a, b, c, d) =
     let e = entry [ reg ?polygon ~z:max_zoom (a, b, c, d) ] in
     let drops = L.drops ~removed:e ~kept:[] in
@@ -1577,11 +1562,10 @@ let () =
   check "bidi overrides are invalid" (not (L.valid_name "a\xe2\x80\xaeb"));
   check "ordinary multi-byte names stay valid" (L.valid_name "北京 – Beijing");
 
-  (* A browse is served at the depth the SOURCE can reach, not the one the
-     view asked for, and that answer goes back to the client: it decides
-     from it whether deeper tiles have actually arrived. Getting this wrong
-     is invisible on the server and leaves the map either blank or
-     rebuilding its style on every pan. *)
+  (* A browse is served at the depth the source can reach, not the one the
+     view asked for, and that depth goes back to the client, which uses it to
+     decide whether deeper tiles arrived. Getting it wrong is invisible on the
+     server and leaves the map blank or rebuilding its style on every pan. *)
   let header ~min_zoom ~max_zoom =
     {
       Pmtiles.Header.root_offset = 127;
@@ -1627,11 +1611,11 @@ let () =
   check "folding drops accents" (P.fold "Orléans" = "orleans");
   check "folding leaves other scripts alone" (P.fold "Энурмино" = "Энурмино");
 
-  (* Progress has to be able to ARRIVE. A run is one blob shared by
+  (* Progress has to be able to reach its total. A run is one blob shared by
      consecutive tile ids, and an empty ocean tile is byte-identical either
      side of a zoom boundary, so one run can span it. Counting the whole run
-     whenever its FIRST id is in range then counts ids the walk skips, and
-     what the UI is shown stops short of its own total and stays there.
+     whenever its first id is in range then counts ids the walk skips, and the
+     bar stops short of its own total and stays there.
 
      Ids 20..23 are the last tile of zoom 2 and the first three of zoom 3, so
      at max_zoom 2 the walk visits exactly one of the four. *)
@@ -1689,11 +1673,11 @@ let () =
   check "a run spanning the zoom edge does not leave the total unreachable"
     (fst !seen_progress = snd !seen_progress && fst !seen_progress = 1);
 
-  (* And the blob behind a run is read ONCE. Ids 21..24 are all zoom 3, so
-     the walk visits four of them; fetching per id re-ran the directory
-     search, the source read and the inflate for each, on bytes that cannot
-     differ. Only the reprojection varies with the id. Counted at the source,
-     because that is where the cost is. *)
+  (* The blob behind a run is read once. Ids 21..24 are all zoom 3, so the
+     walk visits four of them; fetching per id re-ran the directory search,
+     the source read and the inflate each time, over bytes that cannot differ.
+     Only the reprojection varies with the id. Counted at the source, where
+     the cost is. *)
   let reads = ref 0 in
   let archive = run_archive ~reads ~tile_id:21 ~run_length:4 () in
   let visited = ref 0 in
@@ -1702,7 +1686,6 @@ let () =
   check "the walk visited every id in the run" (!visited = 4);
   check "and read the run's blob once, not once per id" (!reads = 1);
 
-  (* A line survives the file it is written to. *)
   let e =
     {
       P.name = "Fixtureville";
@@ -1723,9 +1706,9 @@ let () =
   | None -> check "an index line round-trips" false);
   check "a truncated line is skipped, not fatal" (P.of_line "junk" = None);
   check "a line with no name is skipped"
-    (* Seven fields, so it is the empty NAME that rejects it rather than the
-       arity -- the six-field version passed this check without ever
-       reaching the guard it is named after. *)
+    (* Seven fields, so the empty name is what rejects it, not the field
+       count -- the six-field version passed without reaching the guard this
+       check is named after. *)
     (P.of_line "\t\tlocality\tplaces\t0\t1.0\t2.0" = None);
 
   (* Eleven French places are called Paris. Ranking exists so the one with
@@ -1741,9 +1724,9 @@ let () =
   check "a town outranks a road of the same name"
     (P.compare_entry (place "Rivoli") (place ~layer:"roads" "Rivoli") < 0);
 
-  (* Ranking bands, in the order the comments claim: an exact name beats one
-     that merely starts with the query, which beats a match at a word
-     boundary, which beats one buried mid-word. *)
+  (* Ranking bands, in order: an exact name beats one that merely starts with
+     the query, which beats a match at a word boundary, which beats one buried
+     mid-word. *)
   let band q name =
     match P.score_of ~needle:(P.fold q) (P.fold name) with
     | Some s -> s / 100_000
@@ -1764,10 +1747,9 @@ let () =
 
   (* A query is how a person names a place, not a substring of one row.
 
-     "Atlanta, GA" appears inside no name anywhere, so matching the query
-     as one run of characters answered a perfectly good question with
-     nothing found -- and got worse the more precisely the place was
-     named, which is backwards. *)
+     No name anywhere contains "Atlanta, GA", so matching the query as one
+     run of characters found nothing -- and got worse the more precisely the
+     place was named, which is backwards. *)
   let q = P.parse_query in
   check "the comma separates the name from its context"
     ((q "Atlanta, GA").P.head = [ "atlanta" ]
@@ -1827,12 +1809,12 @@ let () =
 
   (* The rank leaves the server with the row.
 
-     The browser re-orders these on evidence this index does not have and
-     never will -- which country and which state the point falls in, out of
-     the border data the download picker already ships. It can only refine
-     a ranking it can see: without the number it would have to guess where
-     the boundaries between equally good answers fall, and "Jasper, GA"
-     would answer with Jasper County Landfill for being in Georgia. *)
+     The browser re-orders these using evidence this index does not have --
+     which country and which state the point falls in, from the border data
+     the download picker already ships. It can only refine a ranking it can
+     see: without the number it would have to guess where the boundaries
+     between equally good answers fall, and "Jasper, GA" would answer with
+     Jasper County Landfill for being in Georgia. *)
   check "how well the name was answered beats how big the place is"
     (P.compare_hit { P.entry = big; score = 5 } { P.entry = small; score = 4 }
     > 0);
@@ -1847,12 +1829,12 @@ let () =
 
   (* One town, sighted twice.
 
-     The same label is drawn in every tile that touches it and at every
-     zoom above it, and those repeats collapse by name, layer and position.
+     The same label is drawn in every tile that touches it and at every zoom
+     above it, and those repeats collapse by name, layer and position.
      Position was a grid square alone, so whether two sightings collapsed
-     depended on where the lines fell: Jasper, Alberta sits twenty metres
-     from one, and the real index carried it TWICE -- two of the eight rows
-     a search for "Jasper" had to spend. *)
+     depended on where the grid lines fell: Jasper, Alberta sits twenty metres
+     from one, and the real index carried it twice -- two of the eight rows a
+     search for "Jasper" had to spend. *)
   let seen = Hashtbl.create 8 in
   let key lon lat =
     P.cluster_key seen ~folded:"jasper" ~layer:"places" ~lon ~lat
@@ -1913,11 +1895,11 @@ let () =
   check "and for the Latin-1 letters with no ASCII form"
     (P.fold "Ørsta" = P.fold "ørsta");
 
-  (* The wire shape of a job state is a contract with the UI, which parses
-     it as a tagged union and THROWS on anything it does not know. A state
-     added here without its client counterpart does not degrade -- it breaks
-     status polling for the whole job, which is how the indexing state
-     shipped broken once already. *)
+  (* The wire shape of a job state is a contract with the UI, which parses it
+     as a tagged union and throws on anything it does not know. A state added
+     here without its client counterpart does not degrade -- it breaks status
+     polling for the whole job, which is how the indexing state shipped broken
+     once already. *)
   let state_json j =
     match Tessarium_server.Basemap_job.to_json j with
     | `Assoc fields -> List.map fst fields
@@ -1946,13 +1928,12 @@ let () =
   check "a removal is a running job"
     (J.is_running (J.Removing { done_bytes = 0; total_bytes = 1 }));
 
-  (* A settings write serializes against other writers, and the lock it uses
-     POISONS on any exception escaping the critical section: Eio refuses a
-     poisoned mutex forever after. So a transient read failure -- a bad mode
-     on the file, an exhausted fd table -- must not be allowed to escape, or
-     one unlucky request costs the user their settings endpoint for the
-     lifetime of the process. Driven against a real directory, because the
-     failure is the filesystem's. *)
+  (* A settings write serializes against other writers, and its lock poisons
+     on any exception escaping the critical section -- Eio refuses a poisoned
+     mutex forever after. So a transient read failure (a bad mode on the file,
+     an exhausted fd table) must not escape, or one unlucky request costs the
+     user the settings endpoint for the life of the process. Driven against a
+     real directory, because the failure is the filesystem's. *)
   Eio_main.run (fun env ->
       let fs = Eio.Stdenv.fs env in
       let dir = Filename.temp_file "tessarium-settings" "" in
@@ -1963,10 +1944,9 @@ let () =
       (match ops.set ~days:(Some 30) ~browse:None with
       | Ok _ -> ()
       | Error e -> check ("the first write succeeds: " ^ e) false);
-      (* Unreadable: the load inside the critical section now raises. Root
-         ignores the mode and would make this prove nothing, so the failure
-         is confirmed before anything is concluded from it rather than
-         assumed from the chmod. *)
+      (* Make the load inside the critical section raise. Root ignores the
+         mode, so confirm the file really is unreadable before concluding
+         anything from the chmod. *)
       Unix.chmod path 0o000;
       let readable =
         match open_in_bin path with
@@ -1994,15 +1974,15 @@ let () =
               false
       end);
 
-  (* WHICH core the server answers from, asserted rather than assumed.
+  (* Which core the server answers from, asserted rather than assumed.
 
-     The side-by-side wall proves the two cores AGREE, which is exactly why
-     it cannot notice if serve.ml is rewired back to the extracted one. So
-     probe a point where they deliberately disagree: a word index of 2048 is
-     outside the proved core's domain, and the FFI stubs refuse it, while the
-     extracted core computes over unbounded nats and answers. `address_of_string`
-     cannot produce such a tuple, so this is unreachable through the API --
-     it is a fingerprint, not a behaviour anyone depends on. *)
+     The side-by-side wall proves the two cores agree, which is exactly why it
+     cannot notice if serve.ml is rewired back to the extracted one. So probe
+     a point where they deliberately differ: a word index of 2048 is outside
+     the proved core's domain and the FFI stubs refuse it, while the extracted
+     core computes over unbounded nats and answers. `address_of_string` cannot
+     produce such a tuple, so this is unreachable through the API -- a
+     fingerprint, not a behaviour anyone depends on. *)
   let key = String.make 32 '\007' in
   let out_of_domain = (Z.of_int 2048, Z.zero, Z.zero, Z.zero) in
   check "the server's injected core is the C one, not the extracted one"
@@ -2016,10 +1996,10 @@ let () =
 
   (* ------------------------------------------- addresses vs place names
 
-     One search box takes both, and the classifier decides which one was
-     typed BEFORE anything is sent. Getting it wrong in the "place" direction
-     puts a user's address in a request to the place index -- so these cases
-     are about the boundary, not about happy paths.
+     One search box takes both, and the classifier decides which was typed
+     before anything is sent. Guessing "place" wrongly puts a user's address
+     in a request to the place index, so these cases are about the boundary,
+     not about happy paths.
 
      Pinned in OCaml because the rule belongs to the address format, which
      lives here; the browser reaches it through a js_of_ocaml export rather
@@ -2052,9 +2032,9 @@ let () =
       ("dream.", "partial");
       ("dream.tourist", "partial");
       (* Trailing whitespace must not turn a trailing dot into an
-         abbreviation. It did: the scan walked the TRIMMED string while
+         abbreviation. It did: the scan walked the trimmed string while
          measuring the untrimmed one, so the last index never matched and
-         "dream. " was read as "dream" plus a space -- a word of someone's
+         "dream. " read as "dream" plus a space -- a word of someone's
          address, sent to the place index. *)
       ("dream. ", "partial");
       ("dream.  ", "partial");
@@ -2073,7 +2053,7 @@ let () =
       (* two words is enough to say it is not a place *)
       ("vacuum penalty", "partial");
       ("dream tourist", "partial");
-      (* and the word being typed counts once only one word can finish it *)
+      (* a half-typed word counts once only one BIP-39 word can finish it *)
       ("vacuum pena", "partial");
       (* place names, which must still be searched *)
       ("atlanta", "no");
@@ -2098,18 +2078,18 @@ let () =
       ("Baden-Baden", "no");
       ("los angeles", "no");
     ];
-  (* And the direction the bias runs: a place name shaped exactly like an
-     address is read as an address and refused, rather than searched. Stated
-     as a check so the tradeoff is recorded rather than discovered. *)
+  (* Which way the bias runs: a place name shaped exactly like an address is
+     read as an address and refused rather than searched. A check, so the
+     tradeoff is recorded rather than rediscovered. *)
   check "a place name shaped like an address is treated as one"
     (String.equal (shape "route 66 exit 1234") "complete");
 
-  (* What an abbreviation IS. The prefix rule exists so "slic" can stand for
-     "slice"; it must not also make a word the user typed stand for a
-     different one. Comparing only the first four letters of the INPUT does
-     exactly that, and the result is the worst answer this program can give:
-     a valid-looking address for a square nobody asked about, with no error.
-     "cannot" is not a BIP-39 word; "cannon" is, and they share four letters. *)
+  (* What an abbreviation is. The prefix rule lets "slic" stand for "slice";
+     it must not also make a word the user typed stand for a different one.
+     Comparing only the first four letters of the input does exactly that, and
+     the result is the worst answer this program can give: a valid-looking
+     address for a square nobody asked about, with no error. "cannot" is not a
+     BIP-39 word; "cannon" is, and they share four letters. *)
   let parsed s =
     match Tessarium.address_of_string s with
     | a -> Some a
@@ -2125,11 +2105,11 @@ let () =
 
   (* ------------------------------------------- conditional requests
 
-     Every response is `no-cache`, which means "ask before reusing", and until
-     these tags existed there was nothing to ask about, so asking cost the
-     whole body. The two mistakes available here both fail silently: a tag
-     that never matches costs what it was meant to save, and a tag that
-     matches when it should not serves a stale body forever. *)
+     Every response is `no-cache`, meaning "ask before reusing". Until these
+     tags existed there was nothing to ask about, so asking cost the whole
+     body. Both mistakes here fail silently: a tag that never matches costs
+     what it was meant to save, and a tag that matches when it should not
+     serves a stale body forever. *)
   let tag ?encoding b = C.of_bytes ~encoding b in
   let fresh ?(hdr = "") etag =
     C.is_fresh ~if_none_match:(if hdr = "" then None else Some hdr) ~etag
@@ -2191,9 +2171,9 @@ let () =
     (not (fresh ~hdr:"not a tag" (tag "x")));
 
   (* [If-Range] guards a Range against the bytes having moved, and compares
-     STRONGLY -- map.pmtiles is rewritten in place, so a window handed to a
-     client holding a partial copy of the old archive would splice two
-     archives together. *)
+     strongly -- map.pmtiles is rewritten in place, so a window handed to a
+     client holding part of the old archive would splice two archives
+     together. *)
   let current ?hdr etag =
     C.range_is_current ~if_range:hdr ~etag
   in

@@ -1,24 +1,16 @@
 /* The offline-maps card.
 
-   Offers, in order of usefulness: the whole world at country level when
-   nothing is on disk (there is nothing on screen to aim a viewport with
-   until it exists), detail for the current view, and any mix of countries,
-   states and cities picked by name from a filterable tree -- the way the
-   established offline map apps do it, because aiming a viewport at Portugal
-   is work a list does better.
+   Three offers, most useful first: the whole world at country level when
+   nothing is on disk, detail for the current view, and any mix of
+   countries, states and cities picked from a filterable tree.
 
-   A selection travels as ONE download: the server plans all its regions
-   together and dedups overlap by tile id, so picking a country and also one
-   of its cities pays for the shared tiles once, and the estimate is the
-   real price of the set rather than the sum of its parts. Every offer runs
-   through the same estimate-then-confirm shape: what it costs, whether it
-   is already held, which picks are too big for street level.
+   A selection travels as ONE download. The server plans all its regions
+   together and dedups overlapping tiles, so a country plus one of its
+   cities pays for the shared tiles once. Every offer has the same shape:
+   estimate, then confirm.
 
-   Not a modal. It sits over the map's corner and traps nothing -- the map
-   stays usable behind it, which matters because looking at the map is how a
-   user decides the region is right. The view region is frozen at the moment
-   the card opens; panning afterwards changes the next download, not this
-   one. */
+   The view region is frozen when the card opens. Panning afterwards changes
+   the next download, not this one. */
 
 import { Check, ChevronRight, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -70,31 +62,30 @@ import { toastError } from "../toast";
 import { Dropdown } from "./Dropdown";
 import { IconButton } from "./IconButton";
 
-/* The checkbox. React Aria renders a real input, visually hidden, and hands
-   the appearance over, so this is the box and `selected` on the label is what
-   fills it. The tick inside is scaled to nothing until then rather than
-   mounted and unmounted, so it cannot reflow the row. */
+/* The checkbox face. React Aria hides the real input and leaves the
+   appearance to us, so this is the box and `selected` fills it. The tick is
+   scaled to nothing when unchecked rather than unmounted, so it cannot
+   reflow the row. */
 const BOX = "checkbox-box flex size-4.5 flex-none items-center justify-center "
   + "border border-line-strong bg-card text-on-ink "
   + "group-selected/check:border-accent group-selected/check:bg-accent "
   + "[&>svg]:scale-0 group-selected/check:[&>svg]:scale-100";
 
-/* The save control and the import control have to read as buttons without
-   being one: the first is an <a> because the browser fetches the file, the
-   second a <label> because an <input type=file> cannot be replaced by
-   something that is not one. */
+/* Makes an <a> or a <label> read as a button. Save is an <a> because the
+   browser fetches the file; import is a <label> because a file input needs
+   one. */
 const LINK_BUTTON = "btn btn-quiet border-line-strong hover:border-accent";
 
-/* A refused start -- another download already running, a server gone away
-   -- must be audible, not swallowed. */
+/* A refused start -- another download running, the server gone -- must be
+   audible, not swallowed. */
 const loudly = {
   onError: (e: unknown) =>
     toastError(e instanceof Error ? e.message : String(e)),
 };
 
 /* What the ledger will call a download. The server caps names at 120 bytes
-   of printable UTF-8; a selection of many picks is clamped to "first + N"
-   rather than truncated mid-character. */
+   of printable UTF-8, so many picks become "first + N" rather than a name
+   cut mid-character. */
 const nameBytes = (s: string) => new TextEncoder().encode(s).length;
 
 function ledgerName(labels: string[]): string | undefined {
@@ -126,15 +117,12 @@ function Offer(
        archive and keeps no ledger entry. */
     world?: boolean;
     /* Aligned with regions. Lets the depth warning name the picks that are
-     too big for street level; the world and the view have no names worth
-     saying and get the generic wording. */
+       too big for street level. The world and the view get generic
+       wording. */
     names?: string[];
-    /* What to call each of this offer's regions in the progress panel when
-       there are no per-pick names -- the world and the current view, which
-       are one region apiece. Every download path sends one: a progress bar
-       reading "Unnamed area" for the several minutes a country takes, beside
-       a ledger row that says "London", is the same download described two
-       ways.
+    /* What the progress panel calls this offer's regions when there are no
+       per-pick names -- the world and the current view. Every download path
+       sends one, so the progress bar and the ledger row cannot disagree.
 
        Explicitly `| undefined`: exactOptionalPropertyTypes is on, so an
        optional property and one that may be undefined are different types,
@@ -148,13 +136,12 @@ function Offer(
     className: string;
   },
 ) {
-  /* Priced on the bare regions: the estimate asks about tiles and has no
-     rows to name, and the label must not become part of its query key. */
+  /* Priced on the bare regions: a label would become part of the query key
+     for an answer that is only about tiles. */
   const estimate = useBasemapEstimate(regions, world);
   const download = useBasemapDownload();
-  /* And fetched with the label INSIDE each region -- see LabelledRegion.
-     Beside them, as a parallel array, it could be one short or one out of
-     order and still be accepted. */
+  /* Downloaded with the label INSIDE each region -- see LabelledRegion. A
+     parallel array could be one short or out of order and still pass. */
   const labelled: LabelledRegion[] | null = regions === null ? null : regions
     .map((region, i) => {
       const label = names?.[i] ?? regionLabel;
@@ -178,17 +165,15 @@ function Offer(
   ];
   const showClamped = clamped.length > 0 && estimate.isSuccess
     && !estimate.data.covered && estimate.data.tiles > 0;
-  /* Whether this offer has anything to write. Covered means the archive
-     already holds every tile the source has here; zero tiles means the
-     source has none. Either way there is no download, and the sentence above
-     is the whole answer -- so there is no button.
+  /* Nothing to write: covered means the archive holds every tile the source
+     has here, zero tiles means the source has none. Either way there is no
+     download, so no button.
 
      There used to be one: a covered estimate turned the confirm into "Keep
-     track of this map", from when the server could still RECORD a held area
-     in the ledger without fetching anything. Adoption is gone -- a covered
-     area writes nothing and the job fails with "you already have the maps
-     for that area" -- so every press produced a Failed job and an error
-     toast, from a button the card itself had offered. */
+     track of this map", from when the server could record a held area
+     without fetching. That is gone -- a covered area writes nothing and the
+     job fails -- so every press produced a failed job and an error toast,
+     from a button the card had offered. */
   const nothingToWrite = estimate.isSuccess
     && (estimate.data.covered || estimate.data.tiles === 0);
   return (
@@ -242,14 +227,13 @@ function Offer(
   );
 }
 
-/* A pick: a whole country, one of its states, or a city. One pick can mean
-   several regions -- a country astride the antimeridian is two boxes -- and
-   the label is what the selection count and the depth warning speak of. */
+/* A pick: a country, one of its states, or a city. One pick can be several
+   regions -- a country astride the antimeridian is two boxes. The label is
+   what the selection count and the depth warning name. */
 type Choice = { key: string; label: string; regions: Region[]; };
 
-/* The estimate is a real planning job server-side. Waiting for the
-   selection to settle turns five quick taps into one request instead of
-   five abandoned ones. */
+/* The estimate is real planning work on the server. Waiting for the
+   selection to settle turns five quick taps into one request. */
 function useSettled<T>(value: T, ms: number): T {
   const [settled, setSettled] = useState(value);
   useEffect(() => {
@@ -259,11 +243,10 @@ function useSettled<T>(value: T, ms: number): T {
   return settled;
 }
 
-/* The box is drawn here rather than by the browser. React Aria renders a
-   real input, visually hidden, and leaves the appearance to the caller --
-   which is what makes a checkbox look like the rest of the application
-   instead of like the operating system. The tick comes from the shared icon
-   set; `aria-hidden` because the state is already on the input. */
+/* The box is drawn here, not by the browser, so a checkbox looks like the
+   rest of the application rather than like the operating system. The tick
+   comes from the shared icon set; `aria-hidden` because the real input
+   already carries the state. */
 function CheckRow({ text, checked, onChange, disabled }: {
   text: string;
   checked: boolean;
@@ -288,18 +271,13 @@ function CheckRow({ text, checked, onChange, disabled }: {
 /* Countries disclose their states and cities; any mix across any number of
    countries rides in one download.
 
-   The disclosure and the checkboxes were the browser's own until React Aria
-   became the interaction library. Nothing about the BEHAVIOUR needed
-   replacing -- that was the argument for the native elements, and it was a
-   good one -- but a `summary` marker and a system checkbox are drawn by the
-   platform, and this is the densest screen in the application to have two
-   controls in it that do not match anything else. */
+   The disclosure and the checkboxes used to be native elements. They were
+   replaced for looks, not behaviour: a `summary` marker and a system
+   checkbox are drawn by the platform and matched nothing else on screen. */
 function RegionPicker() {
   const [filter, setFilter] = useState("");
   /* Which countries the user has opened. A filter overrides it and forces
-     every match open, so the hits are visible without hunting -- which is
-     what `open={needle === "" ? undefined : true}` did on the native
-     element, in the one way `details` allowed it to be said. */
+     every match open, so the hits are visible without hunting. */
   const [opened, setOpened] = useState(new Set<string>());
   const [selected, setSelected] = useState(new Map<string, Choice>());
   /* Re-sorted per render on purpose: the locale can change under a live
@@ -358,8 +336,8 @@ function RegionPicker() {
           return (
             <li key={code}>
               {
-                /* Filtering holds matches open so the hits are visible; with
-                  no filter the browser owns the disclosure state. */
+                /* A filter forces every match open; with no filter,
+                  `opened` decides. */
               }
               <Disclosure
                 className="region-disclosure group/disclosure"
@@ -450,12 +428,11 @@ function RegionPicker() {
   );
 }
 
-/* One downloaded region: what it is, how old it is, and its two verbs.
-   Staleness is decided here from the recorded date and the reminder
-   threshold; completed = 0 means the tiles predate the ledger and their
-   age is unknown, which is treated as stale rather than fresh. Remove is
-   two clicks -- the second press of the same button -- because it discards
-   gigabytes that took real time to fetch. */
+/* One downloaded region: what it is, how old it is, and its buttons.
+   Staleness comes from the recorded date and the reminder threshold;
+   completed = 0 means the tiles predate the ledger and their age is
+   unknown, which counts as stale. Remove takes two presses of the same
+   button, because it discards gigabytes. */
 function LedgerRow({ entry, days, busy }: {
   entry: LedgerEntry;
   days: number;
@@ -471,39 +448,32 @@ function LedgerRow({ entry, days, busy }: {
     return () => clearTimeout(id);
   }, [confirming]);
   /* Whether this row is part of the base map rather than somebody's
-     download, which is the one question that decides if it has verbs.
+     download. It decides whether the row gets any buttons.
 
-     An empty `file` means the entry has no archive of its own: its tiles are
-     in map.pmtiles, shared with whatever else merged there. That is the base
-     archive -- what tools/fetch-basemap.sh writes, and what installs from
-     before the one-file-per-region split grew -- and removing an entry from
-     it rewrites the whole file, or unlinks it when the last entry goes.
+     An empty `file` means the entry has no archive of its own: its tiles sit
+     in the shared map.pmtiles, written by tools/fetch-basemap.sh or by an
+     install from before downloads split one file per region. Removing such
+     an entry rewrites that whole file, or unlinks it when the last entry
+     goes.
 
-     Deciding by where the tiles live rather than by what they cover is the
-     correction. Judging by coverage protected a merged world overview and
-     left a merged London box called "Map view" sitting there with Remove
-     beside it, indistinguishable from the base map to anyone reading the
-     panel -- because as far as the file on disk is concerned it IS part of
-     the base map. The base map is removed with a file manager, not from
-     here. */
+     Judged by where the tiles live, not by what they cover. Judging by
+     coverage left a merged London box called "Map view" with Remove beside
+     it, even though removing it would rewrite the base map. The base map is
+     removed with a file manager, not from here. */
   const partOfBaseMap = entry.overview || entry.file === "";
   const ageUnknown = entry.completed === 0;
-  /* Never on a base-map row -- the SAME rule that decides the verbs, and it
-     has to be, because the nudge is an invitation to press one of them.
-     Gated on `overview` alone, a legacy merged entry (completed = 0, so
-     ageUnknown, so stale on any threshold) wore a permanent "Update
-     available" beside no Update and no Remove, for a file the server would
-     refuse the id of anyway. The only escape was setting the reminder to
-     Never, which silences every row in the list. */
+  /* Never on a base-map row, by the SAME rule that decides the buttons: the
+     nudge invites a press of one of them. Gated on `overview` alone, an old
+     merged entry (completed = 0, so ageUnknown, so stale at any threshold)
+     wore a permanent "Update available" beside no buttons at all, and only
+     setting the reminder to Never silenced it. */
   const stale = !partOfBaseMap
     && days > 0
     && (ageUnknown
       || Date.now() / 1000 - entry.completed > days * 86_400);
   const size = formatBytes(entry.bytes);
   const meta = entry.overview
-    /* Says what the row IS, which is also why it has no buttons. A row with
-       a size and nothing to press invites the question; answering it in the
-       line that was going to be there anyway costs nothing. */
+    /* Says what the row IS, which is also why it has no buttons. */
     ? m.map_ledger_overview({ size })
     : ageUnknown
     ? m.map_ledger_age_unknown({ size })
@@ -512,22 +482,18 @@ function LedgerRow({ entry, days, busy }: {
       date: new Intl.DateTimeFormat(getLocale(), { dateStyle: "medium" })
         .format(new Date(entry.completed * 1000)),
     });
-  /* The row's shell -- ledger-row, ledger-row-text, ledger-name -- is three
-     utilities in styles.css, because the exported-files list below draws the
-     same shell and the wrap those carry is a fix rather than a preference.
-     Pasted into both, it applied to whichever one was edited next. */
+  /* The row's shell is three utilities in styles.css because the
+     exported-files list below draws the same shell, and the wrapping they
+     carry is a fix. Pasted into both, it would drift. */
   return (
     <li className="ledger-row">
       <div className="ledger-row-text">
         <span className="ledger-name">
           {
-            /* The overview is named here rather than by the server, which
-               has no opinion about the reader's language. The name it
-               carries is not usable either way: the row is synthesised from
-               a file with no record and arrives blank, and an install from
-               before the split has the overview recorded under whatever the
-               picker called it -- "Map view" on the one that started
-               this. */
+            /* Named here, not by the server, which knows nothing of the
+               reader's language. The recorded name is unusable anyway:
+               blank on a row synthesised from a file, and whatever the
+               picker happened to call it on an old install. */
           }
           {entry.overview ? m.map_name_world() : entry.name}
         </span>
@@ -537,9 +503,8 @@ function LedgerRow({ entry, days, busy }: {
             <>
               {" "}
               {
-                /* The staleness nudge is text, not a traffic light:
-                  accent-text holds 4.5:1 on the card, where the brighter
-                  accent would not. */
+                /* Text, not a traffic light: accent-text holds 4.5:1 on
+                  the card where the brighter accent would not. */
               }
               <span className="ledger-stale font-semibold text-accent-text">
                 {m.map_ledger_stale()}
@@ -549,31 +514,25 @@ function LedgerRow({ entry, days, busy }: {
         </span>
       </div>
       {
-        /* Classed, not just ordered. What each button DOES is the stable
-           thing about it; its position in the row is not, and a fourth verb
-           added here should not silently retarget anything that reaches for
-           one of these -- which is exactly what adding the third did. */
+        /* Each button carries its own class, so anything reaching for one
+           finds it by what it does rather than by its position. Adding the
+           third button silently retargeted selectors written by
+           position. */
       }
       <div className="download-actions flex flex-shrink flex-wrap gap-2">
         {
-          /* No Update either, so the overview row carries no verbs at all.
+          /* No Update either, so the overview row has no buttons at all.
 
-             An update is a re-download of an entry's own regions under its
-             own recorded name, and the overview has no record: the row is
-             built from the file. On an install from before the split it
-             does have one, and following it would re-fetch the whole planet
-             AS DETAIL under the name the picker gave it -- a download the
-             size of the world that leaves a removable duplicate of the
-             thing this row exists to protect.
+             An update re-downloads an entry's own regions under its recorded
+             name. The overview has no record -- the row is built from the
+             file -- and an old install's record would re-fetch the whole
+             planet AS DETAIL: a world-sized download leaving a removable
+             duplicate of the map everything else draws on. Deepening the
+             planet is the world offer above the list instead.
 
-             Deepening the planet is a world download, and the card already
-             offers exactly that above the list whenever the estimate says
-             the overview does not cover what is being asked for.
-
-             Off for every base-map row for a second reason: an update lands
-             in a NEW file of its own and leaves the merged row where it is,
-             so following it would leave a duplicate that can never be taken
-             away again. */
+             Off for every base-map row for a second reason: an update writes
+             a NEW file and leaves the merged row where it is, so it would
+             leave a duplicate that can never be taken away. */
           !partOfBaseMap && (
             <button
               type="button"
@@ -586,22 +545,17 @@ function LedgerRow({ entry, days, busy }: {
           )
         }
         {
-          /* Nothing to carry. Every package ships the world overview --
-            tools/package.sh, both the .deb and the .rpm, and the offline
-            bundle all put one in basemap/ -- so the machine this file would
-            be walked over to already has it. Exporting it would be copying
-            a gigabyte-scale file onto a USB stick to hand someone something
-            they were installed with. */
+          /* Nothing to carry: every package (tools/package.sh, the .deb,
+            the .rpm, the offline bundle) puts a world overview in basemap/,
+            so the machine it would be carried to already has one. */
           !entry.overview
-          /* A link, not a button, when the region has a file of its own --
-             which is every region downloaded since downloads stopped
-             merging. There is nothing to build: the file the download wrote
-             IS the file to carry, so this saves it directly and there is no
-             job to wait on and no second copy on disk.
+          /* A link when the region has a file of its own -- every region
+             downloaded since downloads stopped merging. The file the
+             download wrote IS the file to carry: no job to wait on, no
+             second copy on disk.
 
-             A region still inside the old merged archive keeps the button.
-             That one really does have to be extracted first, and the wait
-             is the extraction. */
+             A region still inside the old merged archive keeps the button,
+             because it has to be extracted first. */
           && (entry.file
             ? (
               <a
@@ -625,15 +579,12 @@ function LedgerRow({ entry, days, busy }: {
             ))
         }
         {
-          /* No Remove on anything that is part of the base map. The
-            overview is the map underneath every region, and a merged entry
-            shares the one archive with it -- so either way this button
-            would be rewriting or unlinking the file the whole application
-            is drawing from, to take away one row. On the machine this is
-            all for there is no getting it back.
+          /* No Remove on anything that is part of the base map: it would
+            rewrite or unlink the archive the whole application draws from,
+            to take away one row, and offline there is no getting it back.
 
-            The server refuses these ids as well; this is the half that
-            keeps the button from being there to press. */
+            The server refuses these ids too. This half keeps the button
+            from being there to press. */
           !partOfBaseMap && (
             <button
               type="button"
@@ -655,10 +606,9 @@ function LedgerRow({ entry, days, busy }: {
 
 /* Files waiting to be carried away.
 
-   Saving is an ordinary link to an ordinary GET on this server, not a blob
-   the page built: the file is on disk already, and a country-sized download
-   assembled in JavaScript would be several gigabytes on the heap for no
-   reason. The link streams and resumes; the heap never sees it. */
+   Saving is a plain link to a GET, not a blob the page built: the file is
+   already on disk, and a country-sized one would be gigabytes on the heap.
+   The link streams and resumes. */
 function ExportedFiles({ busy }: { busy: boolean; }) {
   const exports = useBasemapExports();
   const remove = useDeleteExport();
@@ -709,26 +659,24 @@ function ExportedFiles({ busy }: { busy: boolean; }) {
   );
 }
 
-/* Adding maps from a file, which is the whole offline story in one control.
+/* Adding maps from a file.
 
-   A file input, not a path box: the operating system's own picker is what
-   reaches a USB stick, a phone, a network share or the downloads folder
-   without this app knowing anything about any of them -- and it is the only
-   thing that works under Flatpak, where the app is sandboxed away from the
-   filesystem entirely but the browser is not.
+   A file input, not a path box: the operating system's picker reaches a USB
+   stick, a phone or a network share without this app knowing about any of
+   them, and it is the only thing that works under Flatpak, where the app is
+   sandboxed away from the filesystem but the browser is not.
 
    Two steps. The file goes up and is DESCRIBED first -- what it holds, how
-   deep, how big -- and only a second press merges it. A gigabyte of the
-   wrong country should cost a glance, not a merge. */
+   deep, how big -- and a second press merges it. A gigabyte of the wrong
+   country should cost a glance, not a merge. */
 function ImportFromFile({ busy }: { busy: boolean; }) {
   const staged = useStagedImport();
   const upload = useUploadImport();
   const commit = useCommitImport();
   const discard = useDiscardImport();
-  /* Recorded, not announced. The merge is a real job that runs for minutes
-     and can fail; this only says which words the ending deserves when the
-     status poll sees one, and the poll is watched from the map so that a
-     user who closed the card still hears it. */
+  /* Recorded, not announced. The merge runs for minutes and can fail, so
+     this only says which words its ending deserves. The map watches the
+     poll, so a user who closed the card still hears it. */
   const startImport = useAppStore((s) => s.startImport);
   const [sent, setSent] = useState<{ done: number; total: number; } | null>(
     null,
@@ -750,17 +698,13 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
       {waiting === null && (
         <>
           {
-            /* A real file input, labelled: an icon or a bare button here
-              would leave the control unnamed for assistive technology and
-              unreachable by keyboard on some platforms. The picker's own
-              control is hidden, not removed -- it stays in the
-              accessibility tree and keeps its keyboard behaviour, and the
-              visible label drives it.
+            /* A real file input, hidden rather than removed, so it keeps
+              its accessible name and its keyboard behaviour; the visible
+              label drives it.
 
-              The input comes FIRST in the DOM, which is the only reason the
-              label can show its focus: the thing actually focused is the
-              input, and the input is off screen. As a later sibling the
-              label reads the focus sideways with `peer`. */
+              The input comes FIRST in the DOM so the label can show the
+              focus: what is focused is the off-screen input, and `peer`
+              only reads an earlier sibling. */
           }
           <input
             id="import-file"
@@ -819,12 +763,11 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
             <button
               type="button"
               className="btn btn-primary"
-              /* No success toast here. The server answers this POST the
-                 moment it has forked the job, so "Those maps were added"
-                 used to appear while the merge still had minutes to run --
-                 and a merge that then failed contradicted it with an error
-                 toast about the same operation. The flag is set instead, and
-                 the ending is reported when the job actually reaches it. */
+              /* No success toast. The server answers as soon as it has
+                 forked the job, so "Those maps were added" appeared while
+                 the merge still had minutes to run -- and a merge that then
+                 failed contradicted it. The flag is set instead; the ending
+                 is reported when the job reaches it. */
               onClick={() =>
                 commit.mutate(undefined, {
                   ...loudly,
@@ -850,8 +793,8 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
 }
 
 /* The downloaded-maps list and the one setting that governs it. Rendered
-   only when something is recorded: an empty list teaches nothing that the
-   offers above it do not. */
+   only when something is recorded: an empty list says nothing the offers
+   above it do not. */
 function DownloadedMaps({ busy }: { busy: boolean; }) {
   const ledger = useBasemapLedger();
   const settings = useBasemapSettings();
@@ -886,9 +829,9 @@ function DownloadedMaps({ busy }: { busy: boolean; }) {
   );
 }
 
-/* The one setting that makes this tool reach the network without a click:
-   fetching the tiles you are looking at, as you look. Opt-in, server-gated,
-   and worded as what it does. */
+/* The one setting that makes this application reach the network without a
+   click: fetching the tiles you are looking at, as you look. Opt-in and
+   server-gated. */
 function BrowseToggle() {
   const settings = useBasemapSettings();
   const save = useSaveBasemapSettings();
@@ -911,39 +854,32 @@ function BrowseToggle() {
 
 export function DownloadCard({ region }: { region: Region; }) {
   const closeDownload = useAppStore((s) => s.closeDownload);
-  /* Subscribed HERE rather than passed down from the panel. This poll ticks
-     once a second for the whole life of a job, and the panel was holding it
-     solely to hand the answer to this one prop -- so the address, the
-     coordinates and the footer re-rendered every second for an hour-long
-     download, with the card closed. Nothing else is lost by moving it: the
-     map and the progress section keep their own subscriptions, which are
-     what keep the poll alive while this card is shut.
+  /* Subscribed HERE rather than passed down from the panel. The poll ticks
+     once a second for the life of a job, and holding it in the panel
+     re-rendered the address, the coordinates and the footer every second of
+     an hour-long download, card closed. The map and the progress section
+     keep the poll alive while this card is shut.
 
-     A FOLLOWER, though: mounting must not refetch. The poll is stopped
-     whenever nothing is running, so a job that ended unobserved would be
-     fetched by this mount and delivered as fresh news -- and the watcher on
-     the map closes the card on a job's ending. Opening the card would have
-     closed it again, which is exactly what it did until this said follow. */
+     A FOLLOWER: mounting must not refetch. The poll stops whenever nothing
+     is running, so a job that ended unobserved would be fetched by this
+     mount and delivered as fresh news -- and the map closes the card on a
+     job's ending. Opening the card closed it again. */
   const job = useBasemapStatus({ follow: true }).data?.job;
   const present = useBasemapPresent();
-  /* Only certainty leads with the world offer: while the HEAD is in flight
-     the card shows the other options rather than guessing. */
+  /* The world offer leads only once the answer is known. While the check is
+     in flight the card shows the other options rather than guessing. */
   const worldFirst = present.data === false;
 
-  /* What a download of the current view will be called. Named after where
-     its middle is -- "London", not "Map view" -- because a row in a list has
-     to say which download it is, and the generic phrase said only that a
-     download had happened. It read like something the application had put
-     there rather than something a person chose, which is exactly how it got
-     mistaken for the map underneath everything.
+  /* What a download of the current view is called: where its middle is --
+     "London", not "Map view". The generic phrase said only that a download
+     had happened, and got mistaken for the base map.
 
-     Undefined over open water, where the catalogue has nothing to offer. The
-     Offer then sends no name and the server writes one from the box's own
-     corners: ugly, and true, which beats a generic phrase that is neither.
+     Undefined over open water, where the catalogue has nothing to offer.
+     The Offer then sends no name and the server writes one from the box's
+     corners: ugly, and true.
 
-     Recomputed only when the view actually moves. The lookup walks 1198 city
-     boxes and up to 177 border polygons, which is nothing next to a render
-     but is pure waste on every unrelated state change. */
+     Recomputed only when the view moves. The lookup walks 1198 city boxes
+     and up to 177 border polygons. */
   const viewName = useMemo(
     () =>
       placeAt(
@@ -955,13 +891,11 @@ export function DownloadCard({ region }: { region: Region; }) {
 
   const running = job !== undefined && isRunning(job);
   /* The world overview used to be offered ONLY on an empty map, so anyone
-     who started with a region never saw it again -- and flying anywhere
-     else showed blank ocean while detail loaded. When maps exist (and no
-     job is running -- a world plan is real server work the running card
-     has no use for), ask the estimate whether the overview is still
-     missing (its incremental cost is ~zero once merged in) and keep
-     offering until it isn't. React Query dedups this with the Offer's own
-     estimate, which asks about the same archive and so shares its key. */
+     who started with a region never saw it again and flew to blank ocean.
+     Now, when maps exist and no job is running, the estimate is asked
+     whether the overview is still missing, and the offer stays up until it
+     is not. React Query dedups this with the Offer's own estimate: same
+     archive, same key. */
   const worldEstimate = useBasemapEstimate(
     present.data === true && !running ? [WORLD] : null,
     true,
@@ -971,12 +905,11 @@ export function DownloadCard({ region }: { region: Region; }) {
     && !worldEstimate.data.covered
     && worldEstimate.data.tiles > 0;
 
-  /* A section of the side panel, not a card over the map. It used to float in
-     the top-left corner, where it covered the tiles it was talking about and
-     could never grow past the viewport; here it scrolls with the panel and is
-     as tall as it needs to be. The padding matches the panel head so its
-     heading lines up with the panel's own, and nothing inside may push the
-     drawer wider than the user set it. */
+  /* A section of the side panel, not a card over the map: floating in the
+     corner it covered the tiles it was describing and could not grow past
+     the viewport. The padding matches the panel head so the headings line
+     up, and nothing inside may push the drawer wider than the user set
+     it. */
   return (
     <section
       className="download-card min-w-0 border-t border-line px-4.5 py-3.5"
@@ -994,18 +927,14 @@ export function DownloadCard({ region }: { region: Region; }) {
       </header>
 
       {
-        /* No progress bar and no cancel here, deliberately. Both live in
-          MapProgress, one section up the same panel, which reports per
-          REGION rather than as one total and stays put when this card is
-          closed. When the card floated over the map the two were in
-          different places and merely doubled up; in one panel they were the
-          same download, described twice, with two cancel buttons. */
+        /* No progress bar and no cancel here. Both live in MapProgress,
+          one section up the same panel, which reports per REGION and stays
+          put when this card is closed. Two of each in one panel is one
+          download described twice, with two cancel buttons. */
       }
       {
-        /* What is hidden while a download runs is only the ways to start
-          another one. Everything below stays, disabled through `busy` --
-          which is what that prop was always for, and could never be true
-          before, because this branch replaced the whole body. */
+        /* Only the ways to START another download are hidden while one
+          runs. Everything below stays, disabled through `busy`. */
       }
       {!running && (
         <>
@@ -1021,10 +950,9 @@ export function DownloadCard({ region }: { region: Region; }) {
             />
           )}
           {
-            /* One name, spent twice: the progress bar and the ledger row are
-              the same download and used to disagree, because only the ledger
-              was told. The bar said "Unnamed area" for the whole of a
-              download the list called "London". */
+            /* One name for both. Only the ledger used to be told, so the
+              bar said "Unnamed area" through a download the list called
+              "London". */
           }
           <Offer
             regions={[region]}

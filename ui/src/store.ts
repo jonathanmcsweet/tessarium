@@ -57,12 +57,10 @@ type AppState = {
   unlocked: boolean;
   selection: Selection | null;
   flyTo: FlyTo | null;
-  /* Privacy mode, ON by default. An address is a secret, and the cost of the
-     two states is not symmetric: revealing one the user did not ask to reveal
-     hands it to whoever is behind them, while hiding one they did want costs a
-     click. Survives changing squares in both directions -- someone who
-     revealed it is not asked again on the next square, and someone who hid it
-     for a screen share does not get it back. */
+  /* Privacy mode, ON by default. The two mistakes do not cost the same:
+     revealing an address the user did not ask to reveal hands it to whoever
+     is behind them, while hiding one they wanted costs a click. Survives
+     changing squares, in both directions. */
   concealed: boolean;
   /* The square's coordinates, same policy as its address: they name where
      someone is, so they start hidden and stay as the user set them. */
@@ -74,8 +72,7 @@ type AppState = {
      the map is what knows the viewport. */
   downloadRegion: ViewRegion | null;
   /* Drawer width. In memory only, like everything else here -- see the note
-     at the top of this file; a remembered width is not worth being the
-     exception that makes "persists nothing" untrue. */
+     at the top of this file. */
   panelWidth: number;
   /* Collapsed is not width 0. The width someone dragged to is theirs and is
      kept while the drawer is shut, so reopening returns it rather than
@@ -84,22 +81,19 @@ type AppState = {
   /* Whether the offline-maps card is open. In the store rather than local to
      the map because the missing-basemap banner opens it from outside. */
   downloadOpen: boolean;
-  /* Whether the running job is a merge the user started from a file rather
-     than a download. The server answers both with the same states, so only
-     the page that pressed the button knows which words are true when one
-     reaches Done -- and the ending is reported from the map, which stays
-     mounted after the card is closed. Set when the merge is accepted,
-     cleared by whoever reports the ending. */
+  /* Whether the running job is a merge from a file rather than a download.
+     The server answers both with the same states, so only the page that
+     pressed the button knows which words are true at Done. Set when the
+     merge is accepted, cleared by whoever reports the ending -- the map,
+     which stays mounted after the card is closed. */
   importing: boolean;
   /* Mirrors Paraglide's in-memory locale. Kept here so that changing language
      re-renders the tree: the message functions read the locale when they are
      called, and nothing would call them again otherwise. */
   locale: Locale;
   /* Light, dark, or whatever the device says. In memory only, like
-     everything else here: the note at the top of this file is the whole
-     reason the language menu is session-only too, and a colour scheme is
-     not worth being the exception that makes it untrue. "system" is the
-     start, so the answer is right before anyone touches it. */
+     everything else here -- see the note at the top of this file. Starts at
+     DEFAULT_THEME, which is the palette the stylesheet already paints. */
   theme: Theme;
 
   setLocale: (locale: Locale) => void;
@@ -184,13 +178,12 @@ export const useAppStore = create<AppState>()((set) => ({
     set((state) => ({ panelCollapsed: !state.panelCollapsed })),
   setBasemapFailed: () => set({ basemapFailed: true }),
   clearBasemapFailed: () => set({ basemapFailed: false }),
-  /* Opening the card has to open the DRAWER as well. The card is drawn
-     inside it, and a shut drawer is `invisible translate-x-full` -- so this
-     used to mount the downloader off screen for everyone who reached it from
-     outside the panel: the missing-basemap banner's action, and the coverage
-     note's button. The note's case was worse than a no-op, because the note
-     hides itself once the card is "open" -- one press and both the note and
-     the thing it opened were gone. */
+  /* Opening the card has to open the DRAWER too. The card is drawn inside
+     it, and a shut drawer is `invisible translate-x-full`, so this used to
+     mount the downloader off screen for anyone reaching it from outside the
+     panel -- the missing-basemap banner's action, and the coverage note's
+     button. The note also hides itself once the card is open, so one press
+     removed the note and showed nothing. */
   openDownload: () => set({ downloadOpen: true, panelCollapsed: false }),
   closeDownload: () => set({ downloadOpen: false }),
   startImport: () => set({ importing: true }),

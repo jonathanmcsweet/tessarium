@@ -1,12 +1,11 @@
 /* The side panel: the address of the selected square.
 
    Looking an address UP happens in the map's search box, which takes both a
-   place name and an address -- see PlaceSearch. The form that used to live
-   here is gone rather than duplicated.
+   place name and an address -- see PlaceSearch.
 
    This is the only place an address is ever displayed. The map draws bare
-   squares, so a screenshot or a shared screen gives away one address at most
-   -- and the eye toggle here takes that to none. */
+   squares, so a screenshot or a shared screen gives away one address at
+   most, and the eye toggle here takes that to none. */
 
 import { Download, Eye, EyeOff, PanelRightClose } from "lucide-react";
 import { lazy, Suspense } from "react";
@@ -28,17 +27,15 @@ const MASK = "••••••.••••••.••••••.•••
 /* And the same idea for a coordinate. */
 const COORD_MASK = "••.•••••••";
 
-/* The drawer sits OVER the map rather than beside it. As a grid column it
-   took width away from the map, so every drag resized the map with it --
-   MapLibre re-laid out, tiles re-rendered, and the view you were looking at
-   moved under you. Overlaid, the map is the full width of the shell and stays
-   exactly where it is whatever the drawer does. It casts a shadow on what it
-   covers, which is what makes it read as a panel over the map rather than a
-   pale stripe beside it.
+/* The drawer sits OVER the map, not beside it. As a grid column it took
+   width from the map, so every drag re-laid out MapLibre, re-rendered tiles
+   and moved the view under you. Overlaid, the map is the full width of the
+   shell and stays put. The shadow is what makes it read as a panel over the
+   map rather than a pale stripe beside it.
 
-   Below the drawer breakpoint it is a sheet across the bottom instead: there
-   is no vertical edge to drag there, so PanelResizer hides itself and the
-   width is the viewport's. --panel-w is set on the shell by App.tsx. */
+   Below the drawer breakpoint it is a sheet across the bottom instead: no
+   vertical edge to drag, so PanelResizer hides itself and the width is the
+   viewport's. --panel-w is set on the shell by App.tsx. */
 const DRAWER =
   "absolute inset-y-0 right-0 z-5 flex w-[var(--panel-w,340px)] max-w-full "
   + "flex-col overflow-y-auto border-l border-line bg-card "
@@ -79,11 +76,8 @@ export function AddressPanel() {
   const lock = useLock();
   const versions = useCoreVersions();
 
-  /* The offline-maps card lives here rather than over the map. It used to
-     float in the top-left corner, where it covered the very tiles it was
-     about and had nowhere to grow; in the panel it can be as tall as it
-     needs and the map stays whole. The button that opens it stays on the
-     map, because that is where someone is looking when they notice a gap. */
+  /* The offline-maps card is drawn here rather than over the map, where it
+     covered the tiles it was about and had nowhere to grow. */
   const downloadOpen = useAppStore((s) => s.downloadOpen);
   const openDownload = useAppStore((s) => s.openDownload);
   const closeDownload = useAppStore((s) => s.closeDownload);
@@ -91,11 +85,10 @@ export function AddressPanel() {
   const panelCollapsed = useAppStore((s) => s.panelCollapsed);
   const downloadRegion = useAppStore((s) => s.downloadRegion);
   /* The download job's status is deliberately NOT subscribed to here. It
-     polls once a second for the life of a job, and this panel held it only
-     to hand the answer to the card below -- so the address, the coordinates
-     and the footer re-rendered every second for the whole of an hour-long
-     download, card closed or open. The card asks for itself now, and the
-     map and the progress section keep the poll alive meanwhile. */
+     polls once a second for the life of a job, and holding it here
+     re-rendered the address, the coordinates and the footer every second of
+     an hour-long download. The card asks for itself now; the map and the
+     progress section keep the poll alive meanwhile. */
 
   /* Same treatment as the address above, scaled to the smaller type: the
      bullets are not worth selecting, and a selection highlight through a
@@ -109,10 +102,8 @@ export function AddressPanel() {
       {
         /* Wraps, because it has to. With a square selected the row is five
           controls -- reveal, downloads, settings, lock, hide -- and at the
-          drawer's default 340px they need more room than there is. The
-          alternative was clipping one off the right edge, where nothing
-          says it is there. The brand gives way first and the row drops to
-          its own line only when shrinking is not enough. */
+          drawer's default 340px there is not room. The alternative was
+          clipping one off the right edge. The brand gives way first. */
       }
       <header className="panel-head flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-line px-4.5 py-3.5">
         <span className="brand min-w-0 shrink truncate">
@@ -140,9 +131,8 @@ export function AddressPanel() {
             />
           )}
           {
-            /* The way in to the offline maps. It used to sit over the map's
-              top-left corner, under the search box; it belongs with the
-              thing it opens, which is now this panel. */
+            /* The way in to the offline maps. It belongs beside the thing
+              it opens, which is this panel. */
           }
           <IconButton
             className="panel-download"
@@ -180,32 +170,26 @@ export function AddressPanel() {
                 }
                 {
                   /* The mask is meaningless read aloud, so while concealed
-                    the accessible name says what it is instead of spelling
-                    out twenty-five bullets. This used to be a visible note
-                    below the row; that note existed for the address and not
-                    for the coordinates, and it appeared and disappeared with
-                    the toggle, which moved everything under it by 23 px on
-                    every press. Same information, no layout in it. */
+                    the accessible name says what it is rather than spelling
+                    out twenty-five bullets. It used to be a visible note
+                    below the row, which moved everything under it by 23 px
+                    on every press. */
                 }
                 <output
                   className={`address block min-w-0 flex-1 font-mono text-lg font-semibold leading-snug break-words ${
                     /* Muted rather than accented while concealed: hidden is
-                       a resting state, not an alert. And it is worth being
-                       exact about WHAT is blurred -- the mask. The address
-                       is not in the document while it is concealed, so
-                       there is nothing behind this to recover by selecting
-                       the text, opening devtools, or sharpening a
-                       screenshot. This is a picture of twenty-five
-                       bullets.
+                       a resting state, not an alert. What is blurred is the
+                       MASK -- the address is not in the document while
+                       concealed, so nothing is recoverable by selecting the
+                       text, opening devtools or sharpening a screenshot.
 
                        The colour is set in each branch and NOT on the line
-                       above. It used to sit in both: `text-accent-alt` on
-                       the base and `text-accent-text` here, and two colour
-                       classes on one element are settled by the stylesheet
-                       rather than by the order they are written in -- so
-                       the address wore accent-text in every theme and
-                       accent-alt, the token each palette defines FOR the
-                       address, painted nothing anywhere. */
+                       above. It used to sit in both, and two colour classes
+                       on one element are settled by the stylesheet rather
+                       than by the order they are written -- so the address
+                       wore accent-text in every theme, and accent-alt, the
+                       token each palette defines FOR the address, painted
+                       nothing. */
                     concealed
                       ? "tracking-wide text-ink-soft blur-[3.5px] select-none"
                       : "text-accent-alt"}`}
@@ -239,16 +223,14 @@ export function AddressPanel() {
               }
               <div className="coords-row mt-3 flex items-start gap-1.5">
                 {
-                  /* Named the same way as the address above, for the same
-                    reason: "Latitude, bullet bullet bullet" is not an
-                    answer.
+                  /* Named like the address above, for the same reason:
+                    "Latitude, bullet bullet bullet" is not an answer.
 
-                    NOT `aria-label` on the `dd`, which is what this was
-                    first and is invalid -- a description-list value has no
-                    role that takes a name, and the lint rule
-                    useAriaPropsSupportedByRole is right to refuse it. A
-                    hidden span carries the words and the mask is hidden
-                    from the tree instead, which works on every element. */
+                    NOT `aria-label` on the `dd`, which was the first
+                    attempt and is invalid: a description-list value has no
+                    role that takes a name, and useAriaPropsSupportedByRole
+                    is right to refuse it. A hidden span carries the words
+                    and the mask is hidden from the tree instead. */
                 }
                 <dl className="coords m-0 grid min-w-0 flex-1 grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
                   <dt className="text-ink-soft">{m.panel_latitude()}</dt>
@@ -343,14 +325,13 @@ export function AddressPanel() {
         {
           /* Names and numbers: nothing to translate, so no message key.
 
-            The grid and derivation versions ARE shown, which reverses the
-            decision that used to sit here. An address is
-            three words and four digits, with no room inside it for a version,
-            so a code issued under an older grid is not refused -- it decodes
-            to a different and entirely plausible square, and nothing on screen
-            says why. Reported from use. Naming the epoch is the cheap half of
-            the answer: it cannot make an old code work, but it lets someone
-            label the codes they keep with the grid those codes belong to. */
+            The grid and derivation versions ARE shown. An address is three
+            words and four digits with no room for a version, so a code
+            issued under an older grid is not refused -- it decodes to a
+            different, entirely plausible square, and nothing says why.
+            Naming the epoch cannot make an old code work, but it lets
+            someone label the codes they keep with the grid they belong
+            to. */
         }
         <p className="versions mt-2.5 flex flex-wrap gap-x-2 gap-y-1 text-xs">
           <code className="text-xs select-all">

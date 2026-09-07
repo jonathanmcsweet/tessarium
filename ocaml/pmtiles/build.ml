@@ -1,28 +1,20 @@
 (* A whole PMTiles archive assembled from tiles already held in memory.
 
-   The one writer for the small archives this project builds by hand: the
-   end-to-end fixture the downloader is driven against, and the synthetic
-   archives the server's own suites plan, merge and remove. Each of those
-   carried its own copy of this -- a twenty-five field header literal, a
-   directory, a data section, and the degrees-to-e7 helper beside it -- so a
-   change to the format meant four synchronised edits, and a copy that lagged
-   went on compiling while testing a layout nothing writes any more.
+   The one writer for the small archives this project builds by hand -- the
+   e2e fixture and the server suites' synthetic archives. Each carried its own
+   copy, so a format change meant four synchronised edits and a lagging copy
+   went on compiling against a layout nothing writes.
 
-   Not the download path. [Extract.write] is what writes an archive out of
-   ANOTHER archive, copying blobs it never holds; this is for the case where
-   the bytes are in hand and the point is to control exactly which tiles
-   exist and what each of them says. *)
+   Not the download path: [Extract.write] copies blobs out of another archive.
+   This is for when the bytes are in hand and the point is controlling exactly
+   which tiles exist. *)
 
-(* Answers with the header as well as the bytes: every caller writes the bytes
-   somewhere and most of them then want to ask the header a question, and
-   parsing back what was just serialized to find out is a round trip with a
-   reader in the middle of it.
+(* Answers with the header as well as the bytes, so a caller need not parse
+   back what was just serialized to ask it a question.
 
-   Identical tile bodies share one blob, which is what a real writer does and
-   what makes an archive of ten thousand identical ocean tiles one blob long.
-   [stride] overrides that: every tile gets a slot of its own, that many bytes
-   apart, so reading the archive costs one range request per tile instead of
-   one for the lot -- the difference between a download that finishes
+   Identical bodies share one blob, as a real writer does. [stride] overrides
+   that: a slot per tile, that many bytes apart, so reading costs one range
+   request per tile -- the difference between a download that finishes
    instantly and one that can be watched being cancelled. *)
 let archive ?(metadata = "{}") ?(compression = Header.None_) ?(stride = 0)
     ?center ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
@@ -75,9 +67,8 @@ let archive ?(metadata = "{}") ?(compression = Header.None_) ?(stride = 0)
       root_length = String.length root;
       metadata_offset;
       metadata_length = String.length metadata;
-      (* No leaf directories: everything these archives hold fits in the
-         root, which is what makes them readable with one range request and
-         inspectable by eye. *)
+      (* No leaf directories: everything fits in the root, which is what
+         makes these readable in one range request. *)
       leaf_offset = data_offset;
       leaf_length = 0;
       data_offset;
@@ -103,7 +94,7 @@ let archive ?(metadata = "{}") ?(compression = Header.None_) ?(stride = 0)
   (header, Header.serialize header ^ root ^ metadata ^ data)
 
 (* The common case: every tile of a box between two zooms, each body decided
-   by the caller from the id it belongs to. *)
+   by the caller from its id. *)
 let of_box ?metadata ?compression ?stride ?center ~min_zoom ~max_zoom ~min_lon
     ~min_lat ~max_lon ~max_lat ~body () =
   archive ?metadata ?compression ?stride ?center ~min_zoom ~max_zoom ~min_lon
