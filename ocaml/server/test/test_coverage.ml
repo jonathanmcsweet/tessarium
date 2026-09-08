@@ -1,17 +1,15 @@
 (* What the coverage query says about an archive whose contents are known.
 
-   The endpoint's parsing is checked with fakes in test_server; this drives
-   the real [Basemap_download.coverage] against a real archive on a real
-   filesystem, because everything worth getting wrong here is arithmetic:
-   which tile rectangle a viewport becomes, which corner the answer starts
-   from, which direction it runs, and which archive wins when two hold
-   different tiles.
+   test_server checks the endpoint's parsing with fakes. This drives the real
+   [Basemap_download.coverage] against a real archive on a real filesystem,
+   because the risk here is arithmetic: which tile rectangle a viewport
+   becomes, which corner the answer starts from, which direction it runs, and
+   which archive wins when two disagree.
 
-   The archives are built by hand rather than by the fixture generator: a
-   coverage query reads directories and never a tile body, so a one-byte
-   blob shared by every entry is a complete archive for this purpose, and
-   building it here keeps the expected tile set in the same file as the
-   assertions about it. *)
+   Archives are built here rather than by the fixture generator. A coverage
+   query reads directories, never a tile body, so one shared byte per entry is
+   a complete archive, and the expected tile set stays beside the assertions
+   about it. *)
 
 let checks = ref 0
 let failures = ref 0
@@ -23,64 +21,21 @@ let check name ok =
     Printf.printf "  FAIL  %s\n" name
   end
 
-(* An archive holding exactly [ids], every one pointing at the same byte.
-   Uncompressed directories, so this is the format's own layout with
-   nothing in the way. *)
+(* An archive holding exactly [ids], every one pointing at the same byte, over
+   the whole planet down to [max_zoom]. Uncompressed directories, so this is
+   the format's own layout with nothing in the way. *)
 let archive_of ~max_zoom ids =
-  let tile = "x" in
-  let entries =
-    Array.of_list
-      (List.map
-         (fun id ->
-           {
-             Pmtiles.Directory.tile_id = id;
-             offset = 0;
-             length = String.length tile;
-             run_length = 1;
-           })
-         ids)
-  in
-  let root = Pmtiles.Directory.serialize entries in
-  let metadata = "{}" in
-  let root_offset = Pmtiles.Header.size in
-  let metadata_offset = root_offset + String.length root in
-  let data_offset = metadata_offset + String.length metadata in
-  let e7 v = int_of_float (Float.round (v *. 1e7)) in
-  let header =
-    {
-      Pmtiles.Header.root_offset;
-      root_length = String.length root;
-      metadata_offset;
-      metadata_length = String.length metadata;
-      leaf_offset = data_offset;
-      leaf_length = 0;
-      data_offset;
-      data_length = String.length tile;
-      addressed_tiles = Array.length entries;
-      tile_entries = Array.length entries;
-      tile_contents = 1;
-      clustered = true;
-      internal_compression = Pmtiles.Header.None_;
-      tile_compression = Pmtiles.Header.None_;
-      tile_type = Pmtiles.Header.Mvt;
-      min_zoom = 0;
-      max_zoom;
-      min_lon_e7 = e7 (-180.);
-      min_lat_e7 = e7 (-85.);
-      max_lon_e7 = e7 180.;
-      max_lat_e7 = e7 85.;
-      center_zoom = 0;
-      center_lon_e7 = 0;
-      center_lat_e7 = 0;
-    }
-  in
-  Pmtiles.Header.serialize header ^ root ^ metadata ^ tile
+  snd
+    (Pmtiles.Build.archive ~min_zoom:0 ~max_zoom ~min_lon:(-180.)
+       ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
+       ~tiles:(List.map (fun id -> (id, "x")) ids)
+       ())
 
 let write dir name content =
   Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / name) content
 
-(* The one place under test. Answers are read back as JSON, which is also
-   the shape the UI parses. *)
+(* The function under test. Answers come back as JSON, the same shape the UI
+   parses. *)
 let query ~fs ~dir ~min_lon ~min_lat ~max_lon ~max_lat ~zoom =
   match
     Tessarium_server.Basemap_job.validate ~min_lon ~min_lat ~max_lon
@@ -110,20 +65,18 @@ let bool_field name json =
 
 let () =
   Eio_main.run @@ fun env ->
-  (* A scratch directory outside the tree: [dune exec] runs from the project
-     root, so a relative path here would leave fixture archives lying in the
-     repository. *)
+  (* Scratch directory outside the tree: [dune exec] runs from the project
+     root, so a relative path would leave fixture archives in the repo. *)
   let fs = Eio.Stdenv.fs env in
   let root = Filename.temp_dir "tessarium-coverage" "" in
   let dir_name = Filename.concat root "archive" in
   let dir = Eio.Path.(fs / dir_name) in
   Eio.Path.mkdir ~perm:0o755 dir;
 
-  (* A deliberately lopsided archive: the whole world down to zoom 2, and a
-     single small box -- roughly greater London -- down to zoom 12. That is
-     the shape a real archive has after a world overview plus one country,
-     and it is the shape that makes "coverage" mean two different things at
-     two different zooms. *)
+  (* Lopsided on purpose: the whole world to zoom 2, plus one small box
+     (roughly greater London) to zoom 12. That is what a real archive looks
+     like after a world overview plus one country, and it makes "covered"
+     mean different things at different zooms. *)
   let world = Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom:2
       ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85. in
   let london = Pmtiles.Tile_id.covering ~min_zoom:3 ~max_zoom:12
@@ -150,10 +103,10 @@ let () =
       check "the deepest zoom here is the one the box was cut to"
         (int_field "depth" json = 12));
 
-  (* Tokyo: outside every downloaded box, but the world overview still has
-     a tile over it at zoom 2 -- so "nothing here" is false and "nothing
-     here at THIS zoom" is true. The difference is the whole point of
-     reporting a depth beside the mask. *)
+  (* Tokyo is outside every downloaded box, but the world overview still has
+     a tile over it at zoom 2. So "nothing here" is false while "nothing here
+     at this zoom" is true -- which is why a depth is reported beside the
+     mask. *)
   (match
      query ~fs ~dir:dir_name ~min_lon:139.6 ~min_lat:35.6 ~max_lon:139.8
        ~max_lat:35.8 ~zoom:12
@@ -164,9 +117,8 @@ let () =
         (String.for_all (fun c -> c = '0') (string_field "present" json));
       check "the overview underneath is still reported as depth"
         (int_field "depth" json = 2);
-      (* And the floor really does draw there, which is a different
-         sentence: this archive covers the WHOLE planet at zoom 2, so the
-         map under the map has something to show over Tokyo. *)
+      (* A separate claim: this archive covers the whole planet at zoom 2, so
+         the map under the map has something to draw over Tokyo. *)
       check "the floor reaches somewhere never downloaded"
         (bool_field "floor" json = Some true));
 
@@ -180,15 +132,14 @@ let () =
         (String.for_all (fun c -> c = '1') (string_field "present" json)));
 
   (* --------------------------------------------------- the edge itself *)
-  (* A view over the north-east corner of the London box, which is the case
-     the mask exists to draw. The expected string is computed from the box
-     the archive was built from, so the starting corner and both directions
-     of travel are pinned here rather than in a screenshot.
+  (* A view over the north-east corner of the London box. The expected string
+     is computed from the box the archive was built from, so the starting
+     corner and both directions of travel are pinned here.
 
-     Both axes only get pinned if the mask is asymmetric in both, which a
-     view over a straight edge is not: the first version of this check used
-     one, and reversing the ROWS passed it. The two guards below fail if
-     this fixture ever drifts back into a shape that cannot tell. *)
+     Both axes are only pinned if the mask is asymmetric in both. The first
+     version of this check used a view over a straight edge, and reversing the
+     rows still passed it. The two guards below fail if the fixture drifts
+     back into a shape that cannot tell. *)
   (match
      query ~fs ~dir:dir_name ~min_lon:0. ~min_lat:51.55 ~max_lon:1.2
        ~max_lat:52.1 ~zoom:10
@@ -225,13 +176,11 @@ let () =
              r <> reversed)
            rows));
 
-  (* The middle of the view is where the note speaks about, so the depth
-     reported has to be the depth of THAT tile. When it was measured at the
-     midpoint of the requested degrees instead, the two named different
-     tiles often enough to matter -- and the client could then be told its
-     middle was blank while being handed a depth saying otherwise, which
-     reads on screen as "zoom out to see it" over ground already at this
-     zoom. *)
+  (* The note on screen is about the middle tile, so the reported depth has
+     to be that tile's. Measured at the midpoint of the requested degrees
+     instead, the two named different tiles often enough to matter: the client
+     was told its middle was blank while handed a depth saying otherwise,
+     which reads as "zoom out to see it" over ground already at this zoom. *)
   let blank_centre_is_shallow ~min_lon ~min_lat ~max_lon ~max_lat ~zoom =
     match query ~fs ~dir:dir_name ~min_lon ~min_lat ~max_lon ~max_lat ~zoom with
     | Error _ -> false
@@ -243,12 +192,11 @@ let () =
            asked about. Never "blank here, but covered at this zoom". *)
         middle = '1' || int_field "depth" json < zoom
   in
-  (* Swept rather than sampled. The two ways of naming "the middle" agree
-     for most viewports and disagree for a few hundred in every few
-     thousand, so three hand-picked boxes proved nothing: measuring the
-     depth at the degree midpoint again passed them all. This walks
-     viewports across the edge of the London box at every zoom the archive
-     holds, which finds the disagreement in the first handful. *)
+  (* Swept, not sampled. The two ways of naming "the middle" agree for most
+     viewports and differ for a few hundred in every few thousand, so three
+     hand-picked boxes proved nothing -- the degree-midpoint version passed
+     them all. This walks viewports across the edge of the London box at every
+     zoom the archive holds, and hits a disagreement in the first handful. *)
   let swept = ref 0 and broke = ref 0 in
   for zoom = 6 to 12 do
     for i = 0 to 19 do
@@ -272,12 +220,11 @@ let () =
 
   (* The edges of the world, where the tile grid runs out.
 
-     [tile_x] at exactly 180 returns 2^z -- one past the last column, which
-     [of_zxy] refuses -- so a view against the date line raises rather than
-     answers without the clamp on the rectangle. [tile_y] cannot do the
-     same at the pole because it clamps the latitude itself first, which is
-     why the clamp inside the depth probe is insurance rather than load
-     bearing: the centre of a tile is never on the edge of the world. *)
+     [tile_x] at exactly 180 returns 2^z, one past the last column, which
+     [of_zxy] refuses. Without the clamp on the rectangle, a view against the
+     date line raises instead of answering. [tile_y] cannot do the same at the
+     pole, since it clamps the latitude first, so the clamp inside the depth
+     probe is insurance: a tile's centre is never on the edge of the world. *)
   check "a view against the date line answers instead of raising"
     (match
        query ~fs ~dir:dir_name ~min_lon:179. ~min_lat:0. ~max_lon:180.
@@ -294,9 +241,9 @@ let () =
     | Error _ -> false);
 
   (* ------------------------------------------------------- the cache wins *)
-  (* The browse cache is consulted first by the tile endpoint, so a tile it
-     holds is a tile the map draws -- and coverage that ignored it would
-     grey out what the user is looking at. *)
+  (* The tile endpoint reads the browse cache first, so a tile it holds is a
+     tile the map draws. Coverage that ignored it would grey out what the user
+     is looking at. *)
   let tokyo_z12 =
     Pmtiles.Tile_id.covering ~min_zoom:12 ~max_zoom:12 ~min_lon:139.6
       ~min_lat:35.6 ~max_lon:139.8 ~max_lat:35.8
@@ -314,11 +261,10 @@ let () =
   Eio.Path.unlink Eio.Path.(dir / "cache.pmtiles");
 
   (* ------------------------------------------------- a broken archive *)
-  (* A half-written map.pmtiles is what a crashed download leaves behind.
-     The tile endpoint skips such a file and serves what it can; coverage
-     has to do the same, or the mask disappears exactly where someone most
-     wants to know whether they hold tiles -- and it must not blame the
-     page that asked. The browse cache beside it still answers. *)
+  (* A half-written map.pmtiles is what a crashed download leaves. The tile
+     endpoint skips such a file and serves what it can; coverage must do the
+     same, and must not report the caller's request as the error. The browse
+     cache beside it still answers. *)
   write dir "cache.pmtiles" (archive_of ~max_zoom:12 tokyo_z12);
   let good = Eio.Path.load Eio.Path.(dir / "map.pmtiles") in
   write dir "map.pmtiles" "";
@@ -336,9 +282,8 @@ let () =
   Eio.Path.unlink Eio.Path.(dir / "cache.pmtiles");
 
   (* ------------------------------------------------------------- bounds *)
-  (* A viewport is dozens of tiles; a request for a continent at street
-     zoom is not a viewport, and answering it slowly would be worse than
-     refusing it. *)
+  (* A viewport is dozens of tiles. A continent at street zoom is not a
+     viewport, and answering it slowly is worse than refusing. *)
   check "a query too large to be a viewport is refused, as the caller's error"
     (match
        query ~fs ~dir:dir_name ~min_lon:(-10.) ~min_lat:40. ~max_lon:10.
@@ -347,9 +292,8 @@ let () =
     | Error (Tessarium_server.Basemap_download.Too_large _) -> true
     | Error (Tessarium_server.Basemap_download.Unreadable _) | Ok _ -> false);
 
-  (* An empty basemap directory is the state before the first download, and
-     it must answer rather than fail: the map is blank everywhere, which is
-     exactly what the mask should say. *)
+  (* An empty basemap directory is the state before the first download. It
+     must answer rather than fail: blank everywhere is the right answer. *)
   let empty = Filename.concat root "empty" in
   Eio.Path.mkdir ~perm:0o755 Eio.Path.(fs / empty);
   (match
@@ -364,10 +308,10 @@ let () =
       check "and no floor under it either" (bool_field "floor" json = Some false));
 
   (* --------------------------------------------------- what is on disk *)
-  (* The banner over the map reads this. A world overview alone is a drawn,
-     labelled planet and writes no ledger entry -- the extraction tool does
-     not keep one -- so "are there entries" is the wrong question and
-     "no basemap found" over it would contradict the map behind it. *)
+  (* The banner over the map reads this. A world overview alone draws a full
+     labelled planet but writes no ledger entry, so counting entries is the
+     wrong question -- "no basemap found" would contradict the map behind the
+     banner. *)
   let held_in dir_name =
     match Tessarium_server.Basemap_download.ledger_json ~fs ~basemap_dir:dir_name with
     | Ok json -> bool_field "held" json
@@ -379,10 +323,9 @@ let () =
   check "a world overview on its own counts as a basemap"
     (held_in world_only = Some true);
   check "an empty directory does not" (held_in empty = Some false);
-  (* And the one row it does list is the overview describing itself, not a
-     download. "Held" still cannot be read off the entry count -- an entry
-     here is the map itself -- which is the reason [held] is answered
-     separately at all. *)
+  (* The one row listed is the overview describing itself, not a download. So
+     [held] still cannot be read off the entry count, which is why it is
+     answered separately. *)
   check "and lists exactly the map it is, with nothing to remove"
     (match
        Tessarium_server.Basemap_download.ledger_json ~fs ~basemap_dir:world_only
@@ -400,12 +343,11 @@ let () =
     | Ok (`Assoc fields) -> List.assoc_opt "entries" fields = Some (`List [])
     | _ -> false);
   (* --------------------------------------------- how deep the answer is *)
-  (* The question a viewport asks is the camera zoom, and the answer has to
-     be about the zoom MapLibre will really REQUEST -- which past an
-     archive's own depth is that depth, because the map overzooms the
-     deepest tiles it has rather than asking for more. Clamping that in the
-     browser is what used to force `/tiles.json` to advertise a depth it
-     did not have.
+  (* A viewport asks about the camera zoom, but the answer must be about the
+     zoom MapLibre will actually request. Past an archive's own depth that is
+     the archive's depth, because the map overzooms its deepest tiles instead
+     of asking for more. Clamping this in the browser is what used to force
+     `/tiles.json` to advertise a depth it did not have.
 
      This archive stops at zoom 12. *)
   (match
@@ -427,11 +369,10 @@ let () =
       check "a question inside the archive's depth is answered where it asked"
         (int_field "zoom" json = 9));
 
-  (* With an overview and no downloaded detail, nothing clamps: there is no
-     detail at any zoom, and dragging the question down to the overview's
-     own depth would answer "present" and silence the offer to download
-     the area being looked at. That is the state every fresh install starts
-     in, so it is the one that matters most. *)
+  (* With an overview and no downloaded detail, nothing clamps. There is no
+     detail at any zoom, and pulling the question down to the overview's own
+     depth would answer "present" and hide the offer to download this area.
+     Every fresh install starts here. *)
   let overview_only = Filename.concat root "overview-only" in
   Eio.Path.mkdir ~perm:0o755 Eio.Path.(fs / overview_only);
   write Eio.Path.(fs / overview_only) "world.pmtiles"
@@ -452,12 +393,10 @@ let () =
   Eio.Path.rmdir Eio.Path.(fs / overview_only);
 
   (* ------------------------------------------------------------- the floor *)
-  (* The floor's depth is the deepest zoom the archives cover the WHOLE
-     planet at, and it has to be measured rather than read off a header.
-     Everything below turns on that difference: this archive's header says
-     zoom 12, and a floor cut to 12 would be asking for tiles that exist
-     over London and nowhere else -- which draws an empty tile over Tokyo,
-     which is the bug the floor exists to prevent. *)
+  (* The floor's depth is the deepest zoom the archives cover the whole planet
+     at, and it has to be measured rather than read off a header. This
+     archive's header says zoom 12, but a floor of 12 would ask for tiles that
+     exist over London and nowhere else, drawing an empty tile over Tokyo. *)
   let depth_of dir_name =
     Eio.Switch.run @@ fun sw ->
     Tessarium_server.Basemap_download.floor_depth
@@ -465,21 +404,18 @@ let () =
          ~basemap_dir:dir_name
          (Tessarium_server.Basemap_download.tile_files ~fs ~basemap_dir:dir_name))
   in
-  (* Two, not the twelve the header claims: a floor cut to twelve would ask
-     for tiles that exist over London and nowhere else. *)
   check "the floor stops at the deepest zoom that covers the whole planet"
     (depth_of dir_name = 2);
   check "with no archive at all there is no floor" (depth_of empty = -1);
-  (* A world overview on its own floors the planet -- it is the only archive
-     there is, and it covers every tile of its own range. *)
+  (* The only archive there is, and it covers every tile of its own range. *)
   check "a world overview on its own is the floor" (depth_of world_only = 2);
   Eio.Path.unlink Eio.Path.(fs / world_only / "world.pmtiles");
   Eio.Path.rmdir Eio.Path.(fs / world_only);
 
-  (* One tile short of a whole zoom level is not a whole zoom level. Removed
-     from the far side of the world from London, so nothing else about the
-     archive changes: without this the check above passes for an archive
-     that merely reaches zoom 2 somewhere. *)
+  (* One tile short of a whole zoom level is not a whole zoom level. The tile
+     is dropped on the far side of the world from London, so nothing else
+     changes. Without this, the check above would pass for an archive that
+     merely reaches zoom 2 somewhere. *)
   let world_but_one =
     List.filter
       (fun id ->
@@ -495,12 +431,12 @@ let () =
   write dir "map.pmtiles"
     (archive_of ~max_zoom:12 (List.sort_uniq compare (world @ london)));
 
-  (* A file cut short after its directories were written. This is what an
-     interrupted fetch used to leave behind, and it is the one shape that
-     can fool the scan: every lookup succeeds, and the reads behind half of
-     them run off the end of the file and are served as "no tile here". A
-     floor certified from the directory alone would be full of holes at its
-     own declared depth -- the exact failure the floor exists to prevent. *)
+  (* A file cut short after its directories were written -- what an
+     interrupted fetch used to leave. It is the shape that fools the scan:
+     every directory lookup succeeds, but the reads behind half of them run
+     off the end of the file and come back as "no tile here". A floor
+     certified from the directory alone would be full of holes at its own
+     declared depth. *)
   let whole = Eio.Path.load Eio.Path.(dir / "map.pmtiles") in
   write dir "map.pmtiles"
     (String.sub whole 0 (String.length whole - 1));
@@ -514,18 +450,18 @@ let () =
   | Ok json ->
       check "and the coverage answer says there is no floor"
         (bool_field "floor" json = Some false);
-      (* Still serves what it really holds. Refusing the whole file would
-         turn a partial download into no map at all; what it may not do is
-         be counted towards a completeness claim. *)
+      (* It still serves what it really holds -- refusing the whole file would
+         turn a partial download into no map. It just cannot count towards a
+         completeness claim. *)
       check "while still reporting the tiles it does hold"
         (int_field "depth" json = 2));
   write dir "map.pmtiles" whole;
   check "and the floor comes back when the file does"
     (depth_of dir_name = 2);
 
-  (* A city and nothing else -- which still holds the single zoom-0 tile of
-     the planet, because every download starts at zoom 0. That one tile IS
-     the floor, and the app draws the world from it rather than nothing. *)
+  (* A city and nothing else still holds the planet's single zoom-0 tile,
+     because every download starts at zoom 0. That one tile is the floor, so
+     the app draws a world rather than nothing. *)
   let city_only = Filename.concat root "city" in
   Eio.Path.mkdir ~perm:0o755 Eio.Path.(fs / city_only);
   write Eio.Path.(fs / city_only) "map.pmtiles"
@@ -543,9 +479,8 @@ let () =
   Eio.Path.rmdir Eio.Path.(fs / root);
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
-  (* The suite's own report line, which tools/check-suites.sh looks for --
-     said either way, so a suite that stopped running is distinguishable
-     from one that ran and failed. *)
+  (* tools/check-suites.sh looks for this line. Printed either way, so a suite
+     that never ran is distinguishable from one that ran and failed. *)
   print_endline
     (if !failures = 0 then "coverage answers hold"
      else "coverage answers FAILED");

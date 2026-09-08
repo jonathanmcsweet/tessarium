@@ -1,19 +1,17 @@
-(* Emits the basemap fixture the end-to-end test downloads from, so the e2e
-   exercises the whole downloader -- range requests, extraction, the assets
-   tarball -- against this project's own server, touching no external network.
+(* Builds the basemap fixture the end-to-end test downloads from, so the e2e
+   runs the real downloader -- range requests, extraction, assets tarball --
+   against this project's own server, with no external network.
 
-   Two files land in the directory named by argv(1):
+   Files go in the directory named by argv(1):
 
-   - map.pmtiles: a small but valid archive covering central London at zooms
-     0-15. Every tile is the same hand-encoded MVT -- one layer, one point --
-     which MapLibre must parse without a console error, and console errors
-     fail the e2e. The layer matches nothing in the style, so nothing is
-     drawn and no glyphs are requested; validity is the point, not scenery.
+   - map.pmtiles: central London, zooms 0-15. Every tile is the same
+     hand-encoded MVT (one layer, one point). MapLibre must parse it without
+     a console error, and the e2e fails on console errors. The layer matches
+     nothing in the style, so nothing is drawn and no glyphs are fetched.
 
-   - assets.tar.gz: the sprite sheets the style asks for on load, plus one
-     glyph file so the fonts/ directory exists, wrapped in a top-level
-     directory the way GitHub's tarballs are, because the server's untar
-     strips exactly that shape. *)
+   - assets.tar.gz: the sprite sheets the style loads, plus one glyph file so
+     fonts/ exists. Wrapped in a top-level directory like GitHub's tarballs,
+     because the server's untar strips exactly that shape. *)
 
 (* --------------------------------------------------------------- protobuf *)
 
@@ -44,10 +42,10 @@ let mvt_tile =
     ^ bytes_field 2 feature
     ^ varint_field 5 4096
   in
-  (* A second layer shaped like the real basemap's: one named place, with a
+  (* A second layer shaped like the real basemap's: one named place with a
      kind and a population, so the search index has something to find and
-     something to rank. Named after nothing real -- a fixture that shared a
-     name with a place on Earth would make a passing test ambiguous. *)
+     rank. The name is invented -- a real place name would make a passing
+     test ambiguous. *)
   let named_feature =
     (* tags: name -> "Fixtureville", kind -> "locality", population -> 4242 *)
     let tags = varint 0 ^ varint 0 ^ varint 1 ^ varint 1 ^ varint 2 ^ varint 2 in
@@ -73,89 +71,29 @@ let mvt_tile =
 
 (* ---------------------------------------------------------------- pmtiles *)
 
-let e7 v = int_of_float (Float.round (v *. 1e7))
+(* [stride] gives every tile id its own copy of the blob, that many bytes
+   apart. Same tiles either way, but the reads differ: one shared blob makes a
+   whole region one range request, while a stride wider than the reader's
+   readahead window costs a request per tile. The cancellation test needs a
+   download slow enough to cancel.
 
-(* [stride], when set, gives every tile id its OWN copy of the blob, that far
-   apart in the data section. The archive says the same thing either way --
-   the tiles are identical -- but the reads needed to fetch it are not: with
-   one shared blob a whole region is a single range request, and with a
-   stride wider than the reader's readahead window each tile costs its own.
-   That is the difference between a download that finishes instantly and one
-   that can be watched, and the cancellation test needs the latter. *)
-let pmtiles ?(metadata = "{}") ?(compression = Pmtiles.Header.Gzip)
-    ?(stride = 0) ~min_lon
+   [Pmtiles.Build] assembles the archive, same as the server's suites, so a
+   format change cannot leave this fixture describing a layout nothing
+   writes. *)
+let pmtiles ?metadata ?(compression = Pmtiles.Header.Gzip) ?stride ~min_lon
     ~min_lat ~max_lon ~max_lat ~max_zoom () =
-  let ids =
-    Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom ~min_lon ~min_lat ~max_lon
-      ~max_lat
-  in
-  (* Gzipped, like the real planet build: this is what makes the e2e suite
-     exercise the content-encoding path the browser actually decodes, not
-     only the trivial identity one. *)
+  (* Gzipped, like the real planet build, so the e2e exercises the
+     content-encoding path the browser decodes, not just identity. *)
   let tile =
     match compression with
     | Pmtiles.Header.Gzip -> Gzip.compress mvt_tile
     | _ -> mvt_tile
   in
-  (* Every id points at the one blob at data offset 0, unless a stride
-     spreads them out. *)
-  let entries =
-    List.mapi
-      (fun i id ->
-        {
-          Pmtiles.Directory.tile_id = id;
-          offset = (if stride > 0 then i * stride else 0);
-          length = String.length tile;
-          run_length = 1;
-        })
-      ids
-    |> Array.of_list
-  in
-  let data =
-    if stride = 0 then tile
-    else begin
-      let count = Array.length entries in
-      let b = Buffer.create (count * stride) in
-      for _ = 1 to count do
-        Buffer.add_string b tile;
-        Buffer.add_string b (String.make (stride - String.length tile) '\000')
-      done;
-      Buffer.contents b
-    end
-  in
-  let root = Pmtiles.Directory.serialize entries in
-  let root_offset = Pmtiles.Header.size in
-  let metadata_offset = root_offset + String.length root in
-  let data_offset = metadata_offset + String.length metadata in
-  let header =
-    {
-      Pmtiles.Header.root_offset;
-      root_length = String.length root;
-      metadata_offset;
-      metadata_length = String.length metadata;
-      leaf_offset = data_offset;
-      leaf_length = 0;
-      data_offset;
-      data_length = String.length data;
-      addressed_tiles = Array.length entries;
-      tile_entries = Array.length entries;
-      tile_contents = (if stride > 0 then Array.length entries else 1);
-      clustered = true;
-      internal_compression = Pmtiles.Header.None_;
-      tile_compression = compression;
-      tile_type = Pmtiles.Header.Mvt;
-      min_zoom = 0;
-      max_zoom;
-      min_lon_e7 = e7 min_lon;
-      min_lat_e7 = e7 min_lat;
-      max_lon_e7 = e7 max_lon;
-      max_lat_e7 = e7 max_lat;
-      center_zoom = 10;
-      center_lon_e7 = e7 ((min_lon +. max_lon) /. 2.);
-      center_lat_e7 = e7 ((min_lat +. max_lat) /. 2.);
-    }
-  in
-  Pmtiles.Header.serialize header ^ root ^ metadata ^ data
+  snd
+    (Pmtiles.Build.of_box ?metadata ~compression ?stride ~min_zoom:0 ~max_zoom
+       ~min_lon ~min_lat ~max_lon ~max_lat
+       ~center:(10, (min_lon +. max_lon) /. 2., (min_lat +. max_lat) /. 2.)
+       ~body:(fun _ -> tile) ())
 
 (* -------------------------------------------------------------------- tar *)
 
@@ -178,9 +116,8 @@ let tar_entry name content =
   let pad = (512 - (String.length content mod 512)) mod 512 in
   Bytes.to_string b ^ content ^ String.make pad '\000'
 
-(* A 1x1 transparent PNG. MapLibre decodes the sprite sheet on load, so the
-   bytes must be a real image; the e2e's console-error check is what proves
-   they are. *)
+(* A 1x1 transparent PNG. MapLibre decodes the sprite sheet on load, so these
+   bytes must be a real image. *)
 let png =
   "\x89PNG\r\n\x1a\n"
   ^ "\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
@@ -188,9 +125,8 @@ let png =
   ^ "\x00\x00\x00\x00IEND\xaeB`\x82"
 
 (* Both sheets the style can name, at both densities. The UI picks one by
-   theme, so shipping only the light one here would 404 the moment a test
-   chose dark -- and the e2e counts a failed request as a failure, which is
-   how the real thing would be noticed too. *)
+   theme, so shipping only light would 404 as soon as a test chose dark, and
+   the e2e fails on a failed request. *)
 let sprite_sheets = [ "light"; "dark" ]
 
 let assets_tarball () =
@@ -220,40 +156,37 @@ let () =
       ~max_lon:(-0.05) ~max_lat:51.56 ~max_zoom:15 ()
   in
   write (Filename.concat dir "map.pmtiles") (london ());
-  (* The same tiles declaring no compression at all. A download or a browse
-     that mixed these with the gzipped archive above would relabel every
-     tile as something it is not, so the server refuses -- and the suite
-     needs a source that provokes exactly that. *)
+  (* The same tiles, declaring no compression. Mixing these with the gzipped
+     archive above would mislabel every tile, so the server refuses; the suite
+     needs a source that provokes that refusal. *)
   write
     (Filename.concat dir "map-raw.pmtiles")
     (london ~compression:Pmtiles.Header.None_ ());
-  (* The same place, gzipped, but only down to zoom 6 -- the archive the
-     mismatch server starts with. Shallow on purpose: a browse for street
-     level then genuinely wants tiles it does not hold, so refusing the
-     differently compressed source is the only thing standing between the
-     cache and bytes labelled as something they are not. *)
-  (* Deliberately expensive to fetch: a wide region whose every tile sits in
-     its own 64 KiB slot, so reading it costs hundreds of range requests
-     instead of one. Paired with a delaying proxy in the e2e harness, that is
-     what makes a download last long enough to be cancelled on purpose. *)
+  (* Deliberately slow to fetch: a wide region with every tile in its own
+     64 KiB slot, so reading it costs hundreds of range requests instead of
+     one. With the e2e harness's delaying proxy, that makes a download last
+     long enough to cancel. *)
   write
     (Filename.concat dir "map-slow.pmtiles")
     (pmtiles ~stride:65536 ~min_lon:(-0.6) ~min_lat:51.2 ~max_lon:0.4
        ~max_lat:51.8 ~max_zoom:12 ());
+  (* The same place, gzipped, but only down to zoom 6 -- what the mismatch
+     server starts with. Shallow on purpose: a browse for street level then
+     really does want tiles it lacks, so refusing the differently compressed
+     source is what keeps mislabelled bytes out of the cache. *)
   write
     (Filename.concat dir "map-shallow.pmtiles")
     (pmtiles ~min_lon:(-0.20) ~min_lat:51.46 ~max_lon:(-0.05) ~max_lat:51.56
        ~max_zoom:6 ());
-  (* An archive shaped like an install from before downloads stopped
-     merging: tiles in map.pmtiles with a ledger entry beside them, under
-     whatever the picker called it at the time. Named and shaped like the
-     row that prompted the rule -- a small box over London called "Map
-     view", sitting in the base archive with no file of its own.
+  (* An install from before downloads stopped merging: tiles inside
+     map.pmtiles with a ledger entry beside them, named whatever the picker
+     called it then -- here a small box over London called "Map view", with
+     no file of its own.
 
-     The suite drops this in as a server's map.pmtiles to check that such a
-     row offers nothing that would rewrite that file. Written by
-     [Ledger.to_metadata] rather than by hand, so the fixture cannot drift
-     from the format the server actually reads. *)
+     The suite drops this in as a server's map.pmtiles to check such a row
+     offers nothing that would rewrite that file. Built by
+     [Ledger.to_metadata], not by hand, so it cannot drift from the format
+     the server reads. *)
   let legacy_entry =
     Tessarium_server.Ledger.make ~name:"Map view" ~completed:1787941124
       ~source:"fixture" ~bytes:3126624

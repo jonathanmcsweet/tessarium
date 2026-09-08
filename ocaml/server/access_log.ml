@@ -1,16 +1,15 @@
-(* Structured access logging that cannot emit a secret.
+(* Access logging with no way to print a secret.
 
-   The safety argument is structural rather than disciplinary. There is no
-   free-form message field, so there is nowhere for a phrase, a key or an
-   address to be interpolated even by accident. What gets logged is a closed
-   variant of route shapes plus a status and a byte count.
+   There is no free-form message field, so a phrase, a key or an address has
+   nowhere to be interpolated even by accident. A line holds a route shape, a
+   status and a byte count.
 
-   Two things are deliberately absent:
+   Two things are left out on purpose:
 
-   - The raw request target. It carries the query string, and a query string is
-     attacker-controlled and user-controlled at once.
-   - Anything derived from a request or response body. Addresses only ever
-     travel in bodies, so excluding bodies excludes addresses. *)
+   - The raw request target, because it carries the query string, which the
+     user and an attacker both control.
+   - Anything from a request or response body. Addresses only travel in
+     bodies. *)
 
 type outcome = {
   route : Route.t;
@@ -19,17 +18,16 @@ type outcome = {
   partial : bool;  (** served as a 206 *)
 }
 
-(* Anything request-derived that reaches a log line goes through this first.
-   `Url_path.resolve` refuses NUL, a separator and a leading dot, none of which
-   is about logging -- a segment may still hold CR or LF, and a log line is
-   newline-delimited, so `GET /%0d%0afake-looking-line` would otherwise write a
-   second line that reads like one this server emitted. Bytes outside printable
-   ASCII become `\xNN`; the backslash is escaped too, so the encoding is
-   reversible and nothing in the output can end a line.
+(* Everything request-derived passes through here on its way to a log line.
+   `Url_path.resolve` rejects NUL, separators and a leading dot, but not CR or
+   LF, and log lines are newline-delimited: `GET /%0d%0afake-looking-line`
+   would otherwise write a second line that reads like this server wrote it.
+   Bytes outside printable ASCII become `\xNN`, backslash included, so nothing
+   in the output can end a line.
 
-   Paths named by a request, NOT by the UI build, which is what this comment
-   used to say. A 404 is the interesting case for debugging a blank page, and
-   the ones worth debugging are exactly the ones the build did not ask for. *)
+   The paths logged are the ones requests asked for, not the ones the UI build
+   produced. A 404 is the case worth debugging when a page comes up blank, and
+   those paths are exactly the ones the build never asked for. *)
 let printable s =
   let buf = Buffer.create (String.length s) in
   String.iter

@@ -4,10 +4,11 @@
 #   tools/setup.sh          install what is missing
 #   tools/setup.sh --check  report what is missing, change nothing
 #
-# Everything lands in $HOME. Nothing here needs root, and nothing is installed
-# system-wide, so a machine can carry several checkouts on different versions.
+# Everything lands in $HOME. Nothing needs root and nothing is installed
+# system-wide, so one machine can carry several checkouts on different
+# versions.
 #
-# The versions are the ones CI uses. They are duplicated in
+# The versions are the ones CI uses. They are also in
 # .github/workflows/ci.yml, and --check compares against that file so the two
 # cannot drift silently.
 
@@ -36,8 +37,8 @@ need() {
   if eval "$2" >/dev/null 2>&1; then ok "$1"; return 1; else no "$1"; missing=$((missing+1)); return 0; fi
 }
 
-# The workflow is the reference for these versions; disagreeing with it means
-# a contributor proves something CI does not.
+# The workflow is the reference for these versions. Disagreeing with it means a
+# contributor proves something CI does not.
 say "versions"
 for pair in "FSTAR_VERSION:$FSTAR_VERSION" "OCAML_VERSION:$OCAML_VERSION"; do
   key="${pair%%:*}"; want="${pair#*:}"
@@ -52,15 +53,10 @@ done
 say "F* $FSTAR_VERSION and Z3"
 if need "fstar.exe" "PATH=$TOOLCHAIN/fstar/bin:\$PATH command -v fstar.exe"; then
   if ! $check_only; then
-    mkdir -p "$TOOLCHAIN"
-    url="https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz"
-    echo "    downloading $url"
-    curl -fsSL -o "$TOOLCHAIN/fstar.tar.gz" "$url"
-    tar -xzf "$TOOLCHAIN/fstar.tar.gz" -C "$TOOLCHAIN"
-    rm -f "$TOOLCHAIN/fstar.tar.gz"
-    # The tarball's top directory is versioned; normalise it so PATH is stable.
-    find "$TOOLCHAIN" -maxdepth 1 -type d -name 'fstar*' ! -name fstar \
-      -exec mv {} "$TOOLCHAIN/fstar" \;
+    # The download, unpack and top-directory normalisation live in
+    # tools/fetch-fstar.sh, which CI's three jobs also call. This used to be a
+    # fourth copy, and a fix to one copy was a fix to none of the others.
+    tools/fetch-fstar.sh "$FSTAR_VERSION" "$TOOLCHAIN"
     ok "installed to $TOOLCHAIN/fstar (Z3 ships with it)"
   fi
 fi
@@ -84,7 +80,7 @@ if command -v opam >/dev/null 2>&1 && opam switch list --short 2>/dev/null | gre
     # dune's version, not merely its presence: ocaml/js/dune uses the
     # `sourcemap` and `compilation_mode` fields, which do not exist before
     # 3.17. A switch created against the older constraint reports a healthy
-    # dune here and then fails the build, which is the wrong place to find out.
+    # dune here and then fails the build.
     dune_have="$(opam exec --switch="$SWITCH" -- dune --version 2>/dev/null || true)"
     if [ -z "$dune_have" ]; then
       no "project dependencies"; missing=$((missing+1))
@@ -102,8 +98,8 @@ if command -v opam >/dev/null 2>&1 && opam switch list --short 2>/dev/null | gre
     ok "dependencies"
   fi
 
-  # Not a build dependency: the tool `make test-core` audits the build's
-  # dependency declarations with. It cannot come from tessarium.opam,
+  # Not a build dependency: this is the tool `make test-core` audits the
+  # build's dependency declarations with. It cannot come from tessarium.opam,
   # because it exists to check that file.
   say "opam-dune-lint (checks dune against dune-project)"
   if need "opam-dune-lint" "opam exec --switch=$SWITCH -- sh -c 'command -v opam-dune-lint'"; then
@@ -132,8 +128,8 @@ fi
 # F* ships its OCaml support library as precompiled objects. OCaml 5.3
 # compresses .cmi with zstd when the compiler has it, and F*'s build did, so
 # those objects are unreadable to a compiler without it. Building them from the
-# shipped sources sidesteps the question entirely -- but it has to happen
-# before anything links against them.
+# shipped sources sidesteps that -- but it has to happen before anything links
+# against them.
 say "F* support library"
 if $check_only; then
   if [ -f ocaml/fstarlib/prims.ml ] || [ -f ocaml/fstarlib/Prims.ml ]; then

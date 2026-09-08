@@ -1,22 +1,19 @@
 /* The shared icon-only button.
 
-   An icon on its own tells a sighted mouse user very little and a screen
-   reader user nothing at all, so this component makes the text mandatory
-   rather than optional: `label` is required, it becomes both the tooltip and
-   the `aria-label`, and there is no way to render one without the other.
+   An icon alone tells a sighted mouse user very little and a screen reader
+   user nothing, so the text is mandatory: `label` is required and becomes
+   both the tooltip and the `aria-label`. There is no way to render one
+   without the other.
 
    React Aria supplies the behaviour -- hover, keyboard focus, Escape to
-   dismiss, collision handling, and the aria wiring. Like every tooltip
-   implementation worth using it deliberately does not open on touch, because
-   on a touchscreen hover does not exist, so the one thing added here is a
-   long-press to open it. That is the only gesture a touch user has for "what
-   is this?".
+   dismiss, collision handling, the aria wiring. Like every tooltip worth
+   using it does not open on touch, because hover does not exist there, so
+   the one thing added here is a long press. That is the only gesture a
+   touch user has for "what is this?".
 
-   This was Radix, and moving it is what let the Radix dependency go: the
-   search box is React Aria (components/PlaceSearch.tsx), and one library for
-   interaction behaviour is the point. `onPressStart` reports the pointer
-   type, so the long press no longer needs its own pointer-event handlers to
-   find out whether it is on a touchscreen. */
+   This was Radix; moving it is what let the Radix dependency go, leaving one
+   interaction library. `onPressStart` reports the pointer type, so the long
+   press needs no pointer-event handlers of its own. */
 
 import { type ReactNode, useRef, useState } from "react";
 import {
@@ -28,23 +25,20 @@ import {
 
 const LONG_PRESS_MS = 450;
 
-/* 44px, which is the smallest target most touch guidance accepts. The icon
-   inside is 18px; the rest is the part a thumb needs and a mouse does not
-   notice. No background of its own -- the reset leaves a button
-   transparent -- so a caller that needs one (the reopen tab, which floats
-   over the map) can add it without fighting a class here for the same
-   property. */
+/* 44px, the smallest target most touch guidance accepts. The icon inside is
+   18px; the rest is what a thumb needs. No background of its own, so a
+   caller that needs one (the reopen tab, which floats over the map) can add
+   it without fighting a class here for the same property. */
 const BASE =
   "icon-button icon-cut focus-ring inline-flex h-11 w-11 flex-none items-center "
   + "justify-center border border-line p-0 "
   + "hover:not-disabled:bg-hover hover:not-disabled:text-ink "
   + "aria-pressed:border-ink-soft aria-pressed:text-ink";
 
-/* Colour is a prop rather than a class the caller passes in, because two
-   utilities setting the same property do not resolve by the order they were
-   written in the markup -- they resolve by where Tailwind happened to put
-   them in the sheet. A state the button can be in should not be decided
-   there. */
+/* Colour is a prop rather than a class the caller passes in: two utilities
+   setting the same property resolve by their order in the generated sheet,
+   not by the order written in the markup, and a state the button can be in
+   should not be decided there. */
 const TONES = {
   /* Quiet: these sit beside the address, which is the one thing on the
      panel that should draw the eye. */
@@ -94,11 +88,10 @@ export function IconButton({
         isDisabled={disabled ?? false}
         aria-label={label}
         {
-          /* Spread rather than passed, because `exactOptionalPropertyTypes`
-            makes an explicit `undefined` a type error and a plain action
-            button must not carry `aria-pressed` at all -- an unset toggle
-            state and "not a toggle" are different claims to a screen
-            reader. */
+          /* Spread rather than passed: `exactOptionalPropertyTypes` makes an
+            explicit `undefined` a type error, and a plain action button must
+            not carry `aria-pressed` at all -- an unset toggle state and "not
+            a toggle" are different claims to a screen reader. */
           ...(pressed === undefined ? {} : { "aria-pressed": pressed })
         }
         onPressStart={(e) => {
@@ -111,14 +104,12 @@ export function IconButton({
         {icon}
       </Button>
       {
-        /* The arrow is drawn here rather than by the library: React Aria
-          positions an OverlayArrow and leaves its shape to the caller, where
-          Radix shipped one. Eight pixels wide, filled to match the tooltip,
-          and turned to whichever side it landed on -- the shape points DOWN,
-          which is what a tooltip sitting above its button needs, so the
-          default placement is the one case that needs no rotation. `fill` is
-          an inherited SVG property, so setting it on the wrapper reaches the
-          path inside. */
+        /* The arrow is drawn here because React Aria positions an
+          OverlayArrow and leaves its shape to the caller, where Radix
+          shipped one. Eight pixels wide, filled to match the tooltip, and
+          rotated to whichever side it landed on -- the shape points DOWN, so
+          the default placement above the button needs no rotation. `fill` is
+          inherited, so setting it on the wrapper reaches the path inside. */
       }
       <Tooltip
         className="z-40 max-w-65 bg-ink px-2.5 py-1.5 text-xs leading-snug text-on-ink shadow-card"

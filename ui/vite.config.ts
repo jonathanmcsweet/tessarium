@@ -4,18 +4,16 @@ import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 
-// The dev server proxies to the OCaml server so that `npm run dev` and the
-// built app see the same origin layout. Without this the basemap would be
-// cross-origin in development and same-origin in production, which is exactly
-// the kind of difference that only shows up after a release.
+// The dev server proxies to the OCaml server so `npm run dev` and the built
+// app see the same origin layout. Without it the basemap is cross-origin in
+// development and same-origin in production -- a difference that only shows
+// up after a release.
 const backend = process.env.TESSARIUM_SERVER ?? "http://127.0.0.1:7373";
 
-// Vite's own default is 5173, which is the port every other Vite project on a
-// machine also wants. This one sits in the block the rest of the project
-// already uses -- 7373 is the app, 7374-7379 are the servers the end-to-end
-// suite starts -- so a second Vite service somewhere else is not a collision.
-// TESSARIUM_UI_PORT overrides it, the same way TESSARIUM_SERVER overrides the
-// backend above.
+// Vite's default is 5173, the port every other Vite project also wants. This
+// one sits in the block the project already uses: 7373 is the app, 7374-7379
+// are the servers the end-to-end suite starts. TESSARIUM_UI_PORT overrides
+// it, as TESSARIUM_SERVER overrides the backend above.
 const uiPort = Number(process.env.TESSARIUM_UI_PORT ?? 7380);
 
 // Baked in at build time from package.json -- the one version field npm
@@ -31,92 +29,78 @@ export default defineConfig({
     // utilities the source actually mentions survive into that file, which is
     // why the design scale can be large without the download being.
     tailwindcss(),
-    // Messages are compiled into typed functions rather than looked up from a
-    // dictionary at runtime, so a key that does not exist is a build error and
-    // an unused message is tree-shaken out.
-    // The message-format plugin is a normal pinned npm dependency, referenced
-    // by path in project.inlang/settings.json rather than fetched from a CDN,
-    // so a clean checkout builds with no network after `npm ci`. That path is
-    // resolved from the working directory, which is this directory for every
-    // way the UI is built (`make ui`, `npm run build`, `npm run paraglide`).
+    // Messages compile into typed functions rather than a runtime dictionary
+    // lookup, so a missing key is a build error and an unused message is
+    // tree-shaken out.
+    // The message-format plugin is a pinned npm dependency, referenced by
+    // path in project.inlang/settings.json rather than fetched from a CDN, so
+    // a clean checkout builds with no network. That path is resolved from the
+    // working directory, which is this one for every way the UI is built
+    // (`make ui`, `npm run build`, `npm run paraglide`).
     paraglideVitePlugin({
       project: "./project.inlang",
       outdir: "./src/paraglide",
-      // No cookie and no localStorage. This application persists nothing about
-      // the user -- the end-to-end test asserts empty storage and no cookies --
-      // and a language preference is not worth being the exception that makes
-      // that sentence untrue. `globalVariable` is the in-memory switch the
-      // language menu sets; `preferredLanguage` reads the browser's own
-      // Accept-Language, which is where the answer already lives.
+      // No cookie and no localStorage: this application persists nothing
+      // about the user, and the end-to-end test asserts empty storage and no
+      // cookies. `globalVariable` is the in-memory switch the language menu
+      // sets; `preferredLanguage` reads the browser's Accept-Language.
       strategy: ["globalVariable", "preferredLanguage", "baseLocale"],
     }),
   ],
   build: {
     target: "es2022",
-    /* Off, and the reason is what a shipped build is for.
+    /* Off. A browser fetches a source map only with developer tools open, so
+       this was never a cost on load -- it was a cost on every package. The
+       maps were 6.1 MB of the 8.1 MB of assets compiled into the server
+       binary, and travelled in the tarball, the .deb and the AppImage.
 
-       Nobody downloads a source map: a browser fetches one only with
-       developer tools open, so this was never a cost on load. It was a cost
-       on every package. The maps are 6.1 MB of the 8.1 MB of assets compiled
-       into the server binary, so they travelled in the tarball, the .deb and
-       the AppImage — three quarters of the asset weight, to make a release
-       build debuggable by whoever happens to open devtools on it.
-
-       Debugging happens against a development build, where `vite dev` emits
-       maps regardless of this setting. Anyone who wants a debuggable release
-       has the source and one line to change. */
+       `vite dev` emits maps regardless of this setting, which is where
+       debugging happens. */
     sourcemap: false,
     // The core is a generated artifact served from public/ and loaded by the
-    // worker with importScripts. Keeping it out of the bundler means it is
-    // cached separately and never re-chunked by a UI change. Its size is held
-    // to a budget by test/payload.mjs, not by the warning below.
+    // worker with importScripts. Out of the bundler, it is cached separately
+    // and never re-chunked by a UI change. Its size is held to a budget by
+    // test/payload.mjs, not by the warning below.
     chunkSizeWarningLimit: 1024,
   },
   server: {
     port: uiPort,
     // Fail rather than drift. Vite's default is to take the next free port
-    // when the one it asked for is busy, which is how a dev server ends up
-    // somewhere other than where the person running it is looking -- exactly
-    // the confusion this port exists to end.
+    // when the one it asked for is busy, which lands the dev server somewhere
+    // other than where the person running it is looking.
     strictPort: true,
     /* Everything the app asks its own origin for that this server does not
-       itself hold. test/dev-proxy.mjs walks the source for those paths and
-       fails when one is not covered here -- which is how the map spent a long
-       while with no cartography on the dev server and cartography everywhere
-       else: the style's two TileJSON URLs were never on this list, so the
-       only map anyone saw in dev was the grid drawn over nothing. A missing
-       entry does not break the build or log anything an eye would catch. It
-       just serves index.html for a JSON request. */
+       hold. test/dev-proxy.mjs walks the source for those paths and fails
+       when one is not covered here. A missing entry breaks nothing and logs
+       nothing -- it just serves index.html for a JSON request, which is how
+       the dev server spent a long while showing the grid over no
+       cartography: the style's two TileJSON URLs were never on this list. */
     proxy: {
       "/basemap": backend,
       "/api": backend,
       "/healthz": backend,
-      /* The style's two sources. `/tiles` covers the TileJSON at
-         /tiles.json AND the tiles at /tiles/{z}/{x}/{y}.mvt, which the
-         TileJSON points at -- Vite matches these by prefix.
+      /* The style's two sources. Vite matches by prefix, so `/tiles` covers
+         both the TileJSON at /tiles.json and the tiles at
+         /tiles/{z}/{x}/{y}.mvt that it points at.
 
-         `changeOrigin: false` is load-bearing rather than tidy. A TileJSON
-         has to hand back an absolute URL for its tiles, and the server
-         builds that one from the request's own Host header so it names
-         whoever asked. Vite's shorthand turns changeOrigin ON, which
-         rewrites Host to the backend -- so the document served at :7380
-         gets tile URLs on :7373, fetches them cross-origin, and every one
-         is refused. Keeping the header means the tiles are advertised on
-         the origin that asked for them, and the prefix above carries
-         them. */
+         `changeOrigin: false` is load-bearing. A TileJSON hands back
+         absolute tile URLs, built from the request's own Host header. Vite's
+         shorthand turns changeOrigin ON, rewriting Host to the backend -- so
+         a document served at :7380 gets tile URLs on :7373, fetches them
+         cross-origin, and every one is refused. */
       "/tiles": { target: backend, changeOrigin: false },
       "/world.json": { target: backend, changeOrigin: false },
       // The worker's two wasm modules -- the KDF and the map core -- are
-      // embedded in the backend, not in public/. So in dev they come from the
-      // last `make ui` and can lag wasm/*.wasm; rerun it after `make sync-wasm`
-      // or the browser keeps computing with the old module.
+      // embedded in the backend rather than public/, so in dev they come from
+      // the last `make ui` and can lag wasm/*.wasm. Rerun it after
+      // `make sync-wasm`, or the browser keeps using the old module.
       "/argon2.wasm": backend,
       "/core.wasm": backend,
     },
   },
-  // `vite preview` serves the built app and defaults to 4173, which is the
-  // same story as 5173. It proxies nothing: a preview is checking what the
-  // build produced, and the built app is served by the OCaml binary.
+  // `vite preview` defaults to 4173, the same story as 5173. It proxies
+  // nothing: a preview checks what the build produced, and the built app is
+  // served by the OCaml binary.
   preview: {
     port: uiPort + 1,
     strictPort: true,
