@@ -1,25 +1,21 @@
 /* One box for both ways of naming somewhere: a place, or an address.
 
-   Deliberately not a geocoder call. The place index this reads was built from
-   the downloaded tiles, so a place query never leaves the machine — which is
-   the whole reason the feature is shaped this way rather than as one fetch to
-   a hosted service.
+   Deliberately not a geocoder call. The place index it reads was built from
+   the downloaded tiles, so a place query never leaves the machine.
 
-   An address is stricter still: it never leaves the BROWSER. Before anything
-   is sent, the text is classified by `Tessarium.address_shape`, which lives
-   beside the address format rather than being re-implemented here — and the
+   An address is stricter: it never leaves the BROWSER. Before anything is
+   sent, the text is classified by `Tessarium.address_shape`, which lives
+   beside the address format rather than being re-implemented here, and the
    place query is gated on that answer. Three outcomes:
 
      complete  decode it in the worker and offer to fly there
      partial   someone is mid-address: show nothing, send nothing
      no        a place name: search the index as before
 
-   The gate fails closed. While the classification is still in flight the
-   answer is not yet "no", so nothing is searched; a keystroke costs one
-   postMessage round trip before the request it might not make. Getting this
-   backwards would put a user's address in a request, in a log, and on a
-   network in any hosted deployment — which is the one thing an address must
-   never be in. */
+   The gate fails closed. While the classification is in flight the answer is
+   not yet "no", so nothing is searched; a keystroke costs one postMessage
+   round trip before a request it might not make. Backwards, this would put a
+   user's address in a request, a log, and a network. */
 
 import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -68,32 +64,29 @@ const DIRECTION_LABEL: Record<Direction, () => string> = {
 };
 
 /* Rows offered. The popover scrolls past about five, so eight is a short
-   scroll rather than a wall. */
+   scroll rather than a wall of results. */
 const SHOWN = 8;
 
 /* Rows ASKED FOR when the query carries a context. The server ranks by
    population and knows nothing of states, so the Jasper in Georgia sits
-   wherever its population puts it among every other Jasper -- sixth, on
-   the real United States index, which is below the fold. Forty rows is a
-   couple of kilobytes on a request that already scanned the whole index,
-   and it is only asked for when there is a comma to justify it. */
+   wherever its population puts it -- sixth on the real United States index,
+   below the fold. Forty rows is a couple of kilobytes on a request that
+   already scanned the whole index, and only asked for when there is a comma
+   to justify it. */
 const WIDE = 40;
 
 /* Where each result sits, and how much of the typed context it answers.
    Both fall out of the same containment work, so it is done once per row
    rather than once for the label and again for the ranking.
 
-   Module level, with every input named, so the memo that calls it can
-   state what it depends on -- the locale included, because a country is
-   matched against the context under the name the reader would see it
-   under.
+   Module level, with every input named, so the memo that calls it can state
+   what it depends on -- the locale included, because a country is matched
+   against the context under the name the reader sees.
 
-   The sort is the whole point of the wider ask -- see [compareRows], which
-   states the two keys and why they are in that order. Ranking only: a row
-   answering none of the context is still offered, because the boxes
-   overlap and the borders are simplified, and a context that DECIDED
-   would hide the right answer every time the catalogue and the atlas
-   disagreed. */
+   The sort is the point of the wider ask; [compareRows] states its two keys
+   and why they are in that order. Ranking only: a row answering none of the
+   context is still offered, because a context that DECIDED would hide the
+   right answer every time the catalogue and the atlas disagreed. */
 const placeRows = (
   results: readonly PlaceResult[],
   shapes: readonly Country[],
@@ -133,7 +126,7 @@ const placeRows = (
 type Placing = ReturnType<typeof placeRows>[number]["at"];
 
 /* Long enough that typing a word does not fire a scan per keystroke, short
-   enough that the list feels attached to the keyboard. The scan itself is
+   enough that the list feels attached to the keyboard. The scan is
    milliseconds on a city and a few hundred on a country. */
 const DEBOUNCE_MS = 250;
 
@@ -160,19 +153,18 @@ export function PlaceSearch(
 ) {
   const [text, setText] = useState("");
   const [debounced, setDebounced] = useState("");
-  /* No open flag, no highlight index, no listbox id, no ref to the box.
+  /* No open flag, no highlight index, no listbox id, no ref to the box:
      React Aria's ComboBox owns those, along with the click-away listener,
-     the blur rule, Escape, the arrow-key wrap, and the aria-activedescendant
-     that has to point at whichever branch drew an option. */
+     the blur rule, Escape, the arrow-key wrap, and aria-activedescendant. */
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(text), DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [text]);
 
-  /* The classification, and everything that hangs off it. `shape` is
-     undefined until the worker answers, and every branch below treats that
-     as "not a place name yet" rather than as "no". */
+  /* The classification, and everything hanging off it. `shape` is undefined
+     until the worker answers, and every branch below reads that as "not a
+     place name yet" rather than as "no". */
   const shapeQuery = useAddressShape(debounced);
   const shape = shapeQuery.data?.shape;
   const isAddress = shape === "complete";
@@ -184,11 +176,10 @@ export function PlaceSearch(
      likely error anyone here will ever see. */
   const addressError = lookup.error ? sayError(lookup.error) : null;
 
-  /* What was typed after the comma: "Jasper, GA". The server cannot answer
-     it -- its index is tile labels, and a tile label does not know its
-     state -- so the answer is worked out here from the border data already
-     shipped, and a wider slice of the index is asked for when there is a
-     context to answer with it. */
+  /* What was typed after the comma, as in "Jasper, GA". The server cannot
+     answer it: its index is tile labels, and a tile label does not know its
+     state. So it is worked out here from the border data already shipped,
+     and a wider slice of the index is asked for when there is a context. */
   const locale = getLocale();
   const terms = useMemo(
     () => (shape === "no" ? contextTerms(debounced) : []),
@@ -201,10 +192,10 @@ export function PlaceSearch(
   );
   const results = search.data?.results;
 
-  /* An address answer is worth showing from the first character -- there is
-     no "too short to be meaningful" for text already known to be one. A
-     place name waits for two, which is what keeps one keystroke from
-     scanning the index. */
+  /* An address answer is worth showing from the first character: text
+     already known to be an address is never "too short to be meaningful". A
+     place name waits for two, which keeps one keystroke from scanning the
+     index. */
   const longEnough = debounced.trim().length >= 2;
 
   /* The catalogue's shapes, once -- they are static data. Labels are NOT
@@ -213,13 +204,12 @@ export function PlaceSearch(
      asked for at render time, fresh. */
   const shapes = useMemo(() => countries().map(({ country }) => country), []);
 
-  /* A result reads as "name — kind · where · how far": several towns share
-     a name (the United States alone has a handful of Atlantas), so the
+  /* A result reads as "name — kind · where · how far". Several towns share
+     a name -- the United States alone has a handful of Atlantas -- so the
      kind alone is a coin flip about where the map is about to fly. The
-     containing country and, where the catalogue has them, the subdivision
-     come from the shipped border data; the distance and compass point from
-     the current map centre. All offline -- the query already never leaves
-     the machine, and neither does the context. */
+     country and, where the catalogue has them, the subdivision come from the
+     shipped border data; the distance and compass point from the current map
+     centre. All offline. */
   const describe = (r: PlaceResult, at: Placing) => {
     const parts = [r.kind === "" ? r.layer : r.kind.replace(/_/g, " ")];
     if (at.country) {
@@ -246,18 +236,16 @@ export function PlaceSearch(
 
   /* Memoized because placing a point is a ray cast against every border
      polygon in the catalogue -- ten thousand edges -- and forty of them
-     measured 15 ms: a dropped frame on every keystroke, and several on a
-     phone. */
+     measured 15 ms: a dropped frame per keystroke, several on a phone. */
   const ranked = useMemo(
     () => placeRows(results ?? [], shapes, terms, locale),
     [results, shapes, terms, locale],
   );
 
-  /* One collection, whichever mode is live. The old version branched in the
-     markup and had to keep three sets of ARIA wiring agreeing with each
-     other; a combobox only ever has options, so the branch belongs here. An
-     address resolves to exactly one, which is still an option because Enter
-     and the pointer must do the same thing for it as for a place. */
+  /* One collection, whichever mode is live. Branching in the markup meant
+     keeping three sets of ARIA wiring in agreement; a combobox only ever has
+     options, so the branch belongs here. An address resolves to exactly one
+     option, so Enter and the pointer treat it like any place. */
   type Option = {
     id: string;
     name: string;
@@ -289,10 +277,9 @@ export function PlaceSearch(
     : [];
 
   /* What to say when there are no options but there IS something to say.
-     Null means the popover should not open at all -- a query under two
-     characters has no answer yet and an empty box over the map is noise.
-     Kept out of the listbox: a paragraph is not an option, and a listbox
-     may only contain options. */
+     Null means the popover should not open at all: a query under two
+     characters has no answer yet, and an empty box over the map is noise.
+     Kept out of the listbox, which may only contain options. */
   const emptyMessage = isPartial
     ? `${m.search_address_partial()} ${
       m.search_prefix_hint({ example: m.search_prefix_example() })
@@ -303,13 +290,12 @@ export function PlaceSearch(
     ? (search.isFetching ? m.search_searching() : m.search_none())
     : null;
 
-  /* Cleared on arrival for an address, unlike a place name, which is
-     deliberately kept so the same answers can be seen again without
-     retyping. An address is not a query to refine -- it names one square and
-     the map is now on it -- and it is a secret sitting in a box OVER the
-     map, where the panel keeps the same value behind a conceal toggle.
-     Leaving it there would put an address in every screenshot of the map,
-     which is the exposure the panel's toggle exists to prevent. */
+  /* Cleared on arrival for an address, unlike a place name, which is kept
+     so the same answers can be seen again without retyping. An address is
+     not a query to refine -- it names one square, and the map is now on it.
+     It is also a secret sitting in a box OVER the map, where the panel keeps
+     the same value behind a conceal toggle: leaving it would put an address
+     in every screenshot. */
   const pickAddress = (option: Option) => {
     onPickAddress(option.lon, option.lat);
     toastSuccess(m.search_found());
@@ -323,9 +309,9 @@ export function PlaceSearch(
       inputValue={text}
       onInputChange={setText}
       items={options}
-      /* Nothing stays chosen: picking is an action, not a state, so the
-         selection is handed back immediately. Without this, choosing the
-         same result twice in a row would be silent the second time. */
+      /* Nothing stays chosen: picking is an action, not a state. Without
+         this, choosing the same result twice in a row would be silent the
+         second time. */
       selectedKey={null}
       onSelectionChange={(key) => {
         const option = options.find((o) => o.id === key);
@@ -333,33 +319,28 @@ export function PlaceSearch(
         if (option.address) pickAddress(option);
         else onPick(option.lon, option.lat);
       }}
-      /* Always allowed to open with nothing in it, and this is the one
-         place where this widget and React Aria genuinely disagree.
+      /* Always allowed to open with nothing in it, which is the one place
+         this widget and React Aria genuinely disagree.
 
-         ComboBox decides whether to open in an effect that runs on the
-         render where the input value changed, and refuses if the collection
-         is empty and this flag is off. Every answer here arrives later than
-         that: the text is debounced by 250 ms, then classified in the
-         worker, then either decoded or run past the place index. So at the
-         only moment ComboBox is willing to open, there is never anything to
-         show -- and it never asks again, because by the time the results
-         land the input value has stopped changing. With the flag off this
-         box simply never opened.
+         ComboBox decides whether to open in an effect on the render where
+         the input value changed, and refuses an empty collection unless this
+         flag is set. Every answer here arrives later than that: the text is
+         debounced 250 ms, classified in the worker, then decoded or run past
+         the place index. So at the only moment ComboBox will open there is
+         nothing to show, and it never asks again, because by then the input
+         value has stopped changing. With the flag off, the box never opened.
 
-         So the answer is to let it open always and decide separately what
-         may be seen: the Popover below is not rendered at all when there is
-         neither an option nor something to say, which is what keeps an empty
-         card off the map while someone types their first character. */
+         So it opens always, and what may be SEEN is decided separately: the
+         Popover below is not rendered at all when there is neither an option
+         nor something to say. */
       allowsEmptyCollection
-      /* Not decoration, and not optional. What is typed here is usually NOT
-         one of the options -- a place query, a half-typed address -- so a
-         custom value is the normal case. Without it, Escape takes the
-         "commit the selection" path, which resets the library's record of
-         the last input value to the empty string while the box still holds
-         text; the reopen effect then sees a value that differs from its
-         record and opens the list again in the same tick. Escape closed
-         nothing. With it, Escape commits what is there and closes, which is
-         also what the hand-written version did. */
+      /* Not optional. What is typed here is usually NOT one of the options
+         -- a place query, a half-typed address -- so a custom value is the
+         normal case. Without it, Escape takes the "commit the selection"
+         path, which resets the library's record of the last input value to
+         "" while the box still holds text; the reopen effect then sees a
+         value differing from its record and reopens the list in the same
+         tick, so Escape closed nothing. */
       allowsCustomValue
     >
       <div className={FIELD}>
@@ -374,10 +355,9 @@ export function PlaceSearch(
       </div>
       {
         /* React Aria renders the results card in a portal at the end of the
-          document and positions it, so it is no longer a child of the search
-          box: it needs its own stacking order against the map, and it takes
-          its width from the field through the variable the library sets on
-          it rather than by inheriting a parent's. */
+          document, so it is not a child of the search box: it needs its own
+          stacking order against the map, and takes its width from the field
+          through the variable the library sets on it. */
       }
       {(options.length > 0 || emptyMessage !== null) && (
         <Popover className="place-results sheet z-5 w-(--trigger-width)">

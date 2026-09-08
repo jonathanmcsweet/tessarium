@@ -21,7 +21,44 @@ than a git log.
 
 ---
 
-### 2026-09-04 — Toasts move to React Aria
+### 2026-09-05 — Adversarial review of the branch, thirty-two fixes
+
+**Phase:** 6
+
+**What:** A ten-angle review of the whole branch diff, every finding then
+put to a verifier that tried to refute it. Thirty-two survived and all are
+fixed. The import path held most of the weight: uploads ran outside the
+writer's seat, so two of them interleaved into one staged file; a cancelled
+or failed import deleted the upload it was given; an archive with no ledger
+was re-planned under the NETWORK budget and silently merged at about zoom 8,
+throwing away the deep tiles it had just promised; and a legacy multi-record
+archive was imported as one entry under the first record's name. Beside
+those: `run_export` and the import fast path skipped the cleanup every other
+job does, stranding invisible `.part` files and dropping a requested cache
+clear; `run_remove`'s merged-archive branch was unreachable behind its own
+guards; one ledger id could be listed twice. In the UI, the keyboard reticle
+was a hardcoded near-black on the new dark default, "Download maps" mounted
+the card inside a shut drawer, the adopt button called a server path that no
+longer exists, and the import toast fired when the job STARTED. The rest are
+caching, i18n, dead CI guards and duplication.
+
+**Rationale:** Two scope calls. Merged-entry removal was left refused rather
+than restored -- the branch was unreachable, and bringing it back is a
+feature decision needing a UI change to match, so the dead code went and the
+comments now say plainly what is true. And the region label moved INSIDE the
+region it names: it was a parallel array that had to stay length-aligned,
+policed two different ways (a 400 at the door, silent blanking deeper in),
+and two callers already had it wrong.
+
+**Follow-on:** Recorded in `roadmap.md`: removing a region still inside a
+pre-split `map.pmtiles`, which now has no code path at all. One lesson worth
+keeping: moving the status poll into the download
+card made opening the card mount a NEW React Query observer, which refetched
+and delivered a finished job's ending as fresh news -- and the watcher that
+closes the card on an ending duly closed it. One press, nothing on screen,
+no error. Only the end-to-end suite caught it; every static check was green.
+The card now follows the poll instead of refetching on mount, and both that
+and the perf fix under it are pinned by checks.
 
 **Phase:** 6
 

@@ -11,10 +11,9 @@
 FSTAR_BIN := $(HOME)/toolchain/fstar/bin
 SWITCH    := tessarium
 PORT      ?= 7373
-# The app under test. Its own port, NOT $(PORT): the e2e used to reuse 7373,
-# which meant leaving `make dev` running made the whole browser suite die on
-# "Address already in use" -- partway through, so it read as four unrelated
-# download checks failing rather than as a port conflict.
+# The app under test. Its own port, NOT $(PORT): the e2e used to reuse 7373, so
+# leaving `make dev` running killed the browser suite with "Address already in
+# use" partway through, which read as four unrelated download checks failing.
 E2E_PORT ?= 7379
 # A second server instance the e2e downloads its basemap from.
 FIXTURE_PORT ?= 7374
@@ -28,10 +27,10 @@ CANCEL_PORT ?= 7377
 # The delaying proxy itself, run by the e2e script.
 PROXY_PORT ?= 7378
 
-.PHONY: all env dev verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run package package-deb package-rpm package-appimage test-install clean
+.PHONY: all env dev verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run basemap package package-deb package-rpm package-appimage test-install clean
 
-# The wall's stages share files (gen_check outputs, .checked caches, the
-# port 737x range); they are cheap to run in order and wrong to interleave.
+# The stages share files (gen_check outputs, .checked caches, the 737x port
+# range). Cheap to run in order, wrong to interleave.
 .NOTPARALLEL:
 
 all: build ui
@@ -46,10 +45,9 @@ verify:
 	$(MAKE) -C fstar verify
 
 # The one test anywhere that EXECUTES the F*: the extracted core's answers,
-# recomputed inside F*'s own evaluator from the proved source. Slow (~3
-# minutes, almost all of it the grid-touching points), which is why it
-# is its own target -- but it is the only bridge across the trusted
-# extraction pipeline that does not itself trust that pipeline.
+# recomputed in F*'s own evaluator from the proved source. Slow (~3 minutes,
+# nearly all of it the grid-touching points), hence its own target. It is the
+# only check across the extraction pipeline that does not trust that pipeline.
 test-extraction:
 	dune build ocaml/tools/gen_check.exe
 	./_build/default/ocaml/tools/gen_check.exe \
@@ -62,14 +60,14 @@ test-extraction:
 extract:
 	$(MAKE) -C fstar extract
 
-# The machine-integer core (every pure-math stage), proved equal to the
-# spec and emitted as C by KaRaMeL, replaying gen_check's vectors and
-# sweeping the whole band table. Fast when .checked files are warm (~30s;
-# minutes cold): the agreement is a theorem discharged in low-verify; this
-# compiles the emitted C and lets it answer for the same numbers as
-# everyone else. -Wno-parentheses: KaRaMeL inlines the hash helpers
-# into flat expressions that lean on C precedence (correctly); the
-# warning fires hundreds of times on that one generated file.
+# The machine-integer core (every pure-math stage), proved equal to the spec
+# and emitted as C by KaRaMeL, replaying gen_check's vectors and sweeping the
+# whole band table. Fast when .checked files are warm (~30s; minutes cold).
+# The agreement itself is a theorem discharged in low-verify; this compiles the
+# emitted C and makes it answer for the same numbers as everyone else.
+# -Wno-parentheses: KaRaMeL inlines the hash helpers into flat expressions that
+# lean on C precedence, correctly, and the warning fires hundreds of times on
+# that one generated file.
 KRML_ROOT := $(FSTAR_BIN)/..
 test-lowstar:
 	dune build ocaml/tools/gen_check.exe
@@ -86,11 +84,10 @@ test-lowstar:
 	  fstar/low/check_main.c -o _build/low_check
 	./_build/low_check
 
-# Refresh the committed copy of the KaRaMeL emission that the
-# side-by-side wall links, and that the server's HTTP API now answers from
-# (ocaml/c_core/vendor) -- committed
-# generated code, CI-diffed like ocaml/extracted. Copies every emitted
-# module except the test-only Check, so a new module cannot be silently
+# Refresh the committed copy of the KaRaMeL emission that the side-by-side wall
+# links and the server's HTTP API answers from (ocaml/c_core/vendor) --
+# generated code, committed and CI-diffed like ocaml/extracted. Copies every
+# emitted module except the test-only Check, so a new module cannot be silently
 # skipped, and diffs the hand-pinned krml runtime headers against the
 # toolchain's copies, so a hand edit to those fails here too.
 sync-c-core:
@@ -109,13 +106,12 @@ sync-c-core:
 
 # The same vendored C, compiled to WebAssembly by a pinned zig
 # (~/toolchain/zig, 0.13.0). wasm/core.wasm is committed generated code:
-# `make test` needs only node, and runs the COMMITTED module -- a local
-# edit to wasm/glue.c or the vendored C is invisible to every local
-# test until this target reruns; CI rebuilds and byte-diffs, which is
-# what catches a stale artifact. wasm32-wasi for the libc headers; the
-# module's ONE import is random_get, pulled in by the prebuilt libc
-# init (crt) for its stack guard -- not removable by our flags -- and
-# the wall allow-lists exactly it, nothing else.
+# `make test` needs only node and runs the COMMITTED module, so a local edit to
+# wasm/glue.c or the vendored C is invisible to every local test until this
+# target reruns. CI rebuilds and byte-diffs, which catches a stale artifact.
+# wasm32-wasi for the libc headers. The module's ONE import is random_get,
+# pulled in by the prebuilt libc init (crt) for its stack guard and not
+# removable by our flags; the wall allow-lists exactly it, nothing else.
 ZIG := $(HOME)/toolchain/zig/zig
 C_CORE_SRC := $(addprefix ocaml/c_core/vendor/Tessarium_Low_,\
   Feistel.c Grid.c Codec.c Api.c Blake2s.c Core.c)
@@ -126,10 +122,10 @@ sync-wasm:
 	  -o wasm/core.wasm $(C_CORE_SRC) wasm/glue.c
 	@echo "wasm/core.wasm rebuilt"
 
-# The KDF's browser build: the vendored Argon2 reference C (the same files
-# the server's FFI links) compiled by the same pinned zig. Committed like
-# core.wasm, CI rebuilds and byte-diffs. ARGON2_NO_THREADS: p=1 is baked
-# in the glue, thread.c is not vendored.
+# The KDF's browser build: the vendored Argon2 reference C (the same files the
+# server's FFI links) compiled by the same pinned zig. Committed like
+# core.wasm; CI rebuilds and byte-diffs. ARGON2_NO_THREADS: p=1 is baked into
+# the glue and thread.c is not vendored.
 ARGON2_SRC := $(addprefix ocaml/argon2/vendor/,argon2.c core.c encoding.c ref.c) \
   ocaml/argon2/vendor/blake2/blake2b.c
 sync-argon2-wasm:
@@ -171,8 +167,8 @@ build:
 	dune build
 
 # The built UI is copied where dune can see it, so the next `make build`
-# compiles it into the server binary. ui/dist itself is not depended on
-# directly: that would put ui/node_modules in dune's view.
+# compiles it into the server binary. dune does not depend on ui/dist directly:
+# that would put ui/node_modules in its view.
 ui:
 	cd ui && pnpm install --frozen-lockfile && pnpm run build
 	cp wasm/argon2.wasm ui/dist/argon2.wasm
@@ -188,48 +184,58 @@ test: test-core test-static test-extraction test-lowstar test-ui
 # differential check once stopped running for several commits.
 #
 # check-doc-constants.mjs is here rather than in test-static because it needs
-# no browser and no package install. It holds the prose to the code: the message
-# length is transcribed BY HAND into the Low* module, so nothing else can
-# catch a document that still describes the shape before a constant moved --
-# which is exactly what the project rename left behind in two files.
-# check-deps.sh holds dune-project to the dune files, which nothing else
-# can -- a dependency that is only ever satisfied transitively builds fine on
-# the machine that already has it and fails on a fresh
-# `opam install . --deps-only`, and CI cannot see the difference because its
-# switch comes from cache. It is opam-dune-lint under a stable name; the tool
-# comes from tools/setup.sh, not tessarium.opam, because it exists to check
-# that file.
+# no browser and no package install. It holds the prose to the code: the
+# message length is transcribed BY HAND into the Low* module, so nothing else
+# catches a document still describing the shape a constant had before it moved
+# -- which is what the project rename left behind in two files.
+#
+# check-deps.sh holds dune-project to the dune files, which nothing else can. A
+# dependency only ever satisfied transitively builds fine on the machine that
+# already has it and fails on a fresh `opam install . --deps-only`; CI cannot
+# see the difference because its switch comes from cache. It is opam-dune-lint
+# under a stable name, installed by tools/setup.sh on a workstation and by a
+# workflow step on the runner, not from tessarium.opam, because it exists to
+# check that file.
+#
+# check-basemap-target.sh is the build checking itself: `make run` has to open
+# the app on a machine with no network, and has to notice a download that only
+# half finished. Both are properties of a recipe rather than of code, so it
+# runs that recipe against a stubbed fetcher, compiler and server.
+#
+# CI runs THIS target rather than the list, so a check added here is a check CI
+# runs.
 test-core:
 	tools/check-suites.sh
 	node tools/check-doc-constants.mjs
 	tools/check-deps.sh
+	tools/check-basemap-target.sh
 
 # Lint, types, message catalogues and the browser payload budgets. Fast, needs
-# no server, and catches the class of mistake the browser test cannot see: a
-# message a locale is missing, a placeholder a translator dropped, an
-# accessibility rule broken, a bundle that quietly grew by a megabyte. Needs
-# `dune build` first -- payload.mjs measures the bundle where dune writes it --
-# and `pnpm install` in ui/, which `make ui` does.
+# no server, and catches what the browser test cannot see: a message a locale
+# is missing, a placeholder a translator dropped, an accessibility rule broken,
+# a bundle that quietly grew by a megabyte. Needs `dune build` first --
+# payload.mjs measures the bundle where dune writes it -- and `pnpm install` in
+# ui/, which `make ui` does.
 test-static:
 	@cd ui && pnpm run check
 
 # The browser test needs both halves running, so it starts the server it is
-# about to drive rather than assuming one is up. No --ui: this exercises the
-# UI compiled into the binary, which is what actually ships.
+# about to drive rather than assuming one is up. No --ui: this exercises the UI
+# compiled into the binary, which is what ships.
 #
-# Two instances. The one under test starts with an EMPTY basemap directory
-# and downloads its tiles, in-app, from the second, which serves a generated
-# fixture archive -- so the e2e drives the whole region downloader against
+# Several instances. The one under test starts with an EMPTY basemap directory
+# and downloads its tiles, in-app, from the fixture server, which serves a
+# generated archive -- so the e2e drives the whole region downloader against
 # this project's own Range implementation, with no external network.
 #
 # The e2e runs in a subshell: the EXIT trap reads the .pid files relative to
-# the repo root, and a bare `cd ui` would leave the trap there -- its kills
-# would fail and the leaked servers would outlive the test, holding any pipe
-# on our output open forever.
-# Depends on `ui`: the servers below serve the EMBEDDED bundle, and
-# without the refresh they would greenly exercise whatever UI was last
-# built into the binary -- a UI regression would pass against the
-# previous good bundle.
+# the repo root, and a bare `cd ui` would leave the trap there. Its kills would
+# fail, and the leaked servers would outlive the test holding any pipe on our
+# output open forever.
+#
+# Depends on `ui`: the servers below serve the EMBEDDED bundle, so without the
+# refresh they would exercise whatever UI was last built into the binary, and a
+# UI regression would pass against the previous good bundle.
 test-ui: ui
 	@dune build ocaml/server/bin/main.exe ocaml/tools/gen_basemap_fixture.exe
 	@rm -rf _build/e2e-fixture _build/e2e-basemap _build/e2e-multipart \
@@ -282,22 +288,62 @@ test-ui: ui
 	      http://127.0.0.1:$(MULTIPART_PORT) http://127.0.0.1:$(MISMATCH_PORT) \
 	      http://127.0.0.1:$(CANCEL_PORT) )
 
-# No --ui: the binary serves the UI it was built with. Pass --ui to override
-# with a directory, which is what `pnpm run dev` wants.
-# The whole stack, for development: the server, and Vite in front of it with
-# hot reload. `pnpm run dev` in ui/ is only the UI half -- Vite proxies the
-# api, the basemap and both wasm modules to the server, so on its own it
-# renders a gate that cannot open. tools/dev.sh starts both and stops both.
+# The whole stack, for development: the server, with Vite in front of it for
+# hot reload. `pnpm run dev` in ui/ is only the UI half -- Vite proxies /api,
+# the basemap and both wasm modules to the server, so on its own it renders a
+# gate that cannot open. tools/dev.sh starts both and stops both.
+#
+# No --ui here: the binary serves the UI it was built with. Pass --ui to
+# override it with a directory, which is what `pnpm run dev` wants.
 dev:
 	tools/dev.sh
 
-# Same world overview the packages ship. A file target, so it is fetched once
-# and never again -- and so `make run` cannot open on the empty-map state that
-# no installed copy is ever in.
-basemap/world.pmtiles:
-	tools/fetch-basemap.sh -z ""
+# The same world overview, glyphs and sprites the packages ship, so a checkout
+# does not open on the one state an installed copy is never in.
+#
+# A STAMP rather than basemap/world.pmtiles itself, because the overview is not
+# the whole payload: tools/fetch-basemap.sh writes it BEFORE fetching the fonts
+# and sprites, so a fetch that died on the tarball left a file that satisfied
+# the old file target forever -- every later `make run` skipped the recipe and
+# served a map whose glyphs 404, drawing as unlabelled shapes with nothing
+# saying why. The stamp is written only once both halves are on disk, so a
+# half-finished fetch is retried rather than mistaken for a finished one. The
+# retry is cheap: the script skips whichever half it already has.
+#
+# Tolerant of a failed fetch, and of TESSARIUM_NO_BASEMAP=1, which skips it
+# outright -- for working offline, or for looking at the empty state on
+# purpose. This is offline-first software: a machine with no network gets the
+# documented empty map and its download banner, not a build failure. That rule
+# lives here, and tools/dev.sh calls this target rather than restating it.
+BASEMAP_STAMP := basemap/.fetched
+# What "a complete map" means, written once and used twice: to decide whether
+# there is anything to fetch, and whether the fetch may be recorded. Two
+# spellings of that condition is how the two could ever disagree.
+BASEMAP_HAVE := [ -f basemap/world.pmtiles ] && [ -d basemap/fonts ] \
+  && [ -d basemap/sprites ]
+$(BASEMAP_STAMP):
+	@mkdir -p basemap
+	@if $(BASEMAP_HAVE); then \
+	  echo "basemap: already here"; \
+	elif [ "$${TESSARIUM_NO_BASEMAP:-}" = "1" ]; then \
+	  echo "basemap: TESSARIUM_NO_BASEMAP=1 -- starting with an empty map"; \
+	else \
+	  echo "basemap: fetching the overview the packages ship (~6 MB)"; \
+	  tools/fetch-basemap.sh -z "" \
+	    || echo "basemap: fetch failed -- carrying on without one" >&2; \
+	fi
+	@if $(BASEMAP_HAVE); then \
+	  touch $@; \
+	else \
+	  echo "basemap: no complete map yet -- this will try again next time" >&2; \
+	fi
 
-run: build basemap/world.pmtiles
+# The name to ask for it by. Phony, in front of the stamp, so `make basemap`
+# reads as an instruction rather than a path, and tools/dev.sh has one thing to
+# call.
+basemap: $(BASEMAP_STAMP)
+
+run: build $(BASEMAP_STAMP)
 	./_build/default/ocaml/server/bin/main.exe --port $(PORT) --basemap basemap
 
 package: build
@@ -312,10 +358,10 @@ package-appimage: build
 package-rpm: build
 	tools/package-rpm.sh
 
-# Deliberately not part of `make test`: it needs packages to have been built,
-# and building them is slower than the whole test suite. Depends on both
-# formats rather than whichever happens to be present, so a machine without
-# rpmbuild is told to install it instead of quietly testing half of this.
+# Deliberately not part of `make test`: it needs packages built, and building
+# them is slower than the whole test suite. Depends on both formats rather than
+# whichever happens to be present, so a machine without rpmbuild is told to
+# install it instead of quietly testing half of this.
 test-install: package-deb package-rpm
 	tools/test-install.sh
 

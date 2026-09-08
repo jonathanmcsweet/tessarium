@@ -1,26 +1,25 @@
-(* The download ledger: which regions this archive was asked to hold, so
-   each can be listed, brought up to date, or removed later.
+(* The download ledger: which regions this archive was asked to hold, so each
+   can be listed, updated or removed later.
 
-   It lives inside the archive itself, in the metadata section, so the one
-   atomic rename that publishes tiles publishes their record in the same
-   instant -- there is no sidecar file to drift, and no crash window in
-   which the ledger describes tiles that are not on disk.
+   It lives inside the archive's own metadata, so the single rename that
+   publishes tiles publishes their record at the same instant. There is no
+   sidecar file to drift, and no crash window where the ledger describes
+   tiles that are not on disk.
 
    A region's archive is its own file, so its ledger is one entry long and
    travels with it: a machine handed nothing but the file can say what it
-   was handed. The list a user sees is the union of every such file. Only
-   the old merged map.pmtiles, which installs from before the split still
-   have, holds several entries at once -- which is why this is a list rather
-   than a record.
+   was handed. What the user sees is the union of every such file. Only the
+   old merged map.pmtiles holds several entries at once, which is why this is
+   a list and not a record.
 
-   Everything here is pure and deterministic, deliberately: serialization
-   uses a fixed key order and compact form so the same ledger is the same
-   bytes; an entry's identity is derived from its regions alone, so the same
-   request is the same entry no matter when or in what order it was made;
-   and there is no clock -- callers pass time in. Corruption is loud: a
-   metadata blob this module cannot read exactly is an error, never an
-   empty ledger, because silently forgetting what a gigabyte archive holds
-   is worse than refusing to touch it. *)
+   Everything here is pure and deterministic on purpose. Serialization uses a
+   fixed key order and compact form, so the same ledger is the same bytes. An
+   entry's identity comes from its regions alone, so the same request is the
+   same entry whenever and in whatever order it was made. There is no clock;
+   callers pass time in. And corruption is loud: metadata this module cannot
+   read exactly is an error, never an empty ledger, because silently
+   forgetting what a gigabyte archive holds is worse than refusing to touch
+   it. *)
 
 type entry = {
   name : string;  (** what the picker called it; display only *)
@@ -30,16 +29,17 @@ type entry = {
           Remove and Update speak of tiles that exist. *)
   completed : int;
       (** when the download that made or refreshed this entry finished, in
-          epoch seconds; zero when the tiles predate the ledger and their
-          age is unknown, which the UI draws as "needs updating". Every
-          download dates itself, including one that is interrupted -- what
-          an interrupted region is missing is a question the map's coverage
-          shading already answers, and dating it by the last part to write
-          would have called finished downloads unfinished, since the parts
-          overlap at their seams and the last one routinely writes nothing.
-          Tiles already held were deliberately not re-fetched -- their age
-          belongs to the entries that fetched them -- and a resumed download
-          records the resuming run. *)
+          epoch seconds. Zero when the tiles predate the ledger and their
+          age is unknown, which the UI draws as "needs updating".
+
+          Every download dates itself, interrupted ones included. What an
+          interrupted region is missing is a question the map's coverage
+          shading already answers, and dating by the last part to write
+          would have called finished downloads unfinished: the parts overlap
+          at their seams, so the last one routinely writes nothing. Tiles
+          already held were not re-fetched, so their age belongs to the
+          entries that fetched them, and a resumed download records the
+          resuming run. *)
   source : string;  (** the resolved archive it was fetched from *)
   bytes : int;
       (** bytes actually fetched from the source by the download that made
@@ -49,35 +49,34 @@ type entry = {
 
 type t = entry list
 
-(* Names a blob inside the PMTiles archive. Renamed with the project, which
-   an archive downloaded before that does not know. Such an archive is
-   REFUSED rather than read as empty -- see [foreign] below --
-   because silently forgetting what a gigabyte archive holds is the one
-   failure the download feature must never have. Nobody was running this yet;
-   re-download if you were. *)
+(* Names a blob inside the PMTiles archive. It was renamed with the project,
+   so an archive downloaded before that uses the old name. Such an archive is
+   REFUSED rather than read as empty -- see [foreign] below -- because
+   silently forgetting what a gigabyte archive holds is the one failure this
+   feature must never have. Re-download if you have one. *)
 let metadata_key = "tessarium_ledger"
 let version = 1
 
 (* ------------------------------------------------------------- identity *)
 
-(* Regions are kept sorted so that picking the same places in a different
-   order produces the same entry, not a twin. Polymorphic compare is safe
-   here: requests are floats, ints and arrays, all validated finite. *)
+(* Regions are sorted so picking the same places in a different order gives
+   the same entry, not a twin. Polymorphic compare is safe here: a request is
+   floats, ints and arrays, all validated finite. *)
 let region_key (r : Basemap_job.request) =
   (r.min_lon, r.min_lat, r.max_lon, r.max_lat, r.max_zoom, r.polygon)
 
-(* Stable, so regions that compare equal keep their arrival order and the
-   serialized bytes cannot depend on the sort's whims. *)
+(* Stable, so equal regions keep their arrival order and the serialized bytes
+   do not depend on how the sort happens to break ties. *)
 let sort_regions =
   List.stable_sort (fun a b -> compare (region_key a) (region_key b))
 
-(* Negative zero prints as "-0.0000000" but compares equal to zero, which
-   would give one region two identities. It is the same bound; normalise. *)
+(* Negative zero prints as "-0.0000000" but compares equal to zero, so one
+   bound would give a region two identities. Normalise it away. *)
 let pos v = v +. 0.
 
-(* The identity text is built with a fixed float format rather than from the
-   JSON, so the id survives any serialization change. 1e-7 degrees is about
-   a centimetre -- regions closer than that are the same region. *)
+(* Built with a fixed float format rather than from the JSON, so the id
+   survives a serialization change. 1e-7 degrees is about a centimetre;
+   regions closer than that are the same region. *)
 let canonical_text regions =
   let b = Buffer.create 256 in
   List.iter
@@ -106,71 +105,42 @@ let id e =
     Digestif.SHA256.(to_hex (digest_string (canonical_text e.regions)))
     0 12
 
-(* The only constructor: sorting here is what makes [id] order-blind. *)
+(* The only constructor. Sorting here is what makes [id] order-blind. *)
 let make ~name ~regions ~completed ~source ~bytes =
   { name; regions = sort_regions regions; completed; source; bytes }
 
 (* --------------------------------------------------------------- names *)
 
-(* Client-supplied and stored, so bounded and printable. Multi-byte UTF-8 is
-   welcome -- the picker speaks six locales -- but a name that is not UTF-8
-   would come back out of Yojson as invalid JSON, and invisible characters
-   (C0/C1 controls, zero-width, bidi overrides) exist mostly to make one
-   string display as another, so both die here. *)
-let max_name_bytes = 120
-
-let visible_uchar u =
-  not
-    (u < 0x20
-    || (u >= 0x7f && u <= 0x9f)
-    || (u >= 0x200b && u <= 0x200f)
-    || (u >= 0x202a && u <= 0x202e)
-    || (u >= 0x2066 && u <= 0x2069)
-    || u = 0xfeff)
-
-let valid_name s =
-  String.length s > 0
-  && String.length s <= max_name_bytes
-  && String.is_valid_utf_8 s
-  &&
-  let ok = ref true in
-  let i = ref 0 in
-  while !ok && !i < String.length s do
-    let d = String.get_utf_8_uchar s !i in
-    if not (visible_uchar (Uchar.to_int (Uchar.utf_decode_uchar d))) then
-      ok := false;
-    i := !i + Uchar.utf_decode_length d
-  done;
-  !ok
+(* An entry's name follows the same rule a region's label does, from the same
+   function: see [Basemap_job.valid_name] for what it refuses and why.
+   Aliased rather than copied, and it lives there because a region carries a
+   label of its own and regions are defined there. *)
+let max_name_bytes = Basemap_job.max_name_bytes
+let valid_name = Basemap_job.valid_name
 
 (* ---------------------------------------------------------------- edits *)
 
+(* Finding an entry by id, which is all that is left of editing a ledger.
+
+   [record] and [remove] used to sit here, adding an entry to a list and
+   taking one out. A region is its own file now: a download writes a
+   one-entry ledger inside the archive it just wrote, and removing a region
+   unlinks the file, ledger and all. Nothing adds to or subtracts from a list
+   any more, and the code that did sat behind a guard that refuses to rewrite
+   the base archive, so it could never run. *)
 let find t ~id:wanted = List.find_opt (fun e -> id e = wanted) t
-
-(* Same regions replace their entry in place -- a re-download or update is
-   the same map, newer -- and a new region appends, so the list reads in
-   the order things were first downloaded. *)
-let record t e =
-  let eid = id e in
-  if List.exists (fun e' -> id e' = eid) t then
-    List.map (fun e' -> if id e' = eid then e else e') t
-  else t @ [ e ]
-
-let remove t ~id:wanted =
-  match find t ~id:wanted with
-  | None -> None
-  | Some e -> Some (e, List.filter (fun e' -> id e' <> wanted) t)
 
 (* ------------------------------------------------------------ coverage *)
 
 (* Geometry for Remove, precomputed once because it runs per tile over
-   millions. The rule is that Remove undoes the download: a tile is dropped
-   exactly when the removed entry's download would have fetched it -- every
-   tile its region touches, down to the zoom it asked for, which is
-   precisely the covering the planner walks -- and no kept entry's download
-   would fetch it too. Symmetric on both sides, so removing one region can
-   never punch a hole in another recorded download, and removing the last
-   entry takes with it exactly what its download brought. *)
+   millions of them.
+
+   Remove undoes the download. A tile is dropped when the removed entry's
+   download would have fetched it -- every tile its region touches, down to
+   the zoom it asked for, which is the covering the planner walks -- and no
+   kept entry's download would fetch it too. The same test on both sides, so
+   removing one region cannot punch a hole in another recorded download, and
+   removing the last entry takes exactly what its download brought. *)
 
 type prepared = {
   max_zoom : int;
@@ -185,13 +155,12 @@ let prepare (r : Basemap_job.request) =
     clip = Option.map Pmtiles.Clip.of_rings r.polygon;
   }
 
-(* Whether this region's download fetches the tile: exactly the planner's
-   covering, restated as a membership test. The x/y range uses the same
-   floor arithmetic [Tile_id.covering] does -- a geometric edge-touch test
-   would claim the west and north neighbours of a tile-aligned box, which
-   the covering never fetches -- and a clipped region is that grid
-   intersected with its polygon, border tiles included, as [clip_walk]
-   walks it. *)
+(* Whether this region's download fetches the tile: the planner's covering,
+   restated as a membership test. The x/y range uses the same floor
+   arithmetic [Tile_id.covering] does, because a geometric edge-touch test
+   would claim the west and north neighbours of a tile-aligned box, which the
+   covering never fetches. A clipped region is that grid intersected with its
+   polygon, border tiles included, the way [clip_walk] walks it. *)
 let fetches p ~z ~x ~y =
   z <= p.max_zoom
   &&
@@ -218,47 +187,54 @@ let drops ~(removed : entry) ~(kept : t) =
     List.exists (fun p -> fetches p ~z ~x ~y) gone
     && not (List.exists (fun p -> fetches p ~z ~x ~y) stays)
 
-(* Does this entry's box span the planet?
+(* Do these regions span the planet?
 
-   Half of the test for the world overview, and only half -- see
-   [Basemap_download.run_remove], which pairs it with the archive the entry
-   lives in. Spanning the planet is not on its own disqualifying: a user may
-   ask for the whole world AS DETAIL, and that lands in a file of its own,
+   One predicate, with the slack as an argument, because two locks ask this
+   and they have to answer alike. The lenient reading below decides whether
+   an entry in the old merged archive is the map everything else stands on
+   and so cannot be removed. The exact reading, margin zero, decides whether
+   a download claiming to be a world overview may be written to
+   world.pmtiles. They used to be two functions with two thresholds, so a box
+   starting at -179.5 longitude was the world to one and not to the other.
+
+   Judged by what the regions say they cover, never by a name: names are
+   display only, and the row the user is looking at may read "Map view". It
+   takes one region, no clipping polygon, and a box reaching the ends of the
+   usable projection.
+
+   [margin] is how far short of those ends still counts. A whole degree is
+   far wider than any rounding and far narrower than any real pick -- the
+   picker's own world box stops at +/-85 latitude, where Mercator does. Zero
+   means the box must really reach them. *)
+let world_margin = 1.0
+
+let spans_regions ?(margin = 0.0) (regions : Basemap_job.request list) =
+  match regions with
+  | [ r ] ->
+      r.Basemap_job.polygon = None
+      && r.Basemap_job.min_lon <= -180.0 +. margin
+      && r.Basemap_job.max_lon >= 180.0 -. margin
+      && r.Basemap_job.min_lat <= -85.0 +. margin
+      && r.Basemap_job.max_lat >= 85.0 -. margin
+  | _ -> false
+
+(* Spanning the planet does not by itself make an entry unremovable. A user
+   may ask for the whole world AS DETAIL; that lands in a file of its own,
    sits beside the overview rather than being it, and is theirs to remove.
    The end-to-end suite does exactly that, which is how this was caught.
 
    What cannot be removed is a world-spanning entry inside the old merged
-   map.pmtiles. That is the shape an install from before the per-region
-   split has: back then the overview merged into that one archive and took a
-   row in the list like any region, under whatever the picker called it.
-   Pruning it takes the tiles the whole map falls back to, everywhere.
+   map.pmtiles, since pruning that takes the tiles the whole map falls back
+   to everywhere. So the caller pairs this with the archive the entry lives
+   in. *)
+let spans_world (e : entry) = spans_regions ~margin:world_margin e.regions
 
-   Judged by what the entry SAYS it holds, never by its name: the name is
-   display only, and the row a user is looking at may well read "Map view".
-   One region, no clipping polygon, and a box reaching the ends of the
-   usable projection.
-
-   The margin is a whole degree, which is far wider than any rounding and
-   far narrower than any real pick: the picker's own world box stops at
-   +/-85 latitude, where Mercator does. *)
-let world_margin = 1.0
-
-let spans_world (e : entry) =
-  match e.regions with
-  | [ r ] ->
-      r.Basemap_job.polygon = None
-      && r.Basemap_job.min_lon <= -180.0 +. world_margin
-      && r.Basemap_job.max_lon >= 180.0 -. world_margin
-      && r.Basemap_job.min_lat <= -85.0 +. world_margin
-      && r.Basemap_job.max_lat >= 85.0 -. world_margin
-  | _ -> false
-
-(* The mirror of [drops], for export rather than removal: [drops] answers
-   "is this tile leaving with the entry being removed", this answers "is this
-   tile no business of the entry being written out". Both are phrased as
-   DROP predicates because that is what [Merge.prune] takes, so exporting one
-   region is the same machine as removing every other one -- without touching
-   the archive the user actually uses. *)
+(* The mirror of [drops], for export rather than removal. [drops] asks "is
+   this tile leaving with the entry being removed"; this asks "is this tile
+   none of the exported entry's business". Both are drop predicates because
+   that is what [Merge.prune] takes, so exporting one region runs the same
+   machinery as removing every other one -- without touching the archive the
+   user is actually using. *)
 let outside ~(entry : entry) =
   let mine = List.map prepare entry.regions in
   fun ~z ~x ~y -> not (List.exists (fun p -> fetches p ~z ~x ~y) mine)
@@ -274,6 +250,10 @@ let json_of_region (r : Basemap_job.request) : Yojson.Safe.t =
       ("max_lat", `Float r.max_lat);
       ("max_zoom", `Int r.max_zoom);
     ]
+    (* Written only when there is one, so an entry recorded before regions
+       carried labels still serialises to the bytes it always did, as does
+       one whose picker sent no name. Optional on the way back in too. *)
+    @ (match r.label with None -> [] | Some l -> [ ("label", `String l) ])
   in
   match r.polygon with
   | None -> `Assoc box
@@ -358,10 +338,15 @@ let region_of_json = function
             Ok (Some (Array.of_list rings))
         | Some _ -> Error "polygon must be a list of rings"
       in
-      (* Stored regions were validated when they arrived; validating again on
-         the way back in is how ledger corruption gets caught instead of
-         planned against. *)
-      Basemap_job.validate ?polygon ~min_lon ~min_lat ~max_lon ~max_lat
+      let* label =
+        match List.assoc_opt "label" fields with
+        | None | Some `Null -> Ok None
+        | Some (`String s) -> Ok (Some s)
+        | Some _ -> Error "a region's label must be a string"
+      in
+      (* Stored regions were validated when they arrived. Validating again on
+         the way back in is what catches a corrupted ledger. *)
+      Basemap_job.validate ?polygon ?label ~min_lon ~min_lat ~max_lon ~max_lat
         ~max_zoom ()
   | _ -> Error "a region must be an object"
 
@@ -423,14 +408,13 @@ let duplicated fields =
   List.length (List.filter (fun (k, _) -> String.equal k metadata_key) fields)
   > 1
 
-(* A ledger written under a name we no longer use. Not the same thing as an
-   archive with no downloads, and the difference is destructive: read as
-   empty, the next download rewrites the file with a ledger naming only
-   itself, and the removal after that prunes every tile the forgotten
-   regions were holding -- since [drops] keeps a tile only when some entry
-   still in the ledger asks for it. So an unreadable record has to be an
-   error, not an empty one, and the suffix is what identifies it without
-   this file having to carry the old spellings around. *)
+(* A ledger written under a name we no longer use. Not the same as an archive
+   with no downloads, and the difference destroys data: read as empty, the
+   next download rewrites the file with a ledger naming only itself, and the
+   removal after that prunes every tile the forgotten regions held, because
+   [drops] keeps a tile only when some entry still in the ledger asks for it.
+   So an unreadable record is an error, not an empty one. Matching on the
+   suffix spots it without this file having to list the old spellings. *)
 let suffix = "_ledger"
 
 let foreign fields =
@@ -445,11 +429,10 @@ let foreign fields =
     (fun (k, _) -> (not (String.equal k metadata_key)) && ends_in_suffix k)
     fields
 
-(* An archive with no ledger key at all has an empty ledger -- that is every
-   archive written before this feature, and every fresh extract. Anything
-   else that fails to parse is corruption and says so -- including a ledger
-   key that appears twice, which reads and writes would otherwise resolve
-   differently from each other. *)
+(* No ledger key at all means an empty ledger: that is every archive written
+   before this feature and every fresh extract. Anything else that fails to
+   parse is corruption and says so, including a ledger key that appears
+   twice, which reads and writes would otherwise resolve differently. *)
 let of_metadata s =
   match Yojson.Safe.from_string s with
   | exception _ -> Error (wrap "archive metadata is not JSON")
@@ -466,17 +449,17 @@ let of_metadata s =
       | Some j -> Result.map_error wrap (of_json j))
   | _ -> Error (wrap "archive metadata is not an object")
 
-(* Writes preserve every other metadata key in its original position. An
-   empty ledger removes the key entirely, so an archive whose last entry
-   was removed is byte-identical to one that never had any. *)
+(* Every other metadata key keeps its original position. An empty ledger
+   removes the key entirely, so an archive whose last entry was removed is
+   byte-identical to one that never had any. *)
 let to_metadata (t : t) ~previous =
   match Yojson.Safe.from_string previous with
   | exception _ -> Error (wrap "archive metadata is not JSON")
   | `Assoc fields when duplicated fields ->
       Error (wrap "the ledger key appears more than once")
-  (* Same refusal on the way out. A write that preserved the old key would
-     leave the archive carrying two records, and the next read could not tell
-     which one the tiles belong to. *)
+  (* Same refusal on the way out. Keeping the old key would leave the archive
+     carrying two records, and the next read could not tell which one the
+     tiles belong to. *)
   | `Assoc fields when foreign fields ->
       Error
         (wrap

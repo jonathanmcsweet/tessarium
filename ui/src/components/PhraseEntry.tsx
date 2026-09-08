@@ -1,21 +1,21 @@
 /* Seed phrase entry.
 
-   The warnings here are not boilerplate. Where the phrase comes from is the
-   highest-value security decision in the application, and it is the one this
+   The warnings here are not boilerplate. Where the phrase came from is the
+   highest-value security decision in the application, and the one thing this
    code cannot check: validation confirms the words were typed correctly, not
-   that they were generated. Casually invented phrases do get rejected -- the
-   checksum is 8 bits, so 255 of 256 arbitrary selections fail -- but that is
-   typo detection doing it, not an entropy test. A determined user can pick 23
-   words and search the 2048 for the 8 that complete a valid phrase, and any
+   that they were generated. Casually invented phrases mostly get rejected --
+   the checksum is 8 bits, so 255 of 256 arbitrary selections fail -- but
+   that is typo detection, not an entropy test. Anyone can pick 23 words and
+   search the 2048 for one that completes a valid phrase, and a
    checksum-valid phrase from a weak source passes untouched. Reuse is the
-   other half: anyone who learns a few (address, true location) pairs is doing
-   cryptanalysis against whatever else that phrase protects. So the provenance
-   warning sits directly under the generate button, where the choice is
-   actually made, and is permanent and not dismissible.
+   other half: anyone who learns a few (address, true location) pairs is
+   doing cryptanalysis against whatever else that phrase protects. So the
+   provenance warning sits directly under the generate button, where the
+   choice is made, and is permanent.
 
-   Nothing typed here is persisted. No localStorage, no URL, no request. The
-   phrase goes straight to the worker, which keeps the derived key and returns
-   only whether it worked. */
+   Nothing typed here is persisted -- no localStorage, no URL, no request.
+   The phrase goes straight to the worker, which keeps the derived key and
+   returns only whether it worked. */
 
 import { ChevronRight, Dices, Eye, EyeOff } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
@@ -42,12 +42,11 @@ export function PhraseEntry() {
   /* Held so the "write this down" notice disappears once the user edits the
      words, rather than lingering over a phrase we did not generate. */
   const [generated, setGenerated] = useState<string | null>(null);
-  /* Masked by default, because this is the highest-value secret the
-     application handles and it is typed on whatever screen the user happens
-     to be in front of. Revealed on demand -- 24 words cannot be proofread
-     through bullets -- and revealed automatically when the phrase was
-     GENERATED, since the next thing that screen asks is that you write it
-     down, and a screenful of dots cannot be written down. */
+  /* Masked by default: this is the highest-value secret the application
+     handles, typed on whatever screen the user is in front of. Revealed on
+     demand, because 24 words cannot be proofread through bullets, and
+     revealed automatically for a GENERATED phrase, because the next thing
+     the screen asks is that you write it down. */
   const [shown, setShown] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
@@ -55,10 +54,10 @@ export function PhraseEntry() {
   const generate = useGeneratePhrase();
   const unlock = useUnlock();
 
-  /* Checksum feedback as you type: wordlist and checksum only, so it is
-     instant. The expensive derivation happens on submit. A phrase that fails
-     its checksum is almost always one mistyped word, and saying so before a
-     400 ms derivation is worth the round trip. */
+  /* Feedback as you type: wordlist and checksum only, so it is instant. The
+     expensive derivation happens on submit. A phrase that fails its checksum
+     is almost always one mistyped word, and saying so before a 400 ms
+     derivation is worth the round trip. */
   const validation = useValidatePhrase(phrase);
   const validationError = validation.data?.error ?? null;
 
@@ -71,27 +70,25 @@ export function PhraseEntry() {
     && validation.isSuccess;
 
   /* Start the map download here rather than on submit. A checksum-valid
-     phrase is the last thing that happens before someone unlocks, and the
-     unlock itself is Argon2id over 64 MB -- far longer than this fetch -- so
-     the chunk is normally in the browser before the map is asked for. Doing
-     it on submit would work too and start later; doing it on mount would
-     charge every visitor who reads this screen and leaves.
+     phrase is the last thing before an unlock, and the unlock is Argon2id
+     over 64 MB -- far longer than this fetch -- so the chunk is normally in
+     the browser before the map is asked for. On submit would start later; on
+     mount would charge every visitor who reads this screen and leaves.
 
-     No cleanup and no cancellation: a download in flight is the outcome this
-     wants, and an unmount here means the gate opened. The rejection is
-     swallowed because a failure has no consequence at this point -- nothing
-     is waiting on it -- and `lazy` will ask again, and surface it properly,
-     when the map actually mounts. */
+     No cleanup and no cancellation: a download in flight is what this wants,
+     and an unmount here means the gate opened. The rejection is swallowed
+     because nothing is waiting on it, and `lazy` asks again -- and surfaces
+     the failure properly -- when the map mounts. */
   useEffect(() => {
     if (ready) void loadMapView().catch(() => {});
   }, [ready]);
 
-  /* The bytes are drawn in the worker, by the platform CSPRNG, and only the
+  /* The bytes are drawn in the worker by the platform CSPRNG; only the
      words come back. Offered prominently because the alternative -- a phrase
-     a person composed, or one already in use elsewhere -- is worth a tiny
-     fraction of the guessing effort and is indistinguishable from this one
-     once it satisfies the checksum. It is the one weakness a user can
-     introduce that no amount of work elsewhere repairs. */
+     a person composed, or one already used elsewhere -- costs a tiny
+     fraction of the guessing effort and looks identical once it satisfies
+     the checksum. It is the one weakness no amount of work elsewhere
+     repairs. */
   function onGenerate() {
     generate.mutate(undefined, {
       onSuccess: ({ mnemonic }) => {
@@ -108,7 +105,7 @@ export function PhraseEntry() {
 
   /* Unlocking derives the key in a worker against argon2.wasm, which the
      SERVER supplies -- so with no server it fails, and "Could not open the
-     map" then blames a phrase that is perfectly good. Say which it is. */
+     map" blames a phrase that is perfectly good. */
   const serverDown = useBackendDown();
   const unlockFailed = () =>
     serverDown ? m.banner_backend_down() : m.gate_unlock_failed();
@@ -158,19 +155,18 @@ export function PhraseEntry() {
         {
           /* A real password field, in a real form, with a real
             `autocomplete` -- which is what a password manager needs before
-            it will offer to save anything. It was a textarea with
-            autocomplete off, and the browser did as it was told: nothing
-            ever offered to remember the one string that cannot be
-            recovered if it is lost.
+            it offers to save anything. It was a textarea with autocomplete
+            off, and the browser did as it was told: nothing ever offered to
+            remember the one string that cannot be recovered if lost.
 
             The cost is that 24 words no longer wrap. The reveal toggle and
-            the word count beside it are what replace reading them back, and
-            a generated phrase reveals itself so it can be written down.
+            the word count replace reading them back, and a generated phrase
+            reveals itself so it can be written down.
 
-            Note what this does NOT change: the phrase still goes straight
-            to the worker and this application still stores nothing. What is
-            new is that the BROWSER may now be asked to keep it, by the
-            person using it, in the place they already keep secrets. */
+            This does NOT change where the phrase goes: straight to the
+            worker, with this application storing nothing. What is new is
+            that the BROWSER may be asked to keep it, by the person using
+            it. */
         }
         <div className="flex items-start gap-2">
           <input
@@ -264,13 +260,13 @@ export function PhraseEntry() {
 
         {
           /* Directly under the generate control rather than at the foot of
-             the form: this is guidance for a choice being made right here,
-             and at the bottom it was read after the decision, if at all.
-             No role: it is present from first paint and never changes, so a
-             live region would be wrong -- the write-down notice below is the
-             one that appears, and the one that announces. The `provenance`
-             class is a test hook, so the end-to-end position check can find
-             this block without matching on copy. */
+             the form: it is guidance for a choice being made right here, and
+             at the bottom it was read after the decision, if at all. No
+             role, because it is present from first paint and never changes;
+             the write-down notice below is the one that appears and
+             announces. The `provenance` class is a test hook, so the
+             end-to-end position check finds this block without matching on
+             copy. */
         }
         <div className="warning provenance">
           <strong>{m.gate_phrase_warning_title()}</strong>{" "}
@@ -331,9 +327,9 @@ export function PhraseEntry() {
         {unlock.isPending && <p className="hint">{m.gate_deriving_hint()}</p>}
 
         {
-          /* The wordlist is English BIP-39 in every language: a French reader
-            still types English words, and being told that up front is kinder
-            than discovering it against a validation error. */
+          /* The wordlist is English BIP-39 in every language: a French
+            reader still types English words, and saying so up front is
+            kinder than a validation error. */
         }
         <p className="text-xs leading-normal text-ink-soft">
           {m.gate_wordlist_note()}

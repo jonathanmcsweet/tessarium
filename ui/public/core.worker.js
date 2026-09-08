@@ -1,14 +1,12 @@
 /* The verified core, running off the main thread.
 
-   This worker owns the derived key. Nothing else in the application ever holds
-   it: the main thread sends coordinates and receives addresses, and the key
-   itself never crosses back. That is a real boundary rather than a stylistic
-   one -- the main thread has the DOM, and the DOM is where any injected script
-   would be looking.
+   This worker owns the derived key. Nothing else ever holds it: the main
+   thread sends coordinates and receives addresses, and the key never crosses
+   back. A real boundary rather than a stylistic one -- the main thread has
+   the DOM, which is where an injected script would be looking.
 
-   It is also where the KDF belongs. Argon2id at 64 MiB is deliberately
-   expensive, and running it on the main thread would freeze the map for the
-   length of the derivation.
+   The KDF belongs here too. Argon2id at 64 MiB is deliberately expensive,
+   and on the main thread it would freeze the map for the whole derivation.
 
    A classic worker, not a module worker, so the js_of_ocaml artifact can be
    pulled in with importScripts. js_of_ocaml picks its export target at load
@@ -25,31 +23,28 @@ let key = null;
 
 /* Two kinds of failure, kept apart deliberately.
 
-   A handler THROWS when the request could not be answered -- locked, malformed
-   address, no such location. Those surface as a rejected promise on the main
-   thread, so a caller that forgets to check cannot mistake one for an answer.
+   A handler THROWS when the request could not be answered -- locked,
+   malformed address, no such location. Those become a rejected promise on
+   the main thread, so a caller that forgets to check cannot mistake one for
+   an answer.
 
-   A handler RETURNS `{ok: false, error}` when not-valid is itself the answer,
-   which is only `validate` and `unlock`. A phrase failing its checksum is a
-   result to display, not an exception to handle. */
-/* Every refusal carries a stable CODE, and the English sentence is a
-   fallback rather than the thing a user reads.
+   A handler RETURNS `{ok: false, error}` when not-valid IS the answer, which
+   is only `validate` and `unlock`. A phrase failing its checksum is a result
+   to display, not an exception to handle.
 
-   This file cannot translate: it has no access to the message catalogue, it
-   runs before any locale is chosen, and it is plain JavaScript in public/
-   that no bundler touches. So it names the failure and the display edge says
-   it -- ui/src/core/refusal.ts maps a code to m.*(), and MapView and
-   AddressPanel call that instead of reading `.message`.
+   Every refusal carries a stable CODE; the English sentence is a fallback,
+   not what a user reads. This file cannot translate -- no message catalogue,
+   no locale chosen yet, and no bundler touches it -- so it names the failure
+   and ui/src/core/refusal.ts maps the code to m.*().
 
    `arg` is the one value that varies (a word, a count), passed separately so
-   the catalogue entry can put it where its own grammar wants it rather than
-   where English does.
+   a catalogue entry can put it where its own grammar wants it.
 
-   Adding a refusal here means adding its code to ui/src/core/refusal.ts and
-   its text to all six files in ui/messages/. ui/test/messages.mjs enforces
-   both: it reads the codes back out of this file and asserts each one has an
-   entry. A code that slipped through would fall back to the English sentence
-   written here, which is why one is always written. */
+   A new refusal needs its code in ui/src/core/refusal.ts and its text in all
+   six files in ui/messages/. ui/test/messages.mjs reads the codes back out
+   of this file and asserts each has an entry. A code that slipped through
+   falls back to the English sentence, which is why one is always
+   written. */
 class Refused extends Error {
   constructor(code, message, arg = "") {
     super(message);
@@ -64,22 +59,21 @@ class Refused extends Error {
    specific sentence. */
 const broken = (detail) => new Refused("core_failed", detail, detail);
 
-/* Key derivation runs on the Argon2id wasm module (argon2.wasm) -- the
-   SAME vendored reference C the server links, zig-compiled, so the browser
-   and the server run one implementation of the primitive. (The old
-   WebCrypto-PBKDF2 split existed because pure-OCaml Argon2id cost 21 s in a
-   browser and a wasm build was rejected as a second implementation; the
-   C-core pipeline made the wasm THE implementation, and the objection with
-   it. Measured here: ~150 ms.)
+/* Key derivation runs on the Argon2id wasm module (argon2.wasm): the SAME
+   vendored reference C the server links, zig-compiled, so the browser and
+   the server run one implementation of the primitive. Measured here at
+   ~150 ms. (The old WebCrypto-PBKDF2 split existed because pure-OCaml
+   Argon2id cost 21 s in a browser and a wasm build would have been a second
+   implementation. The C-core pipeline made the wasm THE implementation.)
 
-   The KDF's inputs are not built in this file: kdfInputs on the js_of_ocaml
-   core builds password and salt -- validation, NFKD, version prefix -- so
-   the normalisation rules have exactly one home. What keeps the whole chain
-   honest is the committed vectors: the end-to-end test unlocks with a
-   vector phrase and checks a known square yields the vector's address,
-   which it cannot unless this derivation agrees with the server's byte for
-   byte. js/argon2-differential.mjs additionally pins the wasm against an
-   independent implementation on every `make test`. */
+   The KDF's inputs are not built here: `kdfInputs` on the js_of_ocaml core
+   builds password and salt -- validation, NFKD, version prefix -- so the
+   normalisation rules have one home. The committed vectors keep the chain
+   honest: the end-to-end test unlocks with a vector phrase and checks a
+   known square gives the vector's address, which it cannot unless this
+   derivation agrees with the server's byte for byte.
+   js/argon2-differential.mjs also pins the wasm against an independent
+   implementation on every `make test`. */
 const hex = (bytes) =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -89,12 +83,11 @@ const bytesOfHex = (h) =>
     (_, i) => parseInt(h.slice(2 * i, 2 * i + 2), 16),
   );
 
-/* Both wasm modules are built the same way and load the same way. Their
-   single import is wasi random_get, wanted by the prebuilt libc's stack
-   guard; deterministic zeros are fine for it, and anything MORE appearing
-   in the import list is refused -- the same allow-list discipline as the
-   differential walls, which is what makes "this module computes and does
-   not reach anywhere" checkable rather than asserted. */
+/* Both wasm modules are built and loaded the same way. Their single import
+   is wasi random_get, wanted by the prebuilt libc's stack guard;
+   deterministic zeros are fine for it. Anything MORE in the import list is
+   refused, which is what makes "this module computes and reaches nowhere"
+   checkable rather than asserted. */
 async function loadWasm(path) {
   const mod = await WebAssembly.compileStreaming(fetch(path));
   for (const imp of WebAssembly.Module.imports(mod)) {
@@ -109,14 +102,14 @@ async function loadWasm(path) {
   return instance.exports;
 }
 
-/* Both modules are memoised as PROMISES rather than as results. Memoising the
-   result looks equivalent and is not: nothing is assigned until two awaits
-   have resolved, so two messages arriving before the first load finishes each
-   compile a module and each reserve its own linear memory. The map core is
-   257 pages, and `queries.ts` issues encode and grid together, so the cold
-   first click hit that race every time. The `catch` reset is what keeps a
-   failed load retryable -- without it one 404 would poison the cache for the
-   life of the tab. */
+/* Both modules are memoised as PROMISES, not as results. Memoising the
+   result looks equivalent and is not: nothing would be assigned until two
+   awaits resolved, so two messages arriving before the first load finished
+   would each compile a module and reserve its own linear memory. The map
+   core is 257 pages, and `queries.ts` issues encode and grid together, so
+   the cold first click hit that race every time. The `catch` reset keeps a
+   failed load retryable; without it one 404 poisons the cache for the life
+   of the tab. */
 const once = (load) => {
   let pending = null;
   return () => {
@@ -134,17 +127,17 @@ const once = (load) => {
 const loadArgon2 = once(() => loadWasm("/argon2.wasm"));
 
 /* The map core: the same F* the server's HTTP API answers from, compiled to
-   wasm instead of to native C. It arrives knowing no geography -- the band
-   table crosses from the js_of_ocaml bundle, which holds the table the
-   proofs were discharged against, and `seal_cum` re-checks its whole shape
-   (base, monotonicity, step bound, grand total) before the module will
-   answer anything. A table that fails that check leaves the core unusable
-   rather than quietly wrong. */
+   wasm rather than native C. It arrives knowing no geography. The band table
+   crosses from the js_of_ocaml bundle, which holds the table the proofs were
+   discharged against, and `seal_cum` re-checks its whole shape (base,
+   monotonicity, step bound, grand total) before the module answers anything.
+   A table that fails that check leaves the core unusable rather than quietly
+   wrong. */
 const loadMapCore = once(async () => {
   /* `make ui` does not depend on `make build`, so a stale `_build` ships a
-     bundle that predates these three exports. Without this the first symptom
-     is `core.cumTable is not a function` from inside a grid refresh, which
-     MapView swallows -- the grid just never appears and nothing says why. */
+     bundle predating these three exports. Without this check the first
+     symptom is `core.cumTable is not a function` inside a grid refresh,
+     which MapView swallows: the grid never appears and nothing says why. */
   if (typeof core.cumTable !== "function") {
     throw broken(
       "the js_of_ocaml bundle predates the wasm core -- run `make build`, "
@@ -167,19 +160,20 @@ const loadMapCore = once(async () => {
   return exports;
 });
 
-/* Integer nanodegrees, as the whole design requires: the only float here is
+/* Integer nanodegrees, as the whole design requires. The only float here is
    the degree the UI speaks, converted once at this boundary.
 
-   `d * 1e9` is a correctly-rounded double, NOT the exact decimal product --
+   `d * 1e9` is a correctly-rounded double, NOT the exact decimal product:
    51.5074 * 1e9 is a hair under 51507400000 in exact arithmetic and lands on
-   it only because the double rounds there. What matters is the tie-break, and
-   Math.round alone gets it wrong: it breaks ties toward +Infinity, while
-   OCaml's Float.round -- which is what this boundary used to run, through
-   js_of_ocaml -- breaks them away from zero. They disagree on exactly the
-   negative halves, so a coordinate whose product is k + 0.5 AND which sits on
-   a cell boundary would have landed in a different cell and produced a
-   different address on the two paths. Rare, unreachable from a map click, and
-   precisely the class of one-unit boundary error this project exists to rule
+   it only because the double rounds there.
+
+   The tie-break is what matters, and Math.round alone gets it wrong. It
+   breaks ties toward +Infinity; OCaml's Float.round, which this boundary
+   used to run through js_of_ocaml, breaks them away from zero. They disagree
+   on exactly the negative halves, so a coordinate whose product is k + 0.5
+   AND which sits on a cell boundary would land in a different cell on the
+   two paths, giving a different address. Rare, unreachable from a map click,
+   and exactly the one-unit boundary error this project exists to rule
    out. */
 const LAT_MIN = -90000000000n;
 const LON_MIN = -180000000000n;
@@ -199,12 +193,11 @@ const keyWords = (hex) =>
     );
   });
 
-/* The core's four-word out block, read through a view that is rebuilt only
-   when the underlying buffer is replaced. Nothing on these paths grows the
-   memory, so in practice it is built once -- but a detached view throws
-   rather than reading stale bytes, so the identity check is the cheap way to
-   stay correct if that ever changes. A fresh view per call is what the grid
-   walk made expensive: 12,000 cells a viewport, two allocations each. */
+/* The core's four-word out block, read through a view rebuilt only when the
+   underlying buffer is replaced. Nothing on these paths grows the memory, so
+   in practice it is built once, but the identity check is the cheap way to
+   stay correct if that changes. A fresh view per call was expensive in the
+   grid walk: 12,000 cells a viewport, two allocations each. */
 let outCache = null;
 let outBuffer = null;
 const outWords = (m) => {
@@ -217,16 +210,16 @@ const outWords = (m) => {
 
 /* A refusal from the bundle, copied into a plain object.
 
-   What js_of_ocaml hands back is its own object, and every refusal here
-   either crosses postMessage -- which structure-clones whatever it is given
-   -- or is read by name on the main thread. Three known fields is a
-   contract; the bundle's representation of an object is not, and it changed
-   once already. `String()` on each because Js.string values are JS strings
-   in practice and this does not want to depend on that.
+   js_of_ocaml hands back its own object, and every refusal here either
+   crosses postMessage -- which structure-clones what it is given -- or is
+   read by name on the main thread. Three known fields is a contract; the
+   bundle's object representation is not, and it changed once already.
+   `String()` on each rather than relying on Js.string values being JS
+   strings.
 
    This replaced a helper that dug messages out of OCaml exception arrays.
-   Nothing raises across that boundary any more: the two bundle calls that
-   could -- validateMnemonic and indicesOfAddress -- answer with a refusal. */
+   Nothing raises across that boundary any more: validateMnemonic and
+   indicesOfAddress, the two that could, answer with a refusal. */
 const refusalOf = (r) =>
   r === null || r === undefined ? null : {
     code: String(r.code),
@@ -279,17 +272,16 @@ const ops = {
 
   /* A phrase the user did not invent.
 
-     This is the highest-value security control in the application, and it is
-     three lines long. A phrase a person composed is worth perhaps 40 bits of
-     guessing effort; these 32 bytes are worth 256. The checksum rejects most
-     hand-assembled phrases, but it is typo detection, not an entropy test --
+     The highest-value security control in the application, and three lines
+     long. A phrase a person composed is worth perhaps 40 bits of guessing
+     effort; these 32 bytes are worth 256. The checksum rejects most
+     hand-assembled phrases, but it is typo detection, not an entropy test:
      a low-entropy phrase that satisfies it is accepted like any other. The
-     round count and the cost of key derivation only decide anything in the
-     case where this step was skipped.
+     cost of key derivation only decides anything when this step was skipped.
 
-     `crypto.getRandomValues` is the platform CSPRNG. The core does the BIP-39
-     encoding and nothing else: it never generates the bytes, which keeps the
-     one decision that matters at this edge, in sight. */
+     `crypto.getRandomValues` is the platform CSPRNG. The core does the
+     BIP-39 encoding and nothing else -- it never generates the bytes -- so
+     the one decision that matters stays at this edge, in sight. */
   generate() {
     const entropy = new Uint8Array(core.entropyBytes);
     crypto.getRandomValues(entropy);
@@ -301,11 +293,11 @@ const ops = {
   async unlock({ mnemonic, passphrase }) {
     const invalid = refusalOf(core.validateMnemonic(mnemonic));
     if (invalid !== null) return { ok: false, error: invalid };
-    /* The wasm KDF would happily run over plain HTTP -- unlike the old
-       WebCrypto path, nothing technical stops it. The refusal is kept as
-       POLICY: a seed-phrase form served over plain HTTP is a mistake, and
-       saying so plainly beats deriving anyway. Loopback counts as secure,
-       so the desktop app and `make run` are fine. */
+    /* The wasm KDF would run over plain HTTP -- unlike the old WebCrypto
+       path, nothing technical stops it. The refusal is kept as POLICY: a
+       seed-phrase form served over plain HTTP is a mistake, and saying so
+       beats deriving anyway. Loopback counts as secure, so the desktop app
+       and `make run` are fine. */
     if (!self.isSecureContext) {
       return {
         ok: false,
@@ -416,19 +408,21 @@ const ops = {
     return { lat: degOfNs(dlat + LAT_MIN), lon: degOfNs(dlon + LON_MIN) };
   },
 
-  /* The grid overlay. Needs no key -- it is pure geometry -- and every cell
-     corner comes from the proved `bounds`; this walk only decides which cells
-     to ask about. It steps by taking each cell's upper edge as the next
-     cell's lower edge, which is exact because the bounds are half-open at the
-     high edge, and it steps in BigInt nanodegrees because a boundary landing
-     one unit out is the exact bug this project exists to rule out.
+  /* The grid overlay. Needs no key -- it is pure geometry. Every cell corner
+     comes from the proved `bounds`; this walk only decides which cells to
+     ask about. It takes each cell's upper edge as the next cell's lower
+     edge, which is exact because the bounds are half-open at the high edge,
+     and it steps in BigInt nanodegrees because a boundary landing one unit
+     out is the exact bug this project exists to rule out.
 
      A transcription of Tessarium.cells_in_bounds, which still drives the
      server. Two drivers over one proved function is a real cost, so they are
      pinned to each other: js/worker-differential.mjs drives this worker and
      the OCaml walk in one process on every `make test`, over the corners
-     where they used to disagree. `limit` counts CELLS, not the four numbers each one contributes
-     to the flat array -- getting that wrong quartered the grid. */
+     where they used to disagree.
+
+     `limit` counts CELLS, not the four numbers each contributes to the flat
+     array -- getting that wrong quartered the grid. */
   async grid({ latLo, lonLo, latHi, lonHi, limit }) {
     const m = await loadMapCore();
     const clamp = (lo, hi, v) => (v < lo ? lo : v > hi ? hi : v);
@@ -492,11 +486,10 @@ const ops = {
      One existed: it encoded every cell in the viewport at once, to draw an
      address inside each square. It is gone, and the absence is the feature.
      An attacker's problem is finding a phrase that maps a known address to a
-     known place, and every (address, place) pair they hold is material for
-     that search. A screenshot of a labelled grid hands over fifty pairs in
-     one image, from a user who thought they were sharing a picture of a
-     street. Addresses are now produced one at a time, for the square the user
-     actually asked about. */
+     known place, and every (address, place) pair helps that search. A
+     screenshot of a labelled grid hands over fifty pairs in one image.
+     Addresses are produced one at a time, for the square the user asked
+     about. */
 };
 
 self.onmessage = async (event) => {
@@ -508,15 +501,14 @@ self.onmessage = async (event) => {
   }
   try {
     /* `unlock`, `encode`, `decode` and `grid` are async: the KDF and the map
-       core are both wasm modules, loaded on first use. `validate`, `generate`,
-       `lock` and `status` stay synchronous and await passes them straight
-       through. The consequence for anything added here: an op that reads
-       `key` must re-read it AFTER every await, because `lock` can land in
-       between. */
+       core are wasm modules loaded on first use. `validate`, `generate`,
+       `lock` and `status` stay synchronous and await passes them through.
+       So for anything added here: an op that reads `key` must re-read it
+       AFTER every await, because `lock` can land in between. */
     const result = await handler(payload ?? {});
-    /* Hand the cell array over rather than copying it. A z20 viewport is a few
-       thousand cells; copying that on every map movement is a frame budget
-       spent on nothing. */
+    /* Hand the cell array over rather than copying it. A z20 viewport is a
+       few thousand cells, and copying that on every map movement is a frame
+       budget spent on nothing. */
     const transfer = result.cells ? [result.cells.buffer] : [];
     self.postMessage({ id, result }, transfer);
   } catch (e) {

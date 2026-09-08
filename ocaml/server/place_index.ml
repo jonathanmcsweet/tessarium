@@ -1,23 +1,23 @@
 (* The offline gazetteer: every name a downloaded region can draw, and where
    it is.
 
-   A search box is the one feature that cannot be bolted on with an API call
-   here. Handing "Gare de Lyon" to a hosted geocoder tells that geocoder
-   exactly where the user is going, which is the single thing this project
-   exists not to leak -- worse than the tile requests it already refuses,
-   because a query names the destination outright. So search reads what is
-   already on disk: the vector tiles carry their own labels, and a region the
-   user chose to keep is a region whose names they already have.
+   Search is the one feature that cannot be an API call here. Handing "Gare de
+   Lyon" to a hosted geocoder tells it exactly where the user is going, which
+   is the thing this project exists not to leak -- worse than the tile
+   requests it already refuses, because a query names the destination
+   outright. So search reads what is already on disk: the vector tiles carry
+   their own labels, and a region the user kept is a region whose names they
+   already have.
 
    Built once per download rather than per query, because walking a country's
-   tiles takes seconds and a keystroke may not. Measured on France at zoom 12:
+   tiles takes seconds and a keystroke cannot. Measured on France at zoom 12:
    33,767 tiles, 690,000 distinct names, 18 seconds.
 
    Queries scan the file instead of holding it in memory. A country's index is
-   tens of megabytes, a scan of that is milliseconds from the page cache, and
-   the alternative -- a resident table with its own invalidation rules against
-   an archive that downloads, updates and removals rewrite -- is a coherence
-   problem for a saving no one asked for. *)
+   tens of megabytes and scanning that takes milliseconds from the page cache.
+   The alternative is a resident table with its own invalidation rules against
+   an archive that downloads, updates and removals rewrite -- a coherence
+   problem in exchange for a saving nobody asked for. *)
 
 type entry = {
   name : string;
@@ -30,19 +30,18 @@ type entry = {
 
 let filename = "search.idx"
 
-(* Deeper than this and building the index costs minutes rather than seconds:
-   zoom 13 quadruples the tile count for names that are mostly repeats of
-   what 12 already holds. Named roads start appearing at 12, which is what
-   makes street search work at all -- residential streets live deeper still,
-   and reaching them is recorded on the roadmap rather than paid for here. *)
+(* Deeper than this and building the index takes minutes instead of seconds:
+   zoom 13 quadruples the tile count for names mostly repeated from 12. Named
+   roads start appearing at 12, which is what makes street search work at all.
+   Residential streets are deeper still; reaching them is on the roadmap. *)
 let index_zoom = 12
 
 (* ------------------------------------------------------------ normalising *)
 
-(* Folded once at write time and once per query, so "Orleans" finds
-   "Orléans" and "MARSEILLE" finds "Marseille". Latin-1 and Latin Extended-A
-   cover the languages this UI ships in; anything else keeps its own bytes
-   and still matches itself exactly. *)
+(* Folded once when the index is written and once per query, so "Orleans"
+   finds "Orléans" and "MARSEILLE" finds "Marseille". Latin-1 and Latin
+   Extended-A cover the languages this UI ships in; anything else keeps its
+   own bytes and still matches itself exactly. *)
 let fold_char buf c =
   Buffer.add_char buf
     (if c >= 'A' && c <= 'Z' then Char.chr (Char.code c + 32) else c)
@@ -79,7 +78,7 @@ let fold s =
       (match plain with
       | Some p -> Buffer.add_char buf p
       | None ->
-          (* Æ Ø Þ Ð and friends keep their letter but not their case, so
+          (* Æ Ø Þ Ð and the like keep their letter but lose their case, so
              "ørsta" still finds "Ørsta". *)
           Buffer.add_char buf c;
           Buffer.add_char buf
@@ -89,8 +88,8 @@ let fold s =
     end
     else if (Char.code c = 0xc4 || Char.code c = 0xc5) && !i + 1 < n then begin
       (* Latin Extended-A: Č, Ł, ő and the rest. Only the case bit is
-         folded -- stripping these to ASCII needs a table this does not
-         carry, and a Polish name still matches itself exactly. *)
+         folded. Stripping these to ASCII needs a table this does not carry,
+         and a Polish name still matches itself exactly. *)
       let d = Char.code s.[!i + 1] in
       Buffer.add_char buf c;
       Buffer.add_char buf
@@ -107,14 +106,14 @@ let fold s =
 
 (* ------------------------------------------------------------- the file *)
 
-(* Tab-separated, one entry per line, sorted -- so the file is diffable, its
-   build is deterministic, and a corrupt line costs one name rather than the
-   index. The folded name leads the line because it is what every query
-   compares against; the display name follows it. *)
-(* Names come out of tiles this project did not write, and the record
-   separator must not be forgeable: a name carrying a newline would split
-   its row, and one carrying a tab could re-form a whole valid row with
-   attacker-chosen coordinates. Both become spaces on the way in. *)
+(* Tab-separated, one entry per line, sorted: the file is diffable, its build
+   is deterministic, and a corrupt line costs one name rather than the whole
+   index. The folded name leads the line because that is what every query
+   compares against; the display name follows. *)
+(* Names come out of tiles this project did not write, so the separators must
+   not be forgeable. A name carrying a newline would split its row, and one
+   carrying a tab could form a whole valid row with coordinates of its own
+   choosing. Both become spaces on the way in. *)
 let sanitise s =
   String.map (function '\t' | '\n' | '\r' -> ' ' | c -> c) s
 
@@ -136,8 +135,8 @@ let of_line line =
       | _ -> None)
   | _ -> None
 
-(* A name is worth more from some layers than others: a town beats a road of
-   the same name, and both beat a shop. Ordering only, never a filter. *)
+(* Some layers matter more: a town beats a road of the same name, and both
+   beat a shop. Ordering only, never a filter. *)
 let layer_rank = function
   | "places" -> 0
   | "roads" -> 1
@@ -148,7 +147,7 @@ let layer_rank = function
 (* Importance first, because a name is rarely unique: eleven French places
    are called Paris, and the one with two million people is the one meant.
    Population is the basemap's own answer where it has one; where it does
-   not, the layer stands in -- a town beats a road beats a shop. *)
+   not, the layer stands in. *)
 let compare_entry a b =
   match compare b.weight a.weight with
   | 0 -> (
@@ -163,29 +162,27 @@ let compare_entry a b =
 (* ------------------------------------------------------------- building *)
 
 (* One pass over the tiles shallow enough to be worth reading. The same name
-   appears in every tile that draws it and at every zoom above it, so the
-   walk dedups as it goes and keeps the deepest sighting -- the deeper tile
-   places the label more precisely. *)
-(* Position is part of a sighting's identity. The same label is drawn in
-   every tile that touches it and at every zoom above it, and those repeats
-   must collapse -- but two different towns sharing a name must not, which
+   appears in every tile that draws it and at every zoom above it, so the walk
+   dedups as it goes and keeps the deepest sighting, which places the label
+   most precisely. *)
+(* Position is part of a sighting's identity. Those repeats down the pyramid
+   have to collapse, but two different towns sharing a name must not -- which
    keying on the name alone would do, silently keeping whichever was seen
-   last. A twentieth of a degree is far wider than the quantisation between
+   last. A twentieth of a degree is far wider than the difference between
    zooms and far narrower than the gap between distinct places.
 
-   Keying on the square ALONE let one town split in two. Two sightings
-   twenty metres apart collapsed or survived depending on where the grid
-   lines happened to fall, and Jasper, Alberta straddled one: the real
-   index carried it twice, so a list of eight Jaspers spent two rows on the
-   same town. A sighting now looks at the eight squares around its own as
-   well, and joins any cluster of the same name within the radius --
-   wherever that cluster was first filed.
+   Keying on the square alone let one town split in two: two sightings twenty
+   metres apart collapsed or survived depending on where the grid lines fell.
+   Jasper, Alberta straddled one, so a list of eight Jaspers spent two rows on
+   the same town. A sighting now checks the eight squares around its own too,
+   and joins any cluster of the same name within the radius, wherever that
+   cluster was first filed.
 
-   The other direction is unchanged and is not claimed: the grid, not the
-   radius, is what keeps two DIFFERENT towns of one name apart, so two
-   that share a square are still one row however far apart in it they sit.
-   That is what makes the square coarse -- kilometres wide, and still far
-   narrower than the gap between distinct places. *)
+   The other direction is unchanged, and is not claimed. It is the grid, not
+   the radius, that keeps two DIFFERENT towns of one name apart, so two that
+   share a square are still one row however far apart inside it they sit.
+   That is why the square is kilometres wide -- still far narrower than the
+   gap between distinct places. *)
 let cell v = int_of_float (Float.round (v *. 20.))
 let merge_radius = 0.05
 
@@ -207,11 +204,11 @@ let cluster_key seen ~folded ~layer ~lon ~lat =
   done;
   Option.value !near ~default:here
 
-(* How many ids a walk over this archive will actually visit. Counting a
-   whole run whenever its FIRST id is within max_zoom is not the same thing:
-   an empty ocean tile is byte-identical at zoom 12 and at 13, so one run
-   can span the boundary. Then the total counts ids the walk skips, and the
-   progress the UI is shown stops short of it and never arrives. *)
+(* How many ids a walk over this archive will actually visit. Counting a whole
+   run whenever its FIRST id is within max_zoom is not the same: an empty
+   ocean tile is byte-identical at zoom 12 and 13, so one run can straddle the
+   boundary. The total would then include ids the walk skips, and the progress
+   bar would stop short and never arrive. *)
 let count ~max_zoom (archive : Pmtiles.Archive.t) =
   let within (e : Pmtiles.Directory.entry) =
     let n = ref 0 in
@@ -230,13 +227,12 @@ let count ~max_zoom (archive : Pmtiles.Archive.t) =
 
 (* One archive's names, folded into a table shared with the others.
 
-   Shared rather than concatenated, and that is the point: the cluster
-   logic below keeps the SHALLOWEST zoom a name was seen at, because a
-   label repeated down the pyramid should be recorded once at the zoom that
-   places it best. Two archives holding the same city -- a region and the
-   world overview under it, or two regions that overlap -- must resolve the
-   same way. Concatenating two independent builds would give that city two
-   rows and two map flights. *)
+   Shared rather than concatenated, which matters: the cluster logic keeps
+   the shallowest zoom a name was seen at, so a label repeated down the
+   pyramid is recorded once at the zoom that places it best. Two archives
+   holding the same city -- a region and the world overview under it, or two
+   overlapping regions -- have to resolve the same way. Concatenating two
+   independent builds would give that city two rows and two map flights. *)
 let build_one ~seen ~max_zoom ~on_tile ~offset ~grand
     (archive : Pmtiles.Archive.t) =
   let gz =
@@ -248,15 +244,15 @@ let build_one ~seen ~max_zoom ~on_tile ~offset ~grand
   List.iter
     (fun (e : Pmtiles.Directory.entry) ->
       (* A run is one blob shared by consecutive tile ids, so it is read once
-         and re-projected per id. Walking the entry alone would skip every
-         id after the first.
+         and re-projected per id. Walking the entry alone would skip every id
+         after the first.
 
-         Read once means read HERE, not inside the loop. It was fetched per
-         id, which re-ran the directory search, the source read and the
-         inflate for every id in the run: five thousand identical ocean tiles
-         cost five thousand reads and five thousand inflations of the same
-         bytes, when only Mvt.named below actually varies with the id. Lazy,
-         so a run lying entirely past max_zoom is never read at all. *)
+         Read HERE, not inside the loop. Fetching per id re-ran the directory
+         search, the source read and the inflate for every id in the run: five
+         thousand identical ocean tiles cost five thousand reads and five
+         thousand inflations of the same bytes, when only Mvt.named below
+         varies with the id. Lazy, so a run entirely past max_zoom is never
+         read at all. *)
       let blob =
         lazy
           (match Pmtiles.Archive.tile archive e.Pmtiles.Directory.tile_id with
@@ -297,11 +293,10 @@ let build_one ~seen ~max_zoom ~on_tile ~offset ~grand
 
 (* Every downloaded archive's names, as one index.
 
-   There is one file per region now, so this is a list rather than an
-   archive: the names a search can offer are the union of what every file on
-   disk holds. Counted before it walks so that the progress bar has a
-   denominator that spans the whole job -- a bar that restarts at each file
-   would read as several downloads. *)
+   A list rather than one archive, because there is one file per region: the
+   names a search can offer are the union of what every file holds. Counted
+   before the walk so the progress bar has a denominator spanning the whole
+   job; a bar restarting at each file would read as several downloads. *)
 let build_many ?(max_zoom = index_zoom) ~on_tile archives =
   let seen = Hashtbl.create 8192 in
   let grand =
@@ -320,7 +315,7 @@ let save ~fs ~basemap_dir entries =
   let dir = Eio.Path.(fs / basemap_dir) in
   let part = Eio.Path.(dir / (filename ^ ".part")) in
   (* The directory is served over HTTP, so a half-written index left behind
-     is fetchable, not merely untidy. *)
+     is fetchable, not just untidy. *)
   Fun.protect
     ~finally:(fun () ->
       match Eio.Path.kind ~follow:true part with
@@ -350,14 +345,13 @@ let remove ~fs ~basemap_dir =
 
 (* -------------------------------------------------------------- querying *)
 
-(* Ranked, best first. [score] is a whole ranking key rather than a single
-   band -- see [rank_key], which builds it -- and lower is better. *)
+(* Ranked, best first. [score] is the whole ranking key built by [rank_key],
+   not a single band, and lower is better. *)
 type hit = { entry : entry; score : int }
 
-(* How the query was answered decides first; how important the place is
-   decides among equal answers. The other way round would bury an exact
-   hit under a populous partial one -- "York" would answer with New
-   York. *)
+(* How well the name answers the query decides first; importance only breaks
+   ties. The other way round would bury an exact hit under a populous partial
+   one, and "York" would answer with New York. *)
 let compare_hit a b =
   match compare a.score b.score with
   | 0 -> compare_entry a.entry b.entry
@@ -370,11 +364,11 @@ let word_start folded at =
   | ' ' | '-' | '\'' | '(' | '/' | ',' | '.' -> true
   | _ -> false
 
-(* The BEST occurrence decides, not the first: "ork" inside "yorkshire ork
-   lane" starts a word later in the string, and stopping at the first hit
-   would score it as buried. Compares bytes in place rather than cutting a
-   substring per position -- this runs over every line of a file that can be
-   tens of megabytes. *)
+(* The BEST occurrence decides, not the first: "ork" in "yorkshire ork lane"
+   starts a word later in the string, and stopping at the first hit would
+   score it as buried. Compares bytes in place rather than cutting a substring
+   per position, since this runs over every line of a file that can be tens of
+   megabytes. *)
 let score_of ~needle folded =
   let n = String.length needle and h = String.length folded in
   if n = 0 || n > h then None
@@ -403,45 +397,41 @@ let score_of ~needle folded =
 
 (* A query is a name, and sometimes the context someone gave it.
 
-   People write both, and they separate them with a comma: "Atlanta, GA",
-   "Paris, France". Everything before the first comma is the name being
-   asked for and every word of it counts; everything after is context that
-   ranks but never decides, because it is usually not written in the name
-   at all -- no entry for Atlanta contains "GA" anywhere.
+   People write both and separate them with a comma: "Atlanta, GA", "Paris,
+   France". Everything before the first comma is the name being asked for and
+   every word of it counts. Everything after is context that ranks but never
+   decides, because it usually is not in the name at all -- no entry for
+   Atlanta contains "GA" anywhere.
 
-   Two wrong versions preceded this one, both measured against a real
+   Two earlier versions were wrong, both measured against a real
    country-sized index. Matching the whole query as one run of characters
-   answered "Atlanta, GA" with nothing found, because that string is inside
-   no name on Earth. Then treating every word alike answered "Los Angeles"
-   with a hamlet of 100 people called Los -- "Los" is a name exactly, and
-   "Los Angeles" merely begins with the word, so exactness beat
-   completeness. Completeness comes first now: the entry carrying more of
-   the name wins, and how exactly it carries the first word only settles
-   ties. The comma is what separates the two questions, which is what a
-   person means by it. *)
+   answered "Atlanta, GA" with nothing found, since that string is inside no
+   name on Earth. Treating every word alike then answered "Los Angeles" with
+   a hamlet of 100 people called Los: "Los" is an exact name and "Los
+   Angeles" merely begins with the word, so exactness beat completeness.
+   Completeness comes first now -- the entry carrying more of the name wins,
+   and how exactly it carries the first word only breaks ties. *)
 
 (* Enough words for the longest real place name, and enough context for a
-   town, a region and a country. Past that, more words are noise rather
-   than refinement, and each one is another look at every line. *)
+   town, a region and a country. Past that, extra words are noise, and each
+   one is another pass over every line. *)
 let max_head = 6
 let max_context = 2
 
-(* Bytes at or above 0x80 are the middle of a UTF-8 character and stay in
-   the term: folding leaves other scripts alone, and splitting on them
-   would cut a character in half. Every ASCII byte that is not a letter or
-   a digit separates -- spaces, hyphens, apostrophes -- because a name
-   written "Saint-Etienne" and a query typed "saint etienne" are the same
-   request. *)
+(* Bytes at or above 0x80 are the middle of a UTF-8 character and stay in the
+   term: folding leaves other scripts alone, and splitting on them would cut a
+   character in half. Every ASCII byte that is not a letter or digit
+   separates -- spaces, hyphens, apostrophes -- because "Saint-Etienne" and a
+   query typed "saint etienne" are the same request. *)
 let term_byte c =
   Char.code c >= 0x80 || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
 
 (* The punctuation people paste rather than type. A query copied off a web
-   page arrives with a non-breaking space or a curly apostrophe in it, and
-   those are separators to a reader, so they are separators here. The
-   fullwidth and ideographic commas mean the same thing their ASCII cousin
-   does and are treated the same. Names are folded when the index is
+   page arrives with a non-breaking space or a curly apostrophe, and a reader
+   treats those as separators, so this does too. The fullwidth and ideographic
+   commas mean what the ASCII comma means. Names are folded when the index is
    built, so this normalises the QUERY only; a name that itself contains a
-   non-breaking space is recorded in roadmap.md. *)
+   non-breaking space is on the roadmap. *)
 let ascii_punctuation s =
   let b = Buffer.create (String.length s) in
   let n = String.length s in
@@ -501,8 +491,8 @@ let parse_query q =
   }
 
 (* Presence, stopping at the first hit. [score_of] scans the whole name for
-   its BEST occurrence, which is the right answer for the word the ranking
-   is built on and wasted work for the rest. *)
+   its best occurrence, which is right for the word the ranking is built on
+   and wasted work for every other word. *)
 let contains ~needle folded =
   let n = String.length needle and h = String.length folded in
   n > 0 && n <= h
@@ -520,8 +510,8 @@ let carried terms folded =
 
 (* How this name answers the query: how many words of the NAME it carries,
    how exactly it carries the first of them, and how much of the CONTEXT it
-   happens to carry as well. The first word is required -- a name with none
-   of what was asked for is not a worse answer, it is not an answer. *)
+   carries too. The first word is required -- a name with none of what was
+   asked for is not a worse answer, it is not an answer. *)
 type quality = { head_depth : int; band : int; context_depth : int; length : int }
 
 let match_of ~(query : query) folded =
@@ -540,15 +530,14 @@ let match_of ~(query : query) folded =
             })
 
 (* One number to rank by, low is best, computed from the name alone so the
-   scan can drop a line before it is parsed.
+   scan can drop a line before parsing it.
 
-   Order of significance, and every step of it was learned from an answer
-   that was wrong on a real index: more of the name carried beats a more
-   exact match on its first word ("Los Angeles" over "Los"); a more exact
-   match beats carrying the context ("Atlanta" over "Atlanta Gas Light
-   Lake", where "ga" hides inside "Gas"); carrying the context beats
-   nothing; and a shorter name breaks what is left. Population and layer
-   settle true ties, as before, in [compare_entry]. *)
+   Every step of the ordering came from a wrong answer on a real index.
+   Carrying more of the name beats a more exact match on its first word ("Los
+   Angeles" over "Los"). A more exact match beats carrying the context
+   ("Atlanta" over "Atlanta Gas Light Lake", where "ga" hides inside "Gas").
+   Carrying the context beats nothing. A shorter name breaks what is left.
+   Population and layer settle true ties, in [compare_entry]. *)
 let rank_key q =
   let depth = max 0 (max_head - q.head_depth) in
   let context = max 0 (max_context - q.context_depth) in
@@ -559,17 +548,17 @@ let search ~fs ~basemap_dir ~query ~limit =
   let q = parse_query query in
   let size = List.fold_left (fun n t -> n + String.length t) 0 q.head in
   (* Same floor the UI applies, counted over the query's own characters
-     rather than the typing: one character matches most of a country, and
-     the answer is not useful at that length in any case. Bytes, so one
-     character of a script that spends three of them clears it -- which is
-     the right answer for a language where one character is a word. *)
+     rather than what was typed: one character matches most of a country and
+     is no use as an answer. Counted in bytes, so one character of a script
+     that spends three of them clears it -- right for a language where one
+     character is a word. *)
   if size < 2 then []
   else begin
     let path = Eio.Path.(fs / basemap_dir / filename) in
     (* Only the best [limit] are kept as the file is read. Collecting every
-       match and sorting afterwards is what made a one-letter query allocate
-       three hundred megabytes and sort ten million comparisons without ever
-       yielding -- on a single-domain server that answers nothing else
+       match and sorting afterwards made a one-letter query allocate three
+       hundred megabytes and run ten million comparisons without yielding
+       once, on a single-domain server that can answer nothing else
        meanwhile. *)
     let best = ref [] and held = ref 0 and worst = ref max_int in
     let insert hit =
@@ -587,7 +576,7 @@ let search ~fs ~basemap_dir ~query ~limit =
     in
     let seen = ref 0 in
     let consider line =
-      (* The scan is the only long-running part left, so it yields: a search
+      (* The scan is the only long-running part left, so it yields. A search
          must not hold the domain against every other request. *)
       incr seen;
       if !seen land 8191 = 0 then Eio.Fiber.yield ();
@@ -615,19 +604,19 @@ let search ~fs ~basemap_dir ~query ~limit =
           with End_of_file -> ())
     with
     | () -> !best
-    (* A missing or half-written index is "nothing found", not a 500: the
+    (* A missing or half-written index means "nothing found", not a 500: the
        archive it describes may have been removed a moment ago. *)
     | exception _ -> []
   end
 
-(* [score] travels with the row because the caller cannot recompute it and
-   should not try. It is how well the row answered the NAME -- see
-   [rank_key] -- and lower is better; two rows carrying the same one are
-   two answers this index considers equally good, which is the whole set a
-   caller is free to re-order on evidence the index does not have. The
-   browser has exactly that: it knows which country and which state a point
-   falls in, and the index never will. Publishing the number is what keeps
-   that re-ordering from having to guess at the ranking it is refining. *)
+(* [score] travels with the row because the caller cannot recompute it. It is
+   how well the row answered the NAME (see [rank_key]), lower is better, and
+   two rows with the same score are two answers this index rates equally.
+
+   That set is what a caller may re-order using evidence the index does not
+   have. The browser has some: it knows which country and state a point falls
+   in, and the index never will. Publishing the number keeps that re-ordering
+   from guessing at the ranking it is refining. *)
 let to_json (hits : hit list) : Yojson.Safe.t =
   `Assoc
     [

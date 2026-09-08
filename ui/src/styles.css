@@ -1,19 +1,16 @@
 /* The palette, the scale, and the looks worn by more than one element.
 
-   The layout was rough because there was no scale. The stylesheet this
-   replaces held twenty-two distinct spacing values, twelve font sizes and
-   nine border radii, each decided one rule at a time and none of them wrong
-   on its own. Tailwind supplies one ramp of each, and the components spend
-   it in their own class lists, next to the markup it applies to. What is
-   left in this file is what a class list cannot hold -- the palette, the
-   few looks that several different elements have to share, and at the
-   bottom the rules that must outrank a stylesheet this project does not
-   own.
+   The layout was rough because there was no scale: the stylesheet this
+   replaces held twenty-two spacing values, twelve font sizes and nine border
+   radii, each decided one rule at a time. Tailwind supplies one ramp of
+   each, spent in the components' own class lists. What is left here is what
+   a class list cannot hold -- the palette, the few looks several different
+   elements share, and at the bottom the rules that must outrank a stylesheet
+   this project does not own.
 
    Nothing here is fetched. Tailwind runs at build time and emits a plain
    stylesheet; the type stack is whatever the device already has. The
-   application still opens with the network unplugged, which is the point of
-   it. */
+   application still opens with the network unplugged. */
 
 @import "tailwindcss";
 
@@ -23,12 +20,11 @@
    `[data-focused]` rule somewhere else in the file. */
 @plugin "tailwindcss-react-aria-components";
 
-/* Scanned for class names, explicitly rather than by Tailwind's automatic
+/* Scanned for class names explicitly, rather than by Tailwind's automatic
    detection: the end-to-end suite names classes too, and a utility that
-   exists only because a test asked for it is a class the app is not
-   actually shipping. Paraglide's generated messages are excluded for the
-   opposite reason -- they are translations, they carry no markup, and they
-   are by some way the largest thing under src/. */
+   exists only because a test asked for it is not a class the app ships.
+   Paraglide's generated messages are excluded for the opposite reason: they
+   carry no markup and are by some way the largest thing under src/. */
 @source "./";
 @source not "./paraglide";
 
@@ -41,21 +37,19 @@
   /* ------------------------------------------------- cyberpunk dark, and
      the palette the application opens in.
 
-     This block is two things at once, and the second is the reason it holds
-     THIS palette rather than a plain one. Tailwind compiles `@theme` to
-     `:root`, so whatever is written here is what paints before anyone has
-     chosen anything -- and it is also what every `[data-theme]` block below
-     overrides one token at a time. The default theme therefore has to be
-     the one written here, or the first frame is a theme nobody picked.
+     Tailwind compiles `@theme` to `:root`, so whatever is written here
+     paints before anyone has chosen anything, and it is also what every
+     `[data-theme]` block below overrides token by token. The default theme
+     therefore has to be the one written here, or the first frame is a theme
+     nobody picked.
 
      Cyberpunk dark is that default: purple-black ground, magenta accent,
-     cyan focus and address, acid-green ok. Because it wears no attribute,
-     it is the one palette with no `[data-theme]` block of its own -- there
-     is nothing to keep in step and nothing to drift.
+     cyan focus and address, acid-green ok. Wearing no attribute, it is the
+     one palette with no `[data-theme]` block of its own, so there is nothing
+     to keep in step.
 
      Every pair is audited by test/contrast.mjs against the same thresholds
-     as the other four. A theme that ships untested contrast is a theme that
-     ships unreadable text to whoever turns it on. */
+     as the other four. */
   --color-ink: #ede7fa;
   --color-ink-soft: #b9a8d8;
   --color-line: #2b1d42;
@@ -122,9 +116,9 @@
   /* The four levers the plain themes hold at rest: the address's own
      colour, the primary action's gradient, the wordmark's split shadow and
      the ground's corner glow. Plain light and plain dark set all four to
-     nothing -- one colour repeated three times is a solid button, and a
-     transparent shadow is no shadow -- so they need no rule anywhere else
-     in the application to stay plain. */
+     nothing -- one colour repeated three times is a solid button, a
+     transparent shadow is no shadow -- so they stay plain with no rule
+     anywhere else in the application. */
   --color-accent-alt: #53f1ff;
   --color-cta-from: #ff4fa8;
   --color-cta-mid: #a54fff;
@@ -145,37 +139,52 @@
   --map-blank-opacity: 0.24;
   --color-map-edge: #c3b3e0;
   --color-map-grid: #6ee9ff;
+  /* The keyboard reticle: the small square at the centre of the view
+     marking which cell Enter will take. It is the only thing on screen
+     saying so, so it has to be legible on THIS palette's cartography. It was
+     a literal rgba(18,33,47,0.55) -- the old light theme's ink, near-black
+     on a near-black map -- and belonging to no palette, no completeness
+     check could see it was missing from four of the five. */
+  --color-map-reticle: #c9b6ef;
+
+  /* Whether the map sits on a pale ground. One classification, two readers:
+     the MapLibre control-icon rule at the bottom of this file spends it as
+     `invert(calc(1 - ...))`, and MapView reads it through getComputedStyle
+     to choose the Protomaps flavour and the sprite sheet. It used to be a
+     list of theme names in TypeScript AND a list of selectors here, and a
+     palette added to one but not the other ships light control icons on a
+     dark map with nothing failing. Beside the colours, it is policed by the
+     same completeness checks they are. */
+  --map-light-ground: 0;
 
   /* A shadow is a shape cut out of the light behind it. On a dark ground
      there is no light behind it, so a tinted rgba reads as nothing at all;
      it has to be darker than the surface it falls on. */
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
 
-  /* Below this the side panel becomes a sheet across the bottom of the
-     screen: there is no longer enough width for a column beside the map.
-     Named rather than a number, because the number is meaningless and the
-     rule is not -- it is the width at which a drawer stops being one. */
+  /* Below this the side panel becomes a sheet across the bottom: there is
+     not enough width for a column beside the map. Named rather than left as
+     a number, because it is the width at which a drawer stops being one. */
   --breakpoint-drawer: 52rem;
 }
 
 /* ------------------------------------------------------- the chosen sets
 
-   Five palettes and six menu entries. Cyberpunk dark is the default and
-   lives in @theme above, wearing no attribute; the other four are here,
-   and each overrides the default token by token.
+   Five palettes, six menu entries. Cyberpunk dark is the default and lives
+   in @theme above, wearing no attribute; the other four are here, each
+   overriding the default token by token.
 
-   "Match my device" is the sixth entry and not a palette: it borrows the
-   two PLAIN sets, which is what a device preference means -- an operating
-   system says light or dark, it does not say cyberpunk. That is why plain
-   light is written under two selectors at once and plain dark is written
-   twice: CSS cannot say "the device prefers dark OR the user chose dark" in
-   one selector, because one half is a media query and the other is an
-   attribute. test/contrast.mjs fails if the two dark blocks ever stop
-   agreeing, token for token.
+   "Match my device" is the sixth entry and not a palette: it borrows the two
+   PLAIN sets, because an operating system says light or dark, not cyberpunk.
+   So plain light is written under two selectors at once and plain dark is
+   written out twice -- CSS cannot say "the device prefers dark OR the user
+   chose dark" in one selector, one half being a media query and the other an
+   attribute. test/contrast.mjs fails if the two dark blocks stop agreeing,
+   token for token.
 
-   Order is load-bearing. The media block below and the plain-light rule
+   Order is load-bearing: the media block below and the plain-light rule
    above it are the same specificity and both match a device-dark viewer on
-   "system", so the one that wins is the one written later. */
+   "system", so the later one wins. */
 
 :root {
   color-scheme: dark;
@@ -184,10 +193,9 @@
 /* ------------------------------------------------------------ plain light
 
    The theme this application had before it had a look: navy ink, vermilion
-   accent, white card. All four Direction C levers are at rest -- one colour
-   repeated across the gradient's three stops is a solid button, transparent
-   glitch is no glitch, and `none` is no wash -- so nothing else in the
-   application needs a rule to keep it plain. */
+   accent, white card. All four levers are at rest -- one colour across the
+   gradient's three stops is a solid button, transparent glitch is no glitch,
+   `none` is no wash -- so nothing else needs a rule to keep it plain. */
 :root[data-theme="system"],
 :root[data-theme="light"] {
   color-scheme: light;
@@ -200,10 +208,9 @@
   --color-card: #ffffff;
   --color-field: #fbfcfd;
   /* One shade darker than the vermilion this theme shipped with (#e8452c),
-     which could carry neither white nor its own ink at AA on the one
-     control that fills with it. This is the shade that was already sitting
-     beside it as --color-accent-text, and at arm's length the two are the
-     same red. */
+     which could carry neither white nor its own ink at AA on the one control
+     that fills with it. This shade was already sitting beside it as
+     --color-accent-text; at arm's length the two are the same red. */
   --color-accent: #d13a22;
   --color-accent-text: #d13a22;
   --color-ok: #0f7b4f;
@@ -235,6 +242,9 @@
   --map-blank-opacity: 0.42;
   --color-map-edge: #5f7183;
   --color-map-grid: #1b3a5c;
+  --color-map-reticle: #3b4a58;
+
+  --map-light-ground: 1;
 
   --shadow-card: 0 1px 3px rgba(18, 33, 47, 0.12),
     0 8px 24px rgba(18, 33, 47, 0.08);
@@ -286,6 +296,9 @@
   --map-blank-opacity: 0.26;
   --color-map-edge: #b8c9da;
   --color-map-grid: #8fc4ff;
+  --color-map-reticle: #c2d1e0;
+
+  --map-light-ground: 0;
 
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
 }
@@ -332,6 +345,9 @@
     --map-blank-opacity: 0.26;
     --color-map-edge: #b8c9da;
     --color-map-grid: #8fc4ff;
+    --color-map-reticle: #c2d1e0;
+
+    --map-light-ground: 0;
 
     --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
   }
@@ -339,19 +355,17 @@
 
 /* -------------------------------------------------------- cyberpunk light
 
-   The same city as the default, in daylight, and it gets there a different
-   way. Neon is a thing you see BECAUSE it is dark; on paper there is no
-   glow to have, and a pale magenta on white is just pink. So this takes the
-   print half of the look -- saturated ink, hard edges, and the misregistered
-   colour separation of a cheap two-pass press -- and keeps the default's
-   magenta/violet/cyan family, each colour pushed down to the lightness
-   white demands of it.
+   The same city as the default, in daylight, reached a different way. Neon
+   is seen BECAUSE it is dark; on paper there is no glow to have, and a pale
+   magenta on white is just pink. So this takes the print half of the look --
+   saturated ink, hard edges, the misregistered colour separation of a cheap
+   two-pass press -- and keeps the default's magenta/violet/cyan family, each
+   colour pushed down to the lightness white demands.
 
-   Two of the four levers move here and two do not. The corner glow needs
-   darkness and is kept faint; the gradient only ever needed stops dark
-   enough to hold a white label; and the wordmark's split shadow is
-   misregistration, a print artefact that reads better on white than it ever
-   does on black. */
+   Two of the four levers move and two do not. The corner glow needs darkness
+   and is kept faint. The gradient only ever needed stops dark enough to hold
+   a white label, and the wordmark's split shadow is misregistration, which
+   reads better on white than on black. */
 :root[data-theme="cyber-light"] {
   color-scheme: light;
 
@@ -405,20 +419,22 @@
   --map-blank-opacity: 0.42;
   --color-map-edge: #6d5f8f;
   --color-map-grid: #331a5e;
+  --color-map-reticle: #413764;
+
+  --map-light-ground: 1;
 
   --shadow-card: 0 1px 3px rgba(26, 16, 48, 0.14),
     0 8px 24px rgba(26, 16, 48, 0.10);
 }
 
 /* Low light: for keeping night vision. Every colour is red or amber because
-   that is the entire point -- rod cells barely respond to long wavelengths,
-   so a red screen can be read and the dark outside it stays visible. This
-   palette exists only as a choice; no media query selects it, because no
-   device knows its user is standing in the dark. Green and blue do not
-   appear even for "ok" and focus: one stray cyan tick would undo what the
-   rest of the screen is protecting. Contrast is carried by lightness alone,
-   and the test suite audits this block against the same AA thresholds as
-   the other four. */
+   rod cells barely respond to long wavelengths, so a red screen can be read
+   while the dark outside it stays visible. It exists only as a choice; no
+   media query selects it, because no device knows its user is standing in
+   the dark. Green and blue do not appear even for "ok" and focus -- one
+   stray cyan tick would undo what the rest of the screen is protecting.
+   Contrast is carried by lightness alone, audited against the same AA
+   thresholds as the other four. */
 :root[data-theme="night"] {
   color-scheme: dark;
 
@@ -449,6 +465,9 @@
   --map-blank-opacity: 0.22;
   --color-map-edge: #9a8f8c;
   --color-map-grid: #8f8582;
+  --color-map-reticle: #c9938b;
+
+  --map-light-ground: 0;
   --color-on-ink: #120909;
   --color-on-accent: #120909;
   --color-disabled: #2b1a1a;
@@ -492,13 +511,12 @@ code {
 
 /* -------------------------------------------------------- shared looks
 
-   Each said once. Everything else in the application is spent as utilities
-   on the element itself; what is here is here because SEVERAL DIFFERENT
-   ELEMENTS wear it and they must not drift apart. The button is the clearest
-   case: the save control is an <a> because the browser fetches the file, and
-   the import control is a <label> because an <input type=file> cannot be
-   replaced by something that is not one, and all three still have to read as
-   the same button. */
+   Each said once. Everything else is spent as utilities on the element
+   itself; what is here is here because SEVERAL DIFFERENT ELEMENTS wear it
+   and must not drift apart. The button is the clearest case: the save
+   control is an <a> because the browser fetches the file, the import control
+   is a <label> because a file input needs one, and all three still have to
+   read as the same button. */
 
 /* The focus ring. One ring for every control in the application: a ring
    that changes appearance between controls is a ring people stop reading.
@@ -574,6 +592,39 @@ code {
   }
 }
 
+/* The small-caps label over a group inside the download card: the picker's
+   states and cities, the exported files, the downloaded maps, the import
+   control. Five elements wore the same twenty-eight characters of Tailwind
+   pasted five times, so a spacing tweak was five synchronised edits. */
+@utility region-group {
+  @apply mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft
+    uppercase;
+}
+
+/* One row of a list of files: a downloaded region, or an export waiting to
+   be carried away. Two different renderers draw these and must not drift --
+   the wrapping below is a fix, and it had been applied to only one of them.
+
+   Unwrapped, three buttons took the full width and left the name column a
+   few pixels, which the name's own wrapping honoured by breaking "Map view"
+   one letter per line. */
+@utility ledger-row {
+  @apply flex flex-wrap items-center justify-between gap-2 py-2;
+}
+
+/* The text side of such a row. `basis-40` is what keeps a real basis under
+   the name so the buttons drop to their own line rather than crushing it. */
+@utility ledger-row-text {
+  @apply flex min-w-0 flex-1 basis-40 flex-col gap-0.5;
+}
+
+/* And the name itself. break-words, not anywhere: this only has to rescue a
+   single unbroken name too long for the column, and `anywhere` shredded
+   normal names the moment the column got tight. */
+@utility ledger-name {
+  @apply text-sm font-semibold break-words;
+}
+
 /* Secondary text: the sentence under a control that says what it will do.
    One size and one colour for all of them, because they are all the same
    thing. */
@@ -583,8 +634,7 @@ code {
 
 /* Something the reader has to take in before acting. A rule down the left
    in the accent rather than a filled panel: it has to be noticed without
-   competing with the address, which is the one thing on screen that is
-   allowed to be loud. */
+   competing with the address, which is the one thing allowed to be loud. */
 @utility warning {
   @apply border-l-4 border-accent bg-alert px-4 py-3
     text-sm leading-normal;
@@ -599,8 +649,8 @@ code {
 }
 
 /* The icon buttons take the same cut as the text buttons, scaled down: at
-   44px square, the 10px cut the btn utility carries reads as a chip missing
-   rather than a shape. */
+   44px square, the btn utility's 10px cut reads as a chip missing rather
+   than as a shape. */
 @utility icon-cut {
   clip-path: polygon(
     0 0,
@@ -612,10 +662,10 @@ code {
   );
 }
 
-/* The application's name, wherever it stands alone: tracked-out mono caps,
-   with Direction C's split shadow behind it. The shadow colours are theme
-   tokens and sit at transparent outside the dark theme, so light and low
-   light keep a plain wordmark without a second rule anywhere. */
+/* The application's name, wherever it stands alone: tracked-out mono caps
+   with a split shadow behind. The shadow colours are theme tokens and are
+   transparent outside the dark theme, so light and low light keep a plain
+   wordmark with no second rule anywhere. */
 @utility brand {
   @apply font-mono font-bold tracking-[0.18em] uppercase;
   text-shadow:
@@ -623,19 +673,18 @@ code {
     2px 0 var(--glitch-b, transparent);
 }
 
-/* A card that hangs off a control -- the dropdown's list, the search
-   results. Deliberately the same card in both places, because they are the
-   same gesture and looked like two applications when one was drawn by the
-   operating system. */
+/* A card that hangs off a control: the dropdown's list, the search results.
+   The same card in both places, because they are the same gesture and looked
+   like two applications when one was drawn by the operating system. */
 @utility sheet {
   @apply z-40 border border-line-strong bg-card
     shadow-[0_2px_8px_rgb(0_0_0/0.2)];
 }
 
 /* A row inside one. `focus:` here is React Aria's own focused state, set on
-   whichever row the arrow keys or the pointer are on -- so hovering no
-   longer has to write to the keyboard's cursor to look right. It is a
-   separate state from `focus-visible:`, which is the keyboard ring. */
+   whichever row the arrow keys or the pointer are on, so hovering does not
+   have to write to the keyboard's cursor to look right. Separate from
+   `focus-visible:`, which is the keyboard ring. */
 @utility sheet-option {
   @apply flex min-h-11 cursor-pointer items-center px-2.5 py-2
     text-sm focus:bg-hover focus-visible:outline-2
@@ -654,43 +703,33 @@ code {
   inset: 0;
 }
 
-/* Specificity on purpose, and it must stay. MapLibre puts its own
-   `maplibregl-map` class on this same element and its stylesheet sets
-   `position: relative` with no height. Both selectors are one class, so the
-   winner is whichever stylesheet came last -- and since the map became a
-   separate chunk (components/mapChunk.ts) its CSS arrives in a second file
-   loaded AFTER this one. As a bare `.map` this rule lost, the map computed to
-   height 0, and every click passed through a map that was not there. Two
-   classes outrank one whatever the load order, so the answer no longer
-   depends on which file wins the race.
+/* Two classes on purpose, and it must stay. MapLibre puts its own
+   `maplibregl-map` class on this same element and sets `position: relative`
+   with no height. Both selectors would be one class, so the winner is
+   whichever stylesheet came last -- and since the map became a separate
+   chunk (components/mapChunk.ts) its CSS arrives in a file loaded AFTER this
+   one. As a bare `.map` this rule lost, the map computed to height 0, and
+   every click passed through a map that was not there.
 
-   This is also why it is not a utility on the element: a Tailwind class is
-   one class, and would lose the same race.
-
-   ui/test/e2e.mjs checks the rendered height for this reason. */
+   Also why it is not a utility on the element: a Tailwind class is one
+   class, and would lose the same race. ui/test/e2e.mjs checks the rendered
+   height. */
 .map-wrap > .map {
   position: absolute;
   inset: 0;
 }
 
-/* MapLibre draws its controls and attribution against the map's own edges,
-   and the map is the full width of the shell -- so without this they sit
-   UNDER the drawer. They track the covered width instead, and slide with it.
-
-   Two classes, and the second one is ours: MapLibre sets `right: 0` on
-   these from a stylesheet that loads AFTER this file, for the reason
-   documented above, so a single-class rule here loses the tie and does
-   nothing. It did nothing for a while -- the controls sat underneath the
-   drawer, and when the drawer was shut they sat underneath the one button
-   that brings it back. `.map-wrap` is the container this application owns,
-   which is what makes the rule outrank theirs whatever the load order. */
 /* MapLibre's controls -- zoom, compass, geolocate, the scale bar, the
    attribution -- ship a light-only stylesheet and were the last things on
    screen still white in a dark room. Painted with the same tokens as
-   everything else, so all four themes get them for free. The icons inside
-   the buttons are background-image SVGs with #333 baked in, which no token
-   can reach: they are inverted instead, under the same three selectors the
-   dark palettes use, and land near #ccc. */
+   everything else, so every palette gets them for free.
+
+   Every rule in this section leads with `.map-wrap`, the container this
+   application owns, so it is two classes against MapLibre's one. Its
+   stylesheet loads AFTER this file, for the reason above, so a single-class
+   rule here loses the tie and does nothing. It did nothing for a while: the
+   controls sat under the drawer, and when the drawer was shut they sat under
+   the one button that brings it back. */
 .map-wrap .maplibregl-ctrl-group {
   background: var(--color-card);
   box-shadow: 0 0 0 1px var(--color-line);
@@ -721,48 +760,37 @@ code {
 /* MapLibre's control icons are background-image SVGs with #333 baked in,
    which no token can reach, so they are inverted instead and land near #ccc.
 
-   Stated as "inverted, unless the palette is a light one" rather than as a
-   list of the dark ones. There are three dark palettes and two light, the
-   default is dark, and a list of the dark ones is a list that a sixth theme
-   silently falls off -- which is how these controls stayed light through the
-   dark theme's whole first release. Opting OUT is the safe direction: a new
-   theme that forgets this rule gets inverted icons on a dark ground, which
-   is right, instead of black icons on a black one. */
+   Which palettes need that is not a list of theme names here: it is
+   --map-light-ground, defined beside the colours in every palette block
+   above, and `invert(0)` is the identity -- so ONE declaration covers both
+   cases and there is nothing for a sixth palette to fall off. It used to be
+   three hand-written selectors plus a prefers-color-scheme re-invert,
+   encoding a classification MapView also encoded in TypeScript. Add a light
+   palette to the palette blocks and not to that list, and light control
+   icons ship on a dark map with nothing failing -- which is how these
+   controls stayed light through the dark theme's whole first release. */
 .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
-  filter: invert(1);
-}
-
-:root[data-theme="system"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon,
-:root[data-theme="light"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon,
-:root[data-theme="cyber-light"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
-  filter: none;
-}
-
-/* And back again when the device someone is matching is itself dark. Same
-   specificity as the rule above, so this has to stay below it. */
-@media (prefers-color-scheme: dark) {
-  :root[data-theme="system"] .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
-    filter: invert(1);
-  }
+  filter: invert(calc(1 - var(--map-light-ground)));
 }
 
 /* The theme squares every corner, and the map's own controls -- zoom,
-   compass, attribution -- arrive with MapLibre's own 4px radius. Same two-class
-   trick as below: MapLibre's stylesheet loads after this one, so a single
-   class would lose. */
+   compass, attribution -- arrive with MapLibre's own 4px radius. */
 .map-wrap .maplibregl-ctrl-group,
 .map-wrap .maplibregl-ctrl-group button,
 .map-wrap .maplibregl-ctrl-attrib {
   border-radius: 0;
 }
 
+/* MapLibre positions its controls and attribution against the map's own
+   edges, and the map is the full width of the shell -- so without this they
+   sit UNDER the drawer. They track the covered width instead, and slide with
+   it. */
 .map-wrap .maplibregl-ctrl-top-right,
 .map-wrap .maplibregl-ctrl-bottom-right {
   /* Never less than the reopen tab's own width. With the drawer shut
-     --panel-offset is zero, and these slid back under the one control that
-     brings the drawer back -- the zoom buttons and the tab were stacked on
-     the same corner. The floor keeps that corner clear whatever the drawer
-     is doing. */
+     --panel-offset is zero, so these slid back under the one control that
+     brings the drawer back: the zoom buttons and the tab stacked on the same
+     corner. The floor keeps that corner clear. */
   right: max(var(--panel-offset, 340px), 3.5rem);
   transition: right 180ms ease;
 }
@@ -802,18 +830,17 @@ code {
 }
 
 /* Respect a stated preference for less motion. This block covers CSS
-   animation; the map's own camera is not CSS and is not reached from here --
-   MapLibre reads the same media query itself and turns any non-essential
-   movement into a jump, which is why ui/src/core/camera.ts does not mark its
-   fly-to essential. */
+   animation only. The map's camera is not CSS: MapLibre reads the same media
+   query itself and turns any non-essential movement into a jump, which is
+   why ui/src/core/camera.ts does not mark its fly-to essential. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    /* biome-ignore lint/complexity/noImportantStyles: the point of this block
-       is to override animation declared anywhere else, including inside
-       MapLibre's and Sonner's own stylesheets. Without !important it loses to
-       the very rules it exists to disable. */
+    /* biome-ignore lint/complexity/noImportantStyles: this block exists to
+       override animation declared anywhere else, MapLibre's own stylesheet
+       included. Without !important it loses to the rules it exists to
+       disable. */
     animation-duration: 0.01ms !important;
     /* biome-ignore lint/complexity/noImportantStyles: as above */
     animation-iteration-count: 1 !important;

@@ -1,12 +1,11 @@
 /* Invariants of the committed region catalogue.
 
    The catalogue is generated (tools/gen-regions.py) and committed, so a
-   generator bug ships silently as data unless something looks at the data.
-   The load-bearing check is city containment: every city the picker offers
-   must sit inside its country's simplified border polygon, because a city
-   OUTSIDE it silently vanishes from that country's clipped download --
-   which is how over-eager border simplification once cost Canada all of
-   Vancouver Island, Victoria included. */
+   generator bug ships as data unless something looks at the data. The
+   load-bearing check is city containment: a city outside its country's
+   simplified border polygon vanishes from that country's clipped download.
+   Over-eager simplification once cost Canada all of Vancouver Island,
+   Victoria included. */
 
 import { readFileSync } from "node:fs";
 
@@ -79,14 +78,14 @@ check(
 /* ------------------------- naming a view by its middle --------------------
 
    A download of the current view is named after where its middle is, by
-   src/regions.ts `placeAt`: smallest city box first, then a subdivision,
-   then the country whose border polygon contains the point. That name is
-   what the download is called forever, so the catalogue has to be able to
-   answer -- and this is the data half of that. The behaviour half is in
-   ui/test/e2e.mjs, which downloads a view over London and reads the row.
+   src/regions.ts `placeAt`: smallest city box first, then a subdivision, then
+   the country whose polygon contains the point. That name sticks forever, so
+   the catalogue has to be able to answer. This is the data half; the
+   behaviour half is in ui/test/e2e.mjs, which downloads a view over London
+   and reads the row.
 
-   The rule mirrored rather than imported: this file reads the committed
-   JSON, which is the thing that can silently change under the lookup. */
+   The rule is mirrored rather than imported: this file reads the committed
+   JSON, which is what can change under the lookup. */
 const inBox = (b, lon, lat) =>
   lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3];
 const boxArea = (b) => (b[2] - b[0]) * (b[3] - b[1]);
@@ -138,16 +137,16 @@ for (
     got === expected,
   );
 }
-/* Open water has no answer, and must not invent one: the download then goes
+/* Open water has no answer and must not invent one: the download then goes
    unnamed and the server writes the box's own corners, which is ugly and
    true. A nearest-city guess would be neither. */
 check(
   "a point in the mid-Atlantic is named by nothing",
   placeAt(-40, 30) === undefined,
 );
-/* The rule that makes a city beat its own country: a point in central
-   London is inside the London box AND inside the United Kingdom polygon,
-   and the specific one has to win or every view is named after a country. */
+/* A point in central London is inside the London box AND inside the United
+   Kingdom polygon. The more specific one has to win, or every view is named
+   after a country. */
 check(
   "central London is inside both its city box and its country",
   data.cities.GB.some((c) => c.name === "London" && inBox(c.bbox, -0.09, 51.51))

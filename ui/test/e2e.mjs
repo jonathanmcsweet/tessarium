@@ -3,8 +3,8 @@
    This is the test for the claim the whole project rests on: enter a phrase,
    click a square, get its address. It runs the real browser against the real
    binary, because the parts that break here -- Web Worker startup, the
-   Content-Security-Policy, js_of_ocaml's export target in a worker -- are all
-   things that look fine in a unit test and fail in a page.
+   Content-Security-Policy, js_of_ocaml's export target in a worker -- look
+   fine in a unit test and fail in a page.
 
    The addresses it expects come from `vectors/vectors.json`, so a UI that
    renders beautifully and computes the wrong answer still fails. */
@@ -23,29 +23,43 @@ const base = process.argv[2] ?? "http://127.0.0.1:7379";
 const vectors = JSON.parse(
   readFileSync(new URL("../../vectors/vectors.json", import.meta.url), "utf8"),
 );
-/* The source catalogue rather than a string copied into this file: a check
-   that quotes its own copy of the wording passes after someone changes the
-   wording and the meaning with it, which for a message whose whole job is
-   to not overclaim is the failure worth catching. */
+/* The source catalogue, not a copy of the wording kept here. A check quoting
+   its own copy still passes after someone changes the wording and the meaning
+   with it -- which for a message whose job is to not overclaim is the failure
+   worth catching. */
 const messages = JSON.parse(
   readFileSync(new URL("../messages/en-US.json", import.meta.url), "utf8"),
 );
 const m = (key) => messages[key];
 
-/* Every check is a record in one list; the tally at the bottom is derived
-   from it. The push and the live FAIL line are the reporting edge -- the
-   one place this file mutates on purpose. */
 const results = [];
 const check = (name, ok) => {
   results.push({ name, ok });
   if (!ok) console.log(`  FAIL  ${name}`);
 };
 
-/* Poll until `probe` answers with something truthy, or the budget runs out;
-   the answer (or the last falsy one) is returned. Recursion rather than a
-   counter-and-flag loop: the remaining budget travels as an argument, and
-   each step is exactly one probe. Ten polling loops used to spell this out
-   longhand, each with its own let. */
+/* How long a success toast stays, read from the source rather than copied
+   here. Two checks below depend on it: that a success goes by itself, and that
+   an error is still there once a success would have gone. A stale copy would
+   leave both waiting for the wrong moment. Read as text rather than imported,
+   because src/toast.ts builds a React Aria queue at module scope and wants a
+   DOM. */
+const successMs = Number(
+  /SUCCESS_MS = (\d+)/.exec(
+    readFileSync(new URL("../src/toast.ts", import.meta.url), "utf8"),
+  )?.[1],
+);
+check(
+  `a success toast's own timeout is legible in the source (${successMs}ms)`,
+  Number.isFinite(successMs) && successMs > 0,
+);
+/* A fallback, so the two waits below are merely wrong rather than nonsense. */
+const SUCCESS_MS = Number.isFinite(successMs) && successMs > 0
+  ? successMs
+  : 5000;
+
+/* Poll until `probe` answers with something truthy, or the budget runs out.
+   Returns the answer, or the last falsy one. */
 const until = async (probe, { tries = 120, delayMs = 500 } = {}) => {
   const value = await probe();
   if (value || tries <= 1) return value;
@@ -62,18 +76,18 @@ const sampleMnemonic =
   vectors.key_derivation.find((k) => k.name === sample.mnemonic)?.mnemonic
     ?? mnemonic;
 /* The dropdowns are React Aria's Select, not a native `<select>`, so there is
-   no `selectOption`: press the control, then press the option. Options carry
-   a `data-value` written by components/Dropdown.tsx for exactly this, rather
-   than a key attribute belonging to the library.
+   no `selectOption`: press the control, then press the option. Options carry a
+   `data-value` written by components/Dropdown.tsx for this, rather than a key
+   attribute belonging to the library.
 
-   `chooseFrom` returns the button, because what a dropdown currently reads is
-   the button's text -- there is no `inputValue` either. */
+   `chooseFrom` returns the button, because a dropdown's current value is the
+   button's text -- there is no `inputValue` either. */
 const dropdownIn = (scope) => page.locator(`${scope} .dropdown-button`);
 const chooseFrom = async (scope, value) => {
   const button = dropdownIn(scope);
   await button.click();
   await page.locator(`.dropdown-option[data-value="${value}"]`).click();
-  /* The popover unmounts on selection; waiting for that keeps a later click
+  /* The popover unmounts on selection. Waiting for that keeps a later click
      from landing on a list that is still fading. */
   await page.waitForFunction(
     () => document.querySelector(".dropdown-popover") === null,
@@ -88,14 +102,14 @@ const sampleLon = sample.lon_ns / 1e9;
 
 /* A deliberately slow view of the fixture server.
 
-   One test needs to cancel a download halfway, and against a local fixture
-   there is normally no halfway to catch: the archive shares one tile blob,
-   the reader fetches a megabyte at a time, and a whole region arrives in
-   about three requests and under half a second -- measured. So the cancel
-   server reads through this instead, which forwards every range request
-   after a pause. Paired with map-slow.pmtiles, whose tiles each sit in
-   their own 64 KiB slot so a read cannot be coalesced away, a download
-   becomes seconds long and cancelling it is deliberate rather than lucky. */
+   One test cancels a download halfway, and against a local fixture there is
+   normally no halfway: the archive shares one tile blob, the reader fetches a
+   megabyte at a time, and a whole region arrives in about three requests and
+   under half a second, measured. So the cancel server reads through this
+   proxy, which pauses before forwarding every range request. Paired with
+   map-slow.pmtiles, whose tiles each sit in their own 64 KiB slot so reads
+   cannot be coalesced away, a download takes seconds and cancelling it is
+   deliberate rather than lucky. */
 const PROXY_DELAY_MS = 300;
 const fixtureBase = process.env.E2E_FIXTURE ?? "http://127.0.0.1:7374";
 const proxyPort = Number(process.env.E2E_PROXY_PORT ?? 7378);
@@ -135,28 +149,26 @@ const context = await browser.newContext({
 const page = await context.newPage();
 
 /* Anything the browser refuses is a real failure here: a CSP violation, a
-   worker that will not start, a script that 404s. Collect them rather than
-   letting the test pass around them. */
+   worker that will not start, a script that 404s. */
 const problems = [];
 
 /* Missing basemap assets are expected until a .pmtiles has been fetched, and
    the UI reports that itself. Everything else is a real failure. */
 const expected = (url) => url.includes("/basemap/");
 
-/* Flipped once the in-app download completes. Before that, MapLibre reports
-   the missing archive and sprites through its own console errors; after it,
-   the same messages would mean the downloaded tiles are bad, which is
-   exactly what this suite must fail on. */
+/* Set once the in-app download completes. Before that, MapLibre reports the
+   missing archive and sprites through console errors; after it, the same
+   messages mean the downloaded tiles are bad, which this suite must fail on. */
 let basemapReady = false;
 
-/* Flipped for the one test that takes the server away on purpose. Every
-   handler below would otherwise record the refusal as a real failure, which
-   is exactly what they are for every other second of this run.
+/* Set for the one test that takes the server away on purpose. Every handler
+   below would otherwise record the refusal as a real failure, which is what it
+   is for every other second of this run.
 
    It covers argon2.wasm as well as /healthz: the KDF module is what makes
-   unlocking genuinely fail, rather than merely look like it might. And while
-   it is set, console errors and page errors are ignored wholesale -- the app
-   is SUPPOSED to be complaining, loudly, for those few seconds. */
+   unlocking genuinely fail rather than merely look like it might. While it is
+   set, console errors and page errors are ignored wholesale -- the app is
+   supposed to be complaining loudly for those few seconds. */
 let serverGone = false;
 const refusedOnPurpose = (url) =>
   serverGone && (url.includes("/healthz") || url.includes("/argon2.wasm"));
@@ -165,8 +177,8 @@ page.on("console", (msg) => {
   if (msg.type() !== "error") return;
   if (serverGone) return;
   const text = msg.text();
-  /* A failed resource is already recorded from the response, with its URL
-     attached; the console version has none and is pure noise. */
+  /* A failed resource is already recorded from the response, with its URL.
+     The console version carries no URL and is pure noise. */
   if (text.includes("Failed to load resource")) return;
   if (
     !basemapReady
@@ -180,8 +192,8 @@ page.on("pageerror", (err) => {
 });
 page.on("requestfailed", (req) => {
   /* MapLibre aborts its own in-flight tile requests whenever a tile leaves
-     the view or the style swaps; the client cancelling itself is not a
-     failure. Anything else that dies on /tiles/ still is. */
+     the view or the style swaps. The client cancelling itself is not a
+     failure; anything else that dies on /tiles/ still is. */
   if (
     req.url().includes("/tiles/")
     && req.failure()?.errorText === "net::ERR_ABORTED"
@@ -207,14 +219,14 @@ check(
   (await page.locator("h1").textContent()) === "Tessarium",
 );
 
-/* The core has to load inside the worker before validation replies.
-   If js_of_ocaml exported to the wrong global, this is where it hangs.
+/* The core has to load inside the worker before validation replies. If
+   js_of_ocaml exported to the wrong global, this is where it hangs.
 
-   The `null` in every waitForFunction below is the argument passed to the
-   page function, and it is there because the third parameter is the options.
-   Without it the timeout is read as that argument and silently discarded --
-   which is how a wait that says sixty seconds spent thirty, and reported
-   Playwright's default in the failure rather than its own number. */
+   The `null` in every waitForFunction below is the argument passed to the page
+   function. It is there because the third parameter is the options: without
+   it, the timeout is read as that argument and discarded, so a wait that says
+   sixty seconds spends Playwright's default thirty and reports that number in
+   the failure. */
 await page.locator("#phrase").fill("abandon abandon abandon");
 await page.waitForFunction(
   () =>
@@ -224,10 +236,10 @@ await page.waitForFunction(
   null,
   { timeout: 30_000 },
 );
-/* The one secret this application handles, in a field a password manager
-   will recognise. It was a textarea with autocomplete off, so nothing ever
-   offered to remember the string that cannot be recovered if it is lost.
-   Masked by default, because it is typed on whatever screen is to hand. */
+/* The one secret this app handles, in a field a password manager will
+   recognise. It was a textarea with autocomplete off, so nothing ever offered
+   to remember the string that cannot be recovered if it is lost. Masked by
+   default, because it is typed on whatever screen is to hand. */
 check(
   "the phrase is a password field a manager can save",
   (await page.locator("#phrase").getAttribute("type")) === "password"
@@ -275,11 +287,11 @@ check(
 );
 
 /* Where the phrase comes from is the highest-value security decision in the
-   app, so the guidance for it must be on screen BEFORE anything is generated
-   or typed -- not at the foot of the form where it is read after the choice,
-   if at all. Both halves are checked: don't invent, and don't reuse. The
-   position check is the part that actually rings when the block drifts back
-   down the form, since a warning below the submit button still "appears". */
+   app, so its guidance must be on screen BEFORE anything is generated or
+   typed -- not at the foot of the form, where it is read after the choice if
+   at all. Both halves are checked: don't invent one, don't reuse one. The
+   position check is what fails when the block drifts back down the form, since
+   a warning below the submit button still "appears". */
 {
   /* Located by class, not by copy: a reworded warning should fail the one
      text check below, not report that the layout moved. */
@@ -288,10 +300,9 @@ check(
     "the phrase-provenance warning is visible before generating",
     await provenance.isVisible(),
   );
-  /* The heading directs; the body carries the two hazards. Checked where
-     each actually lives, so a reworded heading fails the heading check and
-     a thinned-out body fails the body check, rather than one failure
-     pointing at the wrong half. */
+  /* The heading directs; the body carries the two hazards. Checked where each
+     lives, so a reworded heading fails the heading check and a thinned-out
+     body fails the body check, rather than one pointing at the wrong half. */
   const title = await provenance.locator("strong").textContent();
   check("its heading directs the user to generate", /generat/i.test(title));
   const body = await provenance.textContent();
@@ -303,8 +314,8 @@ check(
     "its body still rules out reusing a phrase",
     body.includes("protect nothing else"),
   );
-  /* The claim has to stay the true one: validation is a typo check, not a
-     test of how the phrase was produced. */
+  /* The claim has to stay true: validation is a typo check, not a test of how
+     the phrase was produced. */
   check(
     "it says the checks do not prove the phrase was generated",
     (await provenance.textContent()).includes(
@@ -331,14 +342,15 @@ check(
   );
 }
 
-/* "Generate one for me" must produce a phrase this same application accepts.
-   A generator whose output fails its own checksum would strand a user who had
-   already written 24 words down. Two presses must also differ -- a generator
-   wired to a constant would pass every other check here. */
-/* Wait for the value to CHANGE, not merely to be 24 words: the typo phrase
+/* "Generate one for me" must produce a phrase this same app accepts. A
+   generator whose output fails its own checksum would strand a user who had
+   already written 24 words down. Two presses must also differ: a generator
+   wired to a constant would pass every other check here.
+
+   Wait for the value to CHANGE, not merely to be 24 words. The typo phrase
    above is already 24 words, so a length check is satisfied before the click
-   has done anything and leaves a request in flight to land later and
-   overwrite whatever the test does next. */
+   has done anything, leaving a request in flight to land later and overwrite
+   whatever the test does next. */
 const beforeGenerate = await page.locator("#phrase").inputValue();
 await page.locator(".generate button").click();
 await page.waitForFunction(
@@ -378,8 +390,8 @@ check(
 await page.locator("#phrase").fill(sampleMnemonic);
 /* Waiting on `.valid` alone would return at once: the generated phrase was
    valid too, so the marker never went away. Wait for the field to hold what
-   this test just put in it -- the render that does that is the same render
-   that drops the write-it-down notice. */
+   this test just put in it. That render is also the one that drops the
+   write-it-down notice. */
 await page.waitForFunction(
   (want) => document.querySelector("#phrase")?.value === want,
   sampleMnemonic,
@@ -401,19 +413,18 @@ await page.locator("button[type=submit]").click();
 await page.waitForSelector(".map-wrap", { timeout: 60_000 });
 check("map opens after derivation", true);
 
-/* The map has to actually occupy its half of the window, and that is not
-   implied by the element existing.
+/* The map has to occupy its half of the window, which the element existing
+   does not imply.
 
    This caught a real one. MapLibre puts `maplibregl-map` on the same element
    the stylesheet calls `.map`, and its own rule sets `position: relative` with
    no height. One class each, so the later stylesheet wins -- and when the map
    moved into its own chunk, its CSS started arriving in a second file loaded
    after the app's. The map computed to height 0. Everything still mounted,
-   tiles still loaded, `.map-wrap` still appeared; clicks simply landed on a
-   map with no area, and the first thing to complain was an unrelated check
-   about the coordinate row several hundred lines below. Asserted here, at the
-   point it becomes true, so the next time it is a diagnosis rather than a
-   hunt. */
+   tiles still loaded, `.map-wrap` still appeared; clicks landed on a map with
+   no area, and the first complaint was an unrelated check about the coordinate
+   row several hundred lines below. Asserted here, where it becomes true, so
+   next time it is a diagnosis rather than a hunt. */
 const mapBox = await page.locator(".map").boundingBox();
 const wrapBox = await page.locator(".map-wrap").boundingBox();
 check(
@@ -430,8 +441,8 @@ check(
   !(await page.content()).includes(`${words[0]} ${words[1]}`),
 );
 
-/* Nothing may have been persisted. This is a stated guarantee of the design,
-   so it is asserted rather than assumed. */
+/* Nothing may have been persisted. A stated guarantee of the design, so it is
+   asserted rather than assumed. */
 const persisted = await page.evaluate(() => ({
   local: JSON.stringify(window.localStorage),
   session: JSON.stringify(window.sessionStorage),
@@ -443,15 +454,15 @@ check("nothing in sessionStorage", persisted.session === "{}");
 check("no cookies", persisted.cookie === "");
 check("phrase not in the URL", !persisted.url.includes(words[0]));
 
-/* The core is reachable only through the worker. Asserting the key is not on
-   the main thread is the point of putting it there. */
+/* The core is reachable only through the worker. The key not being on the main
+   thread is the whole point of putting it there. */
 const keyOnMainThread = await page.evaluate(
   () => typeof globalThis.tessarium !== "undefined",
 );
 check("core is not loaded on the main thread", !keyOnMainThread);
 
 /* A freshly spawned worker has no key. That is what confining the key to one
-   worker actually buys, so it is asserted rather than assumed. */
+   worker buys. */
 const strangerWorker = await page.evaluate(
   async ([lat, lon]) => {
     const worker = new Worker("/core.worker.js");
@@ -472,10 +483,10 @@ const strangerWorker = await page.evaluate(
 check("a second worker has no key", strangerWorker?.error === "locked");
 
 /* There must be no way to ask for every address in a viewport at once. One
-   existed, to write an address inside each square; it was removed because a
+   existed, to write an address inside each square. It was removed because a
    screenshot of a labelled grid hands over fifty (address, real place) pairs
    from a user who thought they were sharing a picture of a street, and each
-   such pair is material for searching out their phrase. */
+   pair is material for searching out their phrase. */
 const bulk = await page.evaluate(async () => {
   const worker = new Worker("/core.worker.js");
   return await new Promise((resolve, reject) => {
@@ -504,14 +515,14 @@ check(
 
 /* ---------------------- the in-app region downloader ----------------------
 
-   The server under test was started with an EMPTY basemap directory and its
+   The server under test started with an EMPTY basemap directory and its
    download source pointed at a second instance of this same server, which
    serves a generated fixture archive. So this drives the whole pipeline with
    no external network: the missing-basemap banner, the world-map-first offer,
    the estimate, our Range client against our own Range server, the extract,
    the assets tarball, the style swap without a page reload -- and then a
-   SECOND download that must MERGE detail into the archive rather than
-   replace it, which is what makes "world first, then detail" usable at all.
+   SECOND download that must MERGE detail into the archive rather than replace
+   it, which is what makes "world first, then detail" usable.
 
    The repeated status polls over one keep-alive connection are also the
    regression test for a real bug: a poll whose declared body was not drained
@@ -534,15 +545,15 @@ const postJson = async (endpoint, body) =>
     body: JSON.stringify(body ?? {}),
   });
 
-/* Tiles are served through /tiles across the archives, and a tile nobody
-   holds is a quiet 204 -- past the coverage edge the map must render
-   nothing, not log an error per pan.
+/* Tiles are served through /tiles across the archives, and a tile nobody holds
+   is a quiet 204: past the coverage edge the map must render nothing, not log
+   an error per pan.
 
-   NOT 404, and this was tried: MapLibre's vector source swallows a 404 on
+   NOT 404, and that was tried. MapLibre's vector source swallows a 404 on
    purpose (`if (err && err.status !== 404) throw err`) and files it as an
    empty tile, so the two statuses are indistinguishable to the map and 404
-   buys only a red line in devtools. What keeps the coarse map on screen is
-   the source's maxzoom telling the truth, not the status code. */
+   buys only a red line in devtools. What keeps the coarse map on screen is the
+   source's maxzoom telling the truth, not the status code. */
 check(
   "a tile with no archive behind it is 204, not an error",
   (await fetch(`${base}/tiles/0/0/0.mvt`)).status === 204,
@@ -553,11 +564,11 @@ check(
     && (await fetch(`${base}/tiles/3/04/0.mvt`)).status === 404,
 );
 
-/* The guard, against the real route rather than the predicate. A page the
-   user is merely visiting shares this loopback socket with the UI, and
-   nothing here asks for credentials -- so without this, that page can start
-   a download, delete a map, or switch on the network cache. It cannot read
-   the reply either way; what matters is that the side effect never runs. */
+/* The guard, against the real route rather than the predicate. A page the user
+   is merely visiting shares this loopback socket with the UI, and nothing here
+   asks for credentials -- so without the guard, that page could start a
+   download, delete a map, or switch on the network cache. It cannot read the
+   reply either way; what matters is that the side effect never runs. */
 check(
   "an api call from another site is refused",
   (await fetch(`${base}/api/basemap-status`, {
@@ -581,8 +592,8 @@ check(
   })).status === 403,
 );
 /* A refusal is still a whole HTTP transaction: the body has to come off the
-   socket, or the next request on the connection parses its tail. When it is
-   too big to take off, the connection has to end instead. */
+   socket, or the next request on that connection parses its tail. When the
+   body is too big to take off, the connection has to end instead. */
 const refusedHuge = await fetch(`${base}/api/basemap-status`, {
   method: "POST",
   headers: {
@@ -619,10 +630,10 @@ check(
   })).status === 415,
 );
 
-/* The basemap endpoints need no --api and sit outside the rate limiter, so
-   an unbounded read here is a way to have the process killed by declaring a
-   body far larger than memory. The bound is 4 MiB against a real ceiling of
-   about 250 KB -- every region the UI knows, polygons included, at once. */
+/* The basemap endpoints need no --api and sit outside the rate limiter, so an
+   unbounded read here would let a caller kill the process by declaring a body
+   larger than memory. The bound is 4 MiB against a real ceiling of about
+   250 KB -- every region the UI knows, polygons included, at once. */
 const oversized = await fetch(`${base}/api/basemap-estimate`, {
   method: "POST",
   headers: { "content-type": "application/json" },
@@ -632,11 +643,9 @@ check(
   "a request body past the bound is refused, not buffered",
   oversized.status === 413,
 );
-/* And the connection ends with it. What is over the bound cannot be drained
-   -- being over the bound is what it means -- so the rest of the body would
-   still be on the socket when the next request began parsing, and would be
-   read as that request. Every check below this one is the regression test;
-   this is the reason. */
+/* And the connection ends with it. A body over the bound cannot be drained, so
+   the rest of it would still be on the socket when the next request began
+   parsing, and would be read as part of that request. */
 check(
   "and the connection closes rather than leaving the body on the socket",
   oversized.headers.get("connection") === "close",
@@ -660,8 +669,8 @@ const bare = await postJson("basemap-estimate", {
 });
 check("a bare box without the regions wrapper is refused", bare.status === 400);
 
-/* Polygon clipping, end to end: the same box estimated whole and clipped to
-   a triangle covering only part of it must shrink, not vanish. The fixture
+/* Polygon clipping, end to end: the same box estimated whole, then clipped to
+   a triangle covering part of it, must shrink rather than vanish. The fixture
    holds London (-0.20..-0.05, 51.46..51.56); the triangle covers its west. */
 const londonBox = {
   min_lon: -0.25,
@@ -684,9 +693,9 @@ check(
   clipEst.tiles > 0 && wholeEst.tiles > clipEst.tiles,
 );
 
-/* Wait until the named download completes, by generation: a tiny fixture
-   download can run start-to-done entirely between two UI polls, and the
-   generation in the status envelope is exactly what makes that visible. */
+/* Wait for a download to complete, by generation. A tiny fixture download can
+   run start to done between two UI polls, and the generation in the status
+   envelope is what makes that visible. */
 const awaitDone = async (generation) => {
   const outcome = await until(async () => {
     const status = await (await postJson("basemap-status")).json();
@@ -702,7 +711,6 @@ const awaitDone = async (generation) => {
   return outcome ? outcome.done : false;
 };
 
-/* With nothing on disk, the card leads with the world map. */
 await bannerAction.click();
 await page.waitForSelector(".download-card", { timeout: 10_000 });
 check("the download card opens from the banner", true);
@@ -730,17 +738,17 @@ check(
   (await page.locator(".app-toast button").count()) >= 1,
 );
 
-/* The toast was drawn by a library that injected its own stylesheet --
-   white background, near-black text, 8px corners, all written as literals
-   in a file this project did not own. So it stayed white in every theme and
-   round in a theme that squares every corner: the same shape of bug as
-   MapLibre's controls, and invisible to the token audit for the same
-   reason, that the colours belonged to no palette. It is this project's own
-   markup now, and these two checks are what would notice it going back.
+/* The toast was drawn by a library that injected its own stylesheet -- white
+   background, near-black text, 8px corners, all literals in a file this
+   project does not own. So it stayed white in every theme and round in a theme
+   that squares every corner: the same bug as MapLibre's controls, and
+   invisible to the token audit for the same reason, that the colours belonged
+   to no palette. It is this project's own markup now, and these two checks
+   would notice it going back.
 
-   Nothing has chosen a theme yet here, so this is the default: dark. Read
-   as painted and as geometry, because the fix is a stylesheet fighting
-   another stylesheet and only the computed value says who won. */
+   Nothing has chosen a theme yet, so this is the default: dark. Read as
+   painted and as geometry, because the fix is one stylesheet beating another
+   and only the computed value says which won. */
 const toastStyle = () =>
   page.locator(".app-toast").first().evaluate((n) => {
     const s = getComputedStyle(n);
@@ -765,15 +773,20 @@ check(
   `and squares its corners like everything else (${toast.radius})`,
   toast.radius === "0px",
 );
-/* And a SUCCESS takes itself away. One short statement with nothing to
-   re-read, unlike an error -- which is the pair that has to hold: if both
-   stayed, "an error waits to be dismissed" further down would be trivially
-   true and would assert nothing at all. */
-await page.waitForTimeout(7000);
-check(
-  "a success toast takes itself away",
-  (await page.locator(".app-toast").count()) === 0,
-);
+/* And a SUCCESS takes itself away -- one short statement with nothing to
+   re-read, unlike an error. Both halves of that pair have to hold: if success
+   toasts stayed too, "an error waits to be dismissed" further down would be
+   trivially true.
+
+   Waited for rather than slept past, so this returns the moment the toast
+   leaves -- two seconds earlier on a green run -- while its budget still ends
+   past the timeout the toast was given. */
+const successWentAway = await page.waitForFunction(
+  () => document.querySelectorAll(".app-toast").length === 0,
+  null,
+  { timeout: SUCCESS_MS + 2000 },
+).then(() => true, () => false);
+check("a success toast takes itself away", successWentAway);
 await page.waitForFunction(() => !document.querySelector(".banner"), null, {
   timeout: 10_000,
 });
@@ -788,13 +801,12 @@ await page.waitForFunction(
 check("the card closes itself", true);
 
 /* The grid overlay must survive the style swap that follows a completed
-   download -- checked after the FIRST download, deliberately. It once did
-   not: when MapLibre's style diff succeeds it fires style.load
-   synchronously inside the setStyle call, and a listener registered after
-   the call has already missed it, so the overlay was never re-added. Each
-   missed listener stayed armed and repaired the NEXT swap, which made the
-   loss invisible after a second download and total after a single one --
-   the real-world case. */
+   download, and this is checked after the FIRST download deliberately. It once
+   did not survive: when MapLibre's style diff succeeds it fires style.load
+   synchronously inside the setStyle call, so a listener registered after that
+   call has already missed it and the overlay was never re-added. Each missed
+   listener stayed armed and repaired the NEXT swap, which made the loss
+   invisible after two downloads and total after one -- the real-world case. */
 const overlayAlive = await page.evaluate(() => {
   const map = window.__tessarium_map;
   return !!(map?.getSource("grid") && map.getLayer("grid-lines")
@@ -810,14 +822,14 @@ const gridRefilled = await page
   .then(() => true, () => false);
 check("and the grid refills after the swap", gridRefilled);
 
-/* The overview is all there is, the map sits at street zoom, and everything
-   on screen is therefore overzoomed -- and MapLibre only overzooms past the
-   SOURCE's stated maxzoom. The floor source must carry the depth the
-   archives really cover the planet at, not a hardcoded number: a source
-   pinned at 15 asked for z15 tiles nobody held and rendered a blank basemap
-   over data that was there. That depth is MEASURED, and for this fixture it
-   is the single zoom-0 tile. (The fixture's tiles carry no styled layers, so
-   this is asserted on the source itself rather than on rendered features.) */
+/* The overview is all there is and the map sits at street zoom, so everything
+   on screen is overzoomed -- and MapLibre only overzooms past the SOURCE's
+   stated maxzoom. The floor source must carry the depth the archives really
+   cover the planet at, not a hardcoded number: a source pinned at 15 asked for
+   z15 tiles nobody held and rendered a blank basemap over data that was there.
+   That depth is measured, and for this fixture it is the single zoom-0 tile.
+   The fixture's tiles carry no styled layers, so this reads the source itself
+   rather than rendered features. */
 const floorDepth = await page
   .waitForFunction(
     () => window.__tessarium_map?.getSource("protomaps-floor")?.maxzoom === 0,
@@ -831,12 +843,12 @@ check(
 );
 
 /* From here on, basemap errors are real: the tiles on disk came from the
-   fixture and MapLibre must parse every one of them cleanly. */
+   fixture, and MapLibre must parse every one cleanly. */
 basemapReady = true;
 
-/* Which file the world went into, which is the whole point of it having its
-   own. Every region is its own file and every region file is reachable by a
-   Remove button; the floor must not be one of them. */
+/* Which file the world went into, which is the point of it having its own.
+   Every region is its own file and every region file has a Remove button; the
+   floor must not be one of them. */
 check(
   "the world overview is served from its own archive",
   (await fetch(`${base}/basemap/world.pmtiles`, { method: "HEAD" })).status
@@ -847,11 +859,10 @@ check(
   (await fetch(`${base}/basemap/map.pmtiles`, { method: "HEAD" })).status
     === 404,
 );
-/* It is not a region. It writes no record, and it is listed anyway -- under
-   an id the server made up, flagged, with nothing to carry and no date,
-   because nothing recorded fetching it. Listing it is what lets the page
-   show a user the map they are standing on instead of leaving the largest
-   file on disk out of the answer to "what maps do I have". */
+/* It is not a region: it writes no record, and is listed anyway -- under an id
+   the server made up, flagged, with no date, because nothing recorded fetching
+   it. Listing it is what shows a user the map they are standing on, instead of
+   leaving the largest file on disk out of "what maps do I have". */
 const ledgerAfterWorld = await (await fetch(`${base}/api/basemap-ledger`, {
   method: "POST",
   headers: { "content-type": "application/json" },
@@ -868,15 +879,13 @@ check(
 );
 /* Every verb that takes an id off that list has to refuse this one.
 
-   Two locks, and the outer one answers first: the id the overview is listed
-   under is a word, every real id is hex, and the route parses ids before a
-   handler sees them -- so the request never reaches the code that removes
-   things. The inner lock is the handlers refusing the id by name, with the
-   reason a person would need ("no such downloaded map" is true of the
-   record and false of the row they are looking at); that one is driven
-   directly in ocaml/server/test/test_regions.ml, because nothing over HTTP
-   can get past the first lock to reach it. Both are kept: whichever is
-   removed, the other still holds. */
+   Two locks, and the outer one answers first: the overview is listed under a
+   word, every real id is hex, and the route parses ids before a handler sees
+   them -- so the request never reaches the code that removes things. The inner
+   lock is the handlers refusing the id by name, with the reason a person would
+   need. That one is driven in ocaml/server/test/test_regions.ml, because
+   nothing over HTTP gets past the first lock to reach it. Both are kept:
+   whichever is removed, the other still holds. */
 for (
   const [verb, endpoint] of [
     ["removed", "basemap-remove"],
@@ -908,32 +917,29 @@ check(
 );
 const tilejson = await (await fetch(`${base}/tiles.json`)).json();
 const worldjson = await (await fetch(`${base}/world.json`)).json();
-/* With an overview and no region, the detail source describes an archive
-   that does not exist. It says so with an empty range -- MapLibre skips
-   everything shallower than minzoom and never looks past maxzoom, so this
-   source asks for nothing at all rather than a viewport of misses on every
-   pan, which is what a fresh install used to pay until its first download.
-   The offer to download this area survives that honesty because the
-   coverage question is now clamped by the server instead of by this
-   number. */
+/* With an overview and no region, the detail source describes an archive that
+   does not exist. It says so with an empty range: MapLibre skips everything
+   shallower than minzoom and never looks past maxzoom, so the source asks for
+   nothing rather than a viewport of misses on every pan, which is what a fresh
+   install used to pay until its first download. The offer to download this
+   area survives that honesty because the server, not this number, decides the
+   coverage question. */
 check(
   `with no region downloaded the detail source asks for nothing (${tilejson.minzoom}-${tilejson.maxzoom})`,
   tilejson.minzoom > tilejson.maxzoom && Array.isArray(tilejson.bounds)
     && tilejson.bounds.length === 4,
 );
 /* The floor is the whole planet or it is not a floor -- and only as deep as
-   the archive really covers the whole planet, which for one downloaded
-   region is the single zoom-0 tile every download starts with. Claiming
-   more is claiming a tile that is not there, which draws as empty and takes
-   the map off the screen. */
+   the archive really covers the whole planet, which for one downloaded region
+   is the single zoom-0 tile every download starts with. Claiming more claims a
+   tile that is not there, which draws as empty and takes the map off screen. */
 check(
   "world.json floors the planet at the depth the archive really covers it",
   worldjson.minzoom === 0 && worldjson.maxzoom === 0
     && worldjson.bounds.join() === "-180,-85,180,85",
 );
-/* Meeting rather than overlapping is what keeps a viewport one fetch
-   instead of two: below the floor's depth the detail source would be
-   asking for the very same tiles. */
+/* Meeting rather than overlapping keeps a viewport to one fetch: below the
+   floor's depth the detail source would ask for the very same tiles. */
 check(
   "and the two sources meet without overlapping",
   tilejson.minzoom === worldjson.maxzoom + 1,
@@ -947,9 +953,9 @@ check(
   (await page.locator(".panel").count()) === 1,
 );
 
-/* The drawer resizes, and from the KEYBOARD, which is the half a splitter
-   usually misses. Left widens, because the key moves the separator and the
-   panel is what is to its right. */
+/* The drawer resizes from the KEYBOARD, which is the half a splitter usually
+   misses. Left widens, because the key moves the separator and the panel is to
+   its right. */
 const panelWidth = async () =>
   (await page.locator(".panel").boundingBox())?.width ?? 0;
 const widthBefore = await panelWidth();
@@ -963,7 +969,7 @@ check(
   widthAfter > widthBefore,
 );
 /* Changed is not enough: a separator that does not carry its value announces
-   nothing to anyone not watching the pixels move. */
+   nothing to anyone who is not watching the pixels move. */
 check(
   "and the separator announces the new width",
   Number(
@@ -973,10 +979,9 @@ check(
 /* Back to the default, so nothing downstream inherits a resized layout. */
 await page.locator(".panel-resizer").dblclick();
 
-/* The drawer is OVER the map, and this is the assertion that says so: the
-   map's own box must not change when the drawer opens, shuts or is dragged.
-   As a grid column it did change, every time, which meant MapLibre re-laid
-   out and the view moved under whoever was reading it. */
+/* The drawer sits OVER the map: the map's own box must not change when the
+   drawer opens, shuts or is dragged. As a grid column it changed every time,
+   so MapLibre re-laid out and the view moved under whoever was reading it. */
 const mapWrapWidth = async () =>
   (await page.locator(".map-wrap").boundingBox())?.width ?? 0;
 const mapBefore = await mapWrapWidth();
@@ -993,7 +998,6 @@ check(
   `and the map does not move when it does (${Math.round(mapBefore)}px)`,
   (await mapWrapWidth()) === mapBefore,
 );
-/* Shut means gone from the tab order too, not merely off-screen. */
 check(
   "a collapsed drawer is out of the accessibility tree",
   !(await page.locator(".panel").isVisible()),
@@ -1002,14 +1006,13 @@ check(
   "and offers a way back",
   (await page.locator(".panel-reopen button").count()) === 1,
 );
-/* And that way back must not be sitting on top of MapLibre's own controls.
+/* And that way back must not sit on top of MapLibre's own controls.
 
-   With the drawer shut there is nothing covering the right edge, so
-   MapLibre puts its zoom and locate buttons exactly where the reopen tab
-   is. The rule that keeps that corner clear has to outrank MapLibre's own
-   stylesheet, which loads after ours -- so this is geometry, not a class
-   check: a single-class rule looks perfectly correct in the source and
-   does nothing in the page. */
+   With the drawer shut, nothing covers the right edge, so MapLibre puts its
+   zoom and locate buttons exactly where the reopen tab is. The rule that keeps
+   that corner clear has to outrank MapLibre's stylesheet, which loads after
+   ours -- so this is geometry, not a class check: a single-class rule looks
+   correct in the source and does nothing in the page. */
 const boxesOverlap = await page.evaluate(() => {
   const tab = document.querySelector(".panel-reopen")?.getBoundingClientRect();
   const ctrl = document.querySelector(".map-wrap .maplibregl-ctrl-top-right")
@@ -1037,19 +1040,19 @@ check("and reopens from it", reopened);
    Five palettes and a sixth entry that is not one. "Match my device" is a
    deferral rather than a colour, and it has to stay distinguishable from
    having chosen light, or a device that turns dark at dusk stops being
-   followed. The attribute is what says which, and the painted colour is what
-   proves the attribute reached anything.
+   followed. The attribute says which; the painted colour proves the attribute
+   reached anything.
 
-   The DEFAULT wears no attribute, because the stylesheet's @theme block is
-   what paints before one is set. That makes "nothing chosen" and "chose the
-   default" the same state on purpose, and it makes the assertion below --
-   that an untouched page is already dark -- the thing that would fail if the
-   default and the @theme block ever stopped being the same palette. */
+   The DEFAULT wears no attribute, because the stylesheet's @theme block paints
+   before one is set. That makes "nothing chosen" and "chose the default" the
+   same state on purpose, and it makes the assertion below -- that an untouched
+   page is already dark -- fail if the default and the @theme block ever stop
+   being the same palette. */
 const chosen = () =>
   page.evaluate(() => document.documentElement.getAttribute("data-theme"));
 
-/* Lightness of a painted surface, on one scale. The computed colour arrives
-   as oklab() in this browser, whose first number IS lightness; rgb() is
+/* Lightness of a painted surface, on one scale. The computed colour arrives as
+   oklab() in this browser, whose first number IS lightness; rgb() is
    normalised to the same 0..1 range. */
 const surfaceLightness = async (sel) => {
   const bg = await page.locator(sel).first()
@@ -1074,12 +1077,12 @@ check(
   )) === "dark",
 );
 
-/* The map's icons are baked images, one sheet per flavour, and the style
-   names the sheet it wants. It named `light` for every theme, so a dark map
-   drew white motorway shields over it -- the one part of the map the palette
-   cannot reach, and so the one part that has to be chosen rather than
-   coloured. Read off the style the map is holding, since the bug was a
-   string that looked right in the source and was simply never varied. */
+/* The map's icons are baked images, one sheet per flavour, and the style names
+   the sheet it wants. It named `light` for every theme, so a dark map drew
+   white motorway shields over itself. The sheet is the one part of the map the
+   palette cannot reach, so it has to be chosen rather than coloured. Read off
+   the style the map is holding, because the bug was a string that looked right
+   in the source and was never varied. */
 const spriteSheet = () =>
   page.evaluate(() =>
     (window.__tessarium_map?.getStyle()?.sprite ?? "").toString()
@@ -1112,11 +1115,10 @@ const pickTheme = async (value) => {
 };
 
 /* What a palette resolves to, as four of its load-bearing tokens. Not the
-   panel's computed colour, which was the first thing tried here and is not
-   an identity: both light palettes lay their cards on plain white, so a
-   theme that silently resolved to another theme would have looked identical
-   to one that did not. Ground, card, ink and accent together do separate
-   all five. */
+   panel's computed colour, which was tried first and is not an identity: both
+   light palettes lay their cards on plain white, so a theme resolving to
+   another theme would look identical to one that did not. Ground, card, ink
+   and accent together do separate all five. */
 const paletteId = () =>
   page.evaluate(() => {
     const s = getComputedStyle(document.documentElement);
@@ -1124,11 +1126,10 @@ const paletteId = () =>
       .map((t) => s.getPropertyValue(`--color-${t}`).trim()).join(" ");
   });
 
-/* Every entry in the menu, each one asserted on what it paints rather than
-   on the name it set. The five identities are required to be five DIFFERENT
-   identities further down: a theme that silently resolves to another theme
-   is the failure mode a list of names cannot see, and renaming two palettes
-   without repointing one of them is exactly how it happens. */
+/* Every entry in the menu, asserted on what it paints rather than on the name
+   it set. The five identities must be five DIFFERENT identities further down:
+   a theme resolving to another theme is the failure a list of names cannot
+   see, and renaming two palettes without repointing one is how it happens. */
 const painted = {};
 for (
   const [name, wantLight] of [
@@ -1154,12 +1155,12 @@ for (
       getComputedStyle(document.documentElement).colorScheme
     )) === (wantLight ? "light" : "dark"),
   );
-  /* The map's own controls, which are not this application's markup:
-     MapLibre ships them light-only, and they sat white over a dark map until
-     someone using the app at night pointed at them. Computed colour, not
-     class names, because the bug was a stylesheet this project does not own
-     winning -- and it is asserted for every palette because the rule that
-     fixes it is a list, and a list is a thing a sixth theme falls off. */
+  /* The map's own controls, which are not this project's markup: MapLibre
+     ships them light-only, and they sat white over a dark map until someone
+     using the app at night pointed at them. Computed colour, not class names,
+     because the bug was a stylesheet this project does not own winning. Every
+     palette is checked, because the rule that fixes it is a list, and a sixth
+     theme can fall off a list. */
   check(
     `${name}: the zoom buttons follow the theme`,
     (await surfaceLightness(".maplibregl-ctrl-group") < 0.5) !== wantLight,
@@ -1168,16 +1169,14 @@ for (
     `${name}: and so does the scale bar`,
     (await surfaceLightness(".maplibregl-ctrl-scale") < 0.5) !== wantLight,
   );
-  /* Low light takes the dark sheet as well: there is no red one drawn, and
-     `black`, the other near-black option, is missing its points of
-     interest. */
+  /* Low light takes the dark sheet too: no red sheet is drawn, and `black`,
+     the other near-black option, is missing its points of interest. */
   check(
     `${name}: the map asks for the ${wantLight ? "light" : "dark"} sheet`,
     await sheetIs(wantLight ? "light" : "dark"),
   );
 }
 
-/* Five entries, five palettes. */
 const ids = Object.values(painted);
 check(
   `each theme resolves to its own palette (${
@@ -1186,21 +1185,20 @@ check(
   new Set(ids).size === ids.length,
 );
 
-/* The default is the one that wears NO attribute, so choosing it has to
-   remove one rather than set it -- otherwise the stylesheet has a rule
-   nothing matches and the first frame after a reload is a different theme
-   from the one the menu says is selected. */
+/* The default wears NO attribute, so choosing it has to remove one rather than
+   set it. Otherwise the stylesheet has a rule nothing matches, and the first
+   frame after a reload is a different theme from the one the menu shows. */
 await pickTheme("cyber-dark");
 check(
   "choosing the default clears the attribute rather than setting it",
   (await chosen()) === null,
 );
 
-/* The plain themes are plain because four tokens are held at rest, not
-   because anything is switched off elsewhere: one colour repeated across the
-   gradient's three stops is a solid button, and a transparent split shadow
-   is no split shadow. Read back resolved, because "at rest" is a property of
-   the values and not of the rule that sets them. */
+/* The plain themes are plain because four tokens are held at rest, not because
+   anything is switched off elsewhere: one colour repeated across the
+   gradient's three stops is a solid button, and a transparent split shadow is
+   no split shadow. Read back resolved, because "at rest" is a property of the
+   values, not of the rule that sets them. */
 const levers = () =>
   page.evaluate(() => {
     const s = getComputedStyle(document.documentElement);
@@ -1225,8 +1223,8 @@ for (const plain of ["light", "dark"]) {
   check(`${plain}: and the ground carries no wash`, wash === "none");
 }
 
-/* And the cyberpunk pair actually moves them, so the check above is a
-   statement about those themes rather than about all of them. */
+/* And the cyberpunk pair actually moves them, so the check above says
+   something about the plain themes rather than about all of them. */
 await pickTheme("cyber-dark");
 const cyber = await levers();
 check(
@@ -1240,10 +1238,9 @@ check(
 check("and a wash on the ground", cyber.wash !== "none");
 
 /* "Match my device" is the one entry that is not a palette. It sets an
-   attribute like any other choice -- it is no longer the absence of one --
-   and what it resolves to is the PLAIN pair, because an operating system
-   says light or dark and does not say cyberpunk. This browser reports a
-   light preference, so it has to land on plain light exactly. */
+   attribute like any other choice, and resolves to the PLAIN pair, because an
+   operating system says light or dark and never says cyberpunk. This browser
+   reports a light preference, so it must land on plain light exactly. */
 await pickTheme("system");
 check("matching the device says so on the root", (await chosen()) === "system");
 check(
@@ -1254,12 +1251,11 @@ check(
 /* An overview and no region is the state every fresh install starts in, and
    two things have to be true of it at once. */
 
-/* First: street zoom is undownloaded ground, and the note offering to fetch
-   it has to be on screen. This is the check that fails if the detail
-   source's advertised depth is made honest without moving the coverage
-   clamp to the server -- the question then drags down to the overview's own
-   zoom, where the answer is "present" and the offer disappears in the one
-   state where it is the entire point. */
+/* First: street zoom is undownloaded ground, so the note offering to fetch it
+   has to be on screen. This fails if the detail source's advertised depth is
+   made honest without moving the coverage clamp to the server: the question
+   then drags down to the overview's own zoom, where the answer is "present"
+   and the offer disappears in the one state where it is the whole point. */
 await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [-0.1, 51.5], zoom: 16 })
 );
@@ -1271,13 +1267,13 @@ check(
 
 /* And the note is painted in the theme's colours, both of them. It sat on a
    hardcoded white through the dark theme's whole first release -- white pill,
-   near-white ink -- and every token audit missed it because a literal in a
-   component class list belongs to no palette. Read back as painted, judged
+   near-white ink -- and every token audit missed it, because a literal in a
+   component class list belongs to no palette. Read back as painted and judged
    by lightness rather than by name, so the check outlives the exact token.
 
    Named themes rather than "match my device": what that entry resolves to
-   is a property of the machine running the suite, and this assertion is
-   about the stylesheet. */
+   depends on the machine running the suite, and this is about the
+   stylesheet. */
 const noteLightness = () => surfaceLightness(".map-note.action");
 await pickTheme("dark");
 check(
@@ -1294,12 +1290,12 @@ check(
   (await noteLightness()) > 0.5,
 );
 
-/* Second: it must cost nothing to look around. The floor draws every tile
-   on screen and there is no detail to ask for, so a pan should not fetch a
-   single empty tile. It used to fetch a viewport of them per pan, for as
-   long as the install went without a region -- each one a round trip
-   carrying no data, which is the cost that shows over a forwarded port.
-   Counted rather than asserted, so the number is in the output. */
+/* Second: it must cost nothing to look around. The floor draws every tile on
+   screen and there is no detail to ask for, so a pan should not fetch a single
+   empty tile. It used to fetch a viewport of them per pan for as long as the
+   install went without a region -- each one a round trip carrying no data,
+   which is the cost that shows over a forwarded port. Counted rather than
+   asserted, so the number is in the output. */
 const emptyTiles = [];
 const countEmpty = (res) => {
   if (res.status() === 204 && /\/tiles\/\d+\/\d+\/\d+\.mvt/.test(res.url())) {
@@ -1321,9 +1317,9 @@ check(
   emptyTiles.length === 0,
 );
 
-/* Second download: detail for the current view, MERGED over the world map.
-   The card must no longer offer the world, and afterwards every tile from
-   both downloads has to be in one archive. */
+/* Second download: detail for the current view, over the world map. The card
+   must no longer offer the world, and afterwards every tile from both
+   downloads has to be reachable. */
 const openButton = page.locator(".panel-download");
 check(
   "the map carries its own download button",
@@ -1335,15 +1331,13 @@ check(
   "with maps on disk the world offer is gone",
   (await page.locator(".download-world").count()) === 0,
 );
-/* The world overview is the ground under every region, and nothing may
-   offer to take it away.
+/* The world overview is the ground under every region, and nothing may offer
+   to take it away.
 
-   It is in the list, and it has no verbs. That is the shape the complaint
-   asked for and the previous shape got wrong in the other direction:
-   leaving it out entirely meant the panel's answer to "what maps do I
-   have" skipped the largest file on disk, so a small download named for
-   the viewport read as the world map and its Remove button as the button
-   that deletes the world.
+   It is in the list, and it has no verbs. Leaving it out entirely was the
+   opposite mistake: the panel's answer to "what maps do I have" skipped the
+   largest file on disk, so a small download named for the viewport read as the
+   world map, and its Remove button as the button that deletes the world.
 
    Asserted on the DOM rather than on the server's refusal, because the two
    locks are separate and a button that should not be there is the one that
@@ -1388,34 +1382,33 @@ await page.waitForFunction(
   },
 );
 
-/* The loading bar, on real traffic: wait for quiet, delay every tile past
-   the tracker's 300 ms threshold, then tell the vector source to reload its
-   tiles (same URLs plus a marker param -- the app-visible way to force
-   refetches without racing a download's style swap, which flaked). The bar
-   must appear while tiles drip in and vanish at idle.
+/* The loading bar, on real traffic: wait for quiet, delay every tile past the
+   tracker's 300 ms threshold, then tell the vector source to reload its tiles
+   (same URLs plus a marker param -- the app-visible way to force refetches
+   without racing a download's style swap, which flaked). The bar must appear
+   while tiles drip in and vanish at idle.
 
    RECORDED, not sampled. This used to race a `waitForSelector` against a bar
-   whose whole life is the delay: measured at 318 ms up, 568 ms down, and the
-   wait can lose a window that short. A missed window and a bar that never
-   appeared are then the same failure, which is how this check spent a while
-   being called flaky. An observer watching for the bar to be ADDED records
-   what happened rather than what is on screen at the moment it is asked, and
-   its flag is cleared in the same evaluate that triggers the refetch, so an
-   earlier bar cannot answer for this one.
+   whose whole life is the delay: measured at 318 ms up, 568 ms down, and a
+   wait can miss a window that short. A missed window and a bar that never
+   appeared then look the same, which is why this check was called flaky. An
+   observer watching for the bar to be ADDED records what happened rather than
+   what is on screen when it is asked, and its flag is cleared in the same
+   evaluate that triggers the refetch, so an earlier bar cannot answer for this
+   one.
 
-   And the premise is asserted too: if the interception did not take, no tile
-   was ever slow, and "the bar did not appear" is the correct answer to a
-   question that was never posed. That failure now says so itself. */
+   The premise is asserted too: if the interception did not take, no tile was
+   ever slow, and "the bar did not appear" answers a question that was never
+   posed. */
 /* Quiet, and STAYING quiet, BEFORE the tile delay goes on.
 
-   The bar's whole life is about 300 ms up and 250 ms down, measured here, and
-   the tracker will not raise it again while one is already visible -- so a
-   bar left over from the app's own loading closes the window this test needs.
-   Waiting for absence to hold past that whole cycle is what empties it.
+   The bar lives about 300 ms up and 250 ms down, measured, and the tracker
+   will not raise it again while one is already visible -- so a bar left over
+   from the app's own loading closes the window this test needs. Waiting for
+   absence to hold past that whole cycle is what empties it.
 
-   Order matters and cost a run to learn: once every tile is delayed by half a
-   second the map is almost never quiet, so this has to happen while traffic
-   is still normal. */
+   Order matters: once every tile is delayed by half a second the map is almost
+   never quiet, so this has to happen while traffic is still normal. */
 await page.waitForFunction(
   async () => {
     const quiet = () => document.querySelector(".map-loading") === null;
@@ -1432,9 +1425,9 @@ await page.waitForFunction(
 );
 await page.evaluate(() => {
   /* Added nodes, not a re-query: a callback runs at a microtask checkpoint,
-     so a bar that went up and came down inside one would be invisible to a
-     "is it there now" test. The label is read at the moment it appears,
-     which is the only moment it is certain to exist. */
+     so a bar that went up and came down inside one would be invisible to an
+     "is it there now" test. The label is read as it appears, which is the only
+     moment it is certain to exist. */
   window.__barWatch = new MutationObserver((records) => {
     if (window.__barSeen) return;
     const bar = records
@@ -1460,24 +1453,23 @@ await page.route("**/tiles/**", async (route) => {
   try {
     await route.continue();
   } catch {
-    /* The request died mid-delay: MapLibre aborts tiles that leave the
-       view, and unroute below can beat a sleeping handler to its route.
-       Either way there is nothing left to slow down. */
+    /* The request died mid-delay: MapLibre aborts tiles that leave the view,
+       and unroute below can beat a sleeping handler to its route. Either way
+       there is nothing left to slow down. */
   }
 });
-/* Reset and refetch in ONE evaluate that first checks no bar is up, and
-   retry if one is.
+/* Reset and refetch in ONE evaluate that first checks no bar is up, retrying
+   if one is.
 
    Waiting for quiet and then triggering in a separate call leaves a gap: the
-   map can raise a bar inside it, the reset then clears the record of that
-   bar, and the tracker will not raise a second one while the first is still
-   visible -- so the observation window opens onto a bar that can no longer
-   be added. Doing the check, the reset and the trigger in the same
-   synchronous block is what removes the gap; the retry is for the case where
-   the quiet wait above ended just as a fetch began.
+   map can raise a bar inside it, the reset clears the record of that bar, and
+   the tracker will not raise a second one while the first is visible -- so the
+   observation window opens onto a bar that can no longer be added. Doing the
+   check, the reset and the trigger in one synchronous block removes the gap.
+   The retry covers the quiet wait above ending just as a fetch began.
 
-   Marked once, not once per attempt, so a retry cannot stack query
-   parameters and change what is being asked for. */
+   Marked once, not once per attempt, so a retry cannot stack query parameters
+   and change what is being asked for. */
 const started = await until(() =>
   page.evaluate(() => {
     if (document.querySelector(".map-loading")) return false;
@@ -1499,19 +1491,18 @@ check(
 );
 check("slow tiles raise the loading bar", barSeen);
 /* Read off the bar as it appeared, not off the DOM afterwards. Asked
-   afterwards, the bar is almost always already gone -- it lives about 250 ms
-   -- and the old form said "labelled OR absent", which absent satisfies. A
-   check that passes because the thing it is about is missing reads as
-   coverage and is none. */
+   afterwards the bar is almost always gone -- it lives about 250 ms -- and the
+   old form said "labelled OR absent", which absent satisfies. A check that
+   passes because its subject is missing is not coverage. */
 check(
   "the bar names itself for the screen reader",
   ((await page.evaluate(() => window.__barLabel)) ?? "").length > 0,
 );
 await page.unroute("**/tiles/**");
-/* Caught rather than thrown, so a bar that never comes down is reported as
-   the failure it is instead of aborting the run and taking every check after
-   it with it. That is how it presented the first time: a timeout, no tally,
-   and nothing saying which assertion had been reached. */
+/* Caught rather than thrown, so a bar that never comes down is reported as one
+   failure instead of aborting the run and taking every later check with it.
+   That is how it presented the first time: a timeout, no tally, and nothing
+   saying which assertion had been reached. */
 const settled = await page
   .waitForFunction(() => !document.querySelector(".map-loading"), null, {
     timeout: 60_000,
@@ -1520,16 +1511,16 @@ const settled = await page
 check("the bar hides once the map settles", settled);
 await page.evaluate(() => window.__barWatch?.disconnect());
 
-/* Beside, not merged. The world went to world.pmtiles and the region to a
-   file of its own, and neither one spans zoom 0 to 15 by itself -- the union
-   is a fact about the directory, which is what the map is told.
+/* Beside, not merged. The world went to world.pmtiles and the region to a file
+   of its own, and neither spans zoom 0 to 15 alone -- the union is a fact
+   about the directory, which is what the map is told.
 
    Bytes 100-101 of a PMTiles header are its min and max zoom, so the region's
-   own file is asked directly: it must reach 15, because a file carried to
-   another machine has to hold what it claims without anything beside it. */
+   own file is asked directly. It must reach 15, because a file carried to
+   another machine has to hold what it claims on its own. */
 const ledgerFiles = await (await postJson("basemap-ledger")).json();
-/* The first DOWNLOAD, not the first row: the overview is listed above them
-   and has no file to ask about. */
+/* The first DOWNLOAD, not the first row: the overview is listed above them and
+   has no file to ask about. */
 const regionFile = (ledgerFiles.entries ?? []).find((e) => !e.overview)?.file
   ?? "";
 check("a downloaded region has a file of its own", regionFile !== "");
@@ -1552,7 +1543,7 @@ check(
 );
 
 /* Asking again for what is already on disk: the estimate must say "you have
-   this" rather than re-quoting the price, and the download stays disabled. */
+   this" rather than re-quote the price, and the download stays disabled. */
 await openButton.click();
 await page.waitForSelector(".download-card", { timeout: 10_000 });
 await page.waitForFunction(
@@ -1563,27 +1554,29 @@ await page.waitForFunction(
   { timeout: 30_000 },
 );
 check("re-asking for a held area says so instead of re-quoting", true);
+/* And it offers nothing to press. A "Keep track of this map" button used to be
+   here, but the server path behind it was removed: a covered area writes no
+   tiles, so the job it started always failed. A button that cannot succeed is
+   worse than no button, so the held state is the hint alone. */
 check(
-  "and its button turns into the record-only offer",
-  !(await page.locator(".download-view button").isDisabled())
-    && ((await page.locator(".download-view button").textContent()) ?? "")
-      .includes("Keep track"),
+  "and offers no action, because there is nothing left to download",
+  (await page.locator(".download-view .hint.download-held").count()) === 1
+    && (await page.locator(".download-view button").count()) === 0,
 );
 
-/* Third download: places picked by name from the tree -- and several at
-   once, riding in ONE download. The fixture's tiles sit inside the United
-   Kingdom's box, so picking the UK estimates real bytes; adding the city of
-   London on top must NOT change the price, because the server dedups
-   overlapping picks by tile id. The country name comes from
-   Intl.DisplayNames, so this also pins the catalogue's ISO codes to
-   something the browser recognises. */
+/* Third download: places picked by name from the tree, several at once, in ONE
+   download. The fixture's tiles sit inside the United Kingdom's box, so
+   picking the UK estimates real bytes; adding the city of London on top must
+   NOT change the price, because the server dedups overlapping picks by tile
+   id. The country name comes from Intl.DisplayNames, so this also pins the
+   catalogue's ISO codes to something the browser recognises. */
 await page.locator("#region-filter").fill("United Kingdom");
 const ukEntry = page
   .locator(".region-tree .region-disclosure")
   .filter({ hasText: "United Kingdom" });
 /* Pressed rather than checked: React Aria's checkbox keeps a real input and
-   hides it, so `check()` refuses it as invisible. The label IS the control
-   -- clicking it is what a person does. */
+   hides it, so `check()` refuses it as invisible. The label IS the control --
+   clicking it is what a person does. */
 await ukEntry
   .locator(".region-check")
   .filter({ hasText: "The whole country" })
@@ -1597,12 +1590,12 @@ check("picking a country by name yields a real estimate", true);
 
 /* The box sits BESIDE its label, not above it.
 
-   Layout is not usually worth an end-to-end check, but this one broke
-   silently and stayed broken: `.download-card label` set `display: block`
-   at two-class specificity and outranked `.region-check`'s own `flex`, so
-   every checkbox in the picker stacked over its text and nothing failed.
-   Geometry is the only thing that catches that -- a class-name assertion
-   passes while the rule that beats it is somewhere else entirely. */
+   Layout is not usually worth an end-to-end check, but this broke silently and
+   stayed broken: `.download-card label` set `display: block` at two-class
+   specificity and outranked `.region-check`'s own `flex`, so every checkbox in
+   the picker stacked over its text and nothing failed. Only geometry catches
+   that -- a class-name assertion passes while the rule beating it sits
+   somewhere else. */
 const boxBeside = await ukEntry
   .locator(".region-check")
   .filter({ hasText: "The whole country" })
@@ -1660,8 +1653,8 @@ await page.waitForFunction(
   },
 );
 
-/* And a federation exposes its states and cities as checkboxes: the United
-   States entry must offer more than forty states, plus named cities. */
+/* A federation exposes its states and cities as checkboxes: the United States
+   entry must offer more than forty states, plus named cities. */
 await openButton.click();
 await page.waitForSelector(".download-card", { timeout: 10_000 });
 await page.locator("#region-filter").fill("United States");
@@ -1679,19 +1672,19 @@ check(
 );
 
 /* Fiji straddles the antimeridian, so its whole-country pick is TWO boxes
-   sharing one border polygon. (Not Russia: its clipped land now genuinely
-   affords full depth, and honestly planning it takes minutes -- the fixture
-   deserves the small antimeridian country.) Its only fixture tile is the
-   world-spanning z0. It used to answer "covered", because the estimate diffed
-   against the one archive everything merged into and the world download had
-   already put that tile there. It quotes a price now, and that is the change
-   working: a region is diffed against ITS OWN file, so it fetches its own
-   shallow tiles rather than borrowing the overview's. A file carried to a
-   machine with no overview has to draw on its own.
+   sharing one border polygon. Not Russia: its clipped land now affords full
+   depth, and honestly planning it takes minutes.
 
-   What is being proved either way is that the two-box polygon request
-   survived validation, planning and the merge arithmetic end to end -- so
-   the assertion is that a real answer arrived, not which one. */
+   Fiji's only fixture tile is the world-spanning z0. It used to answer
+   "covered", because the estimate diffed against the one archive everything
+   merged into, and the world download had already put that tile there. It
+   quotes a price now: a region is diffed against ITS OWN file, so it fetches
+   its own shallow tiles rather than borrowing the overview's. A file carried
+   to a machine with no overview has to draw on its own.
+
+   Either way, what is proved is that the two-box polygon request survived
+   validation, planning and the merge arithmetic -- so the assertion is that a
+   real answer arrived, not which one. */
 await page.locator("#region-filter").fill("Fiji");
 await page
   .locator(".region-tree .region-disclosure")
@@ -1720,8 +1713,8 @@ await page.waitForFunction(
 /* ----------------------------- place search --------------------------------
 
    The downloaded region carries its own names, and searching them must never
-   leave the machine. Driven through the real box, because the claim is that a
-   person can type a place and land on it. */
+   leave the machine. Driven through the real search box, because the claim is
+   that a person can type a place and land on it. */
 const searched = await (await postJson("basemap-search", { q: "fixtu" }))
   .json();
 check(
@@ -1730,14 +1723,14 @@ check(
     && searched.results[0].layer === "places",
 );
 /* The coordinates have to be real, not merely present: a swapped axis or a
-   dropped projection still returns a row, and the fixture's tiles are
-   identical everywhere, so only a bounds check catches it. */
+   dropped projection still returns a row, and the fixture's tiles are the same
+   everywhere, so only a bounds check catches it. */
 check(
   "and places it somewhere on Earth",
   Math.abs(searched.results[0].lon) <= 180
     && Math.abs(searched.results[0].lat) <= 85.06,
 );
-/* limit is the server's to enforce, and the scan stops early because of it. */
+/* The server enforces the limit, and stops scanning once it is reached. */
 const limited =
   await (await postJson("basemap-search", { q: "fixtu", limit: 3 }))
     .json();
@@ -1774,14 +1767,13 @@ check(
   (await postJson("basemap-search", { q: "" })).status === 400,
 );
 
-/* A place named the way people name places. "Fixtureville, ZZ" appears
-   inside no name in any archive, and matching the query as one run of
-   characters answered it with nothing found -- so being more specific made
-   the search worse.
+/* A place named the way people name places. "Fixtureville, ZZ" appears inside
+   no name in any archive, and matching the query as one run of characters
+   found nothing -- so being more specific made the search worse.
 
    The fixture holds one distinct name, so these prove the query SHAPE is
-   accepted and nothing about ranking between names; the ordering rules are
-   pinned in the server suite, where the corpus is written by the test. */
+   accepted and say nothing about ranking. The ordering rules are pinned in the
+   server suite, where the corpus is written by the test. */
 check(
   "a place named with a qualifier after a comma is still found",
   (await (await postJson("basemap-search", { q: "Fixtureville, ZZ" })).json())
@@ -1808,11 +1800,11 @@ const offered = await page
   .waitForSelector(".place-option", { timeout: 10_000 })
   .then(() => true, () => false);
 check("typing a place name offers it", offered);
-/* The row must say where it goes, not just that it exists: the kind
-   always, and -- whenever the map is not already there -- how far. The
-   containment context depends on where the fixture pretends to be, so
-   only the parts that are true everywhere are pinned here; the
-   catalogue containment itself is unit-tested against real borders. */
+/* The row must say where it goes, not just that it exists: the kind always,
+   and how far away whenever the map is not already there. The containment
+   context depends on where the fixture pretends to be, so only the parts true
+   everywhere are pinned here; catalogue containment is unit-tested against
+   real borders. */
 const optionText = await page.locator(".place-option").first().textContent();
 check("the result names its kind", /locality/.test(optionText ?? ""));
 const farFromResult = beforeSearch
@@ -1823,8 +1815,8 @@ check(
   !farFromResult || /km/.test(optionText ?? ""),
 );
 await page.locator(".place-option").first().click();
-/* Waited for rather than slept through: flying across the world takes as
-   long as the distance says, and a fixed pause is a race either way. */
+/* Waited for rather than slept through: a flight takes as long as the distance
+   says, so a fixed pause is a race either way. */
 const flew = await page
   .waitForFunction(
     (from) => {
@@ -1851,14 +1843,14 @@ check(
 /* ------------------------- addresses in the search box ----------------------
 
    One box takes both a place name and an address, and the difference is not
-   cosmetic: a place name is looked up on the server, and an address must
-   never be. This is the check for that. It watches the wire, because the
-   claim is about what leaves the browser, not about what is displayed --
-   nothing on screen would look wrong if the request went out anyway.
+   cosmetic: a place name is looked up on the server, an address must never be.
+   This watches the wire, because the claim is about what leaves the browser
+   rather than about what is displayed -- nothing on screen would look wrong if
+   the request went out anyway.
 
-   The failure it exists to catch is real and was live until this landed:
-   typing an address searched the place index for it, which prefix-matched
-   the first word and flew the map to a village in France. */
+   The failure was live until this landed: typing an address searched the place
+   index for it, which prefix-matched the first word and flew the map to a
+   village in France. */
 const searchRequests = [];
 const watchSearch = (request) => {
   if (request.url().includes("/api/basemap-search")) {
@@ -1868,19 +1860,18 @@ const watchSearch = (request) => {
 page.on("request", watchSearch);
 
 const addressForSearch = sample.address;
-/* The same address in a spelling that uses a different separator. Every one
-   of `, / - _ .` and space is accepted by address_of_string, and an earlier
-   version of the classifier looked only at dots -- so the dashed spelling
-   sent three words and three of four digits to the index on its way to being
-   typed. Testing one spelling would not have caught that. */
+/* The same address written with a different separator. address_of_string
+   accepts every one of `, / - _ .` and space, and an earlier classifier looked
+   only at dots -- so the dashed spelling sent three words and three of four
+   digits to the index while it was being typed. One spelling would not have
+   caught that. */
 const addressDashed = sample.address.replace(/[.]/g, "-");
 
 /* DEBOUNCE_MS in PlaceSearch is 250, so the delay here must be LONGER than
-   that or no intermediate value ever reaches the classifier and this checks
-   only that the finished address is withheld. At 30 ms every keystroke reset
-   the timer and exactly one value -- the complete address -- was ever
-   classified, which made the check pass against a version with no partial
-   handling at all. */
+   that. Otherwise no partial value reaches the classifier and this only checks
+   that the finished address is withheld. At 30 ms every keystroke reset the
+   timer and exactly one value -- the complete address -- was ever classified,
+   which passed against a version with no partial handling at all. */
 const typeAndWatch = async (text) => {
   await page.locator("#place-search-input").fill("");
   await page.waitForTimeout(400);
@@ -1892,15 +1883,14 @@ const typeAndWatch = async (text) => {
   return searchRequests.slice();
 };
 
-/* The guarantee is NOT "nothing is sent" -- a lone "vacuum" is a BIP-39 word
-   and also an English one, and withholding every single word would take
+/* The guarantee is NOT "nothing is sent". A lone "vacuum" is both a BIP-39
+   word and an English one, and withholding every single word would take
    "orange", "river" and "city hall" off the place index for no privacy gain.
    The guarantee is that nothing recognisable as an ADDRESS is sent: never two
-   of the three words, never the number, never the whole thing. That is the
-   difference between a leak and a search.
+   of the three words, never the number, never the whole thing.
 
-   Stated this precisely because the first version of this check said "sends
-   nothing" and passed only because it typed faster than the debounce. */
+   Stated this precisely because the first version said "sends nothing" and
+   passed only because it typed faster than the debounce. */
 const addressWords = sample.address.split(".");
 const addressNumber = addressWords[3];
 const countWords = (body) =>
@@ -1931,7 +1921,7 @@ for (
 }
 
 /* And it resolves: the address offered is the one typed, and taking it lands
-   on the square that address names -- the vector's own point. */
+   on the square that address names, which is the vector's own point. */
 const addressOffered = await page
   .waitForSelector(".place-option", { timeout: 10_000 })
   .then(() => true, () => false);
@@ -1954,19 +1944,19 @@ const landedOnAddress = await page
   )
   .then(() => true, () => false);
 check("choosing it flies to the square that address names", landedOnAddress);
-/* And the box is empty afterwards. The search sits OVER the map, so an
-   address left in it would be in every screenshot of the map -- the exact
-   exposure the panel's conceal toggle exists to prevent, reintroduced by the
-   back door. A place name is kept, deliberately; an address is not. */
+/* And the box is empty afterwards. The search sits OVER the map, so an address
+   left in it would be in every screenshot of the map -- the exposure the
+   panel's conceal toggle exists to prevent, by the back door. A place name is
+   kept deliberately; an address is not. */
 check(
   "and the address does not stay sitting in the box over the map",
   (await page.locator("#place-search-input").inputValue()) === "",
 );
 
-/* A place name must still go out, or the gate is stuck shut and the feature
-   is gone rather than fixed. A query string used nowhere else above: the
-   place cache holds answers for five minutes, so reusing "fixtu" here would
-   be served from memory and prove nothing about the wire. */
+/* A place name must still go out, or the feature is gone rather than fixed. A
+   query string used nowhere else above: the place cache holds answers for five
+   minutes, so reusing "fixtu" would be served from memory and prove nothing
+   about the wire. */
 await page.locator("#place-search-input").fill("");
 await page.waitForTimeout(400);
 searchRequests.length = 0;
@@ -1981,15 +1971,15 @@ check(
   searchRequests.some((body) => JSON.parse(body).limit === 8),
 );
 
-/* A query that names its context asks for a WIDER slice, and this is what
-   makes answering the context possible at all.
+/* A query naming its context asks for a WIDER slice, which is what makes
+   answering the context possible at all.
 
-   The server ranks by population and knows nothing of states -- no tile
-   label knows its country -- so on the real United States index the Jasper
-   in Georgia comes back sixth of the Jaspers, below the fold of a list of
-   eight. The dropdown re-ranks by the border data it already ships, but it
-   can only re-rank rows it was given. Ask for eight and the right answer
-   was never in the response to begin with. */
+   The server ranks by population and knows nothing of states -- no tile label
+   knows its country -- so on the real United States index the Jasper in
+   Georgia comes back sixth of the Jaspers, below the fold of a list of eight.
+   The dropdown re-ranks using border data it already ships, but it can only
+   re-rank rows it was given. Ask for eight and the right answer was never in
+   the response. */
 await page.locator("#place-search-input").fill("");
 await page.waitForTimeout(400);
 searchRequests.length = 0;
@@ -2008,12 +1998,11 @@ await page.locator("#place-search-input").fill("");
 
    Where the basemap stops, said out loud instead of left as a blank screen.
 
-   The claim under test is not that something grey appears -- it is that the
-   grey lands exactly where the tile endpoint has nothing. So the mask is
-   checked against the tiles themselves, cell by cell, rather than against
-   the code that drew it: those two agreeing is the whole feature, and a
-   mask that greys out ground the map is drawing would be worse than no
-   mask at all. */
+   The claim is not that something grey appears -- it is that the grey lands
+   exactly where the tile endpoint has nothing. So the mask is checked against
+   the tiles themselves, cell by cell, rather than against the code that drew
+   it. Those two agreeing is the whole feature, and a mask that greys out
+   ground the map is drawing would be worse than no mask. */
 const straddle = {
   min_lon: -0.1,
   min_lat: 51.46,
@@ -2035,9 +2024,9 @@ const cells = Array.from({ length: cover.h * cover.w }, (_, i) => ({
   row: Math.floor(i / cover.w),
   col: i % cover.w,
 }));
-/* Sequential on purpose -- one request at a time, the way the old loop ran
-   -- and the fold carries the disagreements, so a failure names its cells
-   instead of saying only that one exists. */
+/* Sequential on purpose, one request at a time. The fold carries the
+   disagreements, so a failure names its cells instead of saying only that one
+   exists. */
 const disagreed = await cells.reduce(async (acc, { row, col }) => {
   const prior = await acc;
   const res = await fetch(
@@ -2056,9 +2045,9 @@ check(
   disagreed.length === 0,
 );
 
-/* The other side of the world: nothing at street level, but the world
-   overview underneath is still real, which is why the note there offers
-   zooming out rather than claiming there is nothing at all. */
+/* The other side of the world: nothing at street level, but the world overview
+   underneath is still real, which is why the note offers zooming out rather
+   than claiming there is nothing at all. */
 const antipode = await (await postJson("basemap-coverage", {
   min_lon: 139.6,
   min_lat: 35.6,
@@ -2086,8 +2075,8 @@ check(
 );
 
 /* Through the map itself. Jumped rather than flown: the assertion is about
-   what the app says once it has settled, and an animation only decides
-   when that is. */
+   what the app says once it has settled, and an animation only changes when
+   that is. */
 await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
 );
@@ -2096,22 +2085,22 @@ check(
   await page.waitForSelector(".map-note.action", { timeout: 15_000 })
     .then(() => true, () => false),
 );
-/* And says the one thing that is true wherever it appears. What the floor
-   draws underneath ranges from a country map to a single stretched polygon
-   depending on how far past its depth the camera has gone, so a note
-   promising a wider map cannot keep the promise, and one denying any map
-   contradicts what is on screen elsewhere. Read from the catalogue rather
-   than copied here, so rewording it back into a claim fails this. */
+/* And says the one thing true wherever it appears. What the floor draws
+   underneath ranges from a country map to a single stretched polygon depending
+   on how far past its depth the camera has gone -- so a note promising a wider
+   map cannot keep the promise, and one denying any map contradicts what is on
+   screen. Read from the catalogue rather than copied here, so rewording it
+   back into a claim fails this. */
 check(
   "and claims only that the detail is missing",
   (await page.locator(".map-note.action span").innerText())
     === m("map_coverage_gap"),
 );
-/* The wash is the other half of that claim. It is 42% opaque -- sized for
-   ground with nothing drawn on it -- so painting it over the floor would
-   darken the map the floor exists to keep. Withheld, not faded: the
-   rectangles are never handed to the source, which is what makes this
-   question answerable by asking what is on screen. */
+/* The wash is the other half of that claim. It is 42% opaque, sized for ground
+   with nothing drawn on it, so painting it over the floor would darken the map
+   the floor exists to keep. Withheld, not faded: the rectangles are never
+   handed to the source, which is what makes this answerable by asking what is
+   on screen. */
 check(
   "and does not wash out the map underneath it",
   await page.evaluate(() =>
@@ -2121,14 +2110,13 @@ check(
   ) === 0,
 );
 
-/* The other half of the same claim, and the state the wash still exists
-   for: no floor at all. Stubbed rather than staged. Which archives make a
-   floor is settled in the server's own suite, against archives built to
-   have and to lack one; what is left to check here is that the app reacts
-   to the answer, and the archive that produces it -- one holding not even
-   the single zoom-0 tile of the planet -- is not one a download can leave
-   behind. Both halves matter: without this the wash could be deleted
-   outright and every check above would still pass. */
+/* The other half of the same claim, and the state the wash still exists for:
+   no floor at all. Stubbed rather than staged. Which archives make a floor is
+   settled in the server's own suite, against archives built to have and to
+   lack one; what is left here is that the app reacts to the answer. The
+   archive that produces it -- one holding not even the single zoom-0 tile of
+   the planet -- is not one a download can leave behind. Without this check the
+   wash could be deleted outright and everything above would still pass. */
 await page.route("**/api/basemap-coverage", async (route) => {
   const answer = await route.fetch();
   await route.fulfill({ json: { ...(await answer.json()), floor: false } });
@@ -2153,8 +2141,8 @@ await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
 );
 await page.waitForSelector(".map-note.action", { timeout: 15_000 });
-/* The note is the one place on the map that offers the way out of a blank
-   screen, so its button has to reach the downloader. */
+/* The note is the only way out of a blank screen offered on the map, so its
+   button has to reach the downloader. */
 await page.locator(".map-note.action .note-action").click();
 check(
   "the note offers the download card",
@@ -2172,13 +2160,12 @@ await page.waitForFunction(
 
 /* An answer that arrives late must not paint over a newer one.
 
-   React Query hands back a cached view in a microtask while a fresh
-   request is still in flight, so returning to a place you left seconds ago
-   resolves BEFORE the place you passed through. The older answer then
-   landed last and won, which cleared the wash and the note while the
-   camera sat on blank ground -- the app saying nothing at all, which is
-   the state this feature exists to replace. Delayed here on purpose, but
-   the ordering needs no help in the field. */
+   React Query hands back a cached view in a microtask while a fresh request is
+   still in flight, so returning to a place you left seconds ago resolves
+   BEFORE the place you passed through. The older answer then landed last and
+   won, clearing the wash and the note while the camera sat on blank ground --
+   the app saying nothing at all. Delayed here on purpose, but the ordering
+   needs no help in the field. */
 await page.route("**/api/basemap-coverage", async (route) => {
   await new Promise((done) => setTimeout(done, 2000));
   await route.continue();
@@ -2187,15 +2174,15 @@ await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
 );
 await page.waitForSelector(".map-note.action", { timeout: 20_000 });
-/* Out to covered ground, whose answer is now 2 s away. The pause is what
-   makes this a race at all: two jumps back to back settle as one move, so
-   the request being outrun would never be sent. */
+/* Out to covered ground, whose answer is now 2 s away. The pause is what makes
+   this a race: two jumps back to back settle as one move, so the request being
+   outrun would never be sent. */
 await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [-0.12, 51.5], zoom: 12 })
 );
 await new Promise((done) => setTimeout(done, 700));
-/* And straight back, where the answer is already cached and returns at
-   once -- so the older question is still in flight behind it. */
+/* And straight back, where the answer is cached and returns at once, so the
+   older question is still in flight behind it. */
 await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
 );
@@ -2208,11 +2195,11 @@ await page.unroute("**/api/basemap-coverage");
 
 /* The grid overlay had the same hazard and no guard.
 
-   Its answers come from the worker rather than the network, so the delay
-   goes into the worker script -- which is fetched over HTTP, and is created
-   once per page, so it has to be in place before the page loads. Hence a
-   page of its own, and a longitude range nothing else in this suite visits,
-   so only this check pays for the delay. */
+   Its answers come from the worker rather than the network, so the delay goes
+   into the worker script. That script is fetched over HTTP and created once
+   per page, so the delay has to be in place before the page loads -- hence a
+   page of its own, and a longitude range nothing else in this suite visits, so
+   only this check pays for it. */
 const gridPage = await context.newPage();
 await gridPage.route("**/core.worker.js", async (route) => {
   const body = await (await route.fetch()).text();
@@ -2233,9 +2220,9 @@ await gridPage.waitForSelector(".valid", { timeout: 30_000 });
 await gridPage.locator("button[type=submit]").click();
 await gridPage.waitForSelector(".map-wrap", { timeout: 60_000 });
 
-/* The westmost longitude the overlay currently holds. Read from the source's
-   own data rather than from the screen: cells painted for a viewport already
-   left are off-screen, which is the whole complaint. */
+/* The westmost longitude the overlay holds. Read from the source's own data
+   rather than from the screen: cells painted for a viewport already left are
+   off-screen, which is the whole complaint. */
 const gridWest = () =>
   gridPage.evaluate(async () => {
     const data = await window.__tessarium_map?.getSource("grid")?.getData();
@@ -2251,15 +2238,15 @@ const gridSettled = () =>
     { timeout: 30_000 },
   );
 
-/* London first, so its answer is in the query cache and comes back in a
-   microtask on the way home. */
+/* London first, so its answer is in the query cache and returns in a microtask
+   on the way home. */
 await gridPage.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [-0.12, 51.5], zoom: 19 })
 );
 await gridSettled();
-/* Out to a longitude the worker is holding back 2.5 s. The pause is what
-   makes it a race: two jumps back to back settle as one move, and the
-   request being outrun would never be sent. */
+/* Out to a longitude the worker holds back 2.5 s. The pause is what makes it a
+   race: two jumps back to back settle as one move, and the request being
+   outrun would never be sent. */
 await gridPage.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [-122.4, 37.8], zoom: 19 })
 );
@@ -2275,9 +2262,9 @@ check(
 );
 await gridPage.close();
 
-/* Focused first: the note goes away on its own when tiles land or a
-   fly-to settles, and if its button still had focus the page would drop
-   to <body>, where the keyboard does nothing at all. */
+/* Focused first: the note goes away on its own when tiles land or a fly-to
+   settles, and if its button still had focus the page would drop to <body>,
+   where the keyboard does nothing. */
 await page.locator(".map-note.action .note-action").focus();
 await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [-0.12, 51.5], zoom: 12 })
@@ -2299,18 +2286,17 @@ check(
 
 /* ------------------------- the download ledger ----------------------------
 
-   Every REGION download above was recorded inside the detail archive
-   itself -- name, date, size -- and the list, the reminder setting, and
-   Remove are all driven through the real card. The world overview is not
-   among them: it went to its own file and wrote no entry, which is what
-   makes it un-removable.
+   Every REGION download above was recorded inside the detail archive itself
+   -- name, date, size -- and the list, the reminder setting and Remove are all
+   driven through the real card. The world overview is not among them: it went
+   to its own file and wrote no entry, which is what makes it un-removable.
 
    A patch inside an already-downloaded region used to be ADOPTED: the tiles
    were in the one shared archive, nothing was fetched, and an entry landed
-   claiming them with "age unknown". There is no shared archive to adopt out
-   of any more. The patch is its own region with its own file, so it is its
-   own download -- which is the trade this layout makes, and the reason a
-   file can be carried away on its own. */
+   claiming them with "age unknown". There is no shared archive to adopt out of
+   any more. The patch is its own region with its own file, so it is its own
+   download. That is the trade this layout makes, and the reason a file can be
+   carried away on its own. */
 await postJson("basemap-download", {
   name: "Overlapping patch",
   regions: [{
@@ -2328,10 +2314,10 @@ check(
 const ledger1 = await (await postJson("basemap-ledger")).json();
 const downloads1 = (ledger1.entries ?? []).filter((e) => !e.overview);
 /* The name a download of the current view gets. Nothing was picked from the
-   list, so it is named after where its middle actually is -- which is the
-   whole difference between a row that says which download it is and one
-   that says only that a download happened. The generic phrase this replaced
-   is what got the row mistaken for the map underneath everything. */
+   list, so it is named after where its middle is -- the difference between a
+   row that says which download it is and one that says only that a download
+   happened. The generic phrase this replaced is what got the row mistaken for
+   the map underneath everything. */
 check(
   `a download of the view is named after where it is (${
     downloads1.map((e) => e.name).join(", ")
@@ -2344,9 +2330,9 @@ check(
     && ["London", "United Kingdom and London", "Overlapping patch"]
       .every((n) => downloads1.some((e) => e.name === n)),
 );
-/* The overview is in the list and is not one of them: it is flagged, and
-   the flag is what every caller sorts by -- never the name, which on an
-   install from before the split is whatever the picker happened to say. */
+/* The overview is in the list and is not one of them. It is flagged, and the
+   flag is what every caller sorts by -- never the name, which on an install
+   from before the split is whatever the picker happened to say. */
 check(
   "and the world overview is beside them rather than among them",
   (ledger1.entries ?? []).filter((e) => e.overview).length === 1,
@@ -2365,8 +2351,8 @@ check(
 
 await openButton.click();
 await page.waitForSelector(".download-ledger", { timeout: 10_000 });
-/* The list refetches on mount; wait for the adoption to be visible rather
-   than racing the request. */
+/* The list refetches on mount. Wait for the new row rather than racing the
+   request. */
 const listedRows = await page
   .waitForFunction(
     () => document.querySelectorAll(".ledger-row").length === 4,
@@ -2375,22 +2361,21 @@ const listedRows = await page
   )
   .then(() => true, () => false);
 check("the card lists the downloaded maps, and the map under them", listedRows);
-/* Three rows can be removed and one cannot, which is the whole point of the
-   fourth being there. */
+/* Three rows can be removed and one cannot, which is why the fourth is
+   there. */
 check(
   "Remove is on every download and on nothing else",
   (await page.locator(".ledger-row .ledger-remove").count()) === 3,
 );
-/* The rule behind that count, checked against the server's own answer
-   rather than against a number: a row may offer Remove only if its entry
-   has an archive of its own to unlink. An empty `file` means the tiles are
-   in map.pmtiles, shared with the base map, and removing one of those
-   rewrites or unlinks the file the whole application draws from.
+/* The rule behind that count, checked against the server's own answer rather
+   than a number: a row may offer Remove only if its entry has an archive of
+   its own to unlink. An empty `file` means the tiles are in map.pmtiles,
+   shared with the base map, and removing one of those rewrites or unlinks the
+   file the whole app draws from.
 
-   Cross-referenced by name because that is what a person reads off the row.
-   This is the check that would have caught "Map view" -- a merged London
-   box, offering Remove, indistinguishable from the base map in the panel
-   and part of it on disk. */
+   Cross-referenced by name, because that is what a person reads off the row.
+   This would have caught "Map view" -- a merged London box offering Remove,
+   indistinguishable from the base map in the panel and part of it on disk. */
 const rowVerbs = await page.$$eval(".ledger-row", (els) =>
   els.map((el) => ({
     name: el.querySelector(".ledger-name")?.textContent?.trim() ?? "",
@@ -2420,9 +2405,9 @@ check(
   "nothing just downloaded is flagged for update",
   (await page.locator(".ledger-stale").count()) === 0,
 );
-/* Every row offers its file directly. Nothing is built and nothing is
-   waited on: the download already wrote the file this points at, which is
-   what the export step used to spend minutes producing. */
+/* Every row offers its file directly. Nothing is built and nothing is waited
+   on: the download already wrote the file this points at, which the export
+   step used to spend minutes producing. */
 check(
   "each row hands over its own file",
   (await page.locator(".ledger-row .ledger-export").count()) === 3
@@ -2447,16 +2432,16 @@ check(
     .locator(".hint").textContent()) ?? "").includes("updated"),
 );
 
-/* The reminder threshold lives on the server, next to the archive it
-   describes -- localStorage stays empty, as asserted at the end -- so the
-   choice must survive closing the card. */
+/* The reminder threshold lives on the server, next to the archive it describes
+   -- localStorage stays empty, as asserted at the end -- so the choice must
+   survive closing the card. */
 check(
   "the update reminder defaults to 90 days",
   ((await dropdownIn(".ledger-reminder").textContent()) ?? "").includes("90"),
 );
 await chooseFrom(".ledger-reminder", "30");
-/* The save is a request; let the server confirm it before the card closes,
-   or the reopened card can read the old value in perfect honesty. */
+/* The save is a request. Let the server confirm it before the card closes, or
+   the reopened card honestly reads the old value. */
 check(
   "the reminder write reaches the server",
   await until(async () =>
@@ -2481,21 +2466,21 @@ check(
 );
 
 /* Remove is two presses of the same button, because it discards gigabytes.
-   The view download's tiles sit inside the United Kingdom pick, so removing
-   it must keep the archive intact -- entries own records, not tiles. */
-/* Matched on the name cell exactly. "London" is a substring of the pick
-   named "United Kingdom and London", so hasText on the row would find two.
-   Which is the point of the name: it says which download this is. */
+   The view download's tiles sit inside the United Kingdom pick, so removing it
+   must keep the archive intact -- entries own records, not tiles.
+
+   Matched on the name cell exactly. "London" is a substring of the pick named
+   "United Kingdom and London", so hasText on the row would find two. */
 const londonRow = {
   has: page.locator(".ledger-name", { hasText: /^London$/ }),
 };
 const viewRow = page.locator(".ledger-row").filter(londonRow);
 
-/* The name has to have a column to sit in. Unwrapped, the row's three
-   buttons took the full width and left the name a few pixels, which
-   `overflow-wrap` then honoured by breaking the name one letter per line --
-   a tall thin stack of characters. Wider than it is tall is the cheap way to
-   say "this is a line of text", and it fails loudly on the broken layout. */
+/* The name needs a column to sit in. Unwrapped, the row's three buttons took
+   the full width and left the name a few pixels, which `overflow-wrap` then
+   honoured by breaking it one letter per line -- a tall thin stack of
+   characters. Wider than it is tall is the cheap way to say "this is a line of
+   text". */
 const nameBox = await viewRow.locator(".ledger-name").boundingBox();
 check(
   `the ledger name reads as a line, not a column (${
@@ -2511,7 +2496,7 @@ check(
     .includes("Really"),
 );
 await viewRow.locator(".ledger-remove").click();
-/* Three, not two: the overview row is one of them and does not leave. */
+/* Three, not two: the overview row is one of them and stays. */
 const rowGone = await page
   .waitForFunction(
     () => document.querySelectorAll(".ledger-row").length === 3,
@@ -2525,7 +2510,7 @@ const removedToast = await page
     () =>
       [...document.querySelectorAll(".app-toast")].some((t) => {
         const text = t.textContent ?? "";
-        /* Either wording is correct: bytes freed, or all tiles shared. */
+        /* Either wording is correct: bytes freed, or every tile shared. */
         return text.includes("Maps removed") || text.includes("Map removed");
       }),
     null,
@@ -2540,16 +2525,16 @@ check(
   downloads2.length === 2
     && !downloads2.some((e) => e.name === "London"),
 );
-/* And the floor is untouched by a removal, which is the reason the overview
-   has its own file. */
+/* A removal leaves the floor untouched, which is why the overview has its own
+   file. */
 check(
   "removing a region leaves the world overview alone",
   (await fetch(`${base}/basemap/world.pmtiles`, { method: "HEAD" })).status
     === 200,
 );
-/* The other regions are untouched too, and now that is a fact about files
-   rather than about a rewrite: a removal unlinks one archive and cannot
-   reach into the others. */
+/* The other regions are untouched too, and that is now a fact about files
+   rather than about a rewrite: a removal unlinks one archive and cannot reach
+   into the others. */
 const survivors = await Promise.all(
   downloads2.map(async (e) =>
     (await fetch(`${base}/basemap/${e.file}`, { method: "HEAD" })).status
@@ -2564,18 +2549,17 @@ check(
 
    The shape this rule exists for, and one no download can produce any more:
    an entry whose tiles are inside map.pmtiles, with no file of its own. That
-   is what an install from before the one-file-per-region split looks like,
-   and what tools/fetch-basemap.sh leaves behind -- the base map the server
-   draws from, carrying a record named whatever the picker said at the time.
-   On the install that prompted this it said "Map view", and it sat there
-   offering Remove.
+   is what an install from before the one-file-per-region split looks like, and
+   what tools/fetch-basemap.sh leaves behind -- the base map the server draws
+   from, carrying a record named whatever the picker said at the time. On the
+   install that prompted this it said "Map view", and it offered Remove.
 
    Dropped in from the fixture rather than downloaded, because downloading one
-   is exactly what stopped being possible. Taken away again afterwards so the
+   is what stopped being possible. Taken away again afterwards, so the
    assertions below meet the directory they expect.
 
    The DOM only. The server's own refusal is driven in
-   ocaml/server/test/test_regions.ml, which can assert the REASON it gives; a
+   ocaml/server/test/test_regions.ml, which can assert the reason it gives. A
    refused removal here would still be a job, and every later check on this
    server counts job generations. */
 const basemapDir = new URL("../../_build/e2e-basemap/", import.meta.url);
@@ -2602,7 +2586,7 @@ check(
     && (await legacyRow.locator(".ledger-update").count()) === 0,
 );
 /* Carrying it away is not deleting it, and extraction is the only way one of
-   these ever reaches another machine. That stays. */
+   these reaches another machine. That stays. */
 check(
   "but can still be carried off, which is how a merged region escapes",
   (await legacyRow.locator(".ledger-export").count()) === 1,
@@ -2610,9 +2594,9 @@ check(
 rmSync(new URL("map.pmtiles", basemapDir), { force: true });
 await reopenCard();
 
-/* Update through the card, on the clipped country pick: the one deliberate
-   way to refresh held tiles, exercised over a polygon region. The card
-   closes itself when the job completes, like any download. */
+/* Update through the card, on the clipped country pick: the one deliberate way
+   to refresh held tiles, exercised over a polygon region. The card closes
+   itself when the job completes, like any download. */
 await page
   .locator(".ledger-row")
   .filter({ hasText: "United Kingdom" })
@@ -2630,10 +2614,10 @@ await page.waitForFunction(
 /* ------------------- multi-part downloads and resume ----------------------
 
    A third server instance runs with a deliberately tiny tile budget
-   (--tile-budget 1024,256,8), so a request the production budget would
-   swallow whole is forced down the giant path: split into parts, fetched
-   one at a time, each merged and renamed atomically. Driven over the API
-   because the interesting claims are the server's. */
+   (--tile-budget 1024,256,8), so a request the production budget would swallow
+   whole is forced down the giant path: split into parts, fetched one at a
+   time, each merged and renamed atomically. Driven over the API, because the
+   interesting claims are the server's. */
 const base3 = process.argv[3] ?? "http://127.0.0.1:7375";
 const post3 = async (endpoint, body) =>
   await fetch(`${base3}/api/${endpoint}`, {
@@ -2674,7 +2658,7 @@ const est3b = await (await post3("basemap-estimate", { regions: [world] }))
   .json();
 check("re-asking after a split download says covered", est3b.covered === true);
 /* The resume path: every part's tiles are already held, so each is planned,
-   found covered, and skipped -- the download writes nothing and says so. */
+   found covered and skipped. The download writes nothing and says so. */
 await post3("basemap-download", { regions: [world] });
 const again3 = await finalJob3(2);
 check(
@@ -2682,8 +2666,8 @@ check(
   again3?.state === "failed" && /already have/.test(again3.reason ?? ""),
 );
 
-/* The same ledger, driven over the API. The scripted download above carried
-   no name, so the server coined one from its box. */
+/* The same ledger, over the API. The scripted download above carried no name,
+   so the server coined one from its box. */
 const led3 = await (await post3("basemap-ledger")).json();
 check(
   "a scripted download is recorded under its box",
@@ -2691,11 +2675,10 @@ check(
     && led3.entries[0].name === "-179.90, -84.00 - 179.90, 84.00"
     && led3.entries[0].completed > 0,
 );
-/* The accuracy claim on bytes: the entry records what the network
-   delivered, never archive-copy volume. For a multi-part download the
-   quote deliberately double-counts seam tiles the later parts then skip,
-   so fetched <= quoted; and the copy volume re-counts every earlier part,
-   so fetched < Done's total. The old bug recorded the latter. */
+/* The entry records what the network delivered, never archive-copy volume. For
+   a multi-part download the quote deliberately double-counts seam tiles the
+   later parts skip, so fetched <= quoted; the copy volume re-counts every
+   earlier part, so fetched < Done's total. The old bug recorded the latter. */
 check(
   "the recorded bytes are network bytes, not copy volume",
   led3.entries?.[0]?.bytes > 0
@@ -2703,8 +2686,8 @@ check(
     && led3.entries[0].bytes < done3.total_bytes,
 );
 const id3 = led3.entries?.[0]?.id ?? "";
-/* Update re-fetches the region tile for tile -- the one deliberate way to
-   refresh stale tiles -- and, still over the tiny budget, in parts again. */
+/* Update re-fetches the region tile for tile, and under the tiny budget it
+   does so in parts again. */
 await post3("basemap-update", { id: id3 });
 const upd3 = await finalJob3(3);
 check(
@@ -2732,8 +2715,8 @@ check(
     === 400,
 );
 /* Removing an entry removes the archive itself: the record lives inside the
-   file it describes, so the two leave together and there is nothing left
-   behind holding tiles nobody can name. */
+   file it describes, so the two leave together and nothing is left behind
+   holding tiles nobody can name. */
 const led3file = (await (await post3("basemap-ledger")).json()).entries
   ?.find((e) => e.id === id3)?.file ?? "";
 check("the region under test has a file of its own", led3file !== "");
@@ -2759,10 +2742,9 @@ check(
   rem3b?.state === "failed",
 );
 
-/* A giant beyond even the split ceiling is clamped to a shallower granted
-   depth -- and the ledger must record the depth that was FETCHED, not the
-   one asked for, or Remove and Update would speak of tiles that never
-   existed. */
+/* A request past even the split ceiling is clamped to a shallower granted
+   depth. The ledger must record the depth that was FETCHED, not the one asked
+   for, or Remove and Update would speak of tiles that never existed. */
 const deepWorld = { ...world, max_zoom: 10 };
 const estClamped = await (await post3("basemap-estimate", {
   regions: [deepWorld],
@@ -2791,8 +2773,8 @@ check(
 
 /* ------------------------------ browse cache -------------------------------
 
-   Opt in, look at a place, and its tiles are cached -- server-side gate,
-   anonymous tiles, and (on this server's one-byte compaction threshold)
+   Opt in, look at a place, and its tiles are cached: server-side gate,
+   anonymous tiles, and -- on this server's one-byte compaction threshold --
    folded straight into the main archive. */
 const tileAt = (lon, lat, z) => {
   const n = 2 ** z;
@@ -2823,11 +2805,11 @@ check(
 const browsed = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
   .json();
 check("a settled view fetches its missing tiles", browsed.fetched > 0);
-/* The depth actually written travels back with it. The client compares
-   this against what its map advertises to decide whether deeper tiles have
-   arrived, so a wrong or missing number is a map that never fills in. */
+/* The depth actually written travels back with the answer. The client compares
+   it against what its map advertises to decide whether deeper tiles arrived,
+   so a wrong or missing number is a map that never fills in. */
 check("the browse answers with the depth it wrote", browsed.zoom === 15);
-/* The one-byte threshold compacts immediately; wait for the writer to rest. */
+/* The one-byte threshold compacts immediately. Wait for the writer to rest. */
 check(
   "the cache folds into the main archive past the threshold",
   await until(async () => {
@@ -2851,12 +2833,12 @@ const browsedAgain = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
   .json();
 check("a second look fetches nothing", browsedAgain.fetched === 0);
 
-/* The world offer must return for anyone who started with a region. A
-   fresh page on this server (archive on disk) with the WORLD estimate
-   answered by intercept: whether the server's estimate is right is the
-   server tests' business; the card's rule under test is "maps present +
-   world missing => the offer is back". The old rule -- offer only on an
-   empty map -- is exactly how the Georgia-first user never saw it. */
+/* The world offer must return for anyone who started with a region. A fresh
+   page on this server (archive on disk), with the WORLD estimate answered by
+   an intercept: whether the server's estimate is right is the server tests'
+   business. The rule under test is the card's -- "maps present + world missing
+   => the offer is back". The old rule, offer only on an empty map, is how the
+   user who started with Georgia never saw it. */
 const worldPage = await context.newPage();
 const isWorldAsk = (data) => {
   try {
@@ -2865,7 +2847,7 @@ const isWorldAsk = (data) => {
     return body.regions?.length === 1 && r?.min_lon === -180
       && r?.max_lon === 180 && r?.min_lat === -85 && r?.max_zoom === 6;
   } catch {
-    /* not JSON: not ours */
+    /* not JSON, so not ours */
     return false;
   }
 };
@@ -2908,54 +2890,50 @@ check(
 );
 await worldPage.close();
 
-/* Let the swapped style fetch and render its tiles; anything it logs from
-   here on fails the final console check. */
+/* Let the swapped style fetch and render its tiles. Anything it logs from here
+   on fails the final console check. */
 await page.waitForTimeout(2500);
 
-/* Going to an address, through the one box that now takes both an address and
-   a place name. It replaces a dedicated lookup form in the panel; the address
-   is classified in the browser, so nothing about it is sent anywhere, and the
-   offered row is taken the way a place result is taken. */
+/* Going to an address, through the one box that takes both an address and a
+   place name. It replaced a dedicated lookup form in the panel. The address is
+   classified in the browser, so nothing about it is sent anywhere, and the
+   offered row is taken the way a place result is. */
 const goToAddress = async (address) => {
   await page.locator("#place-search-input").fill("");
   await page.waitForTimeout(350);
   await page.locator("#place-search-input").fill(address);
   await page.waitForSelector(".place-option", { timeout: 15_000 });
   await page.locator(".place-option").first().click();
-  /* At most a 1.2 s flight, and for anything off-screen no flight at all --
-     see ui/src/core/camera.ts. Either way this is long enough. */
+  /* At most a 1.2 s flight, and no flight at all for anything off-screen --
+     see ui/src/core/camera.ts. Either way this wait is long enough. */
   await page.waitForTimeout(2000);
 };
 
 /* The round trip the whole project is for, driven entirely through the UI:
-   paste an address, fly to the square it names, click that square, and get
-   the same address back.
-
-   No test hook on the map. Going through the real controls is what makes this
-   evidence that a person can do it. */
+   paste an address, fly to the square it names, click that square, and get the
+   same address back. No test hook on the map -- going through the real
+   controls is what makes this evidence that a person can do it. */
 await goToAddress(sample.address);
 
 const lookupFailed = await page.locator(".app-toast[data-kind=error]")
   .count();
 check(`looking up ${sample.address} succeeds`, lookupFailed === 0);
 
-/* flyTo centres on the decoded point, so the centre pixel is inside the
-   square that address names. Clicking it must name it the same way. */
+/* flyTo centres on the decoded point, so the centre pixel is inside the square
+   that address names. Clicking it must give the same address back. */
 const box = await page.locator(".map").boundingBox();
 await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 await page.waitForTimeout(1500);
 
-/* Reads the panel's latitude and longitude back as numbers.
+/* The coordinates are what pin the browser's KEY to the vectors, and nothing
+   else in the suite does. Looking up an address and clicking the square it
+   lands on is a round trip through decode-then-encode, which returns the
+   address you started with under ANY key: a wrong key decodes it to a
+   different place on Earth and re-encodes that place back to the same words.
+   The coordinates are the only output that differs.
 
-   This is what pins the browser's KEY to the vectors, and nothing else in the
-   suite does. Looking up an address and clicking the square it lands on is a
-   round trip through decode-then-encode, which returns the address you started
-   with under ANY key -- a wrong key simply decodes it to a different place on
-   Earth and re-encodes that place back to the same words. The coordinates are
-   the only output that differs. */
-/* Coordinates start hidden, exactly like the address -- they name where
-   someone is. The mask must be in the DOM in place of the value, not over
-   it, and the eye reveals. */
+   They start hidden, like the address, because they name where someone is. The
+   mask must be in the DOM in place of the value, not over it. */
 const maskedCoords = await page.locator(".coords dd").allTextContents();
 check(
   "coordinates are hidden by default -- mask instead of value, not over it",
@@ -2972,20 +2950,20 @@ check(
 
 /* ---------------------------------------- what a toast has to keep doing
 
-   Two behaviours here are TUNED rather than default, which means they are
-   the two a change of library would silently undo. Named through this
-   application's own `app-toast` class rather than through the current
-   library's data attributes, so these assertions outlive it.
+   Two behaviours here are TUNED rather than default, so they are the two a
+   change of library would silently undo. Located through this project's own
+   `app-toast` class rather than the current library's data attributes, so
+   these assertions outlive it.
 
-   The first: an error waits to be dismissed. Sonner's default five seconds
-   is shorter than a long message being read aloud, and the message vanished
-   mid-sentence. Nothing in a screenshot would show that; it needs a clock.
+   The first: an error waits to be dismissed. Sonner's default five seconds is
+   shorter than a long message being read aloud, and the message vanished
+   mid-sentence. A screenshot cannot show that; it needs a clock.
 
-   Raised by making the clipboard refuse, which is a real failure -- a
-   permissions policy or a non-secure context does exactly this -- and the
-   only error path in the app that can be provoked on demand. */
+   Provoked by making the clipboard refuse, which is a real failure -- a
+   permissions policy or a non-secure context does exactly this -- and the only
+   error path in the app that can be triggered on demand. */
 const anyToast = page.locator(".app-toast");
-/* The coordinates' own copy control, revealed just above. */
+/* The coordinates' own copy control, revealed above. */
 const toastCopy = page.locator(".coords-row .icon-button").nth(1);
 await page.evaluate(() => {
   globalThis.__realWrite = navigator.clipboard.writeText.bind(
@@ -3000,10 +2978,10 @@ check(
     .then(() => true, () => false),
 );
 
-/* Legible before it is timed: the text a toast carries is 13px, and the
-   library's own tinted palette put it under AA -- which is why richColors
-   is off. Computed, because the colours live in a stylesheet this project
-   does not own and no token audit can reach them. */
+/* Legible before it is timed: toast text is 13px, and the library's tinted
+   palette put it under AA, which is why richColors is off. Computed, because
+   the colours live in a stylesheet this project does not own and no token
+   audit can reach them. */
 const toastContrast = await anyToast.first().evaluate((box) => {
   const n = box.querySelector(".app-toast-message") ?? box;
   const s = getComputedStyle(n);
@@ -3031,21 +3009,25 @@ check(
   toastContrast.ratio >= 4.5,
 );
 
-/* Past the success duration, and still there. This is the whole point. */
-await page.waitForTimeout(7000);
+/* Past the success duration, and still there. The one wait here that cannot be
+   a condition: nothing happens at the end of it, so the only way to know an
+   error stayed is to be past the moment a success would have gone. Half a
+   second past, not two -- the margin covers the queue's own timer, not a slow
+   machine. */
+await page.waitForTimeout(SUCCESS_MS + 500);
 check(
   "an error toast is still on screen after a success would have gone",
   (await anyToast.count()) >= 1,
 );
 
-/* And it can be got rid of, which is what makes waiting acceptable. A
-   toast that never leaves and cannot be dismissed is a trap for anyone
-   who cannot reach for a pointer. */
+/* And it can be dismissed, which is what makes waiting acceptable. A toast
+   that never leaves and cannot be dismissed traps anyone who cannot reach for
+   a pointer. */
 const closer = anyToast.first().locator("button").first();
 check("it carries a control to dismiss it", (await closer.count()) === 1);
-/* By its own text, not by "a toast is gone": the queue shows one at a time,
-   so anything waiting behind takes the closed one's place and a bare count
-   would read as nothing having happened. */
+/* By its own text, not by "a toast is gone": the queue shows one at a time, so
+   anything waiting behind takes the closed one's place and a bare count would
+   read as nothing having happened. */
 const dismissing = (await anyToast.first().textContent() ?? "").trim();
 await closer.click();
 const dismissed = await page.waitForFunction(
@@ -3062,27 +3044,27 @@ check(
   dismissed,
 );
 
-/* The real clipboard back, so the copy checks further down are still
-   reading the browser's own and not a stub left behind by this one. */
+/* The real clipboard back, so the copy checks below read the browser's own
+   rather than the stub left by this one. */
 await page.evaluate(() => {
   navigator.clipboard.writeText = globalThis.__realWrite;
 });
 
 /* Announced, or it is not a message at all: a toast reports the outcome of
-   something a person just did, and someone not looking at that corner of
-   the screen has only the live region. */
+   something a person just did, and someone not looking at that corner of the
+   screen has only the live region. */
 check(
   "toasts are announced through a live region",
   (await page.locator("[aria-live]").count()) >= 1,
 );
 
-/* Zoomed out, a ~3 m square is sub-pixel; a pin has to mark it or a fresh
-   lookup shows an empty map. Checked by rendering, not by layer presence:
-   the layer existing and drawing nothing was the failure mode. */
+/* Zoomed out, a ~3 m square is sub-pixel, so a pin has to mark it or a fresh
+   lookup shows an empty map. Checked by rendering, not by layer presence: the
+   layer existing and drawing nothing was the failure. */
 const pinVisible = await page.evaluate(async () => {
   const map = window.__tessarium_map;
   if (!map) return false;
-  /* Bounded: a hang here should fail one check, not wedge the suite. */
+  /* Bounded, so a hang fails one check rather than wedging the suite. */
   const settle = () =>
     Promise.race([
       new Promise((resolve) => map.once("idle", () => resolve(true))),
@@ -3100,13 +3082,12 @@ const pinVisible = await page.evaluate(async () => {
 });
 check("a pin marks the selected square when zoomed out", pinVisible);
 
-/* The epoch the panel names, and it has to be the one this build actually
-   speaks. An address carries no version inside it, so a code issued under an
-   older grid decodes to a different and entirely plausible square with nothing
-   to say why -- naming the grid here is what lets someone label the codes they
-   keep with the grid those codes belong to. Held to the VECTORS rather than to
-   a copy of the string in this file, so a panel left showing a stale version
-   fails here. */
+/* The grid version the panel names has to be the one this build speaks. An
+   address carries no version inside it, so a code issued under an older grid
+   decodes to a different and entirely plausible square with nothing to say
+   why. Naming the grid lets someone label the codes they keep with the grid
+   those codes belong to. Held to the VECTORS rather than to a copy of the
+   string in this file, so a panel showing a stale version fails here. */
 const shownVersions = await page.locator(".versions code").allTextContents();
 check(
   `the panel names the grid version (${vectors.grid_version}, got ${
@@ -3124,17 +3105,17 @@ const panelCoords = async () => {
   return cells.map((t) => Number.parseFloat(t.replace(/[^0-9.-]/g, "")));
 };
 
-/* A decoded point lands somewhere in the ~3 m cell, so this is generous
-   against rounding and merciless against a wrong key, which would put the
-   point on another continent. */
+/* A decoded point lands somewhere in the ~3 m cell, so this is generous about
+   rounding and merciless about a wrong key, which would put the point on
+   another continent. */
 const nearly = (a, b) => Math.abs(a - b) < 0.0001;
 
 const eye = page.locator(".address-row .icon-button").first();
 const copyButton = page.locator(".address-row .icon-button").nth(1);
 
-/* Privacy mode is ON by default, so the address is not on screen yet -- and
-   "not on screen" has to mean absent from the document, not merely styled out
-   of sight, because anything reading the page is what it is hidden from. */
+/* Privacy mode is ON by default, so the address is not on screen yet. "Not on
+   screen" has to mean absent from the document rather than styled out of
+   sight, because anything reading the page is what it is hidden from. */
 check(
   "a newly selected address is concealed by default",
   !(await page.locator(".selected").innerHTML()).includes(sample.address),
@@ -3145,8 +3126,8 @@ check(
 );
 
 /* Copying works while concealed: putting an address on the clipboard is not
-   putting it on the screen. This is also how we learn the right address is
-   there at all before revealing it. */
+   putting it on the screen. This is also how the right address is confirmed to
+   be there before it is revealed. */
 await copyButton.click();
 const concealedClipboard = await page.evaluate(() =>
   navigator.clipboard.readText()
@@ -3163,25 +3144,25 @@ check(
   clicked === sample.address,
 );
 
-/* And it is painted in the colour the palettes reserve for it. --color-accent-alt
-   is the address's own colour -- cyan in dark, deep cyan in light, soft red in
-   low light -- and it painted NOTHING: the element carried `text-accent-alt` as
-   a base class and `text-accent-text` in the revealed branch, so the later class
-   won every time the address was on screen and the token was spent only in the
-   one state where the text is blurred out anyway. Every palette defined it,
-   contrast.mjs audited it as "the address itself", and no pixel had ever been
-   that colour.
+/* And it is painted in the colour the palettes reserve for it.
+   --color-accent-alt is the address's own colour -- cyan in dark, deep cyan in
+   light, soft red in low light -- and it painted NOTHING. The element carried
+   `text-accent-alt` as a base class and `text-accent-text` in the revealed
+   branch, so the later class won whenever the address was on screen and the
+   token was spent only in the state where the text is blurred out anyway.
+   Every palette defined it, contrast.mjs audited it as "the address itself",
+   and no pixel had ever been that colour.
 
-   Compared against the resolved custom property rather than a literal, so the
-   check says "the address wears its own token" and survives a repaint of it. */
+   Compared against the resolved custom property rather than a literal, so this
+   says "the address wears its own token" and survives a repaint. */
 const paintedAs = async (prop) =>
   await page.evaluate((p) => {
     const el = document.querySelector(".address");
     if (!el) return ["", ""];
     const want = getComputedStyle(document.documentElement)
       .getPropertyValue(p).trim();
-    /* Resolved through a throwaway element so the token's hex and the
-       computed colour are in the same notation before they are compared. */
+    /* Resolved through a throwaway element, so the token's hex and the
+       computed colour are in the same notation before being compared. */
     const probe = document.createElement("span");
     probe.style.color = want;
     document.body.appendChild(probe);
@@ -3195,11 +3176,10 @@ check(
   addressInk === altToken && altToken !== "",
 );
 
-/* Version-skew detection, against the worker rather than the DOM. The served
-   worker, the served core and the committed vectors must agree on the grid
-   and derivation versions; a server upgraded behind a surviving tab, or a
-   worker rebuilt against a different core, breaks exactly this. The versions
-   are deliberately not displayed -- this test is where they live. */
+/* Version skew, asked of the worker rather than the DOM. The served worker,
+   the served core and the committed vectors must agree on the grid and
+   derivation versions. A server upgraded behind a surviving tab, or a worker
+   rebuilt against a different core, breaks exactly this. */
 const versionStatus = await page.evaluate(async () => {
   const worker = new Worker("/core.worker.js");
   return await new Promise((resolve, reject) => {
@@ -3220,7 +3200,6 @@ check(
   versionStatus.result?.derivationVersion === vectors.derivation_version,
 );
 
-/* The footer carries the app version, baked in from package.json. */
 const pkgVersion = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 ).version;
@@ -3237,18 +3216,16 @@ check(
   nearly(gotLat, sampleLat) && nearly(gotLon, sampleLon),
 );
 
-/* The map itself never writes addresses onto the squares. Checked while the
-   address IS revealed, so the check cannot pass merely because privacy mode
-   is hiding it. This catches a DOM-based label; a label drawn into the WebGL
-   canvas would not appear here either way, which is what the "no bulk address
-   operation" check above is for -- between them they cover the mechanism and
-   the result. */
+/* The map never writes addresses onto the squares. Checked while the address
+   IS revealed, so it cannot pass merely because privacy mode is hiding it.
+   This catches a DOM label; a label drawn into the WebGL canvas would not
+   appear here either way, which is what the "no bulk address operation" check
+   above covers. Between them they cover the mechanism and the result. */
 check(
   "no address is rendered onto the map",
   !(await page.locator(".map-wrap").innerHTML()).includes(sample.address),
 );
 
-/* And the toggle goes back. */
 await eye.click();
 check(
   "the eye toggle conceals it again",
@@ -3261,11 +3238,10 @@ check(
 );
 
 /* Arriving at an address selects it, and Enter on the canvas selects the
-   centre square. Both are checked here, and BOTH need something else to be
-   selected first or they pass against a build that does neither: the panel
-   already says `sample.address` from the click above, so an assertion that
-   it says so again is true no matter what the code does. That is exactly how
-   the first version of this passed with the feature removed.
+   centre square. BOTH need something else selected first, or they pass against
+   a build that does neither: the panel already says `sample.address` from the
+   click above, so asserting that it says so again is true whatever the code
+   does. That is how the first version of this passed with the feature removed.
 
    `clickAway` is what makes them mean something. At zoom 20 a quarter of the
    canvas is tens of metres, which is several squares, so it lands on a
@@ -3287,19 +3263,18 @@ check(
   (await clickAway()) !== sample.address,
 );
 
-/* The papercut this closes: typing an address is asking to be told about
-   that square, and until now it moved the camera and left the panel on
-   whatever was selected before. The camera is already there, so nothing but
-   the selection can be making this true. */
+/* Typing an address is asking to be told about that square, and it used to
+   move the camera and leave the panel on whatever was selected before. The
+   camera is already there, so only the selection can make this true. */
 await goToAddress(sample.address);
 check(
   `arriving at ${sample.address} selects its square without a click`,
   (await page.locator(".address").textContent()) === sample.address,
 );
 
-/* Keyboard access. The map is the one control that cannot be reached with the
-   search box, so Enter on the focused canvas must select the centre square --
-   the same square flyTo just centred, and the same address as the click. */
+/* Keyboard access. The map is the one control the search box cannot reach, so
+   Enter on the focused canvas must select the centre square -- the same square
+   flyTo just centred, and the same address as the click. */
 await clickAway();
 await page.evaluate(() => document.querySelector(".map canvas")?.focus());
 check(
@@ -3317,20 +3292,20 @@ check(
   (await page.locator(".address").textContent()) === sample.address,
 );
 
-/* Language. Switching must translate the interface, leave the address itself
-   alone -- it is BIP-39 English in every locale -- and, because this
-   application persists nothing, must not write a cookie or a storage key to
-   remember the choice. */
-/* The explainer by name, not "the first paragraph in the footer" -- a
-   warning was added above it and silently became what this read. */
+/* Language. Switching must translate the interface, leave the address alone --
+   it is BIP-39 English in every locale -- and, because this app persists
+   nothing, write no cookie or storage key to remember the choice.
+
+   The explainer is located by name, not as "the first paragraph in the
+   footer": a warning was once added above it and silently became what this
+   read. */
 const englishFooter = await page.locator(".panel-explainer").textContent();
 
 /* The map has to follow too. Its labels are asked for in the interface
    language, and the style reads that language once, when it is built -- so
-   switching afterwards used to translate the controls and leave an English
-   map underneath until a download happened to rebuild the style. Asserted on
-   the style the map is actually holding, not on pixels: the fixture's tiles
-   carry no labels to read. */
+   switching afterwards used to translate the controls and leave an English map
+   underneath until a download rebuilt the style. Asserted on the style the map
+   holds, not on pixels: the fixture's tiles carry no labels to read. */
 const labelLang = (lang) =>
   page.evaluate(
     (l) =>
@@ -3338,10 +3313,10 @@ const labelLang = (lang) =>
         .includes(`name:${l}`),
     lang,
   );
-/* The absence is what is checkable. Protomaps keeps `name:en` in every style
-   as the fallback for a place with no name in the chosen language, so its
-   presence says nothing; the language actually asked for is the one that
-   appears alongside it. */
+/* Only the absence is checkable. Protomaps keeps `name:en` in every style as
+   the fallback for a place with no name in the chosen language, so its
+   presence says nothing. The language asked for is the one that appears
+   alongside it. */
 check(
   "the map is not asking for French before French is chosen",
   !(await labelLang("fr")),
@@ -3392,16 +3367,15 @@ check(
   "choosing a language writes no sessionStorage",
   afterSwitch.session === "{}",
 );
-/* A refusal, said in French. This is the whole point of the code-and-
-   catalogue split: the message is produced by the worker and by the OCaml
-   core, neither of which can see a locale, so before this change a French
-   user met English at the exact moment something went wrong.
+/* A refusal, said in French. This is the point of the code-and-catalogue
+   split: the message comes from the worker and the OCaml core, neither of
+   which can see a locale, so a French user used to meet English at the exact
+   moment something went wrong.
 
    The address below is well formed and names nothing -- about 35% of word
-   combinations do not, which is what makes a typo obvious -- so it is a
-   refusal from the wasm core, carried out through a code. Matched on French
-   words rather than on "not the English", because a blank box would also not
-   be the English. */
+   combinations do not, which is what makes a typo obvious -- so the refusal
+   comes from the wasm core as a code. Matched on French words rather than on
+   "not the English", because a blank box is also not the English. */
 await page.locator("#place-search-input").fill("");
 await page.waitForTimeout(350);
 await page.locator("#place-search-input").fill(vectors.invalid_addresses[0]);
@@ -3422,8 +3396,8 @@ await page.waitForTimeout(350);
 await chooseFrom(".language", "en-US");
 await page.waitForTimeout(400);
 
-/* And the same refusal in English, so the check above is testing the
-   catalogue rather than a box that says "combinaisons" whatever happens. */
+/* And the same refusal in English, so the check above tests the catalogue
+   rather than a box that says "combinaisons" whatever happens. */
 await page.locator("#place-search-input").fill(vectors.invalid_addresses[0]);
 const refusalEnglish = await page.locator(".place-empty").first()
   .textContent({ timeout: 15_000 })
@@ -3439,22 +3413,20 @@ await page.waitForTimeout(350);
 /* NFKD across the whole stack.
 
    The vectors' keys were derived from the NFKD form of this passphrase.
-   Unlock with the PRECOMPOSED form -- the direction that can fail: the
-   decomposed form is NFKD's own output and would pass with normalisation
-   removed -- and require the vector's address out. Since kdf-3 the browser
-   builds its KDF inputs through the js_of_ocaml core and stretches in the
-   Argon2id wasm, so this pins that whole chain, not a JS re-spelling of
-   the normalisation. "café" typed on one keyboard and pasted from another
-   are two byte sequences; before NFKD they were two different maps and the
-   user was told nothing. */
+   Unlocking with the PRECOMPOSED form is the direction that can fail, and it
+   must still produce the vector's address. Since kdf-3 the browser builds its
+   KDF inputs through the js_of_ocaml core and stretches them in the Argon2id
+   wasm, so this pins that whole chain rather than a JS re-spelling of the
+   normalisation. "café" typed on one keyboard and pasted from another are two
+   byte sequences; before NFKD they were two different maps, and the user was
+   told nothing. */
 const nfkdSample = vectors.nfkd_addresses[0];
-/* PRECOMPOSED here, deliberately. NFKD's *output* is the decomposed form, so
+/* PRECOMPOSED, deliberately. NFKD's output is the decomposed form, so
    unlocking with the decomposed passphrase yields the right key even when
-   normalisation is skipped entirely — a test written that way passes whether
-   or not the code under it works, which is how the first version of this
-   check was written. Feeding the precomposed form is the direction that can
-   actually fail: without NFKD those bytes go into the KDF unchanged and
-   derive a different key. */
+   normalisation is skipped entirely — which is how the first version of this
+   check passed whether or not the code worked. The precomposed form is the
+   direction that can fail: without NFKD those bytes reach the KDF unchanged
+   and derive a different key. */
 const nfkdEntry = vectors.key_derivation.find((k) => k.name === "pass-nfc");
 const nfdEntry = vectors.key_derivation.find((k) => k.name === "pass-nfd");
 check(
@@ -3462,10 +3434,9 @@ check(
   nfkdEntry.passphrase !== nfdEntry.passphrase,
 );
 
-/* Locking asks first now: it forgets a key that cannot be recovered from
-   anything this app holds, so the press that does it is confirmed. Cancel is
-   the safe answer and the dialog is dismissable, which is why the
-   destructive one is the only thing that locks. */
+/* Locking asks first: it forgets a key that cannot be recovered from anything
+   this app holds. Cancel is the safe answer and the dialog is dismissable, so
+   only the destructive button locks. */
 await page.locator(".panel-head .lock").click();
 await page.waitForSelector(".modal-dialog", { timeout: 10_000 });
 check(
@@ -3489,8 +3460,8 @@ await page.mouse.click(
 );
 await page.waitForTimeout(1500);
 await page.locator(".address-row .icon-button").first().click();
-/* Locking must have hidden the coordinates again; assert it, or a broken
-   reset would make this click CONCEAL them and fail later with a message
+/* Locking must have hidden the coordinates again. Asserted, because a broken
+   reset would make the click below CONCEAL them and fail later with a message
    about NFKD normalisation instead of this one. */
 check(
   "locking hides the coordinates again",
@@ -3512,35 +3483,35 @@ check(
 
    Reported from use: save two addresses in a notepad, lock, type the same
    phrase back in, and the two addresses no longer land where they were saved
-   from -- and not consistently, so a single lookup looks fine and only
-   repeating it shows the drift.
+   from -- inconsistently, so a single lookup looks fine and only repeating it
+   shows the drift.
 
    Nothing above catches that. The suite unlocks once at the top and locks
    exactly once, to a DIFFERENT phrase, so "the same phrase twice" was never
-   asked. js/worker-differential.mjs cannot ask it either: it drives the
-   worker in one process, and a key that changed across a lock is invisible
-   from inside the worker that holds it.
+   asked. js/worker-differential.mjs cannot ask it either: it drives the worker
+   in one process, and a key that changed across a lock is invisible from
+   inside the worker holding it.
 
-   So this locks and re-enters the SAME phrase three times, and holds two
-   addresses, saved once at the start, to the place they were saved from.
-   Three cycles rather than one, because the report was that it was
-   inconsistent rather than always wrong.
+   So this locks and re-enters the SAME phrase three times, holding two
+   addresses saved at the start to the place they were saved from. Three cycles
+   rather than one, because the report was that it was inconsistent rather than
+   always wrong.
 
-   Two things are compared, and they fail in different ways:
+   Two things are compared, and they fail differently:
      - where the address takes the CAMERA. That is decode under the key, so a
-       key that changed moves it.
+       changed key moves it.
      - what the square at the original point is CALLED. A changed key decodes
        an address to a new place and re-encodes that place back to the same
-       words, so the camera check alone can be satisfied by a wrong key; this
+       words, so the camera check alone can be satisfied by a wrong key. This
        is the half that cannot be.
 
-   The tolerance is 1e-6 degrees, about 11 cm. That is deliberately far
-   tighter than the ~3 m cell: at cell width this would pass while pointing
-   at the wrong square. The panel prints 7 fraction digits, so the parsed
-   value is good to about 1e-7 and the margin is real.
+   The tolerance is 1e-6 degrees, about 11 cm, deliberately far tighter than
+   the ~3 m cell: at cell width this would pass while pointing at the wrong
+   square. The panel prints 7 fraction digits, so the parsed value is good to
+   about 1e-7 and the margin is real.
 
-   If the grid or the constants ever change on purpose, saved addresses SHOULD
-   stop lining up and this must fail: the two points come from the committed
+   If the grid or the constants change on purpose, saved addresses SHOULD stop
+   lining up and this must fail: the two points come from the committed
    vectors, which are regenerated in the same commit. */
 
 const same = (a, b) => Math.abs(a - b) < 1e-6;
@@ -3557,8 +3528,8 @@ const relock = async (mnemonic) => {
 };
 
 /* Both values are concealed after every unlock and STAY as the user set them
-   across squares, so this reveals only what is actually masked -- pressing
-   unconditionally hides them again on the second square. */
+   across squares, so this reveals only what is masked. Pressing
+   unconditionally would hide them again on the second square. */
 const reveal = async () => {
   if (((await page.locator(".address").textContent()) ?? "").includes("•")) {
     await page.locator(".address-row .icon-button").first().click();
@@ -3581,15 +3552,12 @@ const reveal = async () => {
   );
 };
 
-/* Click one exact point and read back what the panel says about it. Always
-   the same physical point across cycles: the panel prints the square's LOW
-   CORNER, and re-clicking that corner is a coin toss between four squares. */
-/* Whether the panel is showing the square for the point just clicked rather
+/* Whether the panel is showing the square for the point just clicked, rather
    than the one selected before it. The panel prints the square's low corner,
    so a point inside its own square sits at or above that corner by less than
-   one square's width. The bound is loose deliberately: this only has to tell
-   "our point" from "the other saved point", which is a hemisphere away. The
-   precise comparison belongs to the caller. */
+   one square's width. The bound is deliberately loose: it only has to tell
+   "our point" from "the other saved point", a hemisphere away. The precise
+   comparison belongs to the caller. */
 const showsSquareFor = async (lat, lon) => {
   const cells = await page.locator(".coords dd").allTextContents();
   if (cells.length !== 2 || cells.some((t) => t.includes("•"))) return null;
@@ -3602,18 +3570,17 @@ const showsSquareFor = async (lat, lon) => {
     : null;
 };
 
-/* Click one exact point and read back what the panel says about it. Always
-   the same physical point across cycles: the panel prints the square's LOW
-   CORNER, and re-clicking that corner is a coin toss between four squares.
+/* Click one exact point and read back what the panel says about it. Always the
+   same physical point across cycles: the panel prints the square's LOW CORNER,
+   and re-clicking that corner is a coin toss between four squares.
 
-   Two things here are load-related rather than fussy, and both were seen.
-   Selecting is a click plus a round trip into the worker, and under `make
-   test` -- where this runs alongside everything else -- the click can land
-   while the map is still settling and select nothing, so it is retried. And
-   waiting for `.address` is not enough on its own: the PREVIOUS square's
-   address is still on screen, so the wait returns immediately and the read
-   races the update. [showsSquareFor] is what actually decides the panel has
-   caught up. */
+   Two guards here are about load, and both were seen. Selecting is a click
+   plus a round trip into the worker, and under `make test`, alongside
+   everything else, the click can land while the map is still settling and
+   select nothing -- so it is retried. And waiting for `.address` is not
+   enough: the PREVIOUS square's address is still on screen, so the wait
+   returns at once and the read races the update. `showsSquareFor` is what
+   decides the panel has caught up. */
 const inspectAt = async (lat, lon) => {
   const box = await page.locator(".map").boundingBox();
   const attempt = async () => {
@@ -3621,7 +3588,7 @@ const inspectAt = async (lat, lon) => {
       const map = window.__tessarium_map;
       if (!map) return;
       /* Cancel any flight still running: a jumpTo during one is overtaken by
-         it, and the click would then land on a different square. */
+         it, and the click would land on a different square. */
       map.stop();
       map.jumpTo({ center: [lo, la], zoom: 20 });
     }, [lat, lon]);
@@ -3647,7 +3614,7 @@ const inspectAt = async (lat, lon) => {
 };
 
 /* Where an address takes the camera -- the user's actual question, so it is
-   read off the map rather than the panel. */
+   read off the map rather than off the panel. */
 const flyToAddress = async (address) => {
   await goToAddress(address);
   return await page.evaluate(() => {
@@ -3656,11 +3623,11 @@ const flyToAddress = async (address) => {
   });
 };
 
-/* Two ordinary points, opposite hemispheres on both axes, chosen by
-   COORDINATE rather than by address: the addresses move whenever the
-   constants do, while the coordinates are the generator's inputs and do not.
-   Deliberately not the vector list's first two, which are (0, 0) and a pole
-   -- a dropped sign is invisible at the origin. */
+/* Two ordinary points, opposite hemispheres on both axes, chosen by COORDINATE
+   rather than by address: addresses move whenever the constants do, while the
+   coordinates are the generator's inputs and do not. Deliberately not the
+   vector list's first two, which are (0, 0) and a pole -- a dropped sign is
+   invisible at the origin. */
 const savedPoints = [[51.508, -0.1281], [-33.8568, 151.2153]].map((
   [lat, lon],
 ) =>
@@ -3677,8 +3644,8 @@ check(
 
 await relock(sampleMnemonic);
 
-/* Saved once, the way a user saves them: click the square, write down what
-   the panel says, and note where looking the address back up goes. */
+/* Saved the way a user saves them: click the square, write down what the panel
+   says, and note where looking that address back up goes. */
 const saved = await savedPoints.reduce(async (acc, point) => {
   const prior = await acc;
   const at = { lat: point.lat_ns / 1e9, lon: point.lon_ns / 1e9 };
@@ -3719,39 +3686,38 @@ for (const cycle of [1, 2, 3]) {
 /* ------------------ the coarse map stays under you -------------------------
 
    Reported from use: zoom into an area you only have the low-resolution map
-   for, watch it zoom in cleanly, and then watch the map you were looking at
-   be replaced by grey.
+   for, watch it zoom in cleanly, then watch the map you were looking at be
+   replaced by grey.
 
    MapLibre keeps a stretched coarse tile on screen only while the finer tile
    has NO data -- and an empty answer IS data, meaning "this square is
-   genuinely blank", so it wins and the coarse map goes. Changing the status
-   to 404 does not help: the vector source swallows a 404 by design and files
-   it as the same empty tile. What decides this is the source's maxzoom. While
-   it claims more depth than the archive holds here, MapLibre keeps asking for
-   tiles that will never come; when it tells the truth, MapLibre overzooms the
-   coarse tile instead, which is measurably what a user wants to see.
+   genuinely blank", so it wins and the coarse map goes. A 404 does not help:
+   the vector source swallows a 404 by design and files it as the same empty
+   tile. What decides this is the source's maxzoom. While it claims more depth
+   than the archive holds, MapLibre keeps asking for tiles that will never
+   come; when it tells the truth, MapLibre overzooms the coarse tile instead,
+   which is what a user wants to see.
 
-   The situation needs an archive that CLAIMS depth it does not have
-   everywhere, which is what this server now holds: London to zoom 15, and a
-   thinner cone of low zooms around it. So the source advertises maxzoom 15,
-   MapLibre asks for zoom 15 wherever you go, and just west of the downloaded
-   box there is nothing to answer with. That is the reported situation
-   exactly, and it is why the shallow-archive server cannot stand in for it --
-   there the source advertises zoom 6, MapLibre never asks for more, and
-   nothing is ever missing.
+   This needs an archive that CLAIMS depth it does not have everywhere, which
+   is what this server holds: London to zoom 15, and a thinner cone of low
+   zooms around it. The source advertises maxzoom 15, MapLibre asks for zoom 15
+   wherever you go, and just west of the downloaded box there is nothing to
+   answer with. The shallow-archive server cannot stand in: there the source
+   advertises zoom 6, MapLibre never asks for more, and nothing is ever
+   missing.
 
    Asserted through querySourceFeatures, which reads the tiles the source is
    RENDERING FROM, rather than off the screen: the fixture's tiles are
-   deliberately unstyled, so nothing is drawn either way and a screenshot
-   could not tell the two outcomes apart. */
+   deliberately unstyled, so nothing is drawn either way and a screenshot could
+   not tell the two outcomes apart. */
 const thinLon = -0.30;
 const thinLat = 51.50;
 const deepThin = tileAt(thinLon, thinLat, 15);
 const coarseThin = tileAt(thinLon, thinLat, 8);
 
 /* The premise, stated rather than assumed: this really is a place with a
-   coarse map and no detail. Without both halves the checks below pass for
-   the wrong reason. */
+   coarse map and no detail. Without both halves the checks below pass for the
+   wrong reason. */
 check(
   "just west of the download there is no deep tile",
   (await fetch(`${base}/tiles/15/${deepThin.x}/${deepThin.y}.mvt`)).status
@@ -3775,9 +3741,9 @@ const drawnFrom = async (zoom) => {
     { timeout: 30_000 },
   ).catch(() => {});
   await page.waitForTimeout(1500);
-  /* Either source counts: the question is whether the basemap is still
-     drawing ground here, not which of the two layers supplied it. Past the
-     downloaded depth the answer must come from the floor. */
+  /* Either source counts: the question is whether the basemap is still drawing
+     ground here, not which layer supplied it. Past the downloaded depth the
+     answer must come from the floor. */
   return await page.evaluate(() =>
     ["protomaps", "protomaps-floor"].reduce(
       (n, id) =>
@@ -3796,8 +3762,8 @@ check(
   `the coarse map is there to begin with (${coarseDrawn} features)`,
   coarseDrawn > 0,
 );
-/* And it is still there after zooming past everything that was downloaded --
-   which is the whole point: the screen must not go blank under you. */
+/* And it is still there after zooming past everything that was downloaded.
+   That is the whole point: the screen must not go blank under you. */
 const deepDrawn = await drawnFrom(16);
 check(
   `zooming past what was downloaded keeps it (${deepDrawn} features rendered)`,
@@ -3806,15 +3772,15 @@ check(
 
 /* ------------------------ the server going away --------------------------
 
-   The failure this answers, which cost an afternoon: with no server the gate
-   still renders, the phrase still validates and the checksum still goes
-   green -- all three run in the browser -- so the app looks fine right up
-   until "Open my map", which fails with "Could not open the map." That
-   blames the phrase. Nothing said the server was missing.
+   The failure this answers: with no server the gate still renders, the phrase
+   still validates and the checksum still goes green -- all three run in the
+   browser -- so the app looks fine right up until "Open my map", which failed
+   with "Could not open the map." That blames the phrase. Nothing said the
+   server was missing.
 
-   It is not an exotic state either: it is what `pnpm run dev` is in, every
-   time, without the backend behind it, because the two wasm modules the key
-   is derived with are embedded in the server binary rather than served from
+   Not an exotic state, either: it is what `pnpm run dev` is in every time
+   without the backend behind it, because the two wasm modules the key is
+   derived with are embedded in the server binary rather than served from
    public/.
 
    /healthz is refused rather than the whole origin, because the page itself
@@ -3837,9 +3803,8 @@ await page.route(
   "**/healthz",
   (route) => route.fulfill({ status: 503, body: "" }),
 );
-/* Reloading drops the key with it, so this lands on the gate -- which is the
-   screen that matters: it is the one a person is looking at when they cannot
-   get in. */
+/* Reloading drops the key, so this lands on the gate -- the screen a person is
+   looking at when they cannot get in. */
 await page.reload({ waitUntil: "domcontentloaded" });
 await page.waitForSelector("#phrase", { timeout: 30_000 });
 check(
@@ -3848,9 +3813,9 @@ check(
 );
 
 /* And pressing the button anyway must not blame the phrase. argon2.wasm is
-   refused too, so unlocking genuinely fails -- which is the case that used
-   to answer "Could not open the map" over a phrase whose checksum had gone
-   green one second earlier. */
+   refused too, so unlocking genuinely fails -- the case that used to answer
+   "Could not open the map" over a phrase whose checksum had gone green one
+   second earlier. */
 await page.route(
   "**/argon2.wasm",
   (route) => route.fulfill({ status: 503, body: "" }),
@@ -3878,8 +3843,8 @@ await page.unroute("**/healthz");
 serverGone = false;
 await page.reload({ waitUntil: "domcontentloaded" });
 await page.waitForSelector("#phrase", { timeout: 30_000 });
-/* And it goes away by itself: a banner that outlives its cause teaches
-   people to ignore banners. */
+/* And it goes away by itself: a banner that outlives its cause teaches people
+   to ignore banners. */
 const cleared = await page
   .waitForFunction(
     () =>
@@ -3894,18 +3859,18 @@ check("and it clears once the server answers again", cleared);
 
 /* One download, described once.
 
-   The card used to render its own progress bar and its own cancel button
-   while a job ran, and MapProgress renders both -- per region, which is the
-   richer report -- one section up the same panel. While the card floated
-   over the map those were two places; once both were in the panel they were
-   the same download said twice, with two ways to cancel it.
+   The card used to render its own progress bar and cancel button while a job
+   ran, and MapProgress renders both -- per region, which is the richer report
+   -- one section up the same panel. While the card floated over the map those
+   were two places; once both were in the panel they were the same download
+   said twice, with two ways to cancel it.
 
-   The job is faked rather than started: a real one against the fixture
-   server finishes between polls, so there is no running state to look at.
-   What is under test is what the panel DRAWS for a running job, which is
-   exactly what the fake supplies. Installed before the reload because the
-   status query stops polling once a job is idle -- the fetch on mount is
-   the one that has to see it.
+   The job is faked rather than started: a real one against the fixture server
+   finishes between polls, so there is no running state to look at. What is
+   under test is what the panel DRAWS for a running job, which is what the fake
+   supplies. Installed before the reload, because the status query stops
+   polling once a job is idle and the fetch on mount is the one that has to see
+   it.
 
    Last in this browser on purpose: it reloads, which costs the key. */
 await page.route("**/api/basemap-status", (route) =>
@@ -3949,8 +3914,8 @@ check(
   "and the card does not report it a second time",
   (await page.locator(".download-card progress").count()) === 0,
 );
-/* Two cancel buttons for one download is the worse half of it: whichever is
-   pressed, the other stays on screen offering to do it again. */
+/* Two cancel buttons for one download is the worse half: whichever is pressed,
+   the other stays on screen offering to do it again. */
 check(
   "nor offers a second way to cancel it",
   (await page.locator(".download-card").getByRole("button").filter({
@@ -3967,18 +3932,17 @@ await browser.close();
    everything it had already downloaded. Every response was `cache-control:
    no-cache` with no validator attached, and `no-cache` means "ask", not
    "refetch" -- but with nothing to ask ABOUT, every question was answered in
-   full. Over a forwarded port that was about ten megabytes and twenty
-   seconds, on a map the browser already had.
+   full. Over a forwarded port that was about ten megabytes and twenty seconds,
+   on a map the browser already had.
 
-   A browser rather than a protocol test, because the claim is about one: that
-   it stores these responses, revalidates them, and is told they have not
+   A browser rather than a protocol test, because the claim is about a browser:
+   that it stores these responses, revalidates them, and is told they have not
    changed. A server emitting a correct ETag that no client ever sends back
    would pass a protocol test and fix nothing a user would notice.
 
-   Two visits in one context, so the second one meets the first one's cache.
-   Bytes off the wire, not status codes: a response the browser never asked
-   for at all is a better outcome than a 304, and counting 304s would score it
-   as a failure. */
+   Two visits in one context, so the second meets the first one's cache. Bytes
+   off the wire, not status codes: a response the browser never asked for is a
+   better outcome than a 304, and counting 304s would score it as a failure. */
 const revisitBrowser = await chromium.launch();
 const revisitContext = await revisitBrowser.newContext({
   viewport: { width: 1280, height: 900 },
@@ -3986,9 +3950,8 @@ const revisitContext = await revisitBrowser.newContext({
 
 const visit = async () => {
   const p = await revisitContext.newPage();
-  /* Two whole app sessions run here -- gate, worker, core, map. Unwatched
-     they would run with CSP violations and page errors invisible, which is
-     the opposite of what the rest of this file does. */
+  /* Two whole app sessions run here -- gate, worker, core, map. Unwatched,
+     their CSP violations and page errors would be invisible. */
   p.on("console", (msg) => {
     if (msg.type() === "error" && !msg.text().includes("Failed to load")) {
       problems.push(`revisit console: ${msg.text()}`);
@@ -4011,10 +3974,10 @@ const visit = async () => {
             status: res ? res.status() : 0,
             /* Playwright reports the body as `encodedDataLength` minus the
                response headers, so a response the browser served from its own
-               cache -- the best possible outcome -- comes back NEGATIVE, by
-               the size of headers that were never received. Clamped for the
-               totals, and kept raw as well, because "how many were free" is
-               a number worth asserting rather than inferring. */
+               cache -- the best outcome -- comes back NEGATIVE, by the size of
+               headers that were never received. Clamped for the totals, and
+               kept raw too, because "how many were free" is worth asserting
+               rather than inferring. */
             bytes: Math.max(0, size.responseBodySize),
             fromCache: size.responseBodySize < 0,
           });
@@ -4022,11 +3985,10 @@ const visit = async () => {
         .catch(() => {}),
     );
   });
-  /* All the way in, both times. A bare page load reaches neither of the two
-     heavy things: the core loads when the worker is first asked a question,
-     and the map does not exist until the phrase is accepted. Measuring a
-     visit that stops at the gate would report a saving on a fifth of what a
-     visit actually costs. */
+  /* All the way in, both times. A bare page load reaches neither heavy thing:
+     the core loads when the worker is first asked a question, and the map does
+     not exist until the phrase is accepted. A visit that stopped at the gate
+     would report a saving on a fifth of what a visit costs. */
   await p.goto(base, { waitUntil: "networkidle" });
   await p.locator("#phrase").fill(sampleMnemonic);
   await p.waitForSelector(".valid", { timeout: 60_000 });
@@ -4040,19 +4002,19 @@ const visit = async () => {
   await p.waitForLoadState("networkidle");
   await Promise.all(pending);
   await p.close();
-  /* Awaited again after the close: `pending` is a growing array and the first
-     await only covers what had landed by then. Closing the page is what
-     guarantees no more will arrive. */
+  /* Awaited again after the close: `pending` grows, and the first await only
+     covers what had landed by then. Closing the page is what guarantees no
+     more will arrive. */
   await Promise.all(pending);
   return rows;
 };
 
 const firstVisit = await visit();
 const secondVisit = await visit();
-/* GETs only, because those are the ones a cache can answer: the app's two
-   POSTs to /api are uncacheable by construction. They are held to a size of
-   their own below rather than quietly dropped, so the headline number cannot
-   be made to look better by traffic moving out of it. */
+/* GETs only, because those are what a cache can answer: the app's POSTs to
+   /api are uncacheable by construction. They are held to a size of their own
+   below rather than dropped, so the headline number cannot be improved by
+   traffic moving out of it. */
 const bodyBytes = (rows) =>
   rows.filter((r) => r.method === "GET").reduce((n, r) => n + r.bytes, 0);
 const otherBytes = (rows) =>
@@ -4060,9 +4022,8 @@ const otherBytes = (rows) =>
 const first = bodyBytes(firstVisit);
 const second = bodyBytes(secondVisit);
 
-/* Printed rather than only asserted: this is a number the project makes a
-   claim about, and a threshold that passes says nothing about how much room
-   is left under it. */
+/* Printed as well as asserted: the project makes a claim about this number,
+   and a threshold that passes says nothing about the room left under it. */
 console.log(
   `  revisit ${Math.round(second / 1024)} KB against ${
     Math.round(first / 1024)
@@ -4071,19 +4032,16 @@ console.log(
   } straight from cache`,
 );
 
-/* Without a first visit that actually downloaded something, the second one
-   costing nothing would mean nothing. */
-/* Floors, not budgets. Both exist so that "coming back costs nothing" is
-   measured against a visit that actually paid for something; ui/test/
-   payload.mjs is where size is held to account, and it is the only place that
-   should fail when something grows.
+/* Floors, not budgets. They exist so "coming back costs nothing" is measured
+   against a visit that actually paid for something. ui/test/payload.mjs is
+   where size is held to account, and the only place that should fail when
+   something grows.
 
    Lowered from 512 KB and 100 KB when the js_of_ocaml bundle went from
-   1,058 KB on the wire to 181 KB. Neither was in danger of firing -- a first
-   visit is around 735 KB and the bundle is well over 100 KB either way -- but
-   both were sized against a payload that no longer exists, and a floor that
-   tracks the current figure is a budget wearing the wrong name. These are set
-   where making the app smaller still is not a test failure. */
+   1,058 KB on the wire to 181 KB. Neither was near firing -- a first visit is
+   around 735 KB and the bundle is well over 100 KB either way -- but both were
+   sized against a payload that no longer exists. Set low enough that making
+   the app smaller still is not a test failure. */
 check(
   `the first visit downloads the app (${Math.round(first / 1024)} KB)`,
   first > 256 * 1024,
@@ -4100,10 +4058,10 @@ check(
   } KB against ${Math.round(first / 1024)} KB)`,
   second < first / 20,
 );
-/* Named separately because it is the item the complaint was really about.
-   It is not only the verified core: ocaml/lib's BIP-39, NFKD and KDF inputs,
-   the band table, digestif, uunf and the js_of_ocaml runtime are all in
-   there, and it moves when any of them does. */
+/* Named separately, because it is what the complaint was about. It is not only
+   the verified core: ocaml/lib's BIP-39, NFKD and KDF inputs, the band table,
+   digestif, uunf and the js_of_ocaml runtime are all in there, and it moves
+   when any of them does. */
 const coreAgain = secondVisit.filter((r) =>
   r.path === "/tessarium.js" && r.bytes > 0
 );
@@ -4111,7 +4069,7 @@ check(
   `the core is not sent again (${coreAgain.length} resends)`,
   coreAgain.length === 0,
 );
-/* Whatever the second visit did pay for, name it, so a regression that
+/* Name whatever the second visit did pay for, so a regression that
    re-downloads one large thing is legible rather than a total that drifted. */
 if (second >= first / 20) {
   secondVisit.filter((r) => r.bytes > 4096)
@@ -4122,8 +4080,8 @@ if (second >= first / 20) {
     });
 }
 
-/* The map's own bytes are most of the weight, so a run where the map never
-   asked for a tile would report a saving it did not make. */
+/* The map's bytes are most of the weight, so a run where the map never asked
+   for a tile would report a saving it did not make. */
 const firstTiles = firstVisit.filter((r) =>
   r.path.startsWith("/tiles/") && r.bytes > 0
 );
@@ -4132,8 +4090,7 @@ check(
   firstTiles.length > 0,
 );
 /* Sent, not asked for. The browser asks about every one of them -- that is
-   what `no-cache` plus a validator means -- and a name saying otherwise would
-   describe a different design. */
+   what `no-cache` plus a validator means. */
 check(
   `and none of them is sent again (${
     secondVisit.filter((r) => r.path.startsWith("/tiles/") && r.bytes > 0)
@@ -4145,8 +4102,8 @@ check(
   `what a visit does not GET stays small (${otherBytes(secondVisit)} B)`,
   otherBytes(secondVisit) < 4096,
 );
-/* The saving must be the cache doing its job, not the second visit quietly
-   doing less. */
+/* The saving must be the cache doing its job, not the second visit doing
+   less. */
 check(
   `most of the second visit came from cache (${
     secondVisit.filter((r) => r.fromCache).length
@@ -4160,29 +4117,25 @@ await revisitBrowser.close();
 
    The complaint this answers: the phrase screen downloaded the map engine
    before it could be typed into. MapLibre and the basemap style are most of
-   what this application ships, none of it is reachable until a phrase has
-   been accepted, and a static import put all of it in the entry chunk -- 551
-   KB on the wire, measured, on the one screen a visitor sees before deciding
-   whether to use this at all. The map is a separate chunk now; see
+   what this app ships, none of it is reachable until a phrase is accepted, and
+   a static import put all of it in the entry chunk -- 551 KB on the wire,
+   measured, on the one screen a visitor sees before deciding whether to use
+   this at all. The map is a separate chunk now; see
    ui/src/components/mapChunk.ts.
 
-   A cold context, because the claim is about a first visit. And nothing is
-   typed at first: the gate starts the map download as soon as a phrase passes
-   its checksum, so a run that typed one would be measuring the warm-up rather
-   than the gate.
+   A cold context, because the claim is about a first visit. Nothing is typed
+   at first: the gate starts the map download as soon as a phrase passes its
+   checksum, so typing one would measure the warm-up rather than the gate.
 
-   So this is the cost of REACHING a phrase field that can be typed into, and
-   not the cost of using it. The verified core (/tessarium.js, about 181 KB)
-   and the map chunk both follow, as the phrase is typed and as it validates.
-   The number below is smaller than a whole session on purpose: the screen it
-   measures is the one shown to someone who has not yet decided to have a
-   session at all.
+   So this is the cost of REACHING a phrase field that can be typed into, not
+   the cost of using it. The verified core (/tessarium.js, about 181 KB) and
+   the map chunk both follow, as the phrase is typed and as it validates.
 
-   Two checks, because either one alone can be satisfied the wrong way. The
-   budget is what fails if the map returns to the entry chunk. The second is
-   what fails if someone meets the budget by breaking the map instead -- the
-   chunk has to still arrive on the way in, or there is no saving, only a
-   smaller app that does less. */
+   Two checks, because either alone can be satisfied the wrong way. The budget
+   fails if the map returns to the entry chunk. The second fails if someone
+   meets the budget by breaking the map instead -- the chunk has to still
+   arrive on the way in, or there is no saving, only a smaller app that does
+   less. */
 const gateBrowser = await chromium.launch();
 const gateContext = await gateBrowser.newContext({
   viewport: { width: 1280, height: 900 },
@@ -4215,7 +4168,7 @@ await gatePage.waitForSelector("#phrase", { state: "visible" });
 await gatePage.waitForLoadState("networkidle");
 await Promise.all(gatePending);
 /* Snapshotted before anything is typed. `gateRows` keeps growing after this
-   line, and the whole point of the number is where it stops. */
+   line, and the point of the number is where it stops. */
 const atGate = gateRows.slice();
 const gateBytes = atGate
   .filter((r) => r.method === "GET")
@@ -4227,23 +4180,22 @@ console.log(
   } requests`,
 );
 
-/* 200 KB against a measured 178 over the wire (173 under gzip -9; the
-   server's compressor emits a little more, and this budget is the wire).
+/* 200 KB against a measured 178 over the wire (173 under gzip -9; the server's
+   compressor emits a little more, and this budget is the wire).
 
-   Raised from 176 when the language picker became a React Aria Select.
-   That put the library's shared core -- collections, overlays,
-   focus management -- in the entry chunk, because the gate renders a
-   dropdown. Measured: the gate went up 38,617 bytes and the map chunk came
-   DOWN 49,222, because the map no longer carries its own copy, so a whole
-   session is 10,605 bytes cheaper and only the first screen pays more. That
-   is a real cost on the one screen this check exists to protect, and it was
-   taken deliberately for one interaction library rather than two; it is
-   recorded here rather than absorbed silently.
+   Raised from 176 when the language picker became a React Aria Select. That
+   put the library's shared core -- collections, overlays, focus management --
+   in the entry chunk, because the gate renders a dropdown. Measured: the gate
+   went up 38,617 bytes and the map chunk came DOWN 49,222, because the map no
+   longer carries its own copy. A whole session is 10,605 bytes cheaper and
+   only the first screen pays more. That cost was taken deliberately, for one
+   interaction library rather than two, and is recorded here rather than
+   absorbed silently.
 
-   The remaining gap is room for the gate itself to grow, and it is still
-   nowhere near the 551 KB that a static map import costs, which is the
-   regression this exists to catch. Raise it only with a measurement saying
-   why, the same rule ui/test/payload.mjs sets. */
+   The remaining gap is room for the gate to grow, and it is still nowhere near
+   the 551 KB a static map import costs, which is the regression this catches.
+   Raise it only with a measurement saying why -- the same rule
+   ui/test/payload.mjs sets. */
 check(
   `the phrase screen costs ${Math.round(gateBytes / 1024)} KB`,
   gateBytes < 200 * 1024,
@@ -4266,10 +4218,10 @@ check(
   jsAssets(atGate).length === 1,
 );
 
-/* Now all the way in, on the same page, so the second half is measured
-   against the same cold cache. Matched on size rather than on the chunk's
-   name: what matters is that the map arrives separately and is the big half,
-   not what Vite decided to call the file. */
+/* Now all the way in, on the same page, so the second half is measured against
+   the same cold cache. Matched on size rather than on the chunk's name: what
+   matters is that the map arrives separately and is the big half, not what
+   Vite called the file. */
 await gatePage.locator("#phrase").fill(sampleMnemonic);
 await gatePage.waitForSelector(".valid", { timeout: 60_000 });
 await gatePage.locator("button[type=submit]").click();
@@ -4287,19 +4239,19 @@ check(
   mapChunks.length >= 1
     && mapChunks.reduce((n, r) => n + r.bytes, 0) > 200 * 1024,
 );
-/* The saving is real only if the split did not simply move the whole app
-   later. The gate has to be the smaller half. */
+/* The saving is real only if the split did not just move the whole app later.
+   The gate has to be the smaller half. */
 check(
   `and it is the larger half`,
   mapChunks.reduce((n, r) => n + r.bytes, 0) > gateBytes,
 );
 
 /* The fallback, which needs the download to be slow enough to see. Nothing
-   else in this suite ever renders it -- on a local server the chunk arrives
-   between frames -- and an unrendered loading state is exactly the kind that
-   rots into a blank panel or an untranslated string without anyone noticing.
-   Delayed here on purpose, and read for its text as well as its presence, so
-   a missing catalogue entry fails rather than showing an empty box. */
+   else in this suite renders it -- on a local server the chunk arrives between
+   frames -- and an unrendered loading state rots into a blank panel or an
+   untranslated string without anyone noticing. Delayed on purpose, and read
+   for its text as well as its presence, so a missing catalogue entry fails
+   rather than showing an empty box. */
 const slowPage = await gateContext.newPage();
 const entryPath = jsAssets(atGate)[0]?.path;
 await slowPage.route("**/assets/*.js", async (route) => {
@@ -4335,19 +4287,18 @@ await gateBrowser.close();
 
 /* A path the resolver accepts but the filesystem will not look at.
    `Tessarium.UrlPath.theorem_no_escape` says a 300-byte segment cannot leave
-   the root, and it is right -- it holds no separator and no NUL. (The leading
-   dot is a different claim, `theorem_no_dotfile`, and not what matters here.)
-   It is simply longer than NAME_MAX, which is 255 on Linux, so statx answers
-   ENAMETOOLONG and the exception used to travel up as a connection error: one
+   the root, and it is right: the segment holds no separator and no NUL. It is
+   simply longer than NAME_MAX, which is 255 on Linux, so statx answers
+   ENAMETOOLONG. That exception used to travel up as a connection error, so one
    unauthenticated request took the connection down instead of being answered.
    Name length is a fact about the directory, and F* is never told about
    directories, so this gets a test rather than a lemma.
 
    Both routes, because they answer differently and only one is a 404: a
-   segment with no extension is an SPA route, so the UI path serves
-   index.html, and the basemap path has no such fallback. Node's fetch does
-   not normalise a long segment the way it collapses `..`, so what the server
-   sees is what is written here. */
+   segment with no extension is an SPA route, so the UI path serves index.html,
+   and the basemap path has no such fallback. Node's fetch does not normalise a
+   long segment the way it collapses `..`, so the server sees what is written
+   here. */
 const longName = "a".repeat(300);
 const longRes = await fetch(`${base}/${longName}`).then(
   (r) => r.status,
@@ -4366,9 +4317,9 @@ check(
   longBasemap === 404,
 );
 /* Weaker than it looks, and kept anyway: node opens a fresh connection, so
-   this passes even against the bug above -- the exception took one socket
-   down, not the server. What it does catch is the worse version, where an
-   unhandled error on a request path ends the process. */
+   this passes even against the bug above, which took one socket down rather
+   than the server. It catches the worse version, where an unhandled error on a
+   request path ends the process. */
 const afterLong = await fetch(`${base}/healthz`).then(
   (r) => r.status,
   (e) => `threw: ${e.message}`,
@@ -4378,13 +4329,13 @@ check(
   afterLong === 200,
 );
 
-/* The conditional itself, at the protocol level: the properties a browser
-   depends on but does not reveal when it is working. */
+/* The conditional request itself, at the protocol level: the properties a
+   browser depends on but does not reveal when it is working. */
 const conditional = async (path) => {
   const plain = await fetch(`${base}${path}`);
   /* Decoded, not wire bytes: node's fetch asks for gzip and inflates before
      handing the body over, so this is several times what crossed the socket.
-     It is here to show the resource is not empty, which is all it can show. */
+     It shows the resource is not empty, which is all it can show. */
   const decoded = (await plain.arrayBuffer()).byteLength;
   const tag = plain.headers.get("etag");
   const csp = plain.headers.get("content-security-policy");
@@ -4400,9 +4351,9 @@ const conditional = async (path) => {
     decoded,
     csp,
     /* A 304 is still a response this server sent, and it must carry the same
-       policy as the body it stands in for. Nothing else would notice if it
-       stopped: the browser reuses the stored response, so a missing policy
-       here would show up as a security hole rather than a broken page. */
+       policy as the body it stands in for. Nothing else would notice it
+       stopping: the browser reuses the stored response, so a missing policy
+       here shows up as a security hole rather than as a broken page. */
     cspAgain: again.headers.get("content-security-policy"),
   };
 };
@@ -4419,7 +4370,7 @@ check(
 );
 /* Two encodings are two representations. A client holding the gzipped bytes
    must not be told its copy is current when the tag it sent describes the
-   other one -- it would decode gzip as UTF-8. */
+   other one: it would decode gzip as UTF-8. */
 const gz = await fetch(`${base}/tessarium.js`, {
   headers: { "accept-encoding": "gzip" },
 });
@@ -4437,7 +4388,7 @@ check(
 );
 
 /* A file off disk, whose tag is its size and modification time rather than a
-   hash: the sprite sheet, because the fixture's one glyph file is empty and a
+   hash. The sprite sheet, because the fixture's one glyph file is empty and a
    304 for it would be indistinguishable from a 200. */
 const sprite = await conditional("/basemap/sprites/v4/light.png");
 check(
@@ -4447,12 +4398,11 @@ check(
 );
 
 /* Two If-None-Match field lines rather than one comma-joined value. An
-   intermediary is free to split what a browser sent as one, and RFC 9110 5.3
-   says the two forms mean the same thing -- but the header API hands back
-   only the LAST line, so a server that asks for one value tells a client
-   holding the bytes to download them again. Sent through node:http because
-   fetch's Headers joins duplicates before they reach the socket, which is
-   the very thing being tested around. */
+   intermediary may split what a browser sent as one, and RFC 9110 5.3 says the
+   two forms mean the same thing -- but the header API hands back only the LAST
+   line, so a server that reads one value tells a client holding the bytes to
+   download them again. Sent through node:http, because fetch's Headers joins
+   duplicates before they reach the socket. */
 const twoLines = async (path, tags) =>
   await new Promise((resolve) => {
     const url = new URL(`${base}${path}`);
@@ -4460,9 +4410,9 @@ const twoLines = async (path, tags) =>
       hostname: url.hostname,
       port: url.port,
       path: url.pathname,
-      /* Same encoding the tag was taken under. Ask for identity here and the
-         gzip tag correctly does not match -- which is the encoding suffix
-         working, and would look like this check failing. */
+      /* The same encoding the tag was taken under. Ask for identity and the
+         gzip tag correctly does not match -- the encoding suffix working,
+         which would look like this check failing. */
       headers: { "accept-encoding": "gzip", "if-none-match": tags },
     }, (res) => {
       res.resume();
@@ -4481,8 +4431,8 @@ check(
 );
 
 /* A tile the app itself fetched on the first visit, rather than a guessed
-   z/x/y: tiles are most of the bytes, and their tag is over the bytes because
-   the archive under them can be replaced while the server runs. */
+   z/x/y. Tiles are most of the bytes, and their tag is taken over the bytes
+   because the archive under them can be replaced while the server runs. */
 const someTile = firstTiles[0];
 const tileCond = someTile ? await conditional(someTile.path) : null;
 check(
@@ -4499,10 +4449,9 @@ check(
     && tileJson.length === 0,
 );
 
-/* A Range whose validator has moved on is answered with the whole thing, not
-   with a window into different bytes -- map.pmtiles is rewritten in place by
-   the downloader, so splicing a stale 206 into a partial copy would join two
-   archives. */
+/* A Range whose validator has moved on is answered with the whole file, not a
+   window into different bytes. The downloader rewrites map.pmtiles in place,
+   so splicing a stale 206 into a partial copy would join two archives. */
 const ranged = async (extra) => {
   const r = await fetch(`${base}/basemap/sprites/v4/light.png`, {
     headers: { range: "bytes=0-9", ...extra },
@@ -4522,14 +4471,14 @@ check(
 
 /* ------------------ browse cache prune coherence (main) -------------------
 
-   The rule the browse cache lives by: a completed download OWNS its region
-   and prunes any browsed copy of the tiles it covers, because the tile
-   endpoint consults the cache first and a stale browsed tile would shadow
-   freshly downloaded bytes forever. Testable only HERE: this server runs
-   the real compaction threshold, so the cache genuinely persists between
-   operations; the multipart server's one-byte threshold folds it away the
-   moment it exists. Driven over the API -- the page is gone, so nothing
-   auto-browses underneath these steps. */
+   The rule the browse cache lives by: a completed download OWNS its region and
+   prunes any browsed copy of the tiles it covers, because the tile endpoint
+   reads the cache first and a stale browsed tile would shadow freshly
+   downloaded bytes forever. Testable only HERE: this server runs the real
+   compaction threshold, so the cache persists between operations, while the
+   multipart server's one-byte threshold folds it away the moment it exists.
+   Driven over the API -- the page is gone, so nothing auto-browses underneath
+   these steps. */
 const awaitRemoved = async (generation) =>
   (await until(async () => {
     const status = await (await postJson("basemap-status")).json();
@@ -4544,8 +4493,8 @@ const cacheStatus = async () =>
 const deepTile = async () =>
   (await fetch(`${base}/tiles/15/${lt.x}/${lt.y}.mvt`)).status;
 
-/* Open a hole: removing the UK entry drops the deep London tiles no kept
-   entry fetched, which is exactly what a browse can then fill. */
+/* Open a hole: removing the UK entry drops the deep London tiles no kept entry
+   fetched, which is what a browse can then fill. */
 const mainLedger = await (await postJson("basemap-ledger")).json();
 const ukLedgerId = mainLedger.entries
   ?.find((e) => e.name === "United Kingdom and London")?.id;
@@ -4571,9 +4520,9 @@ check(
   (await postJson("basemap-browse", { ...lb, zoom: 15 })).status === 403,
 );
 
-/* Refill, then download the same region: completion must prune the cache
-   -- emptied entirely here, so the file itself goes -- and the tile must
-   keep serving, now from bytes the download fetched fresh. */
+/* Refill, then download the same region. Completion must prune the cache --
+   emptied entirely here, so the file itself goes -- and the tile must keep
+   serving, now from bytes the download fetched fresh. */
 await postJson("basemap-settings", { browse_cache: true });
 const refill = await (await postJson("basemap-browse", { ...lb, zoom: 15 }))
   .json();
@@ -4604,13 +4553,13 @@ await postJson("basemap-settings", { browse_cache: false });
 
 /* ------------- a download that stops early still owns its region ----------
 
-   Every part renamed into the archive owns what it published from that
-   moment on, so the browse cache must lose those tiles whether the run
-   finished or not -- the tile endpoint reads the cache FIRST, and an older
-   browsed copy would shadow the fresh bytes forever. The completed case is
-   covered above; this is the cancelled one.
+   Every part renamed into the archive owns what it published from that moment
+   on, so the browse cache must lose those tiles whether the run finished or
+   not: the tile endpoint reads the cache FIRST, and an older browsed copy
+   would shadow the fresh bytes forever. The completed case is covered above;
+   this is the cancelled one.
 
-   Its server reads through the delaying proxy, which is what makes "halfway"
+   This server reads through the delaying proxy, which is what makes "halfway"
    a place that exists. */
 const base5 = process.argv[5] ?? "http://127.0.0.1:7377";
 const post5 = async (endpoint, body) =>
@@ -4639,8 +4588,8 @@ check(
   (await cancelHas("cache.pmtiles")) === 200,
 );
 
-/* The whole fixture, which covers that corner, in pieces small enough that
-   the first lands early and several remain. */
+/* The whole fixture, which covers that corner, in pieces small enough that the
+   first lands early and several remain. */
 await post5("basemap-download", {
   name: "Cancelled halfway",
   regions: [{
@@ -4651,11 +4600,11 @@ await post5("basemap-download", {
     max_zoom: 12,
   }],
 });
-/* A part having landed is what makes the run own a region, and now it can be
-   asked directly: the record is published with every part, not only the last,
-   so an entry appearing IS a part on disk. That is the property that makes a
-   cancelled download resumable -- and it is why this no longer waits on a
-   file name it had to know in advance. */
+/* A part having landed is what makes the run own a region, and it can be asked
+   directly: the record is published with every part, not only the last, so an
+   entry appearing IS a part on disk. That is what makes a cancelled download
+   resumable, and why this no longer waits on a file name it had to know in
+   advance. */
 check(
   "a part of the download reached the archive",
   await until(
@@ -4673,8 +4622,8 @@ const stopped = (await until(async () => {
   const state = (await (await post5("basemap-status")).json()).job?.state ?? "";
   return ["cancelled", "done", "failed"].includes(state) ? state : false;
 }, { tries: 300, delayMs: 100 })) || "still running";
-/* Finishing first would make the next check vacuous rather than wrong, so
-   it fails loudly instead of passing quietly. */
+/* Finishing first would make the next check vacuous rather than wrong, so this
+   fails loudly instead of passing quietly. */
 check(
   `the download stopped as cancelled (got ${stopped})`,
   stopped === "cancelled",
@@ -4683,12 +4632,11 @@ check(
   "a cancelled download still prunes the region it published",
   (await cancelHas("cache.pmtiles")) === 404,
 );
-/* What it leaves behind, which used to be nothing anyone could name. The
-   parts that landed are in a file of the region's own and the record inside
-   it says so, because the record is published with every part rather than
-   only the last. Tiles from a cancelled download used to sit in the shared
-   archive claimed by no entry: unlistable, unremovable, and invisible to
-   everything except the map drawing them. */
+/* What it leaves behind, which used to be nothing anyone could name. The parts
+   that landed are in a file of the region's own, and the record inside it says
+   so, because the record is published with every part. Tiles from a cancelled
+   download used to sit in the shared archive claimed by no entry: unlistable,
+   unremovable, and invisible to everything except the map drawing them. */
 const cancelLedger = await (await post5("basemap-ledger")).json();
 const partial = cancelLedger.entries?.[0];
 check(
@@ -4714,19 +4662,18 @@ await post5("basemap-settings", { browse_cache: false });
 
 /* ------------------ a source that changed compression ---------------------
 
-   Tile bytes are copied verbatim and the header says how to read them, so
-   an archive built from a gzipped source and then MERGED with an
-   uncompressed one would relabel every tile it already held. Unreadable,
-   silently, and only at render time. This server's source disagrees with
-   the archive seeded beside it, so every path that would merge them has to
-   refuse instead.
+   Tile bytes are copied verbatim and the header says how to read them, so an
+   archive built from a gzipped source and then MERGED with an uncompressed one
+   would relabel every tile it already held. Unreadable, silently, and only at
+   render time. This server's source disagrees with the archive seeded beside
+   it, so every path that would merge them has to refuse.
 
-   Which is now fewer paths, and that is the point. A region download merges
-   with nothing: it writes its own file, and the tile endpoint reads every
-   file through that file's own header, so two regions in two compressions
-   are two files that both draw. Refusing there would be refusing on behalf
-   of a merge that cannot happen. A browse still writes into the cache, and
-   the cache is still folded into map.pmtiles, so that one still refuses. */
+   That is now fewer paths. A region download merges with nothing: it writes
+   its own file, and the tile endpoint reads every file through that file's own
+   header, so two regions in two compressions are two files that both draw.
+   Refusing there would refuse on behalf of a merge that cannot happen. A
+   browse still writes into the cache, and the cache is still folded into
+   map.pmtiles, so that one still refuses. */
 const base4 = process.argv[4] ?? "http://127.0.0.1:7376";
 const post4 = async (endpoint, body) =>
   await fetch(`${base4}/api/${endpoint}`, {
@@ -4759,38 +4706,38 @@ await post4("basemap-settings", { browse_cache: false });
 
 /* --------------- a promised content-length is a promise --------------------
 
-   `serve_file` writes the status line and `content-length` first and the body
-   afterwards. It used to open the file in the body callback, so a file that
-   was renamed in between produced `200 OK, content-length: N` followed by a
-   closed socket with nothing in it -- and a truncated body against a promised
-   length is the one failure a client cannot tell from a network fault. The
-   application opens that window itself: the downloader renames every region
-   archive into place under the very root this endpoint serves.
+   `serve_file` writes the status line and `content-length` first, the body
+   afterwards. It used to open the file in the body callback, so a file renamed
+   in between produced `200 OK, content-length: N` followed by a closed socket
+   with nothing in it -- and a truncated body against a promised length is the
+   one failure a client cannot tell from a network fault. The app opens that
+   window itself: the downloader renames every region archive into place under
+   the very root this endpoint serves.
 
    Driven the way it was measured. A file under the basemap root is moved away
-   and back while the same file is fetched in a loop, and the rule is that
-   every 200 delivers exactly what it promised. A 404 is a fine answer -- the
-   name really is absent for part of each cycle -- and so is any other status;
-   what is not fine is a 200 that under-delivers.
+   and back while it is fetched in a loop, and the rule is that every 200
+   delivers exactly what it promised. A 404 is a fine answer -- the name really
+   is absent for part of each cycle -- and so is any other status. What is not
+   fine is a 200 that under-delivers.
 
    The counts are reported whether or not it passes, because "0 truncated" is
-   only worth reading next to how many 200s actually happened. */
+   only worth reading next to how many 200s happened. */
 const racyRoot = new URL("../../_build/e2e-basemap/", import.meta.url);
 const racyPath = new URL("racy.bin", racyRoot);
 const racyAside = new URL("racy.bin.aside", racyRoot);
 const racyBytes = Buffer.alloc(128 * 1024, 7);
 writeFileSync(racyPath, racyBytes);
 
-/* 600 rather than a round hundred, and the reason is worth stating: the
-   window this opens is narrow. Measured against the unfixed server, 2 of 300
-   requests truncated -- so a short loop would clear a broken build about one
-   run in eight. 600 puts that under 2%. It is still a probabilistic check,
-   which is why the fix is a structural one and this only watches it. */
+/* 600 rather than a round hundred, because the window is narrow. Measured
+   against the unfixed server, 2 of 300 requests truncated, so a short loop
+   would clear a broken build about one run in eight. 600 puts that under 2%.
+   Still a probabilistic check, which is why the fix is structural and this
+   only watches it. */
 const ROUNDS = 600;
 
 /* Away and back, so the name is genuinely absent for part of every cycle.
-   Replacing it in place would not do: the old code would open the
-   replacement, stream a file of the same length, and look correct. */
+   Replacing it in place would not do: the old code would open the replacement,
+   stream a file of the same length, and look correct. */
 const flip = async (n) => {
   if (n === 0) return;
   try {
@@ -4802,10 +4749,9 @@ const flip = async (n) => {
 };
 const flipper = flip(ROUNDS);
 
-/* One round, one verdict. undici rejects the body when it is shorter than
-   the length that was promised, which is exactly the failure being looked
-   for -- so the throw counts as a truncation rather than as an error in
-   this harness. */
+/* One round, one verdict. undici rejects a body shorter than the promised
+   length, which is the failure being looked for, so that throw counts as a
+   truncation rather than as an error in this harness. */
 const racyRound = async () => {
   const res = await fetch(`${base}/basemap/racy.bin`).catch(() => null);
   if (res === null) return "other";
@@ -4817,7 +4763,7 @@ const racyRound = async () => {
     ? "complete"
     : "truncated";
 };
-/* Sequential, the fold carrying the verdicts: the point is many separate
+/* Sequential, with the fold carrying the verdicts: the point is many separate
    requests racing the flipper, not one burst racing it once. */
 const racyVerdicts = await Array.from({ length: ROUNDS }).reduce(
   async (acc) => {
@@ -4837,8 +4783,8 @@ check(
     + `${racy("missing")} absent, ${racy("other")} other, of ${ROUNDS})`,
   racy("truncated") === 0,
 );
-/* Guards the check above from passing because nothing was ever served: if the
-   loop only ever saw 404s it has proved nothing about promised bodies. */
+/* Keeps the check above from passing because nothing was ever served: a loop
+   that only saw 404s proves nothing about promised bodies. */
 check(
   `and the loop actually served the file (${racy("complete")} times)`,
   racy("complete") > 0,

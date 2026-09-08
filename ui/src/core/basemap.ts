@@ -17,6 +17,11 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { z } from "zod";
+/* The four upload failures below reach the user verbatim in a toast, so
+   they are catalogue messages like every other sentence here. They were
+   English literals: someone working in French who unplugged mid-upload got
+   an English toast. */
+import { m } from "../paraglide/messages";
 
 export type Region = {
   min_lon: number;
@@ -29,6 +34,15 @@ export type Region = {
      border instead of its bounding box. */
   polygon?: [number, number][][];
 };
+
+/* A region with the name to show while it is fetched. Only a download needs
+   one; the estimate asks about tiles and has no rows to name.
+
+   The label rides INSIDE the region. As a top-level array parallel to the
+   regions it could be one element short, or out of order, and still be
+   accepted: the "download this view" offer sent no array at all, so the
+   progress panel said "Unnamed area" while the ledger row said "London". */
+export type LabelledRegion = Region & { label?: string; };
 
 const Estimate = z.object({
   /* Bytes still to fetch: tiles already on disk are excluded server-side,
@@ -46,9 +60,9 @@ const Estimate = z.object({
 export type Estimate = z.infer<typeof Estimate>;
 
 /* The whole world, deeper than the zoom 4 overview every package ships.
-   Measured against the Protomaps planet build: zoom 6 is about 45 MB; zoom 7
+   Against the Protomaps planet build, zoom 6 is about 45 MB and zoom 7
    would quadruple it. It merges with the shipped overview rather than
-   replacing it, so what this costs is the levels in between, and it goes to
+   replacing it, so it costs only the levels in between, and it goes to
    world.pmtiles, where no region removal can reach it. */
 export const WORLD: Region = {
   min_lon: -180,
@@ -152,9 +166,9 @@ const RUNNING: ReadonlySet<Job["state"]> = new Set(
 export const isRunning = (job: Job): boolean => RUNNING.has(job.state);
 
 /* One row of the download ledger: a region the archive was asked to hold,
-   as recorded inside the archive itself. `completed` is epoch seconds; zero
-   means the tiles predate the ledger and their age is unknown -- which the
-   UI treats as "probably stale" rather than "fresh". */
+   recorded inside the archive itself. `completed` is epoch seconds; zero
+   means the tiles predate the ledger and their age is unknown, which the UI
+   treats as stale rather than fresh. */
 const LedgerEntry = z.object({
   id: z.string(),
   name: z.string(),
@@ -169,13 +183,13 @@ const LedgerEntry = z.object({
   bytes: z.number().int().nonnegative(),
   regions: z.number().int().positive(),
   max_zoom: z.number().int().nonnegative(),
-  /* The world overview, which is the ground under every region rather than
-     a place of its own. Since downloads split into one file per region it
-     has its own archive and writes no record, so nothing made today is
-     flagged here -- but an install from before that split has it inside the
-     old merged map.pmtiles as an ordinary entry, under whatever the picker
+  /* The world overview: the ground under every region rather than a place
+     of its own. Since downloads split into one file per region it has its
+     own archive and writes no record, so nothing made today is flagged
+     here -- but an install from before that split holds it inside the old
+     merged map.pmtiles as an ordinary entry, under whatever the picker
      called it. The server decides this from what the entry holds, not from
-     its name, and says so here rather than leaving the page to guess. */
+     its name. */
   overview: z.boolean(),
 });
 export type LedgerEntry = z.infer<typeof LedgerEntry>;
@@ -214,28 +228,30 @@ async function post<T>(
   if (!res.ok) {
     const message = json && typeof json === "object" && "error" in json
       ? String((json as { error: unknown; }).error)
-      : `request failed (${res.status})`;
+      : m.err_request_failed({ status: res.status });
     throw new Error(message);
   }
   const parsed = schema.safeParse(json);
   if (!parsed.success) {
-    throw new Error(
+    /* The endpoint and the validator's complaint are for whoever is debugging
+       this; the toast says the same thing in a language the reader chose. */
+    console.error(
       `server returned an unexpected shape for "${endpoint}": ${parsed.error.message}`,
     );
+    throw new Error(m.err_server_shape());
   }
   return parsed.data;
 }
 
-/* Whether an archive exists at all, asked of the server directly. The
-   missing-basemap banner used to hang off MapLibre's error events, which
-   describe a failed fetch without naming what failed -- the banner never
-   fired. A HEAD request is a yes or a no. */
-/* Any archive, not just the downloaded one. The world overview alone is a
-   drawn, labelled planet -- it is step 1 of the documented setup, with the
-   region as step 2 -- and reporting "no basemap found" over it was a banner
-   contradicting the map behind it. Asked of the server rather than probed
-   for with a HEAD per file, because probing for one that is absent puts a
-   404 in the console on a configuration that is entirely correct. */
+/* Whether ANY archive exists, not just a downloaded one: the world overview
+   alone is a drawn, labelled planet, and "no basemap found" over it was a
+   banner contradicting the map behind it.
+
+   Asked of the server rather than probed for with a HEAD per file, because
+   probing for an absent file puts a 404 in the console on a configuration
+   that is entirely correct. The banner used to hang off MapLibre's error
+   events, which report a failed fetch without naming what failed, so it
+   never fired at all. */
 export function useBasemapPresent() {
   return useQuery({
     queryKey: ["basemap-present"],
@@ -270,45 +286,54 @@ export function useBasemapEstimate(regions: Region[] | null, world = false) {
   });
 }
 
-/* Polled while a download runs, quiet otherwise. Always mounted alongside the
-   map, so a download keeps reporting even with the card closed, and progress
-   survives closing and reopening it. */
-export function useBasemapStatus() {
+/* Polled while a download runs, quiet otherwise. Always mounted alongside
+   the map, so a download keeps reporting with the card closed and progress
+   survives closing and reopening it.
+
+   `follow` marks an observer that only wants to SEE what the map already
+   knows. The poll stops when nothing is running, so a job that began and
+   ended unobserved leaves its ending undelivered and a fresh observer would
+   fetch it on mount -- handing an old ending as fresh news to the watcher
+   that closes the download card. Opening the card shut it again: one press,
+   nothing on screen, no error. A follower reads the cache and waits for the
+   poll. */
+export function useBasemapStatus(
+  { follow = false }: { follow?: boolean; } = {},
+) {
   return useQuery({
     queryKey: ["basemap-status"],
     queryFn: () => post(JobStatus, "basemap-status"),
     refetchInterval: (query) =>
       query.state.data && isRunning(query.state.data.job) ? 1000 : false,
+    refetchOnMount: !follow,
   });
 }
 
 export function useBasemapDownload() {
   const client = useQueryClient();
   return useMutation({
-    /* The name is what the ledger will call this download; the server
+    /* `name` is what the ledger will call this download; the server
        validates it, so the picker never invents one it cannot store.
 
        `world` says which archive this joins. The overview is its own file
-       and keeps no ledger entry -- it belongs to no place, and it is what
-       the map falls back to everywhere -- so a region download must not be
-       able to take it away, and the server checks that a download claiming
-       to be one really covers the planet. */
+       and keeps no ledger entry -- it is what the map falls back to
+       everywhere -- so a region download must not be able to take it away,
+       and the server checks that a download claiming to be one really
+       covers the planet. */
     mutationFn: (
-      { regions, name, labels, world }: {
-        regions: Region[];
+      { regions, name, world }: {
+        /* Each region carries its own label. The server echoes it back in
+           the status so the progress rows keep their names across a reload
+           -- the ledger stores only the one combined name, which cannot
+           label six separate bars. */
+        regions: LabelledRegion[];
         name?: string;
-        /* One label per region, in the same order. The server echoes these
-           back in the status so the progress rows keep their names across a
-           reload -- the ledger stores only the one combined name, which
-           cannot label six separate bars. */
-        labels?: string[];
         world?: boolean;
       },
     ) =>
       post(z.object({ ok: z.boolean() }), "basemap-download", {
         regions,
         ...(name !== undefined ? { name } : {}),
-        ...(labels !== undefined ? { labels } : {}),
         ...(world ? { world: true } : {}),
       }),
     /* Refetch immediately so the poll loop sees the running state and starts
@@ -347,11 +372,10 @@ export function useBasemapRemove() {
 
 /* ------------------------------------------------- carrying maps by hand */
 
-/* Writing a downloaded region out as a file, so it can be carried to a
-   machine with no internet. The file is built server-side into the export
-   directory and then saved by the browser over an ordinary GET, which is
-   what makes a multi-gigabyte export resumable and keeps it off the
-   JavaScript heap entirely. */
+/* Writing a downloaded region out as a file, to carry to a machine with no
+   internet. The file is built server-side into the export directory, then
+   saved by the browser over a plain GET -- which is what makes a
+   multi-gigabyte export resumable and keeps it off the JavaScript heap. */
 export function useBasemapExport() {
   const client = useQueryClient();
   return useMutation({
@@ -431,11 +455,10 @@ export function useStagedImport() {
 
 /* Sending the file up.
 
-   XHR rather than fetch, for one reason: fetch cannot report upload
-   progress, and this is a multi-gigabyte body going to a server the user is
-   watching. A progress bar that sits at zero for four minutes reads as a
-   hang. The File is handed over as-is, so the browser streams it from disk
-   and it never lands on the JavaScript heap. */
+   XHR rather than fetch, because fetch cannot report upload progress and
+   this is a multi-gigabyte body: a progress bar sitting at zero for four
+   minutes reads as a hang. The File is handed over as-is, so the browser
+   streams it from disk and it never lands on the JavaScript heap. */
 export function useUploadImport() {
   const client = useQueryClient();
   return useMutation({
@@ -462,21 +485,21 @@ export function useUploadImport() {
           if (xhr.status < 200 || xhr.status >= 300) {
             const message = json && typeof json === "object" && "error" in json
               ? String((json as { error: unknown; }).error)
-              : `upload failed (${xhr.status})`;
+              : m.err_upload_failed({ status: xhr.status });
             reject(new Error(message));
             return;
           }
           const parsed = Staged.safeParse(json);
           if (!parsed.success) {
-            reject(new Error("the server described that file oddly"));
+            reject(new Error(m.err_upload_shape()));
             return;
           }
           resolve(parsed.data);
         });
         xhr.addEventListener("error", () =>
-          reject(new Error("the upload could not reach the app")));
+          reject(new Error(m.err_upload_unreachable())));
         xhr.addEventListener("abort", () =>
-          reject(new Error("the upload was stopped")));
+          reject(new Error(m.err_upload_stopped())));
         xhr.send(file);
       }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["basemap-staged"] }),
@@ -575,21 +598,19 @@ export const PlaceResult = z.object({
   lon: z.number(),
   lat: z.number(),
   /* How well the row answered the NAME, straight from the index. Lower is
-     better, and rows sharing one are rows the index considers equally good
-     answers -- the set the dropdown is free to re-order on the country and
-     state it can work out and the index cannot. */
+     better, and rows sharing a score are equally good answers -- the set the
+     dropdown may re-order on the country and state it can work out and the
+     index cannot. */
   score: z.number(),
 });
 export type PlaceResult = z.infer<typeof PlaceResult>;
 
 const PlaceResults = z.object({ results: z.array(PlaceResult) });
 
-/* [allowed] is the privacy gate, and it is a required argument rather than an
-   option with a default because the default would be the wrong one. An
-   address must never reach the place index, and the caller is the only party
-   that knows whether what was typed is an address. Passing false leaves the
-   query disabled, which means no request is made at all -- not a request
-   whose result is discarded. */
+/* [allowed] is the privacy gate. Required rather than defaulted, because
+   any default would be the wrong one: an address must never reach the place
+   index, and only the caller knows whether what was typed is one. Passing
+   false disables the query, so no request is made at all. */
 export function usePlaceSearch(
   query: string,
   allowed: boolean,
@@ -621,14 +642,14 @@ export function useBasemapCancel() {
 
 /* ------------------------------------------------------------- coverage */
 
-/* Which of a viewport's tiles this server can actually serve, so the map
-   can draw the edge of what is on disk instead of leaving a blank screen
-   to be read as a broken application.
+/* Which of a viewport's tiles this server can serve, so the map can draw
+   the edge of what is on disk rather than a blank screen that reads as a
+   broken application.
 
-   The answer describes the ARCHIVES, not the download ledger: a browsed
-   tile is a tile the map draws, and an archive can hold tiles no ledger
-   entry claims. `present` is one character per tile, north-west first,
-   west to east and then south. */
+   The answer describes the ARCHIVES, not the ledger: a browsed tile is a
+   tile the map draws, and an archive can hold tiles no ledger entry claims.
+   `present` is one character per tile, north-west first, west to east and
+   then south. */
 const Coverage = z.object({
   zoom: z.number().int().nonnegative(),
   x: z.number().int().nonnegative(),
@@ -641,31 +662,28 @@ const Coverage = z.object({
      view is blank, so it is measured server-side at that same cell rather
      than re-derived here from the mask. */
   depth: z.number().int().min(-1),
-  /* Whether the map UNDER the map draws here -- a different question from
-     the depth, and the one that decides what the app may claim. An archive
-     holding one city still holds the single zoom-0 tile of the planet, so
-     its depth over anywhere is 0; whether that amounts to a map on screen
-     depends on the floor covering the world at that zoom, which is a fact
-     about the whole archive rather than about this view. Answered by the
-     server, which is what measures the floor's depth in the first place. */
+  /* Whether the map UNDER the map draws here. Different from the depth, and
+     it is what decides what the app may claim: an archive holding one city
+     still holds the planet's single zoom-0 tile, so its depth anywhere is
+     0, and whether that amounts to a map on screen depends on the floor
+     covering the world at that zoom. That is a fact about the whole
+     archive, so the server answers it. */
   floor: z.boolean(),
 }).refine((c) => c.present.length === c.w * c.h, {
-  /* The one invariant that spans fields, and so the one zod would not
-     check on its own. A short string reads as "covered" for every tile it
-     does not mention -- silently under-reporting the blank, which is the
-     failure this feature exists to prevent. */
+  /* The one invariant spanning fields, so the one zod would not check on
+     its own. A short string reads as "covered" for every tile it does not
+     mention, silently under-reporting the blank. */
   message: "present must carry one character per tile of w x h",
 });
 export type Coverage = z.infer<typeof Coverage>;
 
 /* Driven from the map's own move handlers, so fetched imperatively -- the
    same arrangement the grid uses, and for the same reason: a drag fires
-   several settled events at one position and the query client answers the
+   several settled events at one position, and the query client answers the
    repeats from cache.
 
    The staleness window is short rather than infinite: tiles arrive while
-   browsing and leave when a region is removed, and the mask must not
-   outlive either. */
+   browsing and leave when a region is removed. */
 export const fetchCoverage = (
   client: QueryClient,
   view: {

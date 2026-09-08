@@ -1,18 +1,17 @@
 /* The gear in the panel header.
 
-   One place for the choices that are about the application rather than about
-   the map. Today that is the colour scheme; the language menu stays at the
-   foot of the panel, where it has always been and where someone who cannot
-   read the current language will still find it -- a settings gear is a poor
-   place to put the control that fixes "I cannot read this".
+   One place for choices about the application rather than about the map.
+   Today that is the colour scheme. The language menu stays at the foot of
+   the panel, where someone who cannot read the current language will find
+   it: a settings gear is a poor place for the control that fixes "I cannot
+   read this".
 
-   A popover rather than a menu of actions: what is inside is a labelled
-   control with a current value, and a menu item that silently holds state is
+   A popover rather than a menu of actions, because what is inside is a
+   labelled control with a current value, and a menu item holding state is
    harder to announce than a select that says what it is set to.
 
-   The gear itself is icon-only, so it carries the same contract every other
-   icon in this application does -- an accessible name and a tooltip, both
-   from the same string, via the shared IconButton. */
+   The gear is icon-only, so it goes through the shared IconButton and gets
+   an accessible name and a tooltip from the same string. */
 
 import { Settings } from "lucide-react";
 import { Dialog, DialogTrigger, Popover } from "react-aria-components";

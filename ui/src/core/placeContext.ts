@@ -1,22 +1,20 @@
 /* Where a search result would take the map, said before the click.
 
-   The search index (ocaml/server/place_index.ml) carries a name, a kind
-   and a point -- no administrative context, because tile labels do not
-   know their country. Names repeat: the United States alone has several
+   The search index (ocaml/server/place_index.ml) carries a name, a kind and
+   a point -- no administrative context, because tile labels do not know
+   their country. Names repeat: the United States alone has several
    localities called Atlanta, so a bare "Atlanta — locality" row is a coin
-   flip. This module derives context offline, from data already shipped:
-   which catalogue country contains the point (the simplified Natural
-   Earth border polygons behind the download picker), which subdivision
-   box where the catalogue has them (nine large countries), and how far
-   and which way the map would fly. No query leaves the machine.
+   flip. This module derives the context offline, from data already
+   shipped -- which catalogue country contains the point, which subdivision
+   box where the catalogue has them (nine large countries), and how far and
+   which way the map would fly. No query leaves the machine.
 
-   Floats throughout: this is display at the UI boundary, never the
-   encode path. The borders are simplified, so near one the attribution
-   can be wrong in both directions: a coastal point can resolve to no
-   country, and a border town can resolve to the neighbour whose
-   simplified polygon overreaches. The tiebreaks below get the shipped
-   catalogue's own city list right; they are context for a dropdown, not
-   a boundary authority. */
+   Floats throughout: this is display at the UI boundary, never the encode
+   path. The borders are simplified, so near one the attribution can be
+   wrong in either direction -- a coastal point can resolve to no country, a
+   border town to the neighbour whose polygon overreaches. The tiebreaks
+   below get the shipped city list right; they are context for a dropdown,
+   not a boundary authority. */
 
 type Box = [number, number, number, number];
 
@@ -65,10 +63,10 @@ const inRings = (rings: [number, number][][], lon: number, lat: number) => {
   return odd;
 };
 
-/* How deep inside the rings the point sits: its distance to the nearest
-   polygon edge, in degrees stretched for latitude. Only ever COMPARED,
-   between candidates a few hundred kilometres apart, so the flat
-   approximation is enough. */
+/* How deep inside the rings the point sits: distance to the nearest polygon
+   edge, in degrees stretched for latitude. Only ever COMPARED, between
+   candidates a few hundred kilometres apart, so a flat approximation is
+   enough. */
 const ringDepth = (rings: [number, number][][], lon: number, lat: number) => {
   const kx = Math.cos((lat * Math.PI) / 180);
   let best = Infinity;
@@ -101,22 +99,25 @@ const boxesNest = (inner: Box[], outer: Box[]) =>
 
 export type CityBox = { name: string; bbox: Box; };
 
-/* The country whose border polygon contains the point. NO box prefilter
-   for polygon countries: the generator appends off-coast city quads to
-   the rings without widening the boxes, so the boxes do not bound the
-   polygon (Malabo and Port Vila live outside their countries' boxes).
+/* The country whose border polygon contains the point. NO box prefilter for
+   polygon countries: the generator appends off-coast city quads to the
+   rings without widening the boxes, so the boxes do not bound the polygon
+   (Malabo and Port Vila fall outside their countries' boxes).
 
-   Simplified borders overlap, so several polygons can contain one point
-   -- both Congo capitals sit inside both Congos' rings. Ties resolve by
-   the strongest data shipped, in order: a candidate whose OWN catalogue
-   city box holds the point claims it (nearest such city's centre when
-   both do -- Kinshasa outranks Brazzaville from the east bank); a
-   candidate whose boxes nest wholly inside the other's is an enclave
-   whose hole the catalogue dropped and wins (rural Maseru district is
-   Lesotho, not the South Africa around it); otherwise the point belongs
-   to the polygon it sits deepest inside (a border town beats the
-   neighbour's simplification overreach). Only a country WITHOUT a
-   polygon (Antarctica) may claim a point on its box alone. */
+   Simplified borders overlap, so several polygons can contain one point --
+   both Congo capitals sit inside both Congos' rings. Ties resolve on the
+   strongest data shipped, in this order:
+
+     1. a candidate whose OWN catalogue city box holds the point, nearest
+        city centre first (Kinshasa outranks Brazzaville from the east bank)
+     2. a candidate whose boxes nest wholly inside the other's, which is an
+        enclave whose hole the catalogue dropped (rural Maseru district is
+        Lesotho, not the South Africa around it)
+     3. the polygon the point sits deepest inside, so a border town beats
+        the neighbour's simplification overreach
+
+   Only a country WITHOUT a polygon (Antarctica) may claim a point on its
+   box alone. */
 export function containingCountry<C extends CountryShape>(
   countries: readonly C[],
   lon: number,
@@ -173,24 +174,21 @@ export function overlappingSubdivisions<S extends SubdivisionShape>(
 
 /* ------------------------------------------- the context someone typed
 
-   "Jasper, GA" is how a person names a place, and until now the part
-   after the comma did nothing at all. The server cannot help: its index
-   is built from tile labels, and a tile label does not know its country,
-   so no entry for Jasper contains "GA" anywhere and the context can only
-   ever rank a name against itself (ocaml/server/place_index.ml says as
-   much). The context this file already derives for DISPLAY is the same
-   context the query is asking about, so the ranking happens here, on
-   data already shipped, with nothing leaving the machine.
+   "Jasper, GA" is how a person names a place, and the part after the comma
+   used to do nothing. The server cannot help: its index is built from tile
+   labels, and a tile label does not know its country, so no entry for
+   Jasper contains "GA" anywhere (ocaml/server/place_index.ml says as much).
+   The context this file already derives for DISPLAY is the same context the
+   query asks about, so the ranking happens here, on data already shipped.
 
-   Ranking, never filtering, for the same reason the display is hedged:
-   the boxes overlap and the borders are simplified, so a context that
-   decided would hide the right answer whenever the catalogue disagreed
-   with the atlas. */
+   Ranking, never filtering, for the same reason the display is hedged: the
+   boxes overlap and the borders are simplified, so a context that DECIDED
+   would hide the right answer whenever the catalogue disagreed with the
+   atlas. */
 
-/* Lower case with the accents taken off, so "Québec" answers "quebec".
-   The server folds its own index the same way; this folds only what was
-   typed and the catalogue's own labels, both of which are already
-   Unicode strings rather than index bytes. */
+/* Lower case with the accents taken off, so "Québec" answers "quebec". The
+   server folds its own index the same way; this folds only what was typed
+   and the catalogue's own labels. */
 export const foldLabel = (s: string) =>
   s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
@@ -208,11 +206,10 @@ export function contextTerms(query: string): string[] {
 
 /* Whether one label answers one term.
 
-   A short term is an abbreviation and must match a whole label: "GA" is
-   Georgia, and read as a prefix it would also be Gabon, Galicia and
-   Gauteng. Four characters or more may start a word instead, so
-   "carolina" finds North Carolina and "united" finds the United
-   States. */
+   A short term is an abbreviation and must match a whole label: read as a
+   prefix, "GA" would be Gabon, Galicia and Gauteng as well as Georgia. Four
+   characters or more may start a word instead, so "carolina" finds North
+   Carolina and "united" finds the United States. */
 const answers = (term: string, label: string) =>
   term === label
   || (term.length >= 4
@@ -234,25 +231,24 @@ export function contextDepth(
 
 /* The order results are offered in, lower first on both keys.
 
-   How well the row answered the NAME comes first, straight from the index
-   -- "Jasper, GA" must not answer with Jasper County Landfill just
-   because the landfill is in Georgia. Only among rows the index calls
-   equally good does the context decide.
+   How well the row answered the NAME comes first, straight from the index:
+   "Jasper, GA" must not answer with Jasper County Landfill just because the
+   landfill is in Georgia. The context decides only among rows the index
+   calls equally good.
 
-   Used with a stable sort, so rows neither key separates keep the order
-   the index gave them. That is what makes a query with no context at all
-   come back in exactly the order it always did: every depth is 0, so
-   every comparison falls through to the index's own. */
+   Used with a stable sort, so rows neither key separates keep the index's
+   own order. With no context every depth is 0, so every comparison falls
+   through and the order is exactly what it always was. */
 export const compareRows = (
   a: { result: { score: number; }; at: { depth: number; }; },
   b: { result: { score: number; }; at: { depth: number; }; },
 ): number => a.result.score - b.result.score || b.at.depth - a.at.depth;
 
 /* Everything a point can be called, folded: its country by the name the
-   reader sees, by the catalogue's own name and by its code, and every
+   reader sees, by the catalogue's own name and by its code, plus every
    subdivision whose box holds it, by name and abbreviation. One list, so
-   the label a row shows and the ranking that put it there are reading the
-   same thing. */
+   the label a row shows and the ranking that put it there read the same
+   thing. */
 export function placeLabels(
   country: { name: string; code: string | null; } | null,
   countryLabel: string | null,
@@ -269,12 +265,11 @@ export function placeLabels(
 }
 
 /* Which subdivision to NAME. Subdivisions are boxes only, and boxes
-   overlap: New York City sits in both New York's and New Jersey's. One
-   box holding the point is the answer. Several is silence rather than a
-   confident wrong one -- the country still shows, which is never less
-   than before -- UNLESS the typed context named one of them, and then
-   saying it is the same box evidence answering the question actually
-   put. */
+   overlap: New York City sits in both New York's and New Jersey's. One box
+   holding the point is the answer; several is silence rather than a
+   confident wrong one, and the country still shows. Unless the typed
+   context named one of them, which is the same evidence answering the
+   question actually put. */
 export function namedSubdivision(
   subdivisions: readonly SubdivisionShape[],
   terms: readonly string[] = [],

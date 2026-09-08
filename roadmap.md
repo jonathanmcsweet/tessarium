@@ -918,6 +918,19 @@ not cover.
       is why this is recorded rather than done. A migration that split the
       shared archive into region files once, on first run, would retire the
       export path along with it.
+- [ ] **A region still inside `map.pmtiles` cannot be removed at all.** The
+      app refuses it, and since the split there is no code behind the refusal
+      either: `run_remove` had a branch for pruning a region out of the shared
+      archive, but every entry homed there met an earlier guard, so the branch
+      was unreachable and has been deleted rather than left to rot behind a
+      comment claiming it ran. A pre-split install can therefore export a
+      merged region (a copy, see above) but never reclaim its space from
+      inside the app. `Basemap_job.Removing` is still on the wire and nothing
+      writes it. The migration in the item above -- splitting the shared
+      archive into region files once, on first run -- retires this with the
+      export copy, and is the reason this is recorded rather than rebuilt: a
+      second removal path for a layout being retired earns nothing.
+
 - [ ] **An imported file is trusted on its face.** A download over HTTPS is
       checked against compiled-in NSS trust anchors. A file that arrived on a
       USB stick gets none of that, and the confirm step describes what the
