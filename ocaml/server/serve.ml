@@ -817,12 +817,8 @@ let handle_api cfg sessions limiter random ~endpoint ~request ~now =
           match string_field "mnemonic" json with
             | None -> bad "missing mnemonic"
             | Some mnemonic -> (
-                let passphrase =
-                  Option.value (string_field "passphrase" json) ~default:""
-                in
-                match Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic ~passphrase with
+                match Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic with
                 | exception Tessarium.Bad_mnemonic e -> bad e.Tessarium.message
-                | exception Tessarium.Bad_passphrase e -> bad e.Tessarium.message
                 | key ->
                     let id = Sessions.new_id random in
                     Sessions.put sessions ~now id key;

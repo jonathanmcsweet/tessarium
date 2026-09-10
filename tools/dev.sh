@@ -3,10 +3,14 @@
 #
 # `pnpm run dev` inside ui/ starts Vite alone, which is not enough to use the
 # app: Vite proxies /api, /basemap, /healthz and both wasm modules to the OCaml
-# server, because the wasm is embedded in that binary rather than sitting in
+# server, because the wasm is served by that binary rather than sitting in
 # public/. Without the server the gate renders and the phrase validates, but
 # opening the map fails -- the KDF module 502s, so no key is derived. This
 # starts both halves and stops both.
+#
+# Everything it needs is installed and compiled first, by tools/bootstrap.sh:
+# from a bare clone this one command is the whole story. Warm, that costs about
+# a second.
 #
 # Vite serves the UI here, not ocaml/server/ui_dist, so edits reload.
 # `make run` is the other shape: one binary serving the built UI, which is what
@@ -23,39 +27,14 @@ ui_port="${TESSARIUM_UI_PORT:-7380}"
 # Neither toolchain is on PATH by default -- see `make env`. Applying them here
 # lets this run from a shell that has not sourced it, which is the shell most
 # people already have open.
-if ! command -v dune >/dev/null 2>&1 && command -v opam >/dev/null 2>&1; then
-  eval "$(opam env --switch=tessarium)" || true
-fi
-if ! command -v pnpm >/dev/null 2>&1 && [ -s "$HOME/.nvm/nvm.sh" ]; then
-  export NVM_DIR="$HOME/.nvm"
-  # shellcheck disable=SC1091
-  . "$NVM_DIR/nvm.sh"
-fi
+# shellcheck disable=SC1091
+. tools/env.sh
 
-for tool in dune pnpm make; do
-  command -v "$tool" >/dev/null 2>&1 || {
-    echo "dev: $tool not found. Run tools/setup.sh, or eval \"\$(make env)\"." >&2
-    exit 1
-  }
-done
-
-# The .deb, .rpm and AppImage all ship a world overview, so a fresh install
-# opens on a map. A repo checkout ships none -- basemap/ is not in git -- so
-# `make dev` used to greet a new contributor with a blank grid and "No basemap
-# found", the one state the packages are never in. Fetch the same overview
-# packaging fetches, once: zoom 4, ~6 MB, countries and coastlines. Regions on
-# top of it stay a deliberate choice.
-#
-# TESSARIUM_NO_BASEMAP=1 skips it -- for working offline, or for testing the
-# empty state on purpose.
-#
-# Through `make basemap`, which `make run` also depends on, so one recipe
-# decides when the map is fetched, when it is skipped, and what a failed or
-# half-finished fetch means. This was a second copy of that rule written by
-# hand, and the two had drifted: only this one honoured the environment
-# variable or survived a failed download, so `make run` refused to start at all
-# on a machine with no network.
-make basemap
+# The toolchain, node modules, the basemap the packages ship, and the compile.
+# Each step is skipped when it is already done. A fresh checkout has none of
+# them, and used to meet `pnpm run dev` with "dune: not found" -- or, worse,
+# with a running app whose map could not open.
+tools/bootstrap.sh
 
 up() { curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:$1/healthz" 2>/dev/null; }
 
@@ -72,16 +51,25 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "dev: building the core and the server"
-dune build
-
 if up "$port"; then
   # Someone else's server, so leave it alone on the way out too.
   echo "dev: a server is already answering on $port; using it"
 else
-  mkdir -p basemap
   echo "dev: starting the server on $port"
-  ./_build/default/ocaml/server/bin/main.exe --port "$port" --basemap basemap &
+  # --ui wasm, not the default ui/dist. Vite serves the UI in development, so
+  # the only files wanted from this half are core.wasm and argon2.wasm, and
+  # wasm/ is where they are committed. The default is a directory `make ui`
+  # writes, which a fresh clone has never run: the KDF module 404s, no key is
+  # derived, and the gate rejects a phrase that is perfectly good. A binary
+  # that HAS had the UI built into it answers from its embedded copy before
+  # either directory, so this covers the empty case and changes nothing else.
+  #
+  # --no-open because the app in development is Vite's port, not this one.
+  # Without it the server opens a browser on ITS url, which serves the two
+  # wasm modules and nothing else -- a blank page beside the working one.
+  ./_build/default/ocaml/server/bin/main.exe \
+    --port "$port" --basemap "$(make -s print-basemap-dir)" \
+    --ui wasm --no-open &
   server_pid=$!
 
   for _ in $(seq 1 40); do

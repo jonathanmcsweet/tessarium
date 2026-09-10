@@ -16,7 +16,7 @@
 let usage () =
   prerr_endline
     "usage: differential [--count N] [--seed S] [--mnemonic WORDS] \
-     [--passphrase P] [--bench] [--out FILE]";
+     [--bench] [--out FILE]";
   exit 2
 
 (* The historical default. Kept stable so an old corpus and a new one with no
@@ -32,13 +32,12 @@ let () =
   (* One key exercises one permutation. A sweep worth trusting varies the
      key too -- that is what drags the KDF and the Feistel schedule into the
      differential, not just the grid. *)
-  let mnemonic = ref default_mnemonic and passphrase = ref "" in
+  let mnemonic = ref default_mnemonic in
   let rec parse = function
     | [] -> ()
     | "--count" :: v :: r -> count := int_of_string v; parse r
     | "--seed" :: v :: r -> seed := int_of_string v; parse r
     | "--mnemonic" :: v :: r -> mnemonic := v; parse r
-    | "--passphrase" :: v :: r -> passphrase := v; parse r
     | "--out" :: v :: r -> out := v; parse r
     | "--bench" :: r -> bench := true; parse r
     | _ -> usage ()
@@ -52,7 +51,6 @@ let () =
 
   let key =
     Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic:!mnemonic
-      ~passphrase:!passphrase
   in
 
   let lat_min = Z.of_string "-90000000000" in
@@ -138,8 +136,6 @@ let () =
   let oc = if !out = "-" then stdout else open_out !out in
   Printf.fprintf oc "# tessarium differential corpus\n";
   Printf.fprintf oc "# mnemonic: %s\n" !mnemonic;
-  if !passphrase <> "" then
-    Printf.fprintf oc "# passphrase: %s\n" !passphrase;
   (* The derived key, so a consumer whose contract starts AT the key (the
      wasm core wall) can skip the KDF; the independent JS implementation
      keeps deriving it from the mnemonic on its own. Test corpus only --

@@ -53,19 +53,47 @@ The exact numbers and the reasoning behind them are in
 ## Run it
 
 ```bash
-tools/setup.sh               # installs everything needed, into your home folder
-eval "$(make env)"           # makes it all available in this terminal
-make ui                      # build the web app
-make build                   # bundle it into the server program
-tools/fetch-basemap.sh       # grabs a sample map (central London) plus a world overview
-make run                     # starts the app at http://127.0.0.1:7373 and opens your browser
+pnpm run dev                 # the whole app at http://localhost:7380
 ```
 
+That is the only command a fresh clone needs. It installs whatever is missing
+-- the compilers, into your home folder rather than system-wide, then the
+packages, then the world map every release ships, about 43 MB -- compiles, and
+serves. The first run is slow and says what it is doing; later runs take a
+couple of seconds, because every step asks whether it has already been done.
+`TESSARIUM_NO_BASEMAP=1` skips the map for a checkout that only needs to
+build. `pnpm run check` reports what
+is missing and changes nothing.
+
+On a machine with no Node yet, `tools/bootstrap.sh` is the same thing spelled
+without it: it installs Node too, and `pnpm run dev` works from then on. The
+one thing neither will install is [opam](https://opam.ocaml.org/doc/Install.html),
+the OCaml package manager -- how that reaches a machine is a decision about
+the machine.
+
+This is the development shape: the web app served by Vite, so edits reload.
+The shape that ships is one program with the app built into it.
+
+```bash
+eval "$(make env)"           # puts the toolchain on this terminal's PATH, which `make` needs
+pnpm run build               # build the web app and bundle it into the server program
+make run                     # starts the app at http://127.0.0.1:7373 and opens your browser
+tools/fetch-basemap.sh       # grabs a sample map (central London) on top of the world overview
+```
+
+Downloaded maps do not live in the checkout. They go to
+`~/.local/share/tessarium/basemap` — the same store an installed copy uses, so
+a re-clone or a `git clean` cannot take hundreds of megabytes of maps with it,
+and development and an installed app read one set. `TESSARIUM_BASEMAP` points
+somewhere else. A checkout that still holds a `basemap/` directory has it moved
+there on the next run, rather than fetched again.
+
 `make package` builds a release you can hand to someone else: two small
-programs and a starter map, nothing else to install. It ships with a
-low-resolution map of the whole world built in, so it works offline from the
-first launch. Detail for wherever you actually are is downloaded
-afterward, inside the app.
+programs and a map of the whole world, nothing else to install. The world map
+is built in at the depth this app ever draws it -- towns and roads everywhere,
+about 43 MB -- so it works offline from the first launch and there is nothing
+to download for the planet. Street-level detail for wherever you actually are
+is downloaded afterward, inside the app.
 `tools/fetch-basemap.sh -b min_lon,min_lat,max_lon,max_lat -z 15` grabs
 detail for anywhere yourself, pulling only the area you asked for rather
 than the whole planet's map data.

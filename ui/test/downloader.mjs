@@ -89,10 +89,12 @@ check(
   "a region carries its own label",
   /LabelledRegion/.test(client) && /label\?:\s*string/.test(client),
 );
-/* Every offer names its regions: the picker through its per-pick names; the
-   world and the current view through the single label they have. */
+/* Every offer names its regions: the picker through its per-pick names, the
+   current view through the single label it has. Two, not four: the planet
+   used to be offered twice -- once on an empty map and once when the overview
+   was missing -- and is now shipped with every package instead. */
 const offers = [...card.matchAll(/<Offer\b[\s\S]*?\/>/g)].map((m) => m[0]);
-check(`every offer is found (${offers.length})`, offers.length === 4);
+check(`every offer is found (${offers.length})`, offers.length === 2);
 offers.forEach((call, i) => {
   check(
     `offer ${i + 1} (${

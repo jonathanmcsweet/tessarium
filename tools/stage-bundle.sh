@@ -11,22 +11,31 @@
 # Inputs, all overridable:
 #
 #   WORLD_SOURCE  a .pmtiles archive covering the whole planet
-#                 (default basemap/world.pmtiles)
-#   WORLD_ZOOM    how deep the shipped overview goes (default 4)
-#   ASSETS_DIR    where fonts/ and sprites/ are found (default basemap)
+#                 (default: world.pmtiles in the map store)
+#   WORLD_ZOOM    how deep the shipped overview goes (default: the depth
+#                 tools/fetch-basemap.sh fetches, so the two cannot drift)
+#   ASSETS_DIR    where fonts/ and sprites/ are found (default: the map store,
+#                 which tools/basemap-dir.sh names)
 #
-# Zoom 4 is about 6 MB and draws countries, coastlines and capitals: enough
-# that the app opens on a planet and the download card is an offer rather
-# than a rescue. Each further level roughly triples it -- 5 is 14 MB, 6 is
-# 43 MB and is as deep as the map ever stands -- so the shipped floor is
-# deliberately the shallow one, and going deeper is a download the user
-# chooses.
+# Zoom 6 is about 43 MB and is as deep as the map ever stands: the server
+# never draws the overview past it. Every package carries that, so an
+# installed copy shows towns and roads anywhere it is flown, and no download
+# is offered for the planet at all -- the only downloads left are the regions
+# someone picks for street detail.
+#
+# It was zoom 4 (about 6 MB, countries and coastlines) with an in-app offer to
+# deepen it. The offer went because a package that ships a map should ship the
+# map, not an errand.
 #
 # The overview is EXTRACTED rather than copied, so a package ships the same
 # depth whatever the developer happens to have on disk, and it is extracted
 # from a local archive, so packaging needs no network. The extract is
 # byte-identical for a given source, which is what keeps the tarball and the
 # .deb reproducible.
+#
+# An extract cannot be deeper than its source: asking for zoom 6 of a zoom 4
+# archive silently yields zoom 4. That is checked here rather than discovered
+# by whoever installs the package.
 #
 # Missing inputs are a hard error that names the command which produces them.
 # A package that quietly shipped without a map is the whole bug this exists
@@ -43,9 +52,11 @@ fi
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-WORLD_SOURCE="${WORLD_SOURCE:-basemap/world.pmtiles}"
-WORLD_ZOOM="${WORLD_ZOOM:-4}"
-ASSETS_DIR="${ASSETS_DIR:-basemap}"
+store="$(tools/basemap-dir.sh)"
+WORLD_SOURCE="${WORLD_SOURCE:-$store/world.pmtiles}"
+# Asked of the fetcher rather than written down again: one number, one home.
+WORLD_ZOOM="${WORLD_ZOOM:-$(tools/fetch-basemap.sh --print-world-zoom)}"
+ASSETS_DIR="${ASSETS_DIR:-$store}"
 
 missing=0
 if [ ! -f "$WORLD_SOURCE" ]; then
@@ -66,6 +77,24 @@ fi
 fetcher="_build/default/ocaml/pmtiles/bin/main.exe"
 if [ ! -x "$fetcher" ]; then
   dune build ocaml/pmtiles/bin/main.exe
+fi
+
+# Deep enough to be worth extracting. A shallower source is not an error the
+# packager can see afterwards: the file is written, the sizes look plausible
+# for a smaller planet, and the shipped map is simply flatter than the one
+# every other package carries.
+source_zoom="$(tools/archive-max-zoom.sh "$WORLD_SOURCE" || true)"
+if [ -z "$source_zoom" ]; then
+  echo "error: cannot read the zoom range of $WORLD_SOURCE" >&2
+  exit 1
+fi
+if [ "$source_zoom" -lt "$WORLD_ZOOM" ]; then
+  echo "error: $WORLD_SOURCE goes to zoom $source_zoom;" \
+    "packages ship zoom $WORLD_ZOOM" >&2
+  echo "       an extract cannot be deeper than its source. Fetch a deeper" >&2
+  echo "       one, which replaces the shallow archive in place:" >&2
+  echo "         tools/fetch-basemap.sh -z '' -W $WORLD_ZOOM" >&2
+  exit 1
 fi
 
 mkdir -p "$dest"

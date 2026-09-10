@@ -289,9 +289,8 @@ check(
 /* Where the phrase comes from is the highest-value security decision in the
    app, so its guidance must be on screen BEFORE anything is generated or
    typed -- not at the foot of the form, where it is read after the choice if
-   at all. Both halves are checked: don't invent one, don't reuse one. The
-   position check is what fails when the block drifts back down the form, since
-   a warning below the submit button still "appears". */
+   at all. The position check is what fails when the block drifts back down the
+   form, since a warning below the submit button still "appears". */
 {
   /* Located by class, not by copy: a reworded warning should fail the one
      text check below, not report that the layout moved. */
@@ -300,27 +299,22 @@ check(
     "the phrase-provenance warning is visible before generating",
     await provenance.isVisible(),
   );
-  /* The heading directs; the body carries the two hazards. Checked where each
-     lives, so a reworded heading fails the heading check and a thinned-out
-     body fails the body check, rather than one pointing at the wrong half. */
+  /* The heading says what the checks DO cover; the body carries the hazard.
+     Checked where each lives, so a reworded heading fails the heading check
+     and a thinned-out body fails the body check, rather than one pointing at
+     the wrong half. */
   const title = await provenance.locator("strong").textContent();
-  check("its heading directs the user to generate", /generat/i.test(title));
+  check(
+    "its heading says the checks are about what was typed",
+    /typed a phrase correctly/i.test(title),
+  );
+  /* The hazard has to survive a rewording: validation is a typo check, so a
+     phrase someone chose themselves can pass every one of them and still be
+     guessable. A warning that stops saying so is decoration. */
   const body = await provenance.textContent();
   check(
-    "its body still rules out inventing a phrase",
-    body.includes("only if this button produced them"),
-  );
-  check(
-    "its body still rules out reusing a phrase",
-    body.includes("protect nothing else"),
-  );
-  /* The claim has to stay true: validation is a typo check, not a test of how
-     the phrase was produced. */
-  check(
-    "it says the checks do not prove the phrase was generated",
-    (await provenance.textContent()).includes(
-      "confirm you typed a phrase correctly, not that it was generated",
-    ),
+    "its body still warns against choosing your own phrase",
+    /own phrase/i.test(body) && /secure/i.test(body),
   );
   check(
     "the provenance warning sits above the unlock button",
@@ -330,14 +324,6 @@ check(
       if (!warning || !submit) return false;
       return !!(warning.compareDocumentPosition(submit)
         & Node.DOCUMENT_POSITION_FOLLOWING);
-    }),
-  );
-  check(
-    "the generate button is described by its hint",
-    await page.evaluate(() => {
-      const button = document.querySelector(".generate button");
-      const id = button?.getAttribute("aria-describedby");
-      return !!id && !!document.getElementById(id)?.textContent?.trim();
     }),
   );
 }
@@ -405,6 +391,53 @@ check(
     t.includes("Write these 24 words down")
   ),
 );
+
+/* Appearance, from the gate.
+
+   The settings gear lives in the panel header, which does not exist until a
+   map is open -- so before this the only screen a person can be stuck on was
+   the one screen with no way to change how it looks. Someone reading 24 words
+   off paper in a bright room could not turn the lights up.
+
+   Driven through the control and asserted on the ROOT attribute and on paint:
+   a picker that sets state nothing reads would pass a click-and-see-the-label
+   check. Put back to the default afterwards, because the theme section far
+   below asserts that nothing has been chosen yet, and it is right to. */
+check(
+  "the gate offers a theme as well as a language",
+  await page.locator(".gate-card .theme .dropdown-button").isVisible(),
+);
+const gateLightness = async () => {
+  const bg = await page.locator(".gate-card").first()
+    .evaluate((n) => getComputedStyle(n).backgroundColor);
+  const nums = bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
+  return bg.startsWith("oklab") || bg.startsWith("oklch")
+    ? nums[0]
+    : (nums[0] + nums[1] + nums[2]) / (3 * 255);
+};
+const gateDark = await gateLightness();
+await chooseFrom(".gate-card .theme", "light");
+await page.waitForFunction(
+  () => document.documentElement.getAttribute("data-theme") === "light",
+  null,
+  { timeout: 10_000 },
+);
+const gateLight = await gateLightness();
+check(
+  `choosing one repaints the gate itself (${gateDark.toFixed(2)} -> ${
+    gateLight.toFixed(2)
+  })`,
+  gateLight > gateDark + 0.2,
+);
+/* Back to the default, which is the one theme that wears no attribute -- so
+   this also says the control can return to it rather than only leave it. */
+await chooseFrom(".gate-card .theme", "cyber-dark");
+await page.waitForFunction(
+  () => document.documentElement.getAttribute("data-theme") === null,
+  null,
+  { timeout: 10_000 },
+);
+check("and the gate can put it back to the default", true);
 
 await page.locator("button[type=submit]").click();
 
@@ -714,113 +747,47 @@ const awaitDone = async (generation) => {
 await bannerAction.click();
 await page.waitForSelector(".download-card", { timeout: 10_000 });
 check("the download card opens from the banner", true);
-const worldButton = page.locator(".download-world button");
-await worldButton.waitFor({ state: "visible", timeout: 10_000 });
-check("an empty basemap leads with the world map offer", true);
-await page.waitForFunction(
-  () => !document.querySelector(".download-world button")?.disabled,
-  null,
-  { timeout: 30_000 },
+/* The card offers regions and nothing else. Every package now carries the
+   world overview at the depth the map draws it, so there is no planet left to
+   fetch and the card must not pretend otherwise -- not here, on the empty map
+   that used to lead with exactly that offer. */
+check(
+  "and offers no download of the planet",
+  (await page.locator(".download-world").count()) === 0,
 );
-await worldButton.click();
+/* So the overview is put on disk the way a package puts it there, before
+   anything below can rely on it. Through the server, which still knows how to
+   write world.pmtiles and still checks that a download claiming to be the
+   planet covers it -- not through the app, which no longer asks. This is the
+   one place the suite reaches past the UI to stage what an install ships. */
+const staged = await postJson("basemap-download", {
+  regions: [{
+    min_lon: -180,
+    min_lat: -85,
+    max_lon: 180,
+    max_lat: 85,
+    max_zoom: 6,
+  }],
+  world: true,
+});
+check(
+  "the overview is staged the way a package ships it",
+  staged.status === 200,
+);
 check("the world download completes at generation one", await awaitDone(1));
-await page.waitForFunction(
-  () =>
-    [...document.querySelectorAll(".app-toast")].some((t) =>
-      (t.textContent ?? "").includes("Maps downloaded")
-    ),
-  null,
-  { timeout: 30_000 },
-);
-check("the download completes with a toast", true);
+/* Reopened, because the app was not watching. A download it starts is one it
+   follows to its toast; this one arrived underneath it, exactly as a package's
+   does -- on disk before the first run. So the state from here on is the one
+   every install opens in: an overview, no region, and no banner. */
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.locator("#phrase").fill(sampleMnemonic);
+await page.waitForSelector(".valid", { timeout: 30_000 });
+await page.locator("button[type=submit]").click();
+await page.waitForSelector(".map-wrap", { timeout: 60_000 });
 check(
-  "and the toast carries a close button for keyboard users",
-  (await page.locator(".app-toast button").count()) >= 1,
+  "a store that ships an overview opens with no missing-basemap banner",
+  (await page.locator(".banner").count()) === 0,
 );
-
-/* The toast was drawn by a library that injected its own stylesheet -- white
-   background, near-black text, 8px corners, all literals in a file this
-   project does not own. So it stayed white in every theme and round in a theme
-   that squares every corner: the same bug as MapLibre's controls, and
-   invisible to the token audit for the same reason, that the colours belonged
-   to no palette. It is this project's own markup now, and these two checks
-   would notice it going back.
-
-   Nothing has chosen a theme yet, so this is the default: dark. Read as
-   painted and as geometry, because the fix is one stylesheet beating another
-   and only the computed value says which won. */
-const toastStyle = () =>
-  page.locator(".app-toast").first().evaluate((n) => {
-    const s = getComputedStyle(n);
-    return {
-      bg: s.backgroundColor,
-      radius: s.borderTopLeftRadius,
-      color: s.color,
-    };
-  });
-const toast = await toastStyle();
-const toastLight = (() => {
-  const n = toast.bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
-  return toast.bg.startsWith("oklab") || toast.bg.startsWith("oklch")
-    ? n[0]
-    : (n[0] + n[1] + n[2]) / (3 * 255);
-})();
-check(
-  `the toast is painted in the theme, not a library's white (${toast.bg})`,
-  toastLight < 0.5,
-);
-check(
-  `and squares its corners like everything else (${toast.radius})`,
-  toast.radius === "0px",
-);
-/* And a SUCCESS takes itself away -- one short statement with nothing to
-   re-read, unlike an error. Both halves of that pair have to hold: if success
-   toasts stayed too, "an error waits to be dismissed" further down would be
-   trivially true.
-
-   Waited for rather than slept past, so this returns the moment the toast
-   leaves -- two seconds earlier on a green run -- while its budget still ends
-   past the timeout the toast was given. */
-const successWentAway = await page.waitForFunction(
-  () => document.querySelectorAll(".app-toast").length === 0,
-  null,
-  { timeout: SUCCESS_MS + 2000 },
-).then(() => true, () => false);
-check("a success toast takes itself away", successWentAway);
-await page.waitForFunction(() => !document.querySelector(".banner"), null, {
-  timeout: 10_000,
-});
-check("the banner clears once maps exist", true);
-await page.waitForFunction(
-  () => !document.querySelector(".download-card"),
-  null,
-  {
-    timeout: 10_000,
-  },
-);
-check("the card closes itself", true);
-
-/* The grid overlay must survive the style swap that follows a completed
-   download, and this is checked after the FIRST download deliberately. It once
-   did not survive: when MapLibre's style diff succeeds it fires style.load
-   synchronously inside the setStyle call, so a listener registered after that
-   call has already missed it and the overlay was never re-added. Each missed
-   listener stayed armed and repaired the NEXT swap, which made the loss
-   invisible after two downloads and total after one -- the real-world case. */
-const overlayAlive = await page.evaluate(() => {
-  const map = window.__tessarium_map;
-  return !!(map?.getSource("grid") && map.getLayer("grid-lines")
-    && map.getSource("selection") && map.getLayer("selection-outline"));
-});
-check("the grid overlay survives the download's style swap", overlayAlive);
-const gridRefilled = await page
-  .waitForFunction(
-    () => (window.__tessarium_map?.querySourceFeatures("grid").length ?? 0) > 0,
-    null,
-    { timeout: 30_000 },
-  )
-  .then(() => true, () => false);
-check("and the grid refills after the swap", gridRefilled);
 
 /* The overview is all there is and the map sits at street zoom, so everything
    on screen is overzoomed -- and MapLibre only overzooms past the SOURCE's
@@ -1194,24 +1161,39 @@ check(
   (await chosen()) === null,
 );
 
-/* The plain themes are plain because four tokens are held at rest, not because
+/* The plain themes are plain because five tokens are held at rest, not because
    anything is switched off elsewhere: one colour repeated across the
-   gradient's three stops is a solid button, and a transparent split shadow is
-   no split shadow. Read back resolved, because "at rest" is a property of the
-   values, not of the rule that sets them. */
+   gradient's three stops is a solid button, a transparent split shadow is no
+   split shadow, and an absent clip is a rectangle. Read back resolved,
+   because "at rest" is a property of the values, not of the rule that sets
+   them.
+
+   The cut is read off real controls rather than off the token. Two things
+   have to be true and only the control can say both: that the utility spends
+   the token at all, and that Tailwind emitted a variable nothing in the
+   markup mentions by name. Low light joins the plain pair here -- it is a
+   palette for keeping night vision, not a second cyberpunk. */
 const levers = () =>
   page.evaluate(() => {
     const s = getComputedStyle(document.documentElement);
     const g = (n) => s.getPropertyValue(n).trim();
+    /* "missing" rather than a throw: a selector that has rotted must fail
+       the check that reads it, not the evaluate that collects it. */
+    const shape = (sel) => {
+      const el = document.querySelector(sel);
+      return el ? getComputedStyle(el).clipPath : "missing";
+    };
     return {
       stops: [g("--color-cta-from"), g("--color-cta-mid"), g("--color-cta-to")],
       glitch: [g("--glitch-a"), g("--glitch-b")],
       wash: g("--bg-image"),
+      cut: shape(".btn"),
+      iconCut: shape(".icon-button"),
     };
   });
-for (const plain of ["light", "dark"]) {
+for (const plain of ["light", "dark", "night"]) {
   await pickTheme(plain);
-  const { stops, glitch, wash } = await levers();
+  const { stops, glitch, wash, cut, iconCut } = await levers();
   check(
     `${plain}: the primary action is one colour, not a gradient`,
     new Set(stops).size === 1 && stops[0] !== "",
@@ -1221,6 +1203,8 @@ for (const plain of ["light", "dark"]) {
     glitch.every((c) => c === "transparent"),
   );
   check(`${plain}: and the ground carries no wash`, wash === "none");
+  check(`${plain}: the buttons keep their corners`, cut === "none");
+  check(`${plain}: and so do the icon buttons`, iconCut === "none");
 }
 
 /* And the cyberpunk pair actually moves them, so the check above says
@@ -1236,6 +1220,10 @@ check(
   cyber.glitch.every((c) => c !== "transparent"),
 );
 check("and a wash on the ground", cyber.wash !== "none");
+check(
+  "and cuts the corner off its buttons",
+  cyber.cut.startsWith("polygon") && cyber.iconCut.startsWith("polygon"),
+);
 
 /* "Match my device" is the one entry that is not a palette. It sets an
    attribute like any other choice, and resolves to the PLAIN pair, because an
@@ -1317,6 +1305,12 @@ check(
   emptyTiles.length === 0,
 );
 
+/* Back to the palette the app opens in. The section above left plain light
+   behind, and the toast checks after the download are about what the DEFAULT
+   paints -- a toast read under a light palette says nothing about the white
+   the library used to inject. */
+await pickTheme("cyber-dark");
+
 /* Second download: detail for the current view, over the world map. The card
    must no longer offer the world, and afterwards every tile from both
    downloads has to be reachable. */
@@ -1328,7 +1322,7 @@ check(
 await openButton.click();
 await page.waitForSelector(".download-card", { timeout: 10_000 });
 check(
-  "with maps on disk the world offer is gone",
+  "the card still offers no download of the planet",
   (await page.locator(".download-world").count()) === 0,
 );
 /* The world overview is the ground under every region, and nothing may offer
@@ -1362,9 +1356,55 @@ check(
     && (await page.locator(".ledger-row .ledger-export").count()) === 0
     && (await page.locator(".ledger-row .ledger-update").count()) === 0,
 );
+
+/* What the import section is FOR rides its heading, in the info icon, rather
+   than standing as a paragraph between the heading and the control. Moving a
+   sentence into a tooltip hides it, so three things have to hold at once: the
+   icon is there, hovering it says the sentence on screen, and the sentence is
+   the trigger's accessible name whether or not it is open -- React Aria
+   describes a trigger with its tooltip only while the tooltip is showing, and
+   a screen reader user who never hovers must still be told. */
+const importInfo = page.locator(".download-import .info-tip");
+const importHint = "Maps downloaded from another Tessarium instance";
+check(
+  "the import section explains itself from its heading",
+  (await importInfo.count()) === 1,
+);
+check(
+  "and spends no paragraph under it doing the same",
+  (await page.locator(".download-import > .hint").count()) === 0,
+);
+check(
+  "the explanation is the icon's name, open or not",
+  ((await importInfo.getAttribute("aria-label")) ?? "").includes(importHint),
+);
+await importInfo.hover();
+const importTip = await page
+  .waitForSelector('[role="tooltip"]', { timeout: 5_000 })
+  .then((el) => el.textContent(), () => "");
+check(
+  "and hovering it puts the explanation on screen",
+  (importTip ?? "").includes(importHint),
+);
+/* Off the icon again: an open tooltip is a positioned overlay, and the checks
+   below read the card underneath it. */
+await page.mouse.move(0, 0);
+await page.waitForFunction(
+  () => document.querySelector('[role="tooltip"]') === null,
+  null,
+  { timeout: 5_000 },
+);
 check(
   "nor a staleness nudge it could not act on",
   (await page.locator(".ledger-row .ledger-stale").count()) === 0,
+);
+/* Back to grid zoom before the download, because the checks after it are
+   about the overlay surviving the style swap and the grid is only drawn from
+   zoom 18. The pans above left the camera at 16. This does not change what is
+   downloaded: the card froze its region when it opened, which is the whole
+   point of freezing it. */
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [-0.09, 51.51], zoom: 19 })
 );
 const viewButton = page.locator(".download-view button");
 await page.waitForFunction(
@@ -1375,11 +1415,103 @@ await page.waitForFunction(
 await viewButton.click();
 check("the view download completes at generation two", await awaitDone(2));
 await page.waitForFunction(
+  () =>
+    [...document.querySelectorAll(".app-toast")].some((t) =>
+      (t.textContent ?? "").includes("Maps downloaded")
+    ),
+  null,
+  { timeout: 30_000 },
+);
+check("the download completes with a toast", true);
+check(
+  "and the toast carries a close button for keyboard users",
+  (await page.locator(".app-toast button").count()) >= 1,
+);
+
+/* The toast was drawn by a library that injected its own stylesheet -- white
+   background, near-black text, 8px corners, all literals in a file this
+   project does not own. So it stayed white in every theme and round in a theme
+   that squares every corner: the same bug as MapLibre's controls, and
+   invisible to the token audit for the same reason, that the colours belonged
+   to no palette. It is this project's own markup now, and these two checks
+   would notice it going back.
+
+   Nothing has chosen a theme yet, so this is the default: dark. Read as
+   painted and as geometry, because the fix is one stylesheet beating another
+   and only the computed value says which won. */
+const toastStyle = () =>
+  page.locator(".app-toast").first().evaluate((n) => {
+    const s = getComputedStyle(n);
+    return {
+      bg: s.backgroundColor,
+      radius: s.borderTopLeftRadius,
+      color: s.color,
+    };
+  });
+const toast = await toastStyle();
+const toastLight = (() => {
+  const n = toast.bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
+  return toast.bg.startsWith("oklab") || toast.bg.startsWith("oklch")
+    ? n[0]
+    : (n[0] + n[1] + n[2]) / (3 * 255);
+})();
+check(
+  `the toast is painted in the theme, not a library's white (${toast.bg})`,
+  toastLight < 0.5,
+);
+check(
+  `and squares its corners like everything else (${toast.radius})`,
+  toast.radius === "0px",
+);
+/* And a SUCCESS takes itself away -- one short statement with nothing to
+   re-read, unlike an error. Both halves of that pair have to hold: if success
+   toasts stayed too, "an error waits to be dismissed" further down would be
+   trivially true.
+
+   Waited for rather than slept past, so this returns the moment the toast
+   leaves -- two seconds earlier on a green run -- while its budget still ends
+   past the timeout the toast was given. */
+const successWentAway = await page.waitForFunction(
+  () => document.querySelectorAll(".app-toast").length === 0,
+  null,
+  { timeout: SUCCESS_MS + 2000 },
+).then(() => true, () => false);
+check("a success toast takes itself away", successWentAway);
+await page.waitForFunction(
   () => !document.querySelector(".download-card"),
   null,
   {
     timeout: 10_000,
   },
+);
+check("the card closes itself", true);
+
+/* The grid overlay must survive the style swap that follows a completed
+   download, and this is checked after the FIRST download deliberately. It once
+   did not survive: when MapLibre's style diff succeeds it fires style.load
+   synchronously inside the setStyle call, so a listener registered after that
+   call has already missed it and the overlay was never re-added. Each missed
+   listener stayed armed and repaired the NEXT swap, which made the loss
+   invisible after two downloads and total after one -- the real-world case. */
+const overlayAlive = await page.evaluate(() => {
+  const map = window.__tessarium_map;
+  return !!(map?.getSource("grid") && map.getLayer("grid-lines")
+    && map.getSource("selection") && map.getLayer("selection-outline"));
+});
+check("the grid overlay survives the download's style swap", overlayAlive);
+const gridRefilled = await page
+  .waitForFunction(
+    () => (window.__tessarium_map?.querySourceFeatures("grid").length ?? 0) > 0,
+    null,
+    { timeout: 30_000 },
+  )
+  .then(() => true, () => false);
+check("and the grid refills after the swap", gridRefilled);
+/* And back to the zoom the pans left, which is what everything below reads:
+   the loading bar over real tile traffic, and the card's answer for an area
+   already held. */
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [-0.09, 51.51], zoom: 16 })
 );
 
 /* The loading bar, on real traffic: wait for quiet, delay every tile past the
@@ -1615,6 +1747,33 @@ const boxBeside = await ukEntry
 check(
   "the checkbox sits to the left of its label, on the same line",
   boxBeside?.leftOf === true && boxBeside.sameLine === true,
+);
+
+/* And what a country discloses is indented past the country itself.
+
+   Same reason as above, and the same blind spot: the states of the United
+   States sat flush with the country that contains them, which reads as a flat
+   list of peers -- Alabama beside the United States rather than inside it.
+   Nothing failed; the tree was simply telling the user something untrue.
+   Geometry again, because the indent is a stylesheet's to lose. */
+const indented = await ukEntry.evaluate((entry) => {
+  const country = entry.querySelector(".region-summary");
+  const rows = [...entry.querySelectorAll(".region-check")];
+  if (!country || rows.length === 0) return null;
+  const parent = country.getBoundingClientRect().left;
+  return {
+    rows: rows.length,
+    /* The narrowest indent of any row, so one stray flush row fails this. */
+    least: Math.min(...rows.map((r) => r.getBoundingClientRect().left))
+      - parent,
+  };
+});
+check(
+  `every row under a country is indented past it `
+    + `(${indented?.rows} rows, narrowest ${
+      Math.round(indented?.least ?? 0)
+    }px)`,
+  indented !== null && indented.least > 8,
 );
 const priceOf = async () => {
   const hint = await page
@@ -2833,36 +2992,32 @@ const browsedAgain = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
   .json();
 check("a second look fetches nothing", browsedAgain.fetched === 0);
 
-/* The world offer must return for anyone who started with a region. A fresh
-   page on this server (archive on disk), with the WORLD estimate answered by
-   an intercept: whether the server's estimate is right is the server tests'
-   business. The rule under test is the card's -- "maps present + world missing
-   => the offer is back". The old rule, offer only on an empty map, is how the
-   user who started with Georgia never saw it. */
+/* And it never comes back. This is the exact state that used to bring the
+   offer up -- an archive on disk, no world overview beside it -- and the rule
+   now is that the card says nothing about the planet in it either. A package
+   ships the overview; a store without one is a developer's, and no button in
+   the app can make it appear.
+
+   Two things asserted, because a missing offer could just be an offer whose
+   estimate never answered: nothing is drawn, AND the card never asks what the
+   planet would cost. The ask is recognised by its box, so a region estimate
+   passing through is not mistaken for one. */
 const worldPage = await context.newPage();
 const isWorldAsk = (data) => {
   try {
     const body = JSON.parse(data ?? "{}");
     const r = body.regions?.[0];
     return body.regions?.length === 1 && r?.min_lon === -180
-      && r?.max_lon === 180 && r?.min_lat === -85 && r?.max_zoom === 6;
+      && r?.max_lon === 180 && r?.min_lat === -85;
   } catch {
     /* not JSON, so not ours */
     return false;
   }
 };
+let worldAsks = 0;
 await worldPage.route("**/api/basemap-estimate", async (route) => {
-  if (isWorldAsk(route.request().postData())) {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        total_bytes: 45_000_000,
-        tiles: 5461,
-        covered: false,
-        max_zooms: [6],
-      }),
-    });
-  } else await route.continue();
+  if (isWorldAsk(route.request().postData())) worldAsks++;
+  await route.continue();
 });
 await worldPage.goto(base3, { waitUntil: "networkidle" });
 await worldPage.locator("#phrase").fill(sampleMnemonic);
@@ -2871,21 +3026,22 @@ await worldPage.locator("button[type=submit]").click();
 await worldPage.waitForSelector(".map-wrap", { timeout: 60_000 });
 await worldPage.locator(".panel-download").click();
 await worldPage.waitForSelector(".download-card", { timeout: 10_000 });
-await worldPage.waitForSelector(".download-world", { timeout: 30_000 });
-check("with maps on disk but no world overview, the offer is back", true);
+/* The view offer prices itself on mount; give the card the time an offer
+   takes, so "nothing asked" is a settled answer rather than an early one. */
+await worldPage.waitForSelector(".download-view .hint", { timeout: 30_000 });
 check(
-  "the returned offer explains itself with a size",
-  ((await worldPage.locator(".download-world .hint").textContent()) ?? "")
-    .length > 0,
+  "with maps on disk and no overview, no world download is offered",
+  (await worldPage.locator(".download-world").count()) === 0,
 );
 check(
-  "the view offer still leads the card",
+  `and the card never asks what the planet would cost (${worldAsks})`,
+  worldAsks === 0,
+);
+check(
+  "the view offer is what leads the card",
   await worldPage.evaluate(() => {
-    const view = document.querySelector(".download-view");
-    const world = document.querySelector(".download-world");
-    return view !== null && world !== null
-      && (view.compareDocumentPosition(world)
-          & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    const options = [...document.querySelectorAll(".download-option")];
+    return options[0]?.classList.contains("download-view") === true;
   }),
 );
 await worldPage.close();
@@ -3410,28 +3566,20 @@ check(
 await page.locator("#place-search-input").fill("");
 await page.waitForTimeout(350);
 
-/* NFKD across the whole stack.
+/* Locking, and the key that replaces the one it forgets.
 
-   The vectors' keys were derived from the NFKD form of this passphrase.
-   Unlocking with the PRECOMPOSED form is the direction that can fail, and it
-   must still produce the vector's address. Since kdf-3 the browser builds its
-   KDF inputs through the js_of_ocaml core and stretches them in the Argon2id
-   wasm, so this pins that whole chain rather than a JS re-spelling of the
-   normalisation. "café" typed on one keyboard and pasted from another are two
-   byte sequences; before NFKD they were two different maps, and the user was
-   told nothing. */
-const nfkdSample = vectors.nfkd_addresses[0];
-/* PRECOMPOSED, deliberately. NFKD's output is the decomposed form, so
-   unlocking with the decomposed passphrase yields the right key even when
-   normalisation is skipped entirely — which is how the first version of this
-   check passed whether or not the code worked. The precomposed form is the
-   direction that can fail: without NFKD those bytes reach the KDF unchanged
-   and derive a different key. */
-const nfkdEntry = vectors.key_derivation.find((k) => k.name === "pass-nfc");
-const nfdEntry = vectors.key_derivation.find((k) => k.name === "pass-nfd");
+   Locking asks before it forgets a key nothing here can recover, and a second
+   phrase really does replace the first -- including the concealment the panel
+   resets on every unlock, and the promise the gate makes in as many words:
+   the same address under another phrase names somewhere else entirely.
+
+   A DIFFERENT phrase, so this is a key being replaced rather than re-derived;
+   the block below is the one that asks for the same phrase twice. */
+const otherMnemonic =
+  vectors.key_derivation.find((k) => k.name === "ones").mnemonic;
 check(
-  "the two passphrase vectors really are different byte sequences",
-  nfkdEntry.passphrase !== nfdEntry.passphrase,
+  "the second phrase really is a different one",
+  otherMnemonic !== sampleMnemonic,
 );
 
 /* Locking asks first: it forgets a key that cannot be recovered from anything
@@ -3445,24 +3593,26 @@ check(
 );
 await page.locator(".modal-actions button.danger").click();
 await page.waitForSelector("#phrase", { timeout: 30_000 });
-await page.locator("#phrase").fill(nfkdEntry.mnemonic);
+await page.locator("#phrase").fill(otherMnemonic);
 await page.waitForSelector(".valid", { timeout: 30_000 });
-await page.locator(".passphrase-summary").click();
-await page.locator("#passphrase").fill(nfkdEntry.passphrase);
 await page.locator("button[type=submit]").click();
 await page.waitForSelector(".map-wrap", { timeout: 60_000 });
 
-await goToAddress(nfkdSample.address);
-const nfkdBox = await page.locator(".map").boundingBox();
+/* The same words, typed into a map derived from other words. They resolve --
+   which combinations name nothing is decided by the permutation, and this one
+   is committed, so this is deterministic rather than lucky -- and they resolve
+   somewhere else. */
+await goToAddress(sample.address);
+const otherBox = await page.locator(".map").boundingBox();
 await page.mouse.click(
-  nfkdBox.x + nfkdBox.width / 2,
-  nfkdBox.y + nfkdBox.height / 2,
+  otherBox.x + otherBox.width / 2,
+  otherBox.y + otherBox.height / 2,
 );
 await page.waitForTimeout(1500);
 await page.locator(".address-row .icon-button").first().click();
-/* Locking must have hidden the coordinates again. Asserted, because a broken
-   reset would make the click below CONCEAL them and fail later with a message
-   about NFKD normalisation instead of this one. */
+/* Locking must have hidden the coordinates again: concealment is a per-unlock
+   default, and a broken reset would leave the previous session's choice in
+   place -- the state a shoulder-surfing user thought they had left behind. */
 check(
   "locking hides the coordinates again",
   (await page.locator(".coords dd").allTextContents()).every((t) =>
@@ -3470,13 +3620,14 @@ check(
   ),
 );
 await page.locator(".coords-row .icon-button").first().click();
-const [nfkdLat, nfkdLon] = await panelCoords();
+const [otherLat, otherLon] = await panelCoords();
 check(
-  `a precomposed passphrase is normalised before derivation (got ${nfkdLat}, ${nfkdLon} want ${
-    nfkdSample.lat_ns / 1e9
-  }, ${nfkdSample.lon_ns / 1e9})`,
-  nearly(nfkdLat, nfkdSample.lat_ns / 1e9)
-    && nearly(nfkdLon, nfkdSample.lon_ns / 1e9),
+  `the same address under another phrase names somewhere else `
+    + `(${otherLat}, ${otherLon} vs ${sample.lat_ns / 1e9}, ${
+      sample.lon_ns / 1e9
+    })`,
+  Math.abs(otherLat - sample.lat_ns / 1e9) > 0.001
+    || Math.abs(otherLon - sample.lon_ns / 1e9) > 0.001,
 );
 
 /* ------- the same phrase, the same address, the same place, every time -----

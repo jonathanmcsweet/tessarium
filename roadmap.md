@@ -87,7 +87,9 @@ typo detection and is a feature, not waste.
   each round, and the proof fails outright at an odd count.
 - **Key derivation:** single-stage Argon2id (t=3, m=64 MiB, p=1 -- RFC
   9106's second recommended option) over password = NFKD phrase, salt =
-  `tessarium-kdf-4` ++ NFKD passphrase → 32-byte Feistel key. One vendored
+  `tessarium-kdf-4` → 32-byte Feistel key. The salt carried a user passphrase
+  until that was removed; the empty one concatenated to nothing, so the keys
+  are the same keys and no address moved. One vendored
   reference implementation (ocaml/argon2), compiled natively for the server
   and to wasm for the browser. Replaced the two-stage PBKDF2-HMAC-SHA512
   chain on 2026-08-20 (ledgered): the phrase stays a valid BIP-39 phrase,
@@ -454,6 +456,25 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
+- [ ] **The cyberpunk palettes have no visible keyboard focus ring.**
+      `clip-path` clips an element's outline along with its corner, and the
+      focus ring is drawn at `outline-offset: 2px` -- outside the chamfered
+      polygon, so nothing of it is painted. Every `.btn` and every
+      `.icon-button` is affected in cyberpunk dark, which is the default
+      palette, and in cyberpunk light. Confirmed by screenshotting a focused
+      button in each: the ring is fully present in plain dark and entirely
+      absent in cyberpunk dark. The plain palettes were fixed by accident when
+      the cut became a token they set to `none`, which is why this is now
+      visible as a difference between palettes rather than a constant.
+
+      The fix has to live inside the clip: an inset ring (a negative
+      `outline-offset`, or a border painted inside the border box), applied by
+      the two utilities that clip rather than by `focus-ring`, which is shared
+      with every unclipped control and must not change for them. Nothing tests
+      the focus ring today, in any palette, so the fix wants a check that
+      fails first -- a screenshot diff of a focused control, or reading the
+      painted pixels just inside the border box.
+
 - [ ] **No red sprite sheet for the low-light theme.** Low light draws
       Protomaps' `dark` icons — near-black shields, the whole POI set — which
       is the darkest sheet that exists, and its shield badges are the one
@@ -695,10 +716,9 @@ not cover.
 - [ ] **The non-English translations still want a native speaker.** They have
       been through one adversarial review pass, which found and fixed real
       defects — a French pronoun that attached "your 24 words and this second
-      seed phrase", a Spanish null subject that made the phrase-reuse warning
-      read as being about the attacker's funds, and `contraseña` priming users
-      to think
-      the passphrase was a resettable password. What remains is the judgement a
+      seed phrase", and a Spanish null subject that made the phrase-reuse
+      warning read as being about the attacker's funds. What remains is the
+      judgement a
       review cannot supply: whether the copy sounds like a person. `fr-CA` now
       differs from `fr-FR` in terminology, punctuation spacing and dash
       convention, but a Quebec reader should still confirm it.

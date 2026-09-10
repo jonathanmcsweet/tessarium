@@ -31,7 +31,7 @@ const check = (name, ok) => {
    OverlayArrow and leaves the shape to the caller. No icon set ships one. */
 const allowed = new Map([
   [
-    "components/IconButton.tsx",
+    "components/Tip.tsx",
     "the tooltip's arrow, which React Aria positions and leaves to the caller",
   ],
 ]);

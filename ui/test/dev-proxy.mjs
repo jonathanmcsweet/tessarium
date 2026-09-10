@@ -49,7 +49,7 @@ const sources = [
    `loadWasm("/argon2.wasm")` in the worker. A missing entry for that one does
    not look like a proxy fault: the SPA fallback answers with index.html,
    compileStreaming refuses it, and the unlock fails complaining about the
-   passphrase.
+   wasm.
 
    So: a literal path handed to any function, a MapLibre style field, and a
    template literal starting at the root -- href builders like

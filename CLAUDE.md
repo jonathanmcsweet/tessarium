@@ -8,7 +8,7 @@ Read `README.md` for what this project is, `roadmap.md` for what's next.
 - Use technical terms accurate to the domain terms in the codebase
 - When making technical decisions, do not give weight to development cost or development hours. Instead prefer readability, quality, simplicity, robustness, scalability, testability, and long term maintainability
 - When writting code comments or commit messages, be extremely concise. Favor concision over proper grammar.
-- Do not write code comments if it's obvious as to what's being done in the code. Seemingly confusing code, things that fixed bugs, or seemingly odd decisions should get code comments
+- Do not write code comments unless they're approved by me. You must justify their existence.
 
 ## Roadmap and progress — read and update it, don't rely on memory
 

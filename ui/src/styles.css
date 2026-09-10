@@ -113,12 +113,13 @@
      people stop reading. */
   --color-focus: #53f1ff;
 
-  /* The four levers the plain themes hold at rest: the address's own
-     colour, the primary action's gradient, the wordmark's split shadow and
-     the ground's corner glow. Plain light and plain dark set all four to
-     nothing -- one colour repeated three times is a solid button, a
-     transparent shadow is no shadow -- so they stay plain with no rule
-     anywhere else in the application. */
+  /* The five levers the plain themes hold at rest: the address's own
+     colour, the primary action's gradient, the wordmark's split shadow, the
+     ground's corner glow and the cut corner. Plain light, plain dark and low
+     light set all five to nothing -- one colour repeated three times is a
+     solid button, a transparent shadow is no shadow, an absent clip is a
+     rectangle -- so they stay plain with no rule anywhere else in the
+     application. */
   --color-accent-alt: #53f1ff;
   --color-cta-from: #ff4fa8;
   --color-cta-mid: #a54fff;
@@ -129,6 +130,35 @@
   --bg-image:
     radial-gradient(ellipse at 12% -10%, rgb(255 79 168 / 0.16), transparent 46%),
     radial-gradient(ellipse at 95% 110%, rgb(83 241 255 / 0.13), transparent 46%);
+
+  /* The cut corner: a chamfer off the top-right and bottom-left of every
+     button, and the shape half of this look. A lever rather than a constant
+     because a plain theme with a bevelled button is not a plain theme.
+
+     The resting value is `none` rather than a zero-width cut, and the
+     difference is not cosmetic: `clip-path` clips the focus ring along with
+     the corner, so a theme that puts the shape down gets its whole ring
+     back.
+
+     Two shapes because the icon buttons are 44px squares, where the text
+     button's 10px chamfer reads as a chip missing rather than as a shape.
+     They move together: a palette sets both or neither. */
+  --cut: polygon(
+    0 0,
+    calc(100% - 10px) 0,
+    100% 10px,
+    100% 100%,
+    10px 100%,
+    0 calc(100% - 10px)
+  );
+  --cut-icon: polygon(
+    0 0,
+    calc(100% - 7px) 0,
+    100% 7px,
+    100% 100%,
+    7px 100%,
+    0 calc(100% - 7px)
+  );
 
   /* The map overlay: the coverage veil (blank), its boundary (edge), the
      address grid, at the opacity the veil is laid on with. Read by
@@ -193,9 +223,10 @@
 /* ------------------------------------------------------------ plain light
 
    The theme this application had before it had a look: navy ink, vermilion
-   accent, white card. All four levers are at rest -- one colour across the
+   accent, white card. All five levers are at rest -- one colour across the
    gradient's three stops is a solid button, transparent glitch is no glitch,
-   `none` is no wash -- so nothing else needs a rule to keep it plain. */
+   `none` is no wash and no cut -- so nothing else needs a rule to keep it
+   plain. */
 :root[data-theme="system"],
 :root[data-theme="light"] {
   color-scheme: light;
@@ -237,6 +268,8 @@
   --glitch-a: transparent;
   --glitch-b: transparent;
   --bg-image: none;
+  --cut: none;
+  --cut-icon: none;
 
   --color-map-blank: #41505f;
   --map-blank-opacity: 0.42;
@@ -252,7 +285,7 @@
 
 /* ------------------------------------------------------------- plain dark
 
-   Slate rather than purple, and the same four levers at rest. Written twice
+   Slate rather than purple, and the same five levers at rest. Written twice
    for the reason at the top of this section; the two blocks are required to
    agree. */
 :root[data-theme="dark"] {
@@ -291,6 +324,8 @@
   --glitch-a: transparent;
   --glitch-b: transparent;
   --bg-image: none;
+  --cut: none;
+  --cut-icon: none;
 
   --color-map-blank: #9fb3c7;
   --map-blank-opacity: 0.26;
@@ -340,6 +375,8 @@
     --glitch-a: transparent;
     --glitch-b: transparent;
     --bg-image: none;
+    --cut: none;
+    --cut-icon: none;
 
     --color-map-blank: #9fb3c7;
     --map-blank-opacity: 0.26;
@@ -362,10 +399,12 @@
    two-pass press -- and keeps the default's magenta/violet/cyan family, each
    colour pushed down to the lightness white demands.
 
-   Two of the four levers move and two do not. The corner glow needs darkness
-   and is kept faint. The gradient only ever needed stops dark enough to hold
-   a white label, and the wordmark's split shadow is misregistration, which
-   reads better on white than on black. */
+   Two of the five levers move and three do not. The corner glow needs
+   darkness and is kept faint. The gradient only ever needed stops dark enough
+   to hold a white label, the wordmark's split shadow is misregistration,
+   which reads better on white than on black, and the cut corner is carried
+   over untouched -- it is a hard edge, which is the half of the look that
+   survives daylight. */
 :root[data-theme="cyber-light"] {
   color-scheme: light;
 
@@ -460,6 +499,8 @@
   --glitch-a: transparent;
   --glitch-b: transparent;
   --bg-image: none;
+  --cut: none;
+  --cut-icon: none;
 
   --color-map-blank: #8a7f7c;
   --map-blank-opacity: 0.22;
@@ -534,14 +575,7 @@ code {
   @apply focus-ring inline-flex min-h-11 cursor-pointer items-center
     justify-center gap-2 border border-transparent px-4 text-sm
     font-semibold no-underline;
-  clip-path: polygon(
-    0 0,
-    calc(100% - 10px) 0,
-    100% 10px,
-    100% 100%,
-    10px 100%,
-    0 calc(100% - 10px)
-  );
+  clip-path: var(--cut);
 }
 
 /* The one action a screen is asking for. */
@@ -590,6 +624,17 @@ code {
   & + & {
     @apply mt-3 border-t border-line pt-3;
   }
+}
+
+/* Everything a country discloses -- its "whole country" box, its states, its
+   cities -- is a SUBSET of that country, and flush against the country's own
+   row it reads as a sibling of it instead. The indent belongs to the panel
+   rather than to the rows, so every kind of row inside it is covered,
+   including kinds added later. The rule sits beside the line it draws: the
+   border is the containment made visible, and `ms`/`ps` rather than left and
+   right so both flip with the writing direction. */
+@utility region-children {
+  @apply ms-4 border-s border-line ps-3;
 }
 
 /* The small-caps label over a group inside the download card: the picker's
@@ -648,18 +693,11 @@ code {
     uppercase;
 }
 
-/* The icon buttons take the same cut as the text buttons, scaled down: at
-   44px square, the btn utility's 10px cut reads as a chip missing rather
-   than as a shape. */
+/* The icon buttons take the same cut as the text buttons, in the size the
+   palette keeps for a 44px square. Both shapes are theme tokens, so a
+   palette that squares the text buttons squares these in the same breath. */
 @utility icon-cut {
-  clip-path: polygon(
-    0 0,
-    calc(100% - 7px) 0,
-    100% 7px,
-    100% 100%,
-    7px 100%,
-    0 calc(100% - 7px)
-  );
+  clip-path: var(--cut-icon);
 }
 
 /* The application's name, wherever it stands alone: tracked-out mono caps

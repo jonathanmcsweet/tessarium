@@ -40,6 +40,7 @@ const block = (start) => {
   const open = css.indexOf("{", from + start.length - 1);
   const body = css.slice(open, blockEnd(css, open));
   return {
+    body,
     colors: Object.fromEntries(
       [...body.matchAll(/--color-([a-z-]+):\s*(#[0-9a-fA-F]{6});/g)]
         .map((m) => [m[1], m[2]]),
@@ -103,6 +104,39 @@ const completeness = palettes.map(([label, palette]) =>
     names(cyberDark) === names(palette),
   )
 );
+
+/* The cut corner: the shape half of the cyberpunk look, a chamfer off the
+   top-right and bottom-left of every button. It is a palette token rather
+   than a constant so that a palette can put it down, and the plain three do
+   -- a bevelled button is not a plain button.
+
+   Read as text, not resolved. "At rest" here means the block SAYS none: a
+   palette that says nothing about the cut inherits the default's chamfer,
+   which is exactly the bug this catches. Cyberpunk light is the one palette
+   that should stay silent, because it is meant to keep it. */
+const cutAtRest = (p) =>
+  /--cut:\s*none;/.test(p?.body ?? "")
+  && /--cut-icon:\s*none;/.test(p?.body ?? "");
+
+const corners = [
+  check(
+    "the default palette cuts its corners",
+    /--cut:\s*polygon\(/.test(cyberDark?.body ?? "")
+      && /--cut-icon:\s*polygon\(/.test(cyberDark?.body ?? ""),
+  ),
+  ...[
+    ["plain light", plainLight],
+    ["plain dark", plainDark],
+    ["plain dark on a dark device", plainDarkDevice],
+    ["low light", night],
+  ].map(([label, palette]) =>
+    check(`${label} squares them instead`, cutAtRest(palette))
+  ),
+  check(
+    "cyberpunk light says nothing, and so keeps the default's",
+    cyberLight !== null && !/--cut/.test(cyberLight.body),
+  ),
+];
 
 /* Low light protects night vision, which no contrast ratio can see: it fails
    the moment a token brings green or blue to the screen. Red-dominant,
@@ -231,6 +265,7 @@ const results = [
   ...presence,
   ...agreement,
   ...completeness,
+  ...corners,
   ...nightVision,
   ...opacity,
   ...audits,

@@ -17,9 +17,8 @@
    The phrase goes straight to the worker, which keeps the derived key and
    returns only whether it worked. */
 
-import { ChevronRight, Dices, Eye, EyeOff } from "lucide-react";
+import { Dices, Eye, EyeOff } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { Button, Disclosure, DisclosurePanel } from "react-aria-components";
 import { useBackendDown } from "../core/health";
 import {
   useGeneratePhrase,
@@ -33,12 +32,12 @@ import { toastError } from "../toast";
 import { IconButton } from "./IconButton";
 import { LanguagePicker } from "./LanguagePicker";
 import { loadMapView } from "./mapChunk";
+import { ThemePicker } from "./ThemePicker";
 
 const wordsIn = (phrase: string) => phrase.trim().split(/\s+/).filter(Boolean);
 
 export function PhraseEntry() {
   const [phrase, setPhrase] = useState("");
-  const [passphrase, setPassphrase] = useState("");
   /* Held so the "write this down" notice disappears once the user edits the
      words, rather than lingering over a phrase we did not generate. */
   const [generated, setGenerated] = useState<string | null>(null);
@@ -114,7 +113,7 @@ export function PhraseEntry() {
     event.preventDefault();
     if (!ready || unlock.isPending) return;
     unlock.mutate(
-      { mnemonic: phrase, passphrase },
+      { mnemonic: phrase },
       {
         onSuccess: (result) => {
           if (!result.ok) {
@@ -129,7 +128,6 @@ export function PhraseEntry() {
              needed. React state is reachable from the page; the worker's copy
              is not. */
           setPhrase("");
-          setPassphrase("");
           setGenerated(null);
           setUnlocked();
         },
@@ -245,17 +243,10 @@ export function PhraseEntry() {
             className="btn btn-quiet max-sm:w-full"
             onClick={onGenerate}
             disabled={generate.isPending}
-            /* The hint describes what this button does, so a screen reader
-               should read it with the button rather than leave it as loose
-               text a keyboard user tabs straight past. */
-            aria-describedby="generate-hint"
           >
             <Dices size={17} aria-hidden />
             {m.gate_generate()}
           </button>
-          <span className="hint" id="generate-hint">
-            {m.gate_generate_hint()}
-          </span>
         </div>
 
         {
@@ -280,43 +271,6 @@ export function PhraseEntry() {
           </div>
         )}
 
-        {
-          /* A `summary` came with a marker triangle the browser drew; this is
-            a button, so the chevron is ours and turns. */
-        }
-        <Disclosure className="passphrase group">
-          <Button
-            slot="trigger"
-            className="passphrase-summary focus-ring flex w-full cursor-pointer items-center gap-1.5 py-1 text-left text-sm font-semibold"
-          >
-            <ChevronRight
-              size={14}
-              aria-hidden="true"
-              className="flex-none text-ink-soft transition-transform group-expanded:rotate-90"
-            />
-            {m.gate_passphrase_summary()}
-          </Button>
-          <DisclosurePanel>
-            <p className="hint">{m.gate_passphrase_what()}</p>
-            <p className="hint">{m.gate_passphrase_exact()}</p>
-            <p className="hint">{m.gate_passphrase_empty()}</p>
-            <label
-              htmlFor="passphrase"
-              className="mb-1 block text-sm font-semibold"
-            >
-              {m.gate_passphrase_label()}
-            </label>
-            <input
-              id="passphrase"
-              className="field font-mono"
-              type="password"
-              autoComplete="off"
-              value={passphrase}
-              onChange={(e) => setPassphrase(e.target.value)}
-            />
-          </DisclosurePanel>
-        </Disclosure>
-
         <button
           type="submit"
           className="btn btn-primary"
@@ -327,18 +281,16 @@ export function PhraseEntry() {
         {unlock.isPending && <p className="hint">{m.gate_deriving_hint()}</p>}
 
         {
-          /* The wordlist is English BIP-39 in every language: a French
-            reader still types English words, and saying so up front is
-            kinder than a validation error. */
+          /* The two choices someone stuck on this screen may need: the
+             language, for a reader who cannot read this one, and the theme,
+             for a room the device's own guess is wrong about. Wrapping,
+             because on a narrow phone in a language with long names they do
+             not fit on one line. */
         }
-        <p className="text-xs leading-normal text-ink-soft">
-          {m.gate_wordlist_note()}
-        </p>
-        <p className="text-xs leading-normal text-ink-soft">
-          {m.gate_fineprint()}
-        </p>
-
-        <LanguagePicker className="mt-1" />
+        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <LanguagePicker />
+          <ThemePicker labelHidden />
+        </div>
       </form>
     </div>
   );

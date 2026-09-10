@@ -61,10 +61,7 @@ let () =
     (fun v ->
       let name = to_str (member "name" v) in
       let mnemonic = to_str (member "mnemonic" v) in
-      let passphrase =
-        match member "passphrase" v with `String p -> p | _ -> ""
-      in
-      let key = derive_key ~mnemonic ~passphrase in
+      let key = derive_key ~mnemonic in
       Hashtbl.replace keys name key;
       check_eq (Printf.sprintf "derive_key[%s]" name) (hex key) (to_str (member "key" v)))
     (to_list (member "key_derivation" json));
@@ -130,23 +127,15 @@ let () =
             (Z.equal (cell dlat dlon) (cell lat_ns lon_ns)))
     (to_list (member "addresses" json));
 
-  (* The BIP-39 passphrase is case-sensitive and used verbatim. An earlier
-     version folded it through the mnemonic's normaliser, so "MySecret" and
-     "mysecret" produced the same map and every letter's case was thrown away.
-     Nothing failed; it just quietly weakened the passphrase. *)
+  (* The mnemonic is forgiving: its words are lowercase by definition, so how
+     it was pasted must not matter. The salt has no user input in it at all
+     since the passphrase came out, so the phrase is the only thing that can
+     move a key. *)
   let m = to_str (member "mnemonic" (List.hd (to_list (member "key_derivation" json)))) in
-  let k p = hex (derive_key ~mnemonic:m ~passphrase:p) in
-  check "passphrase case is significant" (k "MySecret" <> k "mysecret");
-  check "passphrase case is significant (upper)" (k "MYSECRET" <> k "mysecret");
-  check "passphrase whitespace is significant" (k " mysecret " <> k "mysecret");
-  check "an empty passphrase is unaffected"
-    (String.equal (k "") (hex (derive_key ~mnemonic:m ~passphrase:"")));
-  (* And the mnemonic itself stays forgiving: its words are lowercase by
-     definition, so how it was pasted must not matter. *)
   check "mnemonic case and padding do not matter"
     (String.equal
-       (hex (derive_key ~mnemonic:("  " ^ String.uppercase_ascii m ^ "  ") ~passphrase:""))
-       (k ""));
+       (hex (derive_key ~mnemonic:("  " ^ String.uppercase_ascii m ^ "  ")))
+       (hex (derive_key ~mnemonic:m)));
 
   (* Addresses that name no location must be refused, not resolved to
      something. Taken from the vectors, where they are generated, because
@@ -164,17 +153,14 @@ let () =
         (match Tessarium.decode ~core ~key:addr_key addr with Error _ -> true | Ok _ -> false))
     (to_list (member "invalid_addresses" json));
 
-  (* ------------------------------------------------ unicode passphrases *)
+  (* ------------------------------------------------------ normalisation *)
 
-  (* BIP-39 requires NFKD before hashing. Two passphrases that are identical on
-     screen can be different byte sequences -- a precomposed "é" versus an "e"
-     followed by a combining accent -- and which one a user gets depends on
-     their keyboard and their clipboard, not on any choice they made. Without
-     normalisation they derive different keys and the user is told nothing:
-     they just get a map they do not recognise.
-
-     Every earlier passphrase vector was ASCII, where NFKD is the identity,
-     which is precisely why this survived so long. *)
+  (* The phrase is NFKD-normalised before it reaches the KDF. Two strings that
+     are identical on screen can be different byte sequences -- a precomposed
+     "e" with an acute versus an "e" followed by a combining accent -- and
+     which one a user gets depends on their keyboard and their clipboard, not
+     on any choice they made. Without normalisation they hash differently, and
+     nothing tells the user why the map is not the one they expected. *)
   check "NFKD makes a precomposed and a decomposed accent one string"
     (String.equal (Tessarium.nfkd "caf\xc3\xa9") (Tessarium.nfkd "cafe\xcc\x81"));
   check "NFKD leaves ASCII alone"
@@ -183,22 +169,6 @@ let () =
      the case BIP-39's own Japanese vectors exercise. *)
   check "NFKD folds compatibility characters"
     (not (String.equal (Tessarium.nfkd "\xef\xbd\xb1") "\xef\xbd\xb1"));
-
-  let key_named name =
-    List.find (fun v -> String.equal (to_str (member "name" v)) name)
-      (to_list (member "key_derivation" json))
-  in
-  let derived name =
-    let v = key_named name in
-    hex
-      (derive_key
-         ~mnemonic:(to_str (member "mnemonic" v))
-         ~passphrase:(to_str (member "passphrase" v)))
-  in
-  check "the same passphrase in two encodings gives one key"
-    (String.equal (derived "pass-nfc") (derived "pass-nfd"));
-  check "a non-ASCII passphrase still changes the key"
-    (not (String.equal (derived "pass-nfc") (derived "zero")));
 
   (* ------------------------------------------------- phrase generation *)
 

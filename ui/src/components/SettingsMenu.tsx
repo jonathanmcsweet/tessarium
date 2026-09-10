@@ -16,27 +16,10 @@
 import { Settings } from "lucide-react";
 import { Dialog, DialogTrigger, Popover } from "react-aria-components";
 import { m } from "../paraglide/messages";
-import { useAppStore } from "../store";
-import { type Theme, themes } from "../theme";
-import { Dropdown } from "./Dropdown";
 import { IconButton } from "./IconButton";
-
-/* Named per option rather than generated, so a translator sees three
-   sentences instead of a key pattern. "Match my device" is deliberately not
-   called "System": it says whose decision it is. */
-const themeLabel: Record<Theme, () => string> = {
-  "cyber-dark": () => m.theme_cyber_dark(),
-  "cyber-light": () => m.theme_cyber_light(),
-  dark: () => m.theme_dark(),
-  light: () => m.theme_light(),
-  night: () => m.theme_night(),
-  system: () => m.theme_system(),
-};
+import { ThemePicker } from "./ThemePicker";
 
 export function SettingsMenu() {
-  const theme = useAppStore((s) => s.theme);
-  const setTheme = useAppStore((s) => s.setTheme);
-
   return (
     <DialogTrigger>
       <IconButton
@@ -50,16 +33,12 @@ export function SettingsMenu() {
       />
       <Popover className="settings-popover sheet p-4">
         <Dialog className="outline-none" aria-label={m.a11y_settings()}>
-          <Dropdown<Theme>
-            className="settings-theme w-56 flex-col items-start gap-1.5"
-            label={m.settings_theme()}
-            value={theme}
-            onChange={setTheme}
-            options={themes.map((t) => ({
-              value: t,
-              label: themeLabel[t](),
-            }))}
-          />
+          {
+            /* The gate's control, not a second one built the same way. The
+               width and the class are this placement's; everything about the
+               choice itself lives in the component. */
+          }
+          <ThemePicker className="settings-theme w-80" />
         </Dialog>
       </Popover>
     </DialogTrigger>

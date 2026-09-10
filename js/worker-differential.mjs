@@ -143,10 +143,7 @@ const vector = vectors.addresses[0];
 const seed = vectors.key_derivation.find((k) => k.name === vector.mnemonic);
 const keyHex = seed.key;
 
-const unlocked = await send("unlock", {
-  mnemonic: seed.mnemonic,
-  passphrase: seed.passphrase ?? "",
-});
+const unlocked = await send("unlock", { mnemonic: seed.mnemonic });
 check("the worker unlocks with a committed vector phrase", unlocked.ok === true);
 
 /* The end-to-end claim, in one line: the address the vectors say this point

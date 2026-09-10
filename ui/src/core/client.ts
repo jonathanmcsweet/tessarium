@@ -154,8 +154,8 @@ export class Core {
   /* Slow by design: Argon2id at 64 MiB in the worker's wasm module.
      Expect ~150 ms plus a cold start, and show it in the UI rather than
      appearing to hang. */
-  unlock(mnemonic: string, passphrase: string) {
-    return this.#call(OkOrError, "unlock", { mnemonic, passphrase });
+  unlock(mnemonic: string) {
+    return this.#call(OkOrError, "unlock", { mnemonic });
   }
 
   /* A fresh 24-word phrase from the platform CSPRNG. The bytes are drawn in

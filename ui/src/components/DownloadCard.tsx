@@ -1,8 +1,9 @@
 /* The offline-maps card.
 
-   Three offers, most useful first: the whole world at country level when
-   nothing is on disk, detail for the current view, and any mix of
-   countries, states and cities picked from a filterable tree.
+   Two offers: detail for the current view, and any mix of countries, states
+   and cities picked from a filterable tree. The planet is not one of them --
+   every package ships the world overview at the depth the map draws it, so
+   there is nothing left to offer for it.
 
    A selection travels as ONE download. The server plans all its regions
    together and dedups overlapping tiles, so a country plus one of its
@@ -32,7 +33,6 @@ import {
   useBasemapExport,
   useBasemapExports,
   useBasemapLedger,
-  useBasemapPresent,
   useBasemapRemove,
   useBasemapSettings,
   useBasemapStatus,
@@ -43,7 +43,6 @@ import {
   useSaveBasemapSettings,
   useStagedImport,
   useUploadImport,
-  WORLD,
 } from "../core/basemap";
 import type { StagedReady } from "../core/basemap";
 import { formatBytes, formatList, getLocale } from "../i18n";
@@ -61,6 +60,7 @@ import { useAppStore } from "../store";
 import { toastError } from "../toast";
 import { Dropdown } from "./Dropdown";
 import { IconButton } from "./IconButton";
+import { InfoTip } from "./Tip";
 
 /* The checkbox face. React Aria hides the real input and leaves the
    appearance to us, so this is the box and `selected` fills it. The tick is
@@ -98,9 +98,12 @@ function ledgerName(labels: string[]): string | undefined {
   return nameBytes(short) <= 120 ? short : undefined;
 }
 
-/* One offer: its estimate, its caveats, its button. Shared by the world,
-   the current view, and the picker's selection, so the three cannot
-   drift. */
+/* One offer: its estimate, its caveats, its button. Shared by the current
+   view and the picker's selection, so the two cannot drift.
+
+   Nothing here offers the planet. Every package carries the world overview
+   at the depth the map ever draws it, so there is no world left to fetch --
+   only the regions someone picks for street detail. */
 function Offer(
   {
     regions,
@@ -110,12 +113,8 @@ function Offer(
     describe,
     confirmLabel,
     className,
-    world,
   }: {
     regions: Region[] | null;
-    /* Whether this offer is the world overview, which lives in its own
-       archive and keeps no ledger entry. */
-    world?: boolean;
     /* Aligned with regions. Lets the depth warning name the picks that are
        too big for street level. The world and the view get generic
        wording. */
@@ -138,7 +137,7 @@ function Offer(
 ) {
   /* Priced on the bare regions: a label would become part of the query key
      for an answer that is only about tiles. */
-  const estimate = useBasemapEstimate(regions, world);
+  const estimate = useBasemapEstimate(regions);
   const download = useBasemapDownload();
   /* Downloaded with the label INSIDE each region -- see LabelledRegion. A
      parallel array could be one short or out of order and still pass. */
@@ -214,7 +213,6 @@ function Offer(
               && download.mutate({
                 regions: labelled,
                 ...(ledgerLabel !== undefined ? { name: ledgerLabel } : {}),
-                ...(world ? { world: true } : {}),
               }, loudly)}
             disabled={labelled === null || !estimate.isSuccess
               || download.isPending}
@@ -361,7 +359,7 @@ function RegionPicker() {
                   />
                   {label}
                 </Button>
-                <DisclosurePanel>
+                <DisclosurePanel className="region-children">
                   <CheckRow
                     text={m.map_download_region_whole()}
                     checked={selected.has(whole.key)}
@@ -690,10 +688,16 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
 
   return (
     <div className="download-option download-import">
+      {
+        /* The sentence rides the heading rather than standing under it. It
+          says what the section is for, which is worth having once and is not
+          worth the vertical space above the control every time the card is
+          opened. */
+      }
       <p className="region-group">
         {m.map_import_title()}
+        <InfoTip label={m.map_import_hint()} />
       </p>
-      <p className="hint">{m.map_import_hint()}</p>
 
       {waiting === null && (
         <>
@@ -865,10 +869,6 @@ export function DownloadCard({ region }: { region: Region; }) {
      mount and delivered as fresh news -- and the map closes the card on a
      job's ending. Opening the card closed it again. */
   const job = useBasemapStatus({ follow: true }).data?.job;
-  const present = useBasemapPresent();
-  /* The world offer leads only once the answer is known. While the check is
-     in flight the card shows the other options rather than guessing. */
-  const worldFirst = present.data === false;
 
   /* What a download of the current view is called: where its middle is --
      "London", not "Map view". The generic phrase said only that a download
@@ -890,20 +890,6 @@ export function DownloadCard({ region }: { region: Region; }) {
   );
 
   const running = job !== undefined && isRunning(job);
-  /* The world overview used to be offered ONLY on an empty map, so anyone
-     who started with a region never saw it again and flew to blank ocean.
-     Now, when maps exist and no job is running, the estimate is asked
-     whether the overview is still missing, and the offer stays up until it
-     is not. React Query dedups this with the Offer's own estimate: same
-     archive, same key. */
-  const worldEstimate = useBasemapEstimate(
-    present.data === true && !running ? [WORLD] : null,
-    true,
-  );
-  const worldMissing = present.data === true
-    && worldEstimate.isSuccess
-    && !worldEstimate.data.covered
-    && worldEstimate.data.tiles > 0;
 
   /* A section of the side panel, not a card over the map: floating in the
      corner it covered the tiles it was describing and could not grow past
@@ -938,17 +924,6 @@ export function DownloadCard({ region }: { region: Region; }) {
       }
       {!running && (
         <>
-          {worldFirst && (
-            <Offer
-              regions={[WORLD]}
-              world
-              regionLabel={m.map_name_world()}
-              ledgerLabel={undefined}
-              describe={(size) => m.map_download_world_estimate({ size })}
-              confirmLabel={m.map_download_world_confirm()}
-              className="download-world"
-            />
-          )}
           {
             /* One name for both. Only the ledger used to be told, so the
               bar said "Unnamed area" through a download the list called
@@ -962,17 +937,6 @@ export function DownloadCard({ region }: { region: Region; }) {
             confirmLabel={m.map_download_confirm()}
             className="download-view"
           />
-          {worldMissing && (
-            <Offer
-              regions={[WORLD]}
-              world
-              regionLabel={m.map_name_world()}
-              ledgerLabel={undefined}
-              describe={(size) => m.map_download_world_add({ size })}
-              confirmLabel={m.map_download_world_confirm()}
-              className="download-world"
-            />
-          )}
           <RegionPicker />
         </>
       )}

@@ -21,6 +21,308 @@ than a git log.
 
 ---
 
+### 2026-09-10 — The zero-admit gate had a hole the shape of `assume val`
+
+**Phase:** 7
+
+**What:** `--report_assumes error` was the whole of "no proof holes", and on
+F* 2026.08.09 it covers only the hatches reached through a term: `admit()`,
+`assume (p)`, `magic`, `admitP`. Measured, not assumed -- `assume val ax :
+squash (1 == 2)` in `Tessarium.Codec` proved
+`from_address (to_address i) == i + 1` and `make verify` exited 0 saying all
+verification conditions discharged. So did deleting
+`Tessarium.Table.Data.fst`: F* checks the lone interface, the band table's
+three lemmas become axioms, and every grid theorem downstream still
+"verifies". `tools/check-fstar-assumes.sh` covers exactly that remainder --
+declaration-position `assume`, `assume type`, and an interface with no
+implementation -- and `fstar/Makefile`'s `verify` runs it first.
+
+Three smaller holes on the same path. `--warn_error @247` makes it fatal when
+F* declines to write a `.checked` because a dependency's cache was stale:
+the recipe's `touch -c` was stamping that stale artifact fresh, and every
+later `make verify` then reported nothing to be done for a module it had
+never rechecked. `extract` now clears `$(OUT)/*.ml` first, the way
+`low-extract` clears `low/out`, so a module that stops coming out cannot
+leave its last output behind for CI's `git diff` to read as unchanged.
+`Tessarium.Check.Words` pins its corpus lengths (16 fixture words, 38
+spellings) the way Check.Grid and Check.Cipher pin theirs.
+
+**Rationale:** The grep this project rejected once was rejected for the right
+reason -- it fires on "assume" in prose -- and the flag that replaced it was
+taken to cover more than it does. The check runs beside the flag rather than
+instead of it, over only what the flag misses, and strips comments before
+matching: on a file where a naive grep fires five times it fires zero.
+
+Shown to fail first, all four: the axiom and the deleted implementation pass
+`make verify` and are refused by the new check; an emptied `words_typed`
+passes Check.Words without the pins and is refused with them; a stale
+`.checked` touched ahead of its source makes `make verify` report "Nothing to
+be done" without `@247`.
+
+**Follow-on:** `CLAUDE.md`'s "Say exactly what is proved" says zero admits is
+"enforced by `--report_assumes error`", which is now one clause short -- it is
+enforced by that flag and by `tools/check-fstar-assumes.sh`. Needs the user's
+approval to edit.
+
+### 2026-09-10 — What the import section is for, in an info icon
+
+**Phase:** 6
+
+**What:** "Add maps from a file" carries its explanation in an info icon on
+the heading rather than a paragraph under it, and the sentence is new: maps
+downloaded from another Tessarium instance can be loaded here for offline
+usage. The tooltip itself -- the overlay, its arrow, the long press that
+stands in for hover on a touch screen -- moved out of `IconButton` into
+`components/Tip.tsx`, which both the icon buttons and the new `InfoTip` wear.
+
+**Rationale:** Requested. Extracting the shell rather than copying it is the
+same rule the theme picker settled last night: two tooltips drawn by two files
+is how one of them ends up dismissing differently. Moving a sentence into a
+tooltip hides it, so the icon's accessible name IS the sentence -- React Aria
+describes a trigger with its tooltip only while the tooltip is open, and a
+name that exists only on hover is no name at all. Shown to fail first: the
+icon audit catches the arrow moving files in both directions at once, and
+rebuilding the overlay by hand fails the new shared-controls checks.
+
+### 2026-09-10 — The world ships whole, and is no longer offered
+
+**Phase:** 6
+
+**What:** Packages carry the world overview at zoom 6 -- about 43 MB, the
+depth the map ever draws it -- instead of zoom 4 with an in-app offer to
+deepen it. Both world offers are gone from the download card, along with the
+estimate behind them, the `WORLD` region, the `world` flag through the client,
+and three messages in six catalogues. The card now offers the current view and
+the picker, and nothing else. The server still knows how to write
+world.pmtiles; no path in the app sends it.
+
+The depth has one home, `tools/fetch-basemap.sh`, which answers
+`--print-world-zoom`. The Makefile names the basemap stamp after it
+(`.fetched-z6`), so raising the depth retires every stamp written at the old
+one -- a store filled before this lands is refetched once, without anyone
+having to know to delete a file. `tools/archive-max-zoom.sh` reads an
+archive's real depth through a new `--describe` on the pmtiles CLI, and both
+the fetch and the packaging ask it: the fetch to decide whether the overview
+on disk is deep enough to keep, packaging to REFUSE a source shallower than
+the shipped depth.
+
+**Rationale:** Requested, after a correction: the premise was that the world
+already ships, and it did -- at zoom 4, countries and coastlines, while the
+offer on screen was for the zoom 6 that shows towns and roads. So the offer
+was not redundant, it was badly named ("Add the whole world at country level"
+described the shipped map). Given the choice between fixing the words and
+shipping the deeper map, shipping it won: a package that carries a map should
+carry the map, not an errand. The cost is a 43 MB first fetch for a checkout
+and a bigger release; the gain is that flying anywhere shows something
+everywhere, offline, from the first launch.
+
+An extract cannot be deeper than its source -- asking for zoom 6 of a zoom 4
+archive yields zoom 4, silently -- so the packaging check is the load-bearing
+part of this. Without it the failure is invisible until someone installs the
+result and finds a flatter planet than the release notes promise. Shown to
+fail first: four checks in the basemap-target audit fail against a
+presence-only rule, and its stub archives now carry their own depth so a
+shallow store is a fixture rather than a 43 MB download.
+
+**Follow-on:** The end-to-end suite used to fill its empty store by pressing
+the world offer. It now stages the overview through the server -- the one
+place the suite reaches past the UI -- and reloads, because a download the app
+did not start is one it does not watch. The reactive checks that hung off that
+first download (the toast and its styling, the card closing itself, the grid
+surviving the style swap) moved to the view download, which is the first one
+the app performs.
+
+### 2026-09-10 — The cut corner becomes a palette lever
+
+**Phase:** 6
+
+**What:** Plain light, plain dark and low light now square their buttons. The
+chamfer off every button's top-right and bottom-left corner moved out of the
+`btn` and `icon-cut` utilities into two palette tokens, `--cut` and
+`--cut-icon`, holding the clip-path shapes; the utilities spend them. The
+cyberpunk pair keeps them, and cyberpunk light does so by saying nothing.
+
+**Rationale:** Requested: the chamfer is the shape half of the cyberpunk look,
+and a plain theme wearing it is not plain. It joins the four levers the plain
+palettes already hold at rest, so plainness stays one idea in one place
+instead of a shape rule that disagrees with the colours. The resting value is
+`none` rather than a zero-width cut, which is not cosmetic -- see below.
+Shown to fail first: five palette checks fail with the tokens absent, and the
+end-to-end suite reads the resolved clip-path off a real button and a real
+icon button, so a token nothing spends cannot pass.
+
+**Follow-on:** `clip-path` clips the focus ring along with the corner, so
+every `.btn` and `.icon-button` in BOTH cyberpunk palettes has no visible
+keyboard focus indicator at all -- confirmed by screenshot, ring fully present
+in plain dark and entirely absent in cyberpunk dark. The plain palettes got
+theirs back here for free; the cyberpunk pair needs an inset ring
+(`outline-offset` negative, or a border inside the clip) and does not have one
+yet. Nothing tests the focus ring today. Belongs in roadmap.md.
+
+### 2026-09-09 — A theme control on the gate
+
+**Phase:** 6
+
+**What:** The unlock screen carries the appearance menu beside the language
+menu. `components/ThemePicker.tsx` is that menu, and the settings popover
+behind the panel's gear now renders THE SAME component rather than a second
+dropdown wired to the same store -- the option names, the icon, the ordering
+and the store wiring have one home. The two uses differ by `labelHidden`,
+the Dropdown's own prop, and by a placement class.
+
+**Rationale:** Requested. The settings gear is in the panel header, which does
+not exist until a map is open -- so the one screen a person can be stuck on
+was the one screen with no way to change how it looks, and someone reading 24
+words off paper in a bright room had no recourse. The language menu was
+already at the foot of the gate for the same class of reason, and this sits
+beside it. The end-to-end suite drives the control and reads the root
+attribute and the painted card, then puts the default back, because the theme
+section further down is entitled to assert that nothing has been chosen yet.
+Shown to fail first: with the picker gone, the gate check fails and the drive
+times out.
+
+`ui/test/shared-controls.mjs` is new and holds the rule that made this worth
+doing: a control offered in two places is one component. It reads the source
+for who writes `setTheme` and `setLocale`, where the theme and locale names
+are spelled, and which files render each picker. Rebuilding the popover's
+dropdown by hand fails three of its checks.
+
+### 2026-09-09 — Downloaded maps moved out of the checkout
+
+**Phase:** 6
+
+**What:** `basemap/` in the working tree is no longer where maps live.
+`tools/basemap-dir.sh` names the store -- `$XDG_DATA_HOME/tessarium/basemap`,
+overridable with `TESSARIUM_BASEMAP` or `make BASEMAP_DIR=...` -- and the
+Makefile, `tools/dev.sh`, `tools/fetch-basemap.sh` and `tools/stage-bundle.sh`
+all ask it rather than spelling a path. A checkout that still holds maps in
+the tree has them MOVED there on the next run, not re-fetched. The Makefile
+exports `print-basemap-dir` beside `print-basemap-stamp`, so the shell side
+asks rather than guesses.
+
+**Rationale:** Reported, and expensive. A 666 MB Georgia region, a 44.8 MB
+world overview, a search index and an export directory were lost when the
+repository was re-cloned on 2026-09-08: they lived in a gitignored directory
+inside the tree, so `git status` was silent before and after, and nothing
+announced the loss. Downloaded maps are user data -- hundreds of megabytes a
+person chose to fetch, that nothing regenerates -- and they were sitting in
+the one place every tool that cleans build output is entitled to delete. The
+path chosen is the one packaging already uses (see
+`packaging/tessarium-launcher` and the flatpak and snap wrappers), so a
+development run and an installed run now read one store instead of two.
+
+Two bugs found by testing the move rather than describing it: a bare `!` in
+front of `BASEMAP_HAVE` negated only its first test, so the migration never
+fired and a first run re-fetched instead of moving; and the fetch stub in
+`check-basemap-target.sh` wrote to `./basemap` regardless of `-o`, which
+would have passed whether or not the recipe named the store. The suite now
+covers where the fetcher is told to write, where the app is started, that an
+in-tree map is moved with its region files intact, and that a store which
+already holds a map is never merged into. Every one was shown to fail first.
+
+### 2026-09-09 — A country's regions are drawn inside it
+
+**Phase:** 6
+
+**What:** The download picker indents everything a country discloses -- its
+"whole country" box, its states or provinces, its cities -- and draws a guide
+line down the group. One `region-children` utility on the disclosure panel, so
+a row type added later is covered without being remembered.
+
+**Rationale:** Reported from use. Flush against the country's own row, the
+states of the United States read as peers of it rather than as parts of it:
+the tree said something untrue about the data and nothing failed. The indent
+belongs to the panel and not to the rows for the same reason the group label
+became a utility -- five hand-pasted spellings of one decision is how they
+drift. The end-to-end suite measures it in the browser, beside the checkbox
+geometry check written after the same class of silent breakage; it was shown
+to fail first, at exactly 0 px.
+
+### 2026-09-09 — The passphrase, removed from the derivation
+
+**Phase:** 6
+
+**What:** The BIP-39 passphrase is gone from every layer that carried it: the
+KDF salt (`ocaml/lib/tessarium.ml`), the js_of_ocaml `kdfInputs` export, the
+browser worker, the `/api/session` endpoint, the differential oracle and its
+corpus header, the `--passphrase` flag on the sweep tool, six passphrase
+vectors and the `nfkd_addresses` set, and the `passphrase_too_long` refusal
+with its message in six catalogues. `derive_key` takes a mnemonic. The salt is
+`kdf_salt = derivation_version`, a constant.
+
+**Rationale:** Requested: nothing is using the product, and a second secret
+nothing in the UI could supply was carrying its own failure mode, its own
+refusal, its own vectors and its own end-to-end test. **No key moved.** The
+salt was `tessarium-kdf-4` ++ NFKD passphrase, and the empty passphrase
+concatenated to nothing, so removing the component leaves the same bytes:
+regenerating the vectors changed only what was deleted, and the committed
+keys for `zero`, `ones` and `hash`, all twenty addresses and the four invalid
+ones came back identical. No version bump, for the same reason -- there is no
+old derivation to distinguish from.
+
+What stays: NFKD on the phrase. It is the identity on a validated English
+BIP-39 phrase, so it changes nothing today; it is kept because the derivation
+is BIP-39-shaped and a non-English wordlist would need it. Said plainly in
+`ocaml/lib/normalize.ml` rather than left looking load-bearing.
+
+The browser suite lost the check that typed a precomposed passphrase in. What
+replaced it is a property that phrase alone can carry, and that the gate
+promises in as many words: the same address under a second phrase resolves
+somewhere else. Shown to fail before it was kept.
+
+### 2026-09-08 — The gate, shortened
+
+**Phase:** 6
+
+**What:** The unlock screen's copy is cut to what a first-time reader needs:
+a lede that says what the app does, and one warning about choosing your own
+phrase. Gone: the generate-button hint, the wordlist note, the entropy
+fine print, and the optional-passphrase disclosure with its input. Five
+message keys removed across six catalogues; the two rewritten ones are
+translated in all six.
+
+**Rationale:** Requested. The gate was carrying five blocks of security prose
+in front of a form with one field, which is a wall rather than an
+explanation. The passphrase came out with them as redundant at this stage --
+the derivation still takes one and the vectors still cover it, so this is a
+UI removal, not a format change. Its two consequences are recorded rather
+than absorbed: a map derived under a passphrase is now reachable only through
+the scripting API (roadmap, Open questions), and the browser's NFKD check --
+which used to type a precomposed passphrase into the gate -- moved to
+`js/worker-differential.mjs`, which drives the same worker and the same wasm
+and still has a passphrase to pass. It was shown to fail there before it was
+kept: unlocking with an empty passphrase produces different addresses. What
+the browser suite keeps from that block is what only a browser can ask --
+locking prompts before forgetting the key, a second phrase replaces the
+first, and concealment resets on every unlock.
+
+### 2026-09-08 — One command brings a fresh clone up
+
+**Phase:** 6
+
+**What:** `pnpm run dev` now installs, compiles and serves. `tools/bootstrap.sh`
+is the step in front of it -- toolchain (asked of `tools/setup.sh`, not
+restated), both packages' node modules, the basemap, `dune build` -- and every
+step asks whether it has already been done, so warm it costs about a second.
+`tools/env.sh` is now the one place that says where the toolchain is; `make
+env` prints the line that sources it, and dev.sh's second copy is gone.
+`tools/setup.sh` installs pnpm through corepack from the version package.json
+already pins. The dev server is started with `--ui wasm --no-open`, and
+`make test-ui` installs its own browser. `tools/check-dev-setup.sh` exercises
+both scripts against stubs; it is in `make test-core`, and every check in it
+was shown to fail against the behaviour it describes.
+
+**Rationale:** A clone could not run. Three things were assumed: ui/node_modules,
+which only `make ui` installed; the vendored F* support library, without which
+`dune build` stops at "Unbound module Prims"; and core.wasm, which the server
+serves out of the directory `make ui` writes -- so the KDF module 404'd and a
+good phrase was refused with nothing on screen saying why. The third is why the
+dev server now points at `wasm/`, where those two modules are committed: in
+development Vite serves the UI, and the only files wanted from the OCaml half
+are those. `--no-open` because the server was opening a browser on its own port
+rather than Vite's, which after this change is a page serving two wasm modules
+and nothing else.
+
 ### 2026-09-05 — Adversarial review of the branch, thirty-two fixes
 
 **Phase:** 6

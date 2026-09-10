@@ -51,10 +51,7 @@ let hex s =
 let generate inputs =
   let mnemonics =
     List.map
-      (fun m ->
-        ( to_str (member "name" m),
-          to_str (member "mnemonic" m),
-          match member "passphrase" m with `String p -> p | _ -> "" ))
+      (fun m -> (to_str (member "name" m), to_str (member "mnemonic" m)))
       (to_list (member "mnemonics" inputs))
   in
   let feistel_key = unhex (to_str (member "feistel_key" inputs)) in
@@ -69,19 +66,18 @@ let generate inputs =
 
   let keys =
     List.map
-      (fun (name, m, passphrase) ->
-        (name, Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic:m ~passphrase))
+      (fun (name, m) ->
+        (name, Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic:m))
       mnemonics
   in
 
   let key_derivation =
     List.map2
-      (fun (name, mnemonic, passphrase) (_, key) ->
+      (fun (name, mnemonic) (_, key) ->
         `Assoc
           [
             ("name", `String name);
             ("mnemonic", `String mnemonic);
-            ("passphrase", `String passphrase);
             ("key", `String (hex key));
           ])
       mnemonics keys
@@ -127,34 +123,6 @@ let generate inputs =
                ("lon_ns", `Int lon);
                ( "address",
                  `String (Tessarium.encode ~core ~key:addr_key ~lat_ns:lat ~lon_ns:lon) );
-             ])
-  in
-
-  (* Addresses under a non-ASCII passphrase, for the end-to-end test.
-
-     These are generated with the PRECOMPOSED form of the passphrase. The
-     browser test unlocks with the PRECOMPOSED form -- the direction that
-     can fail; the decomposed form is NFKD's own output and would pass with
-     normalisation removed -- and expects the same addresses, which it can
-     only get if the unlock chain normalises. Since kdf-3 the browser builds
-     its KDF inputs through this same OCaml (kdfInputs), so the check now
-     pins uunf reaching the browser intact plus the wasm stretch, rather
-     than the old String.normalize-vs-uunf split. *)
-  let nfkd_key = List.assoc "pass-nfc" keys in
-  let nfkd_addresses =
-    (* Ordinary mid-latitude points, chosen on purpose. Not (0, 0), which is
-       also what a failed parse looks like, and not the poles, where latitude
-       clamps -- a test wants an expected value that cannot be arrived at by
-       accident or by a degenerate path. *)
-    List.filteri (fun i _ -> i >= 7 && i < 9) points
-    |> List.map (fun (lat, lon) ->
-           `Assoc
-             [
-               ("mnemonic", `String "pass-nfc");
-               ("lat_ns", `Int lat);
-               ("lon_ns", `Int lon);
-               ( "address",
-                 `String (Tessarium.encode ~core ~key:nfkd_key ~lat_ns:lat ~lon_ns:lon) );
              ])
   in
 
@@ -206,7 +174,6 @@ let generate inputs =
       ("feistel_vectors", `List feistel_vectors);
       ("grid_vectors", `List grid_vectors);
       ("addresses", `List addresses);
-      ("nfkd_addresses", `List nfkd_addresses);
       ("invalid_addresses", `List (List.map (fun a -> `String a) invalid_addresses));
     ]
 
