@@ -30,7 +30,8 @@ Most of the address math here isn't just tested. It's mathematically
 proven, using a formal verification programming language that checks every step of the logic rather than trusting that a programmer got it right. That buys three guarantees:
 
 1. Every point on Earth maps to exactly one square and no other
-2. Converting an address back to a location always lands exactly where it started
+2. Converting an address back always lands in the square it came from, at that
+square's centre, which is the point the address names
 3. The scrambling step that makes your map private never gives two different squares the same address, and never leaves a square with no address at all.
 
 ## What's not proven?

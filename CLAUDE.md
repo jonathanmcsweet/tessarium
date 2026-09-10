@@ -73,8 +73,14 @@ reaching for a float in `fstar/`, `ocaml/lib/` or the grid parts of `js/`,
 stop.
 
 **Say exactly what is proved, and no more.** Every module in `fstar/` verifies
-with zero admits, enforced by `--report_assumes error`. The theorems are listed
-in `README.md`. What is NOT proved: that the mapping is unguessable (that rests
+with zero admits, enforced by `--report_assumes error` AND by
+`tools/check-fstar-assumes.sh`. Both, because the flag covers only the escape
+hatches reached through a term -- `admit`, `assume (p)`, `magic`, `admitP` --
+and is silent on `assume val`, `assume type` and an interface whose
+implementation is missing. The script covers exactly that remainder. Neither
+alone is the rule. The theorems themselves are the `theorem_*` declarations in
+`fstar/`; `README.md` summarises them in plain English and is not a list of
+them. What is NOT proved: that the mapping is unguessable (that rests
 on keyed BLAKE2s behaving as a PRF, which is an assumption); the F\* extraction
 pipeline and `ocamlopt`; `digestif`'s BLAKE2s and SHA-2, which are
 vector-tested; `ocaml/pmtiles/`, `ui/`, and all of `ocaml/server/` except

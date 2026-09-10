@@ -59,10 +59,15 @@ passes Check.Words without the pins and is refused with them; a stale
 `.checked` touched ahead of its source makes `make verify` report "Nothing to
 be done" without `@247`.
 
-**Follow-on:** `CLAUDE.md`'s "Say exactly what is proved" says zero admits is
-"enforced by `--report_assumes error`", which is now one clause short -- it is
-enforced by that flag and by `tools/check-fstar-assumes.sh`. Needs the user's
-approval to edit.
+Three labels corrected with it. `CLAUDE.md`'s "Say exactly what is proved"
+said zero admits was "enforced by `--report_assumes error`" -- one clause
+short, and the clause that was missing is the one this entry is about; it now
+names both gates and what each covers. It also said the theorems are listed in
+`README.md`, which they are not: the theorems are the `theorem_*` declarations
+in `fstar/` and the README summarises them for a reader who wants no F*.
+`README.md`'s second guarantee said an address converts back to "exactly where
+it started", where `theorem_end_to_end` says the same SQUARE -- decode returns
+that square's centre, not the point that was clicked.
 
 ### 2026-09-10 — What the import section is for, in an info icon
 
