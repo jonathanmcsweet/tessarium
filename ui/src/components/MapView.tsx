@@ -579,11 +579,11 @@ export function MapView() {
     map.addControl(
       new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }),
     );
-      shutCredit(map);
 
     map.on("load", () => {
       addOverlay(map);
       setReady(true);
+      shutCredit(map);
     });
 
     return () => {

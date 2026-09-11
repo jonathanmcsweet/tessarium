@@ -142,6 +142,27 @@ export function AddressPanel(
     coordsConcealed ? " text-ink-soft blur-[2.5px] select-none" : ""
   }`;
 
+  /* How much of the map's bottom edge this covers as a sheet. Painted
+     straight onto the shell rather than kept in the store, for the reason
+     PanelResizer paints its width there: the answer changes whenever the
+     panel's content does -- a square selected, the maps card opened -- and
+     nothing about this application's rendering should depend on it.
+
+     Measured rather than assumed to be the 45vh cap, which it only reaches
+     when the content is long enough to be scrolling. */
+  const sheet = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const node = sheet.current;
+    if (!node) return;
+    /* The border box, not contentRect: the sheet has a top border and the
+       map has to clear that too. */
+    const observer = new ResizeObserver(() => {
+      surface.current?.style.setProperty("--panel-h", `${node.offsetHeight}px`);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [surface]);
+
   return (
     <aside
       ref={sheet}
@@ -179,27 +200,6 @@ export function AddressPanel(
                 : <Eye size={18} aria-hidden />}
             />
           )}
-  /* How much of the map's bottom edge this covers as a sheet. Painted
-     straight onto the shell rather than kept in the store, for the reason
-     PanelResizer paints its width there: the answer changes whenever the
-     panel's content does -- a square selected, the maps card opened -- and
-     nothing about this application's rendering should depend on it.
-
-     Measured rather than assumed to be the 45vh cap, which it only reaches
-     when the content is long enough to be scrolling. */
-  const sheet = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const node = sheet.current;
-    if (!node) return;
-    /* The border box, not contentRect: the sheet has a top border and the
-       map has to clear that too. */
-    const observer = new ResizeObserver(() => {
-      surface.current?.style.setProperty("--panel-h", `${node.offsetHeight}px`);
-    });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [surface]);
-
           {
             /* The way in to the offline maps. It belongs beside the thing
               it opens, which is this panel. */

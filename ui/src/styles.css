@@ -813,73 +813,6 @@ code {
     shadow-[0_2px_8px_rgb(0_0_0/0.2)];
 }
 
-/* A row inside one. `focus:` here is React Aria's own focused state, set on
-   whichever row the arrow keys or the pointer are on, so hovering does not
-   have to write to the keyboard's cursor to look right. Separate from
-   `focus-visible:`, which is the keyboard ring. */
-@utility sheet-option {
-  @apply flex min-h-11 cursor-pointer items-center px-2.5 py-2
-    text-sm focus:bg-hover focus-visible:outline-2
-    focus-visible:-outline-offset-2 focus-visible:outline-accent-text;
-}
-
-/* ------------------------------------------------------- against MapLibre
-
-   What is left in this file after the components took their own appearance
-   into class lists. All of it is here for a reason a utility cannot carry:
-   it either has to outrank a stylesheet this project does not own, or it is
-   a keyframe. */
-
-.map-wrap {
-  position: absolute;
-  inset: 0;
-}
-
-/* Two classes on purpose, and it must stay. MapLibre puts its own
-   `maplibregl-map` class on this same element and sets `position: relative`
-   with no height. Both selectors would be one class, so the winner is
-   whichever stylesheet came last -- and since the map became a separate
-   chunk (components/mapChunk.ts) its CSS arrives in a file loaded AFTER this
-   one. As a bare `.map` this rule lost, the map computed to height 0, and
-   every click passed through a map that was not there.
-
-   Also why it is not a utility on the element: a Tailwind class is one
-   class, and would lose the same race. ui/test/e2e.mjs checks the rendered
-   height. */
-.map-wrap > .map {
-  position: absolute;
-  inset: 0;
-}
-
-/* MapLibre's controls -- zoom, compass, geolocate, the scale bar, the
-   attribution -- ship a light-only stylesheet and were the last things on
-   screen still white in a dark room. Painted with the same tokens as
-   everything else, so every palette gets them for free.
-
-   Every rule in this section leads with `.map-wrap`, the container this
-   application owns, so it is two classes against MapLibre's one. Its
-   stylesheet loads AFTER this file, for the reason above, so a single-class
-   rule here loses the tie and does nothing. It did nothing for a while: the
-   controls sat under the drawer, and when the drawer was shut they sat under
-   the one button that brings it back. */
-.map-wrap .maplibregl-ctrl-group {
-  background: var(--color-card);
-  box-shadow: 0 0 0 1px var(--color-line);
-}
-
-.map-wrap .maplibregl-ctrl-group button + button {
-  border-top-color: var(--color-line);
-}
-
-.map-wrap .maplibregl-ctrl-scale {
-  background: var(--color-card);
-  color: var(--color-ink);
-  border-color: var(--color-line-strong);
-}
-
-/* Both class names, matching the specificity MapLibre itself uses for this
-   one -- its own rule is .maplibregl-ctrl.maplibregl-ctrl-attrib and ties
-   are settled by load order, which this file loses. */
 /* A row of buttons closing a section. They run from the left, which is where
    they have always run; what is new is that they run from the SAME place.
 
@@ -893,29 +826,16 @@ code {
   @apply flex flex-wrap items-center gap-2;
 }
 
-.map-wrap .maplibregl-ctrl.maplibregl-ctrl-attrib {
-  background: var(--color-card);
+/* A row inside one. `focus:` here is React Aria's own focused state, set on
+   whichever row the arrow keys or the pointer are on, so hovering does not
+   have to write to the keyboard's cursor to look right. Separate from
+   `focus-visible:`, which is the keyboard ring. */
+@utility sheet-option {
+  @apply flex min-h-11 cursor-pointer items-center px-2.5 py-2
+    text-sm focus:bg-hover focus-visible:outline-2
+    focus-visible:-outline-offset-2 focus-visible:outline-accent-text;
 }
 
-.map-wrap .maplibregl-ctrl-attrib,
-.map-wrap .maplibregl-ctrl-attrib a {
-  color: var(--color-ink-soft);
-}
-
-/* MapLibre's control icons are background-image SVGs with #333 baked in,
-   which no token can reach, so they are inverted instead and land near #ccc.
-
-   Which palettes need that is not a list of theme names here: it is
-   --map-light-ground, defined beside the colours in every palette block
-   above, and `invert(0)` is the identity -- so ONE declaration covers both
-   cases and there is nothing for a sixth palette to fall off. It used to be
-   three hand-written selectors plus a prefers-color-scheme re-invert,
-   encoding a classification MapView also encoded in TypeScript. Add a light
-   palette to the palette blocks and not to that list, and light control
-   icons ship on a dark map with nothing failing -- which is how these
-   controls stayed light through the dark theme's whole first release. */
-.map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
-  filter: invert(calc(1 - var(--map-light-ground)));
 /* --------------------------------------------------- the two covered edges
 
    How much of the map the panel is sitting on, one number per edge. Every
@@ -994,6 +914,86 @@ code {
   background: var(--color-line-strong);
 }
 
+/* ------------------------------------------------------- against MapLibre
+
+   What is left in this file after the components took their own appearance
+   into class lists. All of it is here for a reason a utility cannot carry:
+   it either has to outrank a stylesheet this project does not own, or it is
+   a keyframe. */
+
+.map-wrap {
+  position: absolute;
+  inset: 0;
+}
+
+/* Two classes on purpose, and it must stay. MapLibre puts its own
+   `maplibregl-map` class on this same element and sets `position: relative`
+   with no height. Both selectors would be one class, so the winner is
+   whichever stylesheet came last -- and since the map became a separate
+   chunk (components/mapChunk.ts) its CSS arrives in a file loaded AFTER this
+   one. As a bare `.map` this rule lost, the map computed to height 0, and
+   every click passed through a map that was not there.
+
+   Also why it is not a utility on the element: a Tailwind class is one
+   class, and would lose the same race. ui/test/e2e.mjs checks the rendered
+   height. */
+.map-wrap > .map {
+  position: absolute;
+  inset: 0;
+}
+
+/* MapLibre's controls -- zoom, compass, geolocate, the scale bar, the
+   attribution -- ship a light-only stylesheet and were the last things on
+   screen still white in a dark room. Painted with the same tokens as
+   everything else, so every palette gets them for free.
+
+   Every rule in this section leads with `.map-wrap`, the container this
+   application owns, so it is two classes against MapLibre's one. Its
+   stylesheet loads AFTER this file, for the reason above, so a single-class
+   rule here loses the tie and does nothing. It did nothing for a while: the
+   controls sat under the drawer, and when the drawer was shut they sat under
+   the one button that brings it back. */
+.map-wrap .maplibregl-ctrl-group {
+  background: var(--color-card);
+  box-shadow: 0 0 0 1px var(--color-line);
+}
+
+.map-wrap .maplibregl-ctrl-group button + button {
+  border-top-color: var(--color-line);
+}
+
+.map-wrap .maplibregl-ctrl-scale {
+  background: var(--color-card);
+  color: var(--color-ink);
+  border-color: var(--color-line-strong);
+}
+
+/* Both class names, matching the specificity MapLibre itself uses for this
+   one -- its own rule is .maplibregl-ctrl.maplibregl-ctrl-attrib and ties
+   are settled by load order, which this file loses. */
+.map-wrap .maplibregl-ctrl.maplibregl-ctrl-attrib {
+  background: var(--color-card);
+}
+
+.map-wrap .maplibregl-ctrl-attrib,
+.map-wrap .maplibregl-ctrl-attrib a {
+  color: var(--color-ink-soft);
+}
+
+/* MapLibre's control icons are background-image SVGs with #333 baked in,
+   which no token can reach, so they are inverted instead and land near #ccc.
+
+   Which palettes need that is not a list of theme names here: it is
+   --map-light-ground, defined beside the colours in every palette block
+   above, and `invert(0)` is the identity -- so ONE declaration covers both
+   cases and there is nothing for a sixth palette to fall off. It used to be
+   three hand-written selectors plus a prefers-color-scheme re-invert,
+   encoding a classification MapView also encoded in TypeScript. Add a light
+   palette to the palette blocks and not to that list, and light control
+   icons ship on a dark map with nothing failing -- which is how these
+   controls stayed light through the dark theme's whole first release. */
+.map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
+  filter: invert(calc(1 - var(--map-light-ground)));
 }
 
 /* The theme squares every corner, and the map's own controls -- zoom,
