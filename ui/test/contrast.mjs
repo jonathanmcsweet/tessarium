@@ -217,7 +217,10 @@ const PAIRS = [
      dialogue. It wore a literal `text-white`, which belongs to no palette and
      so was audited in none: 3.95:1 light, 3.03:1 dark, 3.19:1 low light, all
      under AA and none visible here until this pair was written down. */
-  ["the label on a destructive button", "on-accent", "accent", 4.5],
+  /* The mark on the selected square, which MapView reads off the token and
+     hands to MapLibre. It was the label on the destructive button too, until
+     that button took the primary action's gradient. */
+  ["the mark on the selected square", "on-accent", "accent", 4.5],
 ];
 
 /* Each pair is three checks: both tokens exist, and the ratio holds. A

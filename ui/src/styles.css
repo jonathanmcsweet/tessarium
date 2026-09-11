@@ -641,14 +641,6 @@ code {
     disabled:cursor-not-allowed disabled:text-ink-soft;
 }
 
-/* Destructive, and the only place the accent is used as a fill behind
-   text -- which is why the label needs a token of its own. It was
-   `text-white`, a colour belonging to no palette and therefore audited in
-   none of them, and it was under AA on all three accents. */
-@utility btn-danger {
-  @apply border-accent bg-accent font-semibold text-on-accent;
-}
-
 /* Somewhere to type. A shade off the card so it reads as a field before it
    is focused, and a border strong enough to be the thing that says so --
    3.44:1, past the non-text minimum, where the decorative hairline would

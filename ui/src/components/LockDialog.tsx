@@ -1,14 +1,15 @@
 /* The lock button, and the question it asks first.
 
-   Locking forgets the derived key, and getting back in means typing the 24
-   words again. The application cannot show them: it wipes the phrase the
-   moment the key is derived and keeps only the key, in a worker. So this
-   says so at the one moment it matters, which is the press.
+   Locking forgets the derived key AND the words it came from, so getting
+   back in means typing the 24 words again. The worker holds them until this
+   press and nothing else does, which makes this dialog the last moment they
+   can be taken -- so it offers to, rather than only warning that it is too
+   late.
 
-   A refresh does the same thing and cannot be intercepted politely -- the
-   browser's own "leave site?" prompt takes no wording -- so the panel
-   carries a standing note as well. This dialog is for the deliberate
-   case. */
+   A refresh forgets them the same way and cannot be intercepted politely:
+   the browser's own "leave site?" prompt takes no wording. This dialog is
+   for the deliberate case; the panel's footer carries the same copy control
+   for the other one. */
 
 import { Lock } from "lucide-react";
 import {
@@ -19,7 +20,9 @@ import {
   Modal,
   ModalOverlay,
 } from "react-aria-components";
+import { core } from "../core/queries";
 import { m } from "../paraglide/messages";
+import { CopyButton } from "./CopyButton";
 
 export function LockDialog({ onConfirm }: { onConfirm: () => void; }) {
   return (
@@ -50,6 +53,23 @@ export function LockDialog({ onConfirm }: { onConfirm: () => void; }) {
                   {m.lock_warning_body()}
                 </p>
                 {
+                  /* The offer the warning above is about, next to it rather
+                    than in the row below: that row is the question being
+                    asked -- cancel, or lock -- and a third control in it
+                    reads as a third answer. */
+                }
+                <div className="phrase-copy mb-3 flex items-center gap-2 text-sm">
+                  <CopyButton
+                    className="lock-phrase-copy"
+                    label={m.panel_phrase_copy()}
+                    copiedLabel={m.panel_phrase_copied()}
+                    text={() =>
+                      core().heldPhrase().then((held) => held.mnemonic)}
+                    onFailure={m.panel_phrase_copy_failed()}
+                  />
+                  <span>{m.panel_phrase_copy()}</span>
+                </div>
+                {
                   /* Cancel first in the DOM, so Tab reaches it first and a
                     screen reader reads it first -- and first on screen too,
                     with the destructive button last, where a pointer expects
@@ -65,7 +85,7 @@ export function LockDialog({ onConfirm }: { onConfirm: () => void; }) {
                     {m.lock_cancel()}
                   </Button>
                   <Button
-                    className="danger btn btn-danger"
+                    className="danger btn btn-primary"
                     onPress={() => {
                       close();
                       onConfirm();

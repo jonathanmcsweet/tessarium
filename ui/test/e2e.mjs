@@ -4279,6 +4279,29 @@ check(
   otherMnemonic !== sampleMnemonic,
 );
 
+/* The words are held now rather than wiped, so the footer can hand them back.
+   Read off the real clipboard and compared to the phrase this session
+   actually unlocked with: a control that says it copied and copied nothing --
+   or copied the wrong thing -- is the failure worth catching, and the value
+   never passes through this thread on its way there. */
+await page.evaluate(() => navigator.clipboard.writeText("not the phrase"));
+await page.locator(".panel-foot .panel-phrase-copy").click();
+await page.waitForFunction(
+  (want) => navigator.clipboard.readText().then((t) => t === want),
+  sampleMnemonic,
+  { timeout: 10_000 },
+).then(() => true, () => false);
+check(
+  "the panel copies the phrase the map was opened with",
+  (await page.evaluate(() => navigator.clipboard.readText()))
+    === sampleMnemonic,
+);
+/* And the standing note that said this was impossible is gone with it. */
+check(
+  "and the note that said the words could never be shown is gone",
+  (await page.locator(".panel-foot .phrase-note").count()) === 0,
+);
+
 /* Locking asks first: it forgets a key that cannot be recovered from anything
    this app holds. Cancel is the safe answer and the dialog is dismissable, so
    only the destructive button locks. */
@@ -4288,12 +4311,50 @@ check(
   "locking asks before it forgets the key",
   (await page.locator(".modal-dialog .warning").count()) === 1,
 );
+/* This press is the last moment the words exist anywhere, so the dialog
+   offers to take them rather than only saying it is too late to. */
+check(
+  "and offers the copy in the dialog, where the last chance to take it is",
+  (await page.locator(".modal-dialog .lock-phrase-copy").count()) === 1,
+);
+check(
+  "saying so in the warning above it",
+  /last chance/i.test(
+    (await page.locator(".modal-dialog .warning").textContent()) ?? "",
+  ),
+);
+/* The confirm wears the primary action's gradient rather than a flat accent
+   fill: same weight as "Open my map", which is the other press in this
+   application that cannot be undone. */
+check(
+  "and the confirm is painted like the app's other irreversible press",
+  (await page.locator(".modal-actions button.danger").evaluate((el) =>
+    getComputedStyle(el).backgroundImage
+  )).includes("gradient"),
+);
 await page.locator(".modal-actions button.danger").click();
 await page.waitForSelector("#phrase", { timeout: 30_000 });
 await page.locator("#phrase").fill(otherMnemonic);
 await page.waitForSelector(".valid", { timeout: 30_000 });
 await page.locator("button[type=submit]").click();
 await page.waitForSelector(".map-wrap", { timeout: 60_000 });
+
+/* A second unlock replaces what the worker holds. Whether it was CLEARED in
+   between cannot be asked from here -- a locked tab holding the words looks
+   exactly like one that forgot them, which is the point of the boundary and
+   why test/secrets.mjs reads that half off the source. */
+await page.evaluate(() => navigator.clipboard.writeText("not the phrase"));
+await page.locator(".panel-foot .panel-phrase-copy").click();
+await page.waitForFunction(
+  (want) => navigator.clipboard.readText().then((t) => t === want),
+  otherMnemonic,
+  { timeout: 10_000 },
+).then(() => true, () => false);
+check(
+  "and after locking, the copy hands back the NEW phrase, not the old one",
+  (await page.evaluate(() => navigator.clipboard.readText()))
+    === otherMnemonic,
+);
 
 /* The same words, typed into a map derived from other words. They resolve --
    which combinations name nothing is decided by the permutation, and this one

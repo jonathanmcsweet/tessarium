@@ -55,6 +55,8 @@ const Status = z.object({
 const Address = z.object({ address: z.string() });
 const Point = z.object({ lat: z.number(), lon: z.number() });
 const Mnemonic = z.object({ mnemonic: z.string() });
+/* The same words, but absent once the map is locked. */
+const HeldPhrase = z.object({ mnemonic: z.string().nullable() });
 /* "complete" -- decode it; "partial" -- someone is mid-address, say and send
    nothing; "no" -- a place name, search for it. The enum is checked here so
    an unrecognised fourth answer fails loudly rather than silently falling
@@ -162,6 +164,17 @@ export class Core {
      the worker and never reach this thread; only the words come back. */
   generate() {
     return this.#call(Mnemonic, "generate");
+  }
+
+  /* The words the key was derived from, for the two controls that copy them.
+     Null once the map is locked, and after a reload, because the worker holds
+     them and nothing else does.
+
+     Deliberately NOT a React Query hook: a cached phrase is a phrase living
+     in this thread, which is the one thing the worker boundary exists to
+     avoid. Callers ask at the moment of the press and keep nothing. */
+  heldPhrase() {
+    return this.#call(HeldPhrase, "heldPhrase");
   }
 
   lock() {

@@ -21,6 +21,15 @@ const core = self.tessarium;
    walks away should be able to make the tab useless without closing it. */
 let key = null;
 
+/* And the words it was derived from, kept for exactly one purpose: handing
+   them back to someone who asks to copy them. They used to be wiped the
+   moment the key existed. Keeping them is a deliberate trade, and this is the
+   place to make it -- the page never holds them, cannot read them except by
+   asking, and `lock` forgets them with the key. Nothing writes them anywhere:
+   no storage, no URL, no request. A reload is still a fresh worker with
+   nothing in it. */
+let phrase = null;
+
 /* Two kinds of failure, kept apart deliberately.
 
    A handler THROWS when the request could not be answered -- locked,
@@ -322,11 +331,20 @@ const ops = {
       }
       throw e;
     }
+    phrase = mnemonic;
     return { ok: true, error: null };
+  },
+
+  /* The words back out, for the copy control in the panel and the one in the
+     lock dialog. Null rather than a refusal when there is nothing held: the
+     caller is a button that should go quiet, not an error. */
+  heldPhrase() {
+    return { mnemonic: phrase };
   },
 
   lock() {
     key = null;
+    phrase = null;
     return { ok: true };
   },
 

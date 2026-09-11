@@ -410,20 +410,28 @@ export function AddressPanel(
 
       <footer className="panel-foot px-4.5 py-4 text-xs leading-normal text-ink-soft">
         {
-          /* Standing, not a toast, and not only in the lock dialog: a reload
-            forgets the key exactly as locking does, and a browser will not
-            let a page say anything useful before one. So the one place this
-            can be said in time is before it happens. */
+          /* The gate's row, in the gate's order. The theme was a gear in the
+            header holding one control: a category named in the header, a
+            press to find out what was under it, and a popover to hold a
+            single dropdown. Beside the language it is where the other
+            choice about the application already was. */
         }
-        {
-          /* Quieter than the gate's warning -- this one is permanent, and a
-            permanent alarm stops being one. */
-        }
-        <div className="phrase-copy mb-2.5 flex items-center gap-2">
         <div className="mb-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
           <LanguagePicker />
           <ThemePicker labelHidden />
         </div>
+        {
+          /* The words, back. A standing warning used to sit here saying they
+            could never be shown again, which is no longer true: the worker
+            keeps them beside the key, and this asks for them at the press.
+            Nothing on this thread holds them in the meantime.
+
+            Text beside the icon rather than only in its tooltip: in a footer
+            of settings a bare copy glyph does not say WHAT it copies, and
+            this one copies the most valuable string the application
+            handles. */
+        }
+        <div className="phrase-copy mb-2.5 flex items-center gap-2">
           <CopyButton
             className="panel-phrase-copy"
             label={m.panel_phrase_copy()}
