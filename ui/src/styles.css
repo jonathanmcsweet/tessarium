@@ -28,6 +28,37 @@
 @source "./";
 @source not "./paraglide";
 
+/* The wordmark's face, in the cyberpunk palettes.
+
+   A Didone: hairlines against thick stems, cut flat. In tracked-out caps it
+   is the one thing on screen that is not machine type, which is what a
+   wordmark is for -- everything around it is the mono stack, and a name set
+   in the same face as the interface is a label rather than a mark.
+
+   Self-hosted from public/, not fetched: this application asks the network
+   for nothing it did not ship with, and a font that arrives from a CDN is a
+   font that does not arrive on a train. 15 KB for the latin range.
+
+   `block` rather than `swap`: a wordmark that arrives late and shoves the
+   layout is worse than one that arrives a moment after the card. The fallback
+   is the same mono stack the plain palettes wear, so nothing is unreadable
+   while it loads.
+
+   SIL Open Font License 1.1, and the licence text ships beside the file --
+   public/fonts/OFL.txt, which is a redistribution obligation, not a
+   courtesy. */
+@font-face {
+  font-family: "Bodoni Moda";
+  src: url("/fonts/bodoni-moda-700-latin.woff2") format("woff2");
+  /* Declared across the range from a file cut at 700. A browser told the
+     face has only one weight synthesises the rest, and a synthesised bold
+     thickens a Didone's hairlines into the stems -- the contrast IS the
+     face. */
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+
 @theme {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
@@ -114,19 +145,24 @@
   --color-focus: #53f1ff;
 
   /* The five levers the plain themes hold at rest: the address's own
-     colour, the primary action's gradient, the wordmark's split shadow, the
-     ground's corner glow and the cut corner. Plain light, plain dark and low
-     light set all five to nothing -- one colour repeated three times is a
-     solid button, a transparent shadow is no shadow, an absent clip is a
-     rectangle -- so they stay plain with no rule anywhere else in the
-     application. */
+     colour, the primary action's gradient, the wordmark's face, the ground's
+     corner glow and the cut corner. Plain light, plain dark and low light put
+     all five down -- one colour repeated three times is a solid button, the
+     mono stack is no second typeface, an absent clip is a rectangle -- so
+     they stay plain with no rule anywhere else in the application.
+
+     The wordmark's lever was a split shadow: the same word in magenta and
+     cyan, two pixels either side of it. It read as blurred rather than as
+     misregistered, at every size the wordmark is drawn, and there is no
+     offset that is legible AND still the effect. A second FACE says the same
+     thing about the palette and says it in the glyphs, where nothing has to
+     be read through a fringe. */
   --color-accent-alt: #53f1ff;
   --color-cta-from: #ff4fa8;
   --color-cta-mid: #a54fff;
   --color-cta-to: #53f1ff;
   --color-on-cta: #0a0614;
-  --glitch-a: rgb(255 79 168 / 0.75);
-  --glitch-b: rgb(83 241 255 / 0.75);
+  --brand-font: "Bodoni Moda", var(--font-mono);
   --bg-image:
     radial-gradient(ellipse at 12% -10%, rgb(255 79 168 / 0.16), transparent 46%),
     radial-gradient(ellipse at 95% 110%, rgb(83 241 255 / 0.13), transparent 46%);
@@ -224,9 +260,9 @@
 
    The theme this application had before it had a look: navy ink, vermilion
    accent, white card. All five levers are at rest -- one colour across the
-   gradient's three stops is a solid button, transparent glitch is no glitch,
-   `none` is no wash and no cut -- so nothing else needs a rule to keep it
-   plain. */
+   gradient's three stops is a solid button, the mono stack is no second
+   typeface, `none` is no wash and no cut -- so nothing else needs a rule to
+   keep it plain. */
 :root[data-theme="system"],
 :root[data-theme="light"] {
   color-scheme: light;
@@ -265,8 +301,7 @@
   --color-cta-mid: #12212f;
   --color-cta-to: #12212f;
   --color-on-cta: #ffffff;
-  --glitch-a: transparent;
-  --glitch-b: transparent;
+  --brand-font: var(--font-mono);
   --bg-image: none;
   --cut: none;
   --cut-icon: none;
@@ -321,8 +356,7 @@
   --color-cta-mid: #e6ecf2;
   --color-cta-to: #e6ecf2;
   --color-on-cta: #0c1319;
-  --glitch-a: transparent;
-  --glitch-b: transparent;
+  --brand-font: var(--font-mono);
   --bg-image: none;
   --cut: none;
   --cut-icon: none;
@@ -372,8 +406,7 @@
     --color-cta-mid: #e6ecf2;
     --color-cta-to: #e6ecf2;
     --color-on-cta: #0c1319;
-    --glitch-a: transparent;
-    --glitch-b: transparent;
+    --brand-font: var(--font-mono);
     --bg-image: none;
     --cut: none;
     --cut-icon: none;
@@ -399,12 +432,11 @@
    two-pass press -- and keeps the default's magenta/violet/cyan family, each
    colour pushed down to the lightness white demands.
 
-   Two of the five levers move and three do not. The corner glow needs
+   One of the five levers moves and four do not. The corner glow needs
    darkness and is kept faint. The gradient only ever needed stops dark enough
-   to hold a white label, the wordmark's split shadow is misregistration,
-   which reads better on white than on black, and the cut corner is carried
-   over untouched -- it is a hard edge, which is the half of the look that
-   survives daylight. */
+   to hold a white label, and the wordmark's face and the cut corner are
+   carried over untouched -- both are shape rather than light, which is the
+   half of this look that survives daylight. */
 :root[data-theme="cyber-light"] {
   color-scheme: light;
 
@@ -446,8 +478,6 @@
   --color-cta-mid: #6d28d9;
   --color-cta-to: #00646f;
   --color-on-cta: #ffffff;
-  --glitch-a: rgb(209 12 129 / 0.55);
-  --glitch-b: rgb(0 150 176 / 0.55);
   /* The default runs this wash at 0.16; on paper the same figure is a
      stain, and this is a press running slightly out of ink. */
   --bg-image:
@@ -496,8 +526,7 @@
   --color-cta-mid: #f4d7d2;
   --color-cta-to: #f4d7d2;
   --color-on-cta: #120909;
-  --glitch-a: transparent;
-  --glitch-b: transparent;
+  --brand-font: var(--font-mono);
   --bg-image: none;
   --cut: none;
   --cut-icon: none;
@@ -705,10 +734,8 @@ code {
    transparent outside the dark theme, so light and low light keep a plain
    wordmark with no second rule anywhere. */
 @utility brand {
-  @apply font-mono font-bold tracking-[0.18em] uppercase;
-  text-shadow:
-    -2px 0 var(--glitch-a, transparent),
-    2px 0 var(--glitch-b, transparent);
+  @apply font-bold tracking-[0.18em] uppercase;
+  font-family: var(--brand-font);
 }
 
 /* A card that hangs off a control: the dropdown's list, the search results.

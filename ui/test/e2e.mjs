@@ -1360,8 +1360,8 @@ check(
 
 /* The plain themes are plain because five tokens are held at rest, not because
    anything is switched off elsewhere: one colour repeated across the
-   gradient's three stops is a solid button, a transparent split shadow is no
-   split shadow, and an absent clip is a rectangle. Read back resolved,
+   gradient's three stops is a solid button, the mono stack is no second
+   typeface, and an absent clip is a rectangle. Read back resolved,
    because "at rest" is a property of the values, not of the rule that sets
    them.
 
@@ -1382,7 +1382,15 @@ const levers = () =>
     };
     return {
       stops: [g("--color-cta-from"), g("--color-cta-mid"), g("--color-cta-to")],
-      glitch: [g("--glitch-a"), g("--glitch-b")],
+      /* Off the wordmark itself, not off the token: what matters is the
+         face the browser RESOLVED for it, which is also the only way to see
+         that the shipped face loaded rather than silently falling back to
+         the mono stack it names second. */
+      brand: (() => {
+        const el = document.querySelector(".brand");
+        return el ? getComputedStyle(el).fontFamily : "missing";
+      })(),
+      faceLoaded: document.fonts.check('700 24px "Bodoni Moda"'),
       wash: g("--bg-image"),
       cut: shape(".btn"),
       iconCut: shape(".icon-button"),
@@ -1390,14 +1398,14 @@ const levers = () =>
   });
 for (const plain of ["light", "dark", "night"]) {
   await pickTheme(plain);
-  const { stops, glitch, wash, cut, iconCut } = await levers();
+  const { stops, brand, wash, cut, iconCut, field, trigger } = await levers();
   check(
     `${plain}: the primary action is one colour, not a gradient`,
     new Set(stops).size === 1 && stops[0] !== "",
   );
   check(
-    `${plain}: the wordmark has no split shadow`,
-    glitch.every((c) => c === "transparent"),
+    `${plain}: the wordmark wears no second typeface (${brand})`,
+    !/Bodoni/.test(brand) && /mono|Menlo|Consolas/i.test(brand),
   );
   check(`${plain}: and the ground carries no wash`, wash === "none");
   check(`${plain}: the buttons keep their corners`, cut === "none");
@@ -1413,8 +1421,8 @@ check(
   new Set(cyber.stops).size === 3,
 );
 check(
-  "and a visible split shadow",
-  cyber.glitch.every((c) => c !== "transparent"),
+  `and draws its wordmark in the shipped face (${cyber.brand})`,
+  /Bodoni/.test(cyber.brand),
 );
 check("and a wash on the ground", cyber.wash !== "none");
 check(
@@ -1754,6 +1762,10 @@ await page.waitForFunction(
 );
 await page.evaluate(() => {
   /* Added nodes, not a re-query: a callback runs at a microtask checkpoint,
+/* And the face is really there. A @font-face whose file 404s resolves to the
+   fallback with nothing said, and the check above would pass on the name
+   alone -- the browser reports what the cascade asked for, not what it got. */
+check("which is loaded, not merely named", cyber.faceLoaded === true);
      so a bar that went up and came down inside one would be invisible to an
      "is it there now" test. The label is read as it appears, which is the only
      moment it is certain to exist. */
@@ -1800,7 +1812,10 @@ await page.route("**/tiles/**", async (route) => {
    Marked once, not once per attempt, so a retry cannot stack query parameters
    and change what is being asked for. */
 const started = await until(() =>
-  page.evaluate(() => {
+  page.evaluate(async () => {
+    /* A face still loading reports as absent, and `block` means the wordmark
+       is drawn in nothing at all until it lands. */
+    await document.fonts.ready;
     if (document.querySelector(".map-loading")) return false;
     window.__barSeen = false;
     window.__barLabel = null;
@@ -4546,10 +4561,10 @@ console.log(
    ui/test/payload.mjs sets. */
 check(
   `the phrase screen costs ${Math.round(gateBytes / 1024)} KB`,
-  gateBytes < 200 * 1024,
+  gateBytes < 215 * 1024,
 );
 /* Named, so a regression is legible rather than a total that drifted. */
-if (gateBytes >= 200 * 1024) {
+if (gateBytes >= 215 * 1024) {
   atGate.filter((r) => r.bytes > 4096)
     .sort((a, b) => b.bytes - a.bytes)
     .forEach((r) => {
@@ -5086,6 +5101,15 @@ const ROUNDS = 600;
 /* Away and back, so the name is genuinely absent for part of every cycle.
    Replacing it in place would not do: the old code would open the replacement,
    stream a file of the same length, and look correct. */
+   Raised again, from 200 to 215, when the cyberpunk wordmark got its own
+   face. Measured: the gate went from 190 KB over four requests to 205 over
+   five, and the fifth is the 15 KB woff2 -- already compressed, so gzip takes
+   nothing further off it. It is fetched on the gate because the gate is where
+   the wordmark is, and the palette the app opens in is a cyberpunk one. A
+   subset cut to the letters of the name would be about 2 KB and was not
+   taken: it turns a rename into a wordmark that falls back mid-word, with
+   nothing saying so.
+
 const flip = async (n) => {
   if (n === 0) return;
   try {

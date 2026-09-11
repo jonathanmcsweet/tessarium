@@ -25,7 +25,10 @@ export default defineConfig({
   plugins: [
     react(),
     // Tailwind compiles at build time and emits a plain stylesheet, so the
-    // shipped app fetches nothing: no CDN, no runtime, no web font. Only the
+    // shipped app reaches no third party: no CDN, no runtime, no font off
+    // somebody else's origin. The one typeface it does not find on the
+    // machine -- the pixel face the cyberpunk wordmark wears -- ships in
+    // public/fonts and is served from here like everything else. Only the
     // utilities the source actually mentions survive into that file, which is
     // why the design scale can be large without the download being.
     tailwindcss(),
