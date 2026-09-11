@@ -1762,6 +1762,10 @@ check(
   `and draws its wordmark in the shipped face (${cyber.brand})`,
   /Bodoni/.test(cyber.brand),
 );
+/* And the face is really there. A @font-face whose file 404s resolves to the
+   fallback with nothing said, and the check above would pass on the name
+   alone -- the browser reports what the cascade asked for, not what it got. */
+check("which is loaded, not merely named", cyber.faceLoaded === true);
 check("and a wash on the ground", cyber.wash !== "none");
 check(
   `and cuts the corner off its buttons (${cyber.cut?.radius}px)`,
@@ -1779,10 +1783,6 @@ check(
 await pickTheme("cyber-light");
 const cyberLight = await levers();
 check(
-/* And the face is really there. A @font-face whose file 404s resolves to the
-   fallback with nothing said, and the check above would pass on the name
-   alone -- the browser reports what the cascade asked for, not what it got. */
-check("which is loaded, not merely named", cyber.faceLoaded === true);
   `and so does cyberpunk light (${cyberLight.cut?.radius}px)`,
   chamfered(cyberLight.cut) && chamfered(cyberLight.iconCut)
     && chamfered(cyberLight.field) && chamfered(cyberLight.trigger),
