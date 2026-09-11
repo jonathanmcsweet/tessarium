@@ -994,31 +994,6 @@ code {
   }
 }
 
-/* Respect a stated preference for less motion. This block covers CSS
-   animation only. The map's camera is not CSS: MapLibre reads the same media
-   query itself and turns any non-essential movement into a jump, which is
-   why ui/src/core/camera.ts does not mark its fly-to essential. */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    /* biome-ignore lint/complexity/noImportantStyles: this block exists to
-       override animation declared anywhere else, MapLibre's own stylesheet
-       included. Without !important it loses to the rules it exists to
-       disable. */
-    animation-duration: 0.01ms !important;
-    /* biome-ignore lint/complexity/noImportantStyles: as above */
-    animation-iteration-count: 1 !important;
-    /* biome-ignore lint/complexity/noImportantStyles: as above */
-    transition-duration: 0.01ms !important;
-  }
-
-  .map-loading {
-    animation: none;
-    background: var(--color-accent);
-    opacity: 0.5;
-  }
-}
 /* The other wait, and the smaller one. The bar above crosses the whole
    screen and is about the whole view; this stands in one section of a card,
    beside the sentence saying what is being waited for.
@@ -1076,4 +1051,28 @@ code {
   .loading-tiles i {
     animation: none;
     opacity: 0.55;
+  }
+/* Respect a stated preference for less motion. This block covers CSS
+   animation only. The map's camera is not CSS: MapLibre reads the same media
+   query itself and turns any non-essential movement into a jump, which is
+   why ui/src/core/camera.ts does not mark its fly-to essential. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: this block exists to
+       override animation declared anywhere else, MapLibre's own stylesheet
+       included. Without !important it loses to the rules it exists to
+       disable. */
+    animation-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: as above */
+    animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: as above */
+    transition-duration: 0.01ms !important;
+  }
+
+  .map-loading {
+    animation: none;
+    background: var(--color-accent);
+    opacity: 0.5;
   }
