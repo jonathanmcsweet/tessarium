@@ -1110,15 +1110,6 @@ code {
   }
 }
 
-
-  /* Frozen mid-cycle the four squares sit at four different opacities, which
-     reads as a rendering fault rather than as a mark. Evened out, it is a
-     small block of tiles standing still beside a sentence that says what is
-     happening -- which is what the sentence is for. */
-  .loading-tiles i {
-    animation: none;
-    opacity: 0.55;
-  }
 /* Respect a stated preference for less motion. This block covers CSS
    animation only. The map's camera is not CSS: MapLibre reads the same media
    query itself and turns any non-essential movement into a jump, which is
@@ -1143,3 +1134,13 @@ code {
     background: var(--color-accent);
     opacity: 0.5;
   }
+
+  /* Frozen mid-cycle the four squares sit at four different opacities, which
+     reads as a rendering fault rather than as a mark. Evened out, it is a
+     small block of tiles standing still beside a sentence that says what is
+     happening -- which is what the sentence is for. */
+  .loading-tiles i {
+    animation: none;
+    opacity: 0.55;
+  }
+}
