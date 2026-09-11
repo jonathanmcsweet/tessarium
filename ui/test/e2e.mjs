@@ -1454,20 +1454,29 @@ await page.evaluate(() =>
 );
 check(
   "with only an overview, street zoom still offers to download the area",
-  await page.waitForSelector(".map-note.action", { timeout: 20_000 })
+  await page.waitForSelector(".view-note-blank", { timeout: 20_000 })
     .then(() => true, () => false),
 );
 
-/* And the note is painted in the theme's colours, both of them. It sat on a
+/* And it takes the theme's colours, both of them. Over the map it sat on a
    hardcoded white through the dark theme's whole first release -- white pill,
    near-white ink -- and every token audit missed it, because a literal in a
-   component class list belongs to no palette. Read back as painted and judged
-   by lightness rather than by name, so the check outlives the exact token.
+   component class list belongs to no palette.
+
+   What makes that impossible now is that the row has NO ground of its own:
+   it is text in the panel, on whatever the panel is painted. So the check is
+   that it stays that way -- a row that grows a background is a row that can
+   carry a literal again -- and the panel's own ground is judged by lightness
+   under both themes, which is where the colour actually comes from.
 
    Named themes rather than "match my device": what that entry resolves to
    depends on the machine running the suite, and this is about the
    stylesheet. */
-const noteLightness = () => surfaceLightness(".map-note.action");
+const rowGround = () =>
+  page.locator(".view-note-blank").first()
+    .evaluate((n) => getComputedStyle(n).backgroundColor);
+const transparent = (color) =>
+  color === "transparent" || /rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(color);
 await pickTheme("dark");
 check(
   `the note is on the panel's ground, not one of its own (${await rowGround()})`,
@@ -2461,7 +2470,7 @@ await page.evaluate(() =>
 );
 check(
   "panning off the downloaded region says so",
-  await page.waitForSelector(".map-note.action", { timeout: 15_000 })
+  await page.waitForSelector(".view-note-blank", { timeout: 15_000 })
     .then(() => true, () => false),
 );
 /* And says the one thing true wherever it appears. What the floor draws
@@ -2472,7 +2481,7 @@ check(
    back into a claim fails this. */
 check(
   "and claims only that the detail is missing",
-  (await page.locator(".map-note.action span").innerText())
+  (await page.locator(".view-note-blank").innerText())
     === m("map_coverage_gap"),
 );
 /* The wash is the other half of that claim. It is 42% opaque, sized for ground
@@ -2519,12 +2528,15 @@ await page.unroute("**/api/basemap-coverage");
 await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
 );
-await page.waitForSelector(".map-note.action", { timeout: 15_000 });
-/* The note is the only way out of a blank screen offered on the map, so its
-   button has to reach the downloader. */
-await page.locator(".map-note.action .note-action").click();
+await page.waitForSelector(".view-note-blank", { timeout: 15_000 });
+/* The note is the only way out of a blank screen, and it points rather than
+   acts: the button it names is the panel's own, one row above it. So the
+   check is that pressing THAT reaches the downloader from this state, and
+   that the note stands down once it has -- a row telling someone to press a
+   button they have already pressed is worse than no row. */
+await page.locator(".panel-download").click();
 check(
-  "the note offers the download card",
+  "the button the note names opens the download card",
   await page.waitForSelector(".download-card", { timeout: 10_000 })
     .then(() => true, () => false),
 );
@@ -2552,7 +2564,7 @@ await page.route("**/api/basemap-coverage", async (route) => {
 await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
 );
-await page.waitForSelector(".map-note.action", { timeout: 20_000 });
+await page.waitForSelector(".view-note-blank", { timeout: 20_000 });
 /* Out to covered ground, whose answer is now 2 s away. The pause is what makes
    this a race: two jumps back to back settle as one move, so the request being
    outrun would never be sent. */
@@ -2568,7 +2580,7 @@ await page.evaluate(() =>
 await new Promise((done) => setTimeout(done, 4000));
 check(
   "an answer for a view already left cannot wipe the current one",
-  await page.locator(".map-note.action").count() === 1,
+  await page.locator(".view-note-blank").count() === 1,
 );
 await page.unroute("**/api/basemap-coverage");
 
@@ -2641,23 +2653,26 @@ check(
 );
 await gridPage.close();
 
-/* Focused first: the note goes away on its own when tiles land or a fly-to
-   settles, and if its button still had focus the page would drop to <body>,
-   where the keyboard does nothing. */
-await page.locator(".map-note.action .note-action").focus();
+/* The note goes away on its own when tiles land or a fly-to settles. That
+   used to be a hazard: the note carried the download button, and a focused
+   button vanishing dropped the page to <body>, where the keyboard does
+   nothing. It carries no control at all now, so there is nothing to drop --
+   which is why the keyboard is checked to be where it was left rather than
+   handed anywhere. */
+await page.locator(".panel-download").focus();
 await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [-0.12, 51.5], zoom: 12 })
 );
 check(
   "returning to downloaded ground takes the note away again",
   await page.waitForFunction(
-    () => !document.querySelector(".map-note.action"),
+    () => !document.querySelector(".view-note-blank"),
     undefined,
     { timeout: 15_000 },
   ).then(() => true, () => false),
 );
 check(
-  "and hands the keyboard back to the map rather than dropping it",
+  "without disturbing the keyboard, which was never on the note",
   await page.evaluate(() =>
     document.activeElement?.classList.contains("panel-download") ?? false
   ),
@@ -2879,6 +2894,14 @@ await viewRow.locator(".ledger-remove").click();
 const rowGone = await page
   .waitForFunction(
     () => document.querySelectorAll(".ledger-row").length === 3,
+check(
+  "and the note stands down while the card is open",
+  await page.waitForFunction(
+    () => !document.querySelector(".view-note-blank"),
+    null,
+    { timeout: 10_000 },
+  ).then(() => true, () => false),
+);
     null,
     { timeout: 30_000 },
   )

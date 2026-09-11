@@ -59,6 +59,15 @@ const SHUT = "collapsed invisible translate-x-full "
    default export and DownloadCard is a named one, so the promise is
    reshaped here rather than the card growing a default it has no other
    use for -- the same shape App uses for MapView. */
+/* A row of the view section. Text, and whether it carries a consequence --
+   nothing here is pressable: the one thing to do about any of it is the
+   download button in the header above, which the coverage row names. */
+type ViewNote = {
+  key: string;
+  text: string;
+  warn?: boolean;
+};
+
 const DownloadCard = lazy(() =>
   loadDownloadCard().then((mod) => ({ default: mod.DownloadCard }))
 );
@@ -92,6 +101,34 @@ export function AddressPanel(
   const togglePanel = useAppStore((s) => s.togglePanel);
   const panelCollapsed = useAppStore((s) => s.panelCollapsed);
   const downloadRegion = useAppStore((s) => s.downloadRegion);
+
+  /* What the map has to say about the view it is drawing, said here rather
+     than over the ground it is about. Built as a list so the section and its
+     rows cannot disagree about whether there is anything to say -- as two
+     conditions they drift, and an empty headed section is worse than none.
+
+     The coverage row goes when the maps card opens: the row exists to open
+     that card, and it is the card that then says what will be fetched. */
+  const view = useAppStore((s) => s.view);
+  const notes: ViewNote[] = [
+    view.truncated
+      ? { key: "truncated", text: m.map_too_many_squares(), warn: true }
+      : null,
+    view.belowGrid ? { key: "below-grid", text: m.map_zoom_for_grid() } : null,
+    view.blank && !downloadOpen
+      /* One message, because only one fact is honest here: the detail is not
+         downloaded. What the floor draws underneath ranges from a full
+         country map to one stretched polygon, so "this is the wider map" is
+         a promise the app cannot keep, and "no map here" contradicts a map
+         the reader can see.
+
+         Gone while the card is open: it points at the button that opens
+         that card, and pointing at a button already pressed is worse than
+         saying nothing. */
+      ? { key: "blank", text: m.map_coverage_gap() }
+      : null,
+  ].filter((note) => note !== null);
+
   /* The download job's status is deliberately NOT subscribed to here. It
      polls once a second for the life of a job, and holding it here
      re-rendered the address, the coordinates and the footer every second of

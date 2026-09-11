@@ -3,13 +3,7 @@
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import { useQueryClient } from "@tanstack/react-query";
 import maplibregl from "maplibre-gl";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchCoverage,
   isRunning,
@@ -492,20 +486,24 @@ const cellCenter = (cell: {
   },
 });
 
-/* A note over the map: transparent to the pointer, wide enough for a
-   sentence in any of six languages. bg-card, not white -- a literal white
-   here shipped as a white pill with near-white text through the dark
-   theme's whole first release, invisible to the token audit. */
-const NOTE = "map-note pointer-events-none max-w-full border border-line "
-  + "bg-card/95 px-4 py-1.5 text-center text-sm shadow-card";
+/* MapLibre decides by the map's width whether the attribution needs its info
+   toggle -- and then opens it anyway. On a phone that is 194px of credit lying
+   across the bottom of the map, beside everything else the map has to say
+   there; collapsed it is a 24px button, and a tap still shows the line.
 
-/* A note with something to do lays its text and button in a row, wrapping
-   on a narrow screen rather than pushing the button off the map. Only the
-   button takes the pointer back: on a phone this sits where a thumb starts
-   a pan, and a pill that swallowed that drag made the map feel broken. */
-const NOTE_ACTION =
-  "action flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 "
-  + "py-1.5 pr-2 pl-4 text-left";
+   Only on the maps MapLibre itself called narrow, so a desktop map keeps the
+   credit in full and nothing here repeats a width the library already knows.
+
+   The class goes with the attribute. MapLibre syncs `maplibregl-compact-show`
+   from the summary's own click rather than from the `toggle` event, so
+   clearing `open` alone leaves it set -- and the first tap then CLOSES a
+   panel that is already shut, which reads as a button that does nothing. */
+const shutCredit = (map: maplibregl.Map) => {
+  const credit = map.getContainer().querySelector(".maplibregl-ctrl-attrib");
+  if (!credit?.classList.contains("maplibregl-compact")) return;
+  credit.removeAttribute("open");
+  credit.classList.remove("maplibregl-compact-show");
+};
 
 export function MapView() {
   const container = useRef<HTMLDivElement>(null);
@@ -517,11 +515,10 @@ export function MapView() {
      not report done-versus-total tiles in any stable way, so a percentage
      would be theatre. */
   const [tilesLoading, setTilesLoading] = useState(false);
-  const [truncated, setTruncated] = useState(false);
-  /* Whether the MIDDLE of the view has no tile at the zoom being drawn: the
-     note is about where the user is looking, not about a corner. */
-  const [blank, setBlank] = useState(false);
-  const [zoom, setZoom] = useState(0);
+  /* What the map has to say about the view, written to the store and said by
+     the panel. `blank` is whether the MIDDLE of the view has no tile at the
+     zoom being drawn -- what the reader is looking at, not a corner of it. */
+  const noteView = useAppStore((s) => s.noteView);
   /* Bumped after every style swap so the effects that draw onto the style
      (grid, selection) know their sources were just recreated empty. */
   const [styleEpoch, setStyleEpoch] = useState(0);
@@ -546,7 +543,6 @@ export function MapView() {
   const setBasemapFailed = useAppStore((s) => s.setBasemapFailed);
   const clearBasemapFailed = useAppStore((s) => s.clearBasemapFailed);
   const downloadOpen = useAppStore((s) => s.downloadOpen);
-  const openDownload = useAppStore((s) => s.openDownload);
   const closeDownload = useAppStore((s) => s.closeDownload);
   const endImport = useAppStore((s) => s.endImport);
 
@@ -587,7 +583,6 @@ export function MapView() {
 
     map.on("load", () => {
       addOverlay(map);
-      setZoom(map.getZoom());
       setReady(true);
     });
 
@@ -662,13 +657,13 @@ export function MapView() {
        worker. The older answer lands second, paints its cells over a
        viewport the user has left, and drags setTruncated back with it. */
     const mine = ++gridSeq.current;
-    setZoom(map.getZoom());
+    noteView({ belowGrid: map.getZoom() < GRID_MIN_ZOOM });
 
     const source = map.getSource("grid") as
       | maplibregl.GeoJSONSource
       | undefined;
     if (map.getZoom() < GRID_MIN_ZOOM) {
-      setTruncated(false);
+      noteView({ truncated: false });
       source?.setData(emptyGeoJson);
       return;
     }
@@ -691,7 +686,7 @@ export function MapView() {
     ).catch(() => null);
     if (!g || mine !== gridSeq.current) return;
 
-    setTruncated(g.truncated);
+    noteView({ truncated: g.truncated });
 
     const features: GeoJSON.Feature[] = new Array(g.count);
     for (let i = 0; i < g.count; i++) {
@@ -703,7 +698,7 @@ export function MapView() {
       });
     }
     source?.setData({ type: "FeatureCollection", features });
-  }, [client]);
+  }, [client, noteView]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: styleEpoch is deliberate -- a style swap recreates the grid source empty, so the effect must re-run to refill it
   useEffect(() => {
@@ -789,8 +784,8 @@ export function MapView() {
       type: "FeatureCollection",
       features: blankEdges(answer, answer.zoom),
     });
-    setBlank(centreIsBlank(answer));
-  }, [client]);
+    noteView({ blank: centreIsBlank(answer) });
+  }, [client, noteView]);
 
   /* Nothing to say when there is no archive at all -- the missing-basemap
      banner already says it, and a grey wash under it would be a second
@@ -805,7 +800,7 @@ export function MapView() {
     const map = mapRef.current;
     if (!map || !ready) return;
     if (coverageOff) {
-      setBlank(false);
+      noteView({ blank: false });
       return;
     }
     /* Browsing fetches the viewport's missing tiles 1.2 s after a pan
@@ -1222,41 +1217,6 @@ export function MapView() {
     goTo(map, [flyTo.lon, flyTo.lat], Math.max(map.getZoom(), 20));
     void selectAt(flyTo.lat, flyTo.lon);
   }, [flyTo, ready, selectAt]);
-
-  /* The note can go away on its own -- browsed tiles land, a fly-to settles
-     -- and if its button held the keyboard, focus would drop to <body>,
-     where arrow keys and Enter do nothing. It is handed back to the map,
-     which is what the note was covering.
-
-     Whether focus was inside is RECORDED while the note is alive, not read
-     when it goes: by the time an effect's cleanup runs React has already
-     mutated the DOM and the answer is always "no". Focus leaving to nowhere
-     (a null relatedTarget, which is what removing a focused element looks
-     like) is not the user moving on, so it does not clear the flag. */
-  const notesRef = useRef<HTMLDivElement>(null);
-  const noteHeldFocus = useRef(false);
-  const noteShown = blank && !downloadOpen;
-  useLayoutEffect(() => {
-    const node = notesRef.current;
-    if (!noteShown || !node) return;
-    const took = () => {
-      noteHeldFocus.current = true;
-    };
-    const gave = (event: FocusEvent) => {
-      const next = event.relatedTarget as Node | null;
-      if (next && !node.contains(next)) noteHeldFocus.current = false;
-    };
-    node.addEventListener("focusin", took);
-    node.addEventListener("focusout", gave);
-    return () => {
-      node.removeEventListener("focusin", took);
-      node.removeEventListener("focusout", gave);
-      if (noteHeldFocus.current) {
-        noteHeldFocus.current = false;
-        mapRef.current?.getCanvas().focus();
-      }
-    };
-  }, [noteShown]);
 
   return (
     <div className="map-wrap">
