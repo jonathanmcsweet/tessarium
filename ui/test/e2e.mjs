@@ -2891,6 +2891,14 @@ check(
   await page.waitForSelector(".download-card", { timeout: 10_000 })
     .then(() => true, () => false),
 );
+check(
+  "and the note stands down while the card is open",
+  await page.waitForFunction(
+    () => !document.querySelector(".view-note-blank"),
+    null,
+    { timeout: 10_000 },
+  ).then(() => true, () => false),
+);
 await page.locator(".panel-download").click();
 await page.waitForFunction(
   () => !document.querySelector(".download-card"),
@@ -3245,14 +3253,6 @@ await viewRow.locator(".ledger-remove").click();
 const rowGone = await page
   .waitForFunction(
     () => document.querySelectorAll(".ledger-row").length === 3,
-check(
-  "and the note stands down while the card is open",
-  await page.waitForFunction(
-    () => !document.querySelector(".view-note-blank"),
-    null,
-    { timeout: 10_000 },
-  ).then(() => true, () => false),
-);
     null,
     { timeout: 30_000 },
   )
