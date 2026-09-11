@@ -196,8 +196,8 @@ const PAIRS = [
   ["banner text", "warn", "notice", 4.5],
   ["banner action labels", "on-ink", "warn", 4.5],
   ["map warning note", "warn", "notice-soft", 4.5],
-  /* The unlock screen's provenance warning -- its most prominent block, and
-     the one a user most needs to read. */
+  /* The unlock screen's write-it-down notice -- its most prominent block,
+     and the one a user most needs to read. */
   ["gate warning text", "ink", "alert", 4.5],
   ["gate warning rule (non-text)", "accent", "alert", 3.0],
   ["hover rows", "ink", "hover", 4.5],

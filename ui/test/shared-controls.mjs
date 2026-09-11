@@ -117,5 +117,31 @@ check(
   wearsTip.length === 1 && wearsTip[0] === "components/IconButton.tsx",
 );
 
+/* Unavailable is `aria-disabled`, not the `disabled` attribute. A disabled
+   button receives no hover and takes no focus, so the one control that
+   cannot be pressed was also the only one that could not say what it was.
+   Read as text, because a running app cannot be asked which mechanism drew a
+   state it is not currently in. */
+const iconButton = named("components/IconButton.tsx");
+check(
+  "the icon button marks unavailable with aria-disabled",
+  /"aria-disabled": true/.test(iconButton) && !/isDisabled=/.test(iconButton),
+);
+
+/* And the tooltip is made of the application's own floating surface, the one
+   the dropdown's list is made of. It was the inverted pair, `bg-ink` on
+   `text-on-ink`, which in the four dark palettes is a pale box with black
+   text: a system tooltip sitting on top of the theme rather than in it. */
+const tip = named("components/Tip.tsx");
+/* The attribute, not the file: the comment above it names the pair it stopped
+   using, and a rule that reads prose fails on its own explanation. */
+const tipSurface = /<Tooltip\s+className="([^"]*)"/.exec(tip)?.[1] ?? "";
+check(
+  `the tooltip is built from the shared floating surface (${
+    tipSurface || "no className"
+  })`,
+  /\bsheet\b/.test(tipSurface) && !/bg-ink|text-on-ink/.test(tipSurface),
+);
+
 console.log(`\nshared controls: ${checks} checks, ${failures} failures`);
 if (failures > 0) process.exit(1);

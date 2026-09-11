@@ -10,8 +10,10 @@
    checksum-valid phrase from a weak source passes untouched. Reuse is the
    other half: anyone who learns a few (address, true location) pairs is
    doing cryptanalysis against whatever else that phrase protects. So the
-   provenance warning sits directly under the generate button, where the
-   choice is made, and is permanent.
+   provenance warning rides the generate button, in an info icon beside it,
+   where the choice is made -- and it is permanent, in the sense that the
+   icon is: it is never dismissed and never conditional, and the sentence is
+   the icon's accessible name whether or not the tooltip is open.
 
    Nothing typed here is persisted -- no localStorage, no URL, no request.
    The phrase goes straight to the worker, which keeps the derived key and
@@ -34,6 +36,7 @@ import { LanguagePicker } from "./LanguagePicker";
 import { CopyButton } from "./CopyButton";
 import { loadMapView } from "./mapChunk";
 import { ThemePicker } from "./ThemePicker";
+import { InfoTip } from "./Tip";
 
 const wordsIn = (phrase: string) => phrase.trim().split(/\s+/).filter(Boolean);
 
@@ -201,9 +204,6 @@ export function PhraseEntry() {
               ? <Eye size={18} aria-hidden />
               : <EyeOff size={18} aria-hidden />}
           />
-        </div>
-
-        {
           {
             /* For the password vault the warning below asks for. The same
               button the address uses, so the tick that confirms the clipboard
@@ -222,6 +222,9 @@ export function PhraseEntry() {
             onFailure={m.gate_phrase_copy_failed()}
             disabled={wordCount !== 24}
           />
+        </div>
+
+        {
           /* Inline and beside the field, not a toast: this is live validation
             of what is being typed, and it has to stay on screen while the user
             fixes it. Toasts are for the submit. */
@@ -253,34 +256,29 @@ export function PhraseEntry() {
         {
           /* Secondary weight: this sits above "Open my map", which is the
             primary action, but it must still read as an offer rather than as
-            fine print. Full width on a phone, where a button that is not is
-            just a small target. */
+            fine print. On a phone it takes the row less the info icon, where
+            a button that does not is just a small target. */
         }
-        <div className="generate flex max-sm:w-full flex-col items-start gap-1.5">
+        <div className="generate flex items-center">
           <button
             type="button"
-            className="btn btn-quiet max-sm:w-full"
+            className="btn btn-quiet max-sm:grow"
             onClick={onGenerate}
             disabled={generate.isPending}
           >
             <Dices size={17} aria-hidden />
             {m.gate_generate()}
           </button>
-        </div>
-
-        {
-          /* Directly under the generate control rather than at the foot of
-             the form: it is guidance for a choice being made right here, and
-             at the bottom it was read after the decision, if at all. No
-             role, because it is present from first paint and never changes;
-             the write-down notice below is the one that appears and
-             announces. The `provenance` class is a test hook, so the
-             end-to-end position check finds this block without matching on
-             copy. */
-        }
-        <div className="warning provenance">
-          <strong>{m.gate_phrase_warning_title()}</strong>{" "}
-          {m.gate_phrase_warning_body()}
+          {
+            /* Beside the control it is guidance for, not at the foot of the
+              form where it was read after the decision if at all. A tooltip
+              hides a sentence from anyone who does not reach for it, which
+              is the cost paid here for the row of boxes this screen had
+              become; what keeps it honest is that the sentence is the
+              icon's accessible name at all times, so it is announced
+              whether or not the tooltip is ever opened. */
+          }
+          <InfoTip label={m.gate_phrase_warning()} />
         </div>
 
         {showWriteDown && (

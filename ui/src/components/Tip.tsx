@@ -66,27 +66,38 @@ export function Tip(
         onPressEnd: clearTimer,
       })}
       {
-        /* The arrow is drawn here because React Aria positions an
+        /* `sheet` is what every floating surface in the application is made
+          of -- the dropdown's list, and this. It was the inverted pair,
+          `bg-ink` on `text-on-ink`, which in the four dark palettes is a
+          pale box with black text: a system tooltip sitting on top of the
+          theme rather than in it.
+
+          The arrow is drawn here because React Aria positions an
           OverlayArrow and leaves its shape to the caller, where Radix
-          shipped one. Eight pixels wide, filled to match the tooltip, and
-          rotated to whichever side it landed on -- the shape points DOWN, so
-          the default placement above the trigger needs no rotation. `fill` is
-          inherited, so setting it on the wrapper reaches the path inside. */
+          shipped one. Two paths, because the surface now has a border: one
+          filled triangle, one stroked V that does NOT close along the base,
+          since a closed path would draw a line across the mouth of the
+          arrow. The negative margin pulls the base a pixel into the tooltip,
+          over the border segment it would otherwise sit under. `fill` and
+          `stroke` are inherited, so setting them on the wrapper reaches both
+          paths. Rotated to whichever side it landed on -- the shape points
+          DOWN, so the default placement above the trigger needs none. */
       }
       <Tooltip
-        className="z-40 max-w-65 bg-ink px-2.5 py-1.5 text-xs leading-snug text-on-ink shadow-card"
+        className="app-tip sheet max-w-65 px-2.5 py-1.5 text-xs leading-snug text-ink"
         offset={6}
         containerPadding={8}
       >
-        <OverlayArrow className="fill-ink leading-none placement-bottom:rotate-180 placement-left:-rotate-90 placement-right:rotate-90">
+        <OverlayArrow className="fill-card stroke-line-strong leading-none placement-bottom:rotate-180 placement-left:-rotate-90 placement-right:rotate-90">
           <svg
-            width={8}
-            height={8}
-            viewBox="0 0 8 8"
+            width={10}
+            height={6}
+            viewBox="0 0 10 6"
             aria-hidden="true"
-            className="block"
+            className="-mt-px block"
           >
-            <path d="M0 0 L4 4 L8 0 Z" />
+            <path d="M0 0 L5 5 L10 0 Z" stroke="none" />
+            <path d="M0 0 L5 5 L10 0" fill="none" />
           </svg>
         </OverlayArrow>
         {label}
@@ -108,7 +119,7 @@ export function InfoTip({ label }: { label: string; }) {
     <Tip label={label}>
       {(hold) => (
         <Button
-          className="info-tip focus-ring ms-1 inline-flex h-5 w-5 flex-none cursor-help items-center justify-center border-0 p-0 align-middle text-ink-soft hover:text-ink"
+          className="info-tip focus-ring ms-1 inline-flex h-5 w-5 flex-none items-center justify-center border-0 p-0 align-middle text-ink-soft hover:text-ink"
           aria-label={label}
           {...hold}
         >

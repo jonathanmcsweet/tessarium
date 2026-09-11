@@ -232,6 +232,33 @@ export function AddressPanel(
         {selection
           ? (
             <>
+      {notes.length > 0 && (
+        <section className="view-notes border-b border-line p-4.5">
+          <h2 className="panel-title mb-2.5">{m.panel_this_view()}</h2>
+          <div className="flex flex-col gap-3">
+            {notes.map((note) => (
+              <div key={note.key} role="status">
+                <p
+                  className={`view-note view-note-${note.key} m-0 text-sm leading-normal${
+                    note.warn
+                      /* The one row carrying a consequence takes a ground and
+                         a rule down its left, the same shape `warning` uses
+                         for the panel's standing note. The others are plain
+                         text on the panel: a section where every row is
+                         marked marks nothing. */
+                      ? " warn border-l-4 border-notice-soft-line"
+                        + " bg-notice-soft px-3 py-2 text-warn"
+                      : ""
+                  }`}
+                >
+                  {note.text}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
               <div className="address-row flex items-start gap-1.5">
                 {
                   /* Concealed means not rendered, not merely styled out of
@@ -389,6 +416,10 @@ export function AddressPanel(
             permanent alarm stops being one. */
         }
         <div className="phrase-copy mb-2.5 flex items-center gap-2">
+        <div className="mb-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <LanguagePicker />
+          <ThemePicker labelHidden />
+        </div>
           <CopyButton
             className="panel-phrase-copy"
             label={m.panel_phrase_copy()}

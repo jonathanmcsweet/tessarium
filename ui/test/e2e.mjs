@@ -247,6 +247,13 @@ check(
     && (await page.locator("#phrase").getAttribute("autocomplete"))
       === "current-password",
 );
+/* Three words is not a phrase, and half a secret on the clipboard is worse
+   than none: the copy button is there, so the row does not change width on
+   the last word typed, and it cannot be pressed yet. */
+check(
+  "copying is offered but refused until the phrase is whole",
+  (await gateCopy.count()) === 1 && await gateCopy.isDisabled(),
+);
 await page.locator(".gate-phrase-toggle").click();
 check(
   "and reveals on demand, because 24 words cannot be proofread as bullets",
@@ -288,68 +295,61 @@ check(
 );
 
 /* Where the phrase comes from is the highest-value security decision in the
-   app, so its guidance must be on screen BEFORE anything is generated or
-   typed -- not at the foot of the form, where it is read after the choice if
-   at all. The position check is what fails when the block drifts back down the
-   form, since a warning below the submit button still "appears". */
+   app, so its guidance rides the control that makes the choice: the info icon
+   beside "Generate one for me", not a paragraph at the foot of the form where
+   it is read after the choice if at all.
+
+   Moving a sentence into a tooltip hides it from anyone who does not reach
+   for it, so the checks below are the same three the import hint carries --
+   the icon is beside the button, the sentence is the icon's accessible name
+   whether or not it is open, and hovering puts it on screen -- plus the one
+   this move is most likely to break quietly: that the hazard is still being
+   said at all. */
 {
-  /* Located by class, not by copy: a reworded warning should fail the one
-     text check below, not report that the layout moved. */
-  const provenance = page.locator(".warning.provenance");
+  /* Located by position, not by copy: a reworded sentence should fail the
+     text checks below, not report that the icon moved. */
+  const provenance = page.locator(".generate .info-tip");
   check(
-    "the phrase-provenance warning is visible before generating",
-    await provenance.isVisible(),
-  );
-  /* The heading says what the checks DO cover; the body carries the hazard.
-     Checked where each lives, so a reworded heading fails the heading check
-     and a thinned-out body fails the body check, rather than one pointing at
-     the wrong half. */
-  const title = await provenance.locator("strong").textContent();
-  check(
-    "its heading says the checks are about what was typed",
-    /typed a phrase correctly/i.test(title),
-  );
-  /* The hazard has to survive a rewording: validation is a typo check, so a
-     phrase someone chose themselves can pass every one of them and still be
-     guessable. A warning that stops saying so is decoration. */
-  const body = await provenance.textContent();
-  check(
-    "its body still warns against choosing your own phrase",
-    /own phrase/i.test(body) && /secure/i.test(body),
+    "the phrase-provenance icon is beside the generate button",
+    (await provenance.count()) === 1
+      && await provenance.isVisible(),
   );
   check(
-    "the provenance warning sits above the unlock button",
-    await page.evaluate(() => {
-      const warning = document.querySelector(".warning.provenance");
-      const submit = document.querySelector("button[type=submit]");
-      if (!warning || !submit) return false;
-      return !!(warning.compareDocumentPosition(submit)
-        & Node.DOCUMENT_POSITION_FOLLOWING);
-    }),
+    "and the form spends no warning block under it doing the same",
+    (await page.locator(".gate-card .warning.provenance").count()) === 0,
+  );
+  /* One sentence now, so both halves are read off the same string: what the
+     checks DO cover, and the hazard they do not. The hazard has to survive a
+     rewording -- validation is a typo check, so a phrase someone chose
+     themselves can pass every one of them and still be guessable, and a
+     warning that stops saying so is decoration. */
+  const name = (await provenance.getAttribute("aria-label")) ?? "";
+  check(
+    "its name says the checks are about what was typed",
+    /typed a phrase correctly/i.test(name),
+  );
+  check(
+    "and still warns against choosing your own phrase",
+    /own phrase/i.test(name) && /secure/i.test(name),
+  );
+  await provenance.hover();
+  const tip = await page
+    .waitForSelector('[role="tooltip"]', { timeout: 5_000 })
+    .then((el) => el.textContent(), () => "");
+  check(
+    "hovering it puts that sentence on screen",
+    /typed a phrase correctly/i.test(tip ?? ""),
+  );
+  /* Off the icon again: an open tooltip is a positioned overlay, and the
+     checks below read the form underneath it. */
+  await page.mouse.move(0, 0);
+  await page.waitForFunction(
+    () => document.querySelector('[role="tooltip"]') === null,
+    null,
+    { timeout: 5_000 },
   );
 }
 
-/* "Generate one for me" must produce a phrase this same app accepts. A
-   generator whose output fails its own checksum would strand a user who had
-   already written 24 words down. Two presses must also differ: a generator
-   wired to a constant would pass every other check here.
-
-   Wait for the value to CHANGE, not merely to be 24 words. The typo phrase
-   above is already 24 words, so a length check is satisfied before the click
-   has done anything, leaving a request in flight to land later and overwrite
-   whatever the test does next. */
-const beforeGenerate = await page.locator("#phrase").inputValue();
-await page.locator(".generate button").click();
-await page.waitForFunction(
-  (previous) => document.querySelector("#phrase")?.value !== previous,
-  beforeGenerate,
-  { timeout: 30_000 },
-);
-const firstGenerated = await page.locator("#phrase").inputValue();
-check(
-  "a generated phrase is 24 words",
-  firstGenerated.split(/\s+/).filter(Boolean).length === 24,
-);
 /* The control that cannot be pressed is the one most likely to be asked
    about, and a `disabled` button answers a hover with nothing -- the browser
    delivers it no hover at all, so the tooltip never fires.
@@ -523,6 +523,27 @@ const ringPixels = async (selector) => {
   await page.locator("#phrase").focus();
 }
 
+/* "Generate one for me" must produce a phrase this same app accepts. A
+   generator whose output fails its own checksum would strand a user who had
+   already written 24 words down. Two presses must also differ: a generator
+   wired to a constant would pass every other check here.
+
+   Wait for the value to CHANGE, not merely to be 24 words. The typo phrase
+   above is already 24 words, so a length check is satisfied before the click
+   has done anything, leaving a request in flight to land later and overwrite
+   whatever the test does next. */
+const beforeGenerate = await page.locator("#phrase").inputValue();
+await page.locator(".generate .btn").click();
+await page.waitForFunction(
+  (previous) => document.querySelector("#phrase")?.value !== previous,
+  beforeGenerate,
+  { timeout: 30_000 },
+);
+const firstGenerated = await page.locator("#phrase").inputValue();
+check(
+  "a generated phrase is 24 words",
+  firstGenerated.split(/\s+/).filter(Boolean).length === 24,
+);
 await page.waitForSelector(".valid", { timeout: 30_000 });
 check("a generated phrase is 24 words and passes its checksum", true);
 check(

@@ -1279,60 +1279,6 @@ export function MapView() {
           onPickAddress={(lon, lat) => requestFlyTo(lat, lon)}
         />
       </div>
-      {
-        /* One column, because these are not mutually exclusive: a view can
-          be outside coverage AND too far out for the grid, and two notes
-          pinned to the same corner would sit on top of each other. */
-      }
-      {
-        /* Centred on the uncovered part of the map, not on the map, or a
-          note drifts under the drawer as it widens. The container spans the
-          map and only the notes inside it take the pointer, or it would
-          swallow clicks meant for the map itself. */
-      }
-      <div
-        className="map-notes pointer-events-none absolute bottom-7 left-[calc((100%-var(--panel-offset,340px))/2)] flex w-max max-w-[80%] -translate-x-1/2 flex-col-reverse items-center gap-2"
-        ref={notesRef}
-      >
-        {
-          /* Hidden while the card is open: the note exists to open that
-            card, and leaving it on top puts a pill over the controls and
-            wins the hit test. */
-        }
-        {blank && !downloadOpen && (
-          <div className={`${NOTE} ${NOTE_ACTION}`} role="status">
-            {
-              /* One message, because only one fact is honest here: the
-                detail is not downloaded. What the floor draws underneath
-                ranges from a full country map to one stretched polygon, so
-                "this is the wider map" is a promise the app cannot keep,
-                and "no map here" contradicts a map the user can see. */
-            }
-            <span>{m.map_coverage_gap()}</span>
-            <button
-              type="button"
-              className="note-action btn pointer-events-auto px-3.5 text-sm"
-              onClick={() =>
-                openDownload()}
-            >
-              {m.map_coverage_download()}
-            </button>
-          </div>
-        )}
-        {zoom < GRID_MIN_ZOOM && (
-          <div className={NOTE} role="status">
-            {m.map_zoom_for_grid()}
-          </div>
-        )}
-        {truncated && (
-          <div
-            className={`${NOTE} warn border-notice-soft-line bg-notice-soft text-warn`}
-            role="status"
-          >
-            {m.map_too_many_squares()}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

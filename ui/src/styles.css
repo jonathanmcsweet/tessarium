@@ -128,7 +128,7 @@
   --color-hover: #1d1330;
 
   /* Something the reader has to take in before acting: the gate's
-     provenance warning, the standing note about the phrase. */
+     write-it-down notice, and the warnings a dialog raises before it acts. */
   --color-alert: #2b1226;
 
   /* Site-wide notices, and the quieter version of the same thing that sits

@@ -5,6 +5,13 @@
    both the tooltip and the `aria-label`. There is no way to render one
    without the other.
 
+   Unavailable is `aria-disabled`, not `disabled`. A disabled button receives
+   no hover and takes no focus, so the one control on the screen that cannot
+   be pressed was also the only one that could not say what it was -- the
+   gate's copy button, dark until the 24th word, answered a hover with
+   nothing. Announced as unavailable, still reachable, still able to explain
+   itself; the press is refused here instead of by the browser.
+
    The tooltip itself -- the overlay, its arrow, the long press that stands in
    for hover on a touch screen -- is `Tip`, which the heading info icon also
    wears. Two tooltips drawn by two files is how one of them ends up
@@ -21,7 +28,8 @@ import { Tip } from "./Tip";
 const BASE =
   "icon-button icon-cut focus-ring inline-flex h-11 w-11 flex-none items-center "
   + "justify-center border border-line p-0 "
-  + "hover:not-disabled:bg-hover hover:not-disabled:text-ink "
+  + "hover:not-aria-disabled:bg-hover hover:not-aria-disabled:text-ink "
+  + "aria-disabled:cursor-not-allowed "
   + "aria-pressed:border-ink-soft aria-pressed:text-ink";
 
 /* Colour is a prop rather than a class the caller passes in: two utilities
@@ -66,9 +74,11 @@ export function IconButton({
           className={`${BASE} ${TONES[tone]}${
             className ? ` ${className}` : ""
           }`}
-          onPress={onClick}
-          isDisabled={disabled ?? false}
+          onPress={() => {
+            if (disabled !== true) onClick();
+          }}
           aria-label={label}
+          {...(disabled === true ? { "aria-disabled": true } : {})}
           {
             /* Spread rather than passed: `exactOptionalPropertyTypes` makes an
               explicit `undefined` a type error, and a plain action button must
