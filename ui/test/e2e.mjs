@@ -1711,8 +1711,25 @@ const levers = () =>
       wash: g("--bg-image"),
       cut: shape(".btn"),
       iconCut: shape(".icon-button"),
+      /* The two controls on this screen that are not buttons and take the
+         shape anyway: the map's search box, and the closed dropdown at the
+         foot of the panel. The `field` utility itself is checked at the
+         gate, which is the only place one is on screen before the map
+         exists. */
+      field: shape(".place-search-field"),
+      trigger: shape(".dropdown-button"),
     };
   });
+/* Square is a bevel of nothing, and nothing clipping. Chamfered is a real
+   bevel, and still nothing clipping: a clipped button loses its border along
+   the diagonal and its focus ring altogether, which is the whole reason the
+   shape stopped being a polygon. */
+const square = (shape) =>
+  shape !== null && shape.clip === "none" && shape.radius === 0;
+const chamfered = (shape) =>
+  shape !== null && shape.clip === "none" && shape.corner === "bevel"
+  && shape.radius > 0;
+
 for (const plain of ["light", "dark", "night"]) {
   await pickTheme(plain);
   const { stops, brand, wash, cut, iconCut, field, trigger } = await levers();
@@ -2023,25 +2040,8 @@ check(
   toastLight < 0.5,
 );
 check(
-      /* The two controls on this screen that are not buttons and take the
-         shape anyway: the map's search box, and the closed dropdown at the
-         foot of the panel. The `field` utility itself is checked at the
-         gate, which is the only place one is on screen before the map
-         exists. */
-      field: shape(".place-search-field"),
-      trigger: shape(".dropdown-button"),
   `and squares its corners like everything else (${toast.radius})`,
   toast.radius === "0px",
-/* Square is a bevel of nothing, and nothing clipping. Chamfered is a real
-   bevel, and still nothing clipping: a clipped button loses its border along
-   the diagonal and its focus ring altogether, which is the whole reason the
-   shape stopped being a polygon. */
-const square = (shape) =>
-  shape !== null && shape.clip === "none" && shape.radius === 0;
-const chamfered = (shape) =>
-  shape !== null && shape.clip === "none" && shape.corner === "bevel"
-  && shape.radius > 0;
-
 );
 /* And a SUCCESS takes itself away -- one short statement with nothing to
    re-read, unlike an error. Both halves of that pair have to hold: if success
