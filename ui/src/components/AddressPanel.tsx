@@ -19,7 +19,7 @@ import { IconButton } from "./IconButton";
 import { LanguagePicker } from "./LanguagePicker";
 import { LockDialog } from "./LockDialog";
 import { MapProgress } from "./MapProgress";
-import { SettingsMenu } from "./SettingsMenu";
+import { ThemePicker } from "./ThemePicker";
 
 /* Same shape as an address, so the panel does not change width when it is
    concealed and the layout does not jump on every toggle. */
@@ -211,7 +211,6 @@ export function AddressPanel(
             pressed={downloadOpen}
             onClick={() => (downloadOpen ? closeDownload() : openDownload())}
           />
-          <SettingsMenu />
           <LockDialog
             onConfirm={() => {
               lock.mutate();
@@ -404,7 +403,6 @@ export function AddressPanel(
       )}
 
       <footer className="panel-foot px-4.5 py-4 text-xs leading-normal text-ink-soft">
-        <LanguagePicker className="mb-2.5" />
         {
           /* Standing, not a toast, and not only in the lock dialog: a reload
             forgets the key exactly as locking does, and a browser will not

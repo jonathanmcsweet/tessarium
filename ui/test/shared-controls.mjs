@@ -75,7 +75,7 @@ check(
   `both placements render the theme picker (${rendersThemePicker.join(", ")})`,
   rendersThemePicker.length === 2
     && rendersThemePicker.includes("components/PhraseEntry.tsx")
-    && rendersThemePicker.includes("components/SettingsMenu.tsx"),
+    && rendersThemePicker.includes("components/AddressPanel.tsx"),
 );
 const rendersLanguagePicker = holding(/<LanguagePicker\b/);
 check(
@@ -88,8 +88,8 @@ check(
 
 /* The one thing the two theme placements are allowed to differ by, so a
    third difference has to be added here on purpose rather than by accident.
-   `labelHidden` is the Dropdown's own prop: the popover has room to name the
-   control, the gate reads as a row beside the language. */
+   `labelHidden` is the Dropdown's own prop, and both placements now pass it:
+   each reads as a row beside the language. */
 const picker = named("components/ThemePicker.tsx");
 const props = [...picker.matchAll(/\{\s*([^{}]*?)\}:\s*\{/g)]
   .map((m) => m[1]).join(" ");

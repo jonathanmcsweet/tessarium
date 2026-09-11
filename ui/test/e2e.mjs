@@ -1289,7 +1289,6 @@ const pickTheme = async (value) => {
   await page.locator(".panel-settings").click();
   await page.locator(".settings-theme .dropdown-button").click();
   await page.locator(`.dropdown-option[data-value="${value}"]`).click();
-  await page.keyboard.press("Escape");
   await page.waitForFunction(
     (want) =>
       (document.documentElement.getAttribute("data-theme") ?? "cyber-dark")
