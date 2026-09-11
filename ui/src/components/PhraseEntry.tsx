@@ -31,6 +31,7 @@ import { useAppStore } from "../store";
 import { toastError } from "../toast";
 import { IconButton } from "./IconButton";
 import { LanguagePicker } from "./LanguagePicker";
+import { CopyButton } from "./CopyButton";
 import { loadMapView } from "./mapChunk";
 import { ThemePicker } from "./ThemePicker";
 
@@ -203,6 +204,24 @@ export function PhraseEntry() {
         </div>
 
         {
+          {
+            /* For the password vault the warning below asks for. The same
+              button the address uses, so the tick that confirms the clipboard
+              took it appears in the same place, in the same green, in both.
+
+              Disabled until the phrase is whole: copying six words saves
+              nothing, and a clipboard holding half a secret is worse than an
+              empty one. Disabled rather than hidden, so the row does not
+              change width on the last word typed. */
+          }
+          <CopyButton
+            className="gate-phrase-copy"
+            label={m.gate_phrase_copy()}
+            copiedLabel={m.gate_phrase_copied()}
+            text={() => phrase}
+            onFailure={m.gate_phrase_copy_failed()}
+            disabled={wordCount !== 24}
+          />
           /* Inline and beside the field, not a toast: this is live validation
             of what is being typed, and it has to stay on screen while the user
             fixes it. Toasts are for the submit. */

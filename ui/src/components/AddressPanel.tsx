@@ -318,9 +318,16 @@ export function AddressPanel() {
           /* Quieter than the gate's warning -- this one is permanent, and a
             permanent alarm stops being one. */
         }
-        <p className="warning phrase-note mb-2.5 text-xs">
-          {m.panel_phrase_note()}
-        </p>
+        <div className="phrase-copy mb-2.5 flex items-center gap-2">
+          <CopyButton
+            className="panel-phrase-copy"
+            label={m.panel_phrase_copy()}
+            copiedLabel={m.panel_phrase_copied()}
+            text={() => core().heldPhrase().then((held) => held.mnemonic)}
+            onFailure={m.panel_phrase_copy_failed()}
+          />
+          <span>{m.panel_phrase_copy()}</span>
+        </div>
         <p className="panel-explainer">{m.panel_footer()}</p>
         {
           /* Names and numbers: nothing to translate, so no message key.

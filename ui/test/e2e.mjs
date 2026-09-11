@@ -227,6 +227,7 @@ check(
    it, the timeout is read as that argument and discarded, so a wait that says
    sixty seconds spends Playwright's default thirty and reports that number in
    the failure. */
+const gateCopy = page.locator(".gate-phrase-copy");
 await page.locator("#phrase").fill("abandon abandon abandon");
 await page.waitForFunction(
   () =>
@@ -349,6 +350,179 @@ check(
   "a generated phrase is 24 words",
   firstGenerated.split(/\s+/).filter(Boolean).length === 24,
 );
+/* The control that cannot be pressed is the one most likely to be asked
+   about, and a `disabled` button answers a hover with nothing -- the browser
+   delivers it no hover at all, so the tooltip never fires.
+
+   Back to three words for it: 24 is the state where this button is
+   AVAILABLE, and the typo phrase above is 24. The typo goes back afterwards,
+   so what follows sees the field it expects. Here rather than beside the
+   first three-word check because the first hover on a freshly loaded page
+   opens nothing whatever it is over, and the icon above has warmed the
+   tooltip up. */
+await page.locator("#phrase").fill("abandon abandon abandon");
+await page.waitForFunction(
+  () =>
+    document.querySelector(".gate-phrase-copy")
+      ?.getAttribute("aria-disabled") === "true",
+  null,
+  { timeout: 30_000 },
+);
+await gateCopy.hover();
+const copyTip = await page
+  .waitForSelector('[role="tooltip"]', { timeout: 5_000 })
+  .catch(() => null);
+check(
+  "the copy button says what it is while it is still refusing to run",
+  /copy/i.test((await copyTip?.textContent()) ?? ""),
+);
+/* Read off the page rather than named: the tooltip was the inverted pair,
+   which in the dark palettes is a pale box with black text sitting on top of
+   the theme rather than in it. Compared against the card it floats over,
+   because that is the surface it is supposed to be made of. */
+check(
+  "and it is painted in the theme's own surface, not the inverse of it",
+  await page.evaluate(() => {
+    const tip = document.querySelector('[role="tooltip"]');
+    const card = document.querySelector(".gate-card");
+    if (!tip || !card) return false;
+    const paint = (el) => getComputedStyle(el).backgroundColor;
+    return paint(tip) === paint(card);
+  }),
+);
+/* Reachable is not pressable. The browser is no longer refusing the press,
+   so the component has to, and half a secret on the clipboard is what that
+   refusal is for. */
+await gateCopy.click({ force: true });
+check(
+  "and pressing it anyway copies nothing",
+  (await gateCopy.getAttribute("aria-disabled")) === "true"
+    && (await gateCopy.innerHTML()).includes("lucide-copy"),
+);
+await page.mouse.move(0, 0);
+await page.waitForFunction(
+  () => document.querySelector('[role="tooltip"]') === null,
+  null,
+  { timeout: 5_000 },
+);
+/* The field as the checks below expect to find it. */
+await page.locator("#phrase").fill(typo.join(" "));
+await page.waitForFunction(
+  () => {
+    const t = document.querySelector(".phrase-status")?.textContent ?? "";
+    return t.includes("24/24") && t.includes("checksum failed");
+  },
+  null,
+  { timeout: 30_000 },
+);
+
+/* The keyboard focus ring, counted in painted pixels rather than in declared
+   properties -- which is the only way to see this one. The ring was declared
+   all along: `outline-offset: 2px` on every button, in every palette. It was
+   never drawn in either cyberpunk palette, because `clip-path` cut the button
+   out of its own box and an outline two pixels outside that polygon is
+   outside the clip. Computed style reports the outline either way, so nothing
+   short of reading the pixels can tell the two apart.
+
+   Screenshotted into the page and decoded by the browser's own canvas: there
+   is no image decoder here, and Chromium already has one. Measured both ways
+   before the fix -- 1066 accent pixels with the chamfer in the box, zero with
+   the clip -- so this fails on the mechanism it is here to hold. */
+const ringPixels = async (selector) => {
+  const box = await page.locator(selector).boundingBox();
+  if (box === null) return 0;
+  const pad = 8;
+  const shot = (await page.screenshot({
+    clip: {
+      x: Math.max(0, box.x - pad),
+      y: Math.max(0, box.y - pad),
+      width: box.width + pad * 2,
+      height: box.height + pad * 2,
+    },
+  })).toString("base64");
+  return page.evaluate(async (png) => {
+    /* The token is a hex string; the canvas speaks rgb. The browser converts
+       it, rather than this file carrying a parser for a colour it does not
+       own. */
+    const probe = document.createElement("span");
+    probe.style.color = getComputedStyle(document.documentElement)
+      .getPropertyValue("--color-accent-text").trim();
+    document.body.append(probe);
+    const [r0, g0, b0] = (getComputedStyle(probe).color.match(/\d+/g) ?? [])
+      .map(Number);
+    probe.remove();
+    const img = new Image();
+    img.src = `data:image/png;base64,${png}`;
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d");
+    if (ctx === null) return 0;
+    ctx.drawImage(img, 0, 0);
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let hits = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (
+        Math.abs(data[i] - r0) < 24 && Math.abs(data[i + 1] - g0) < 24
+        && Math.abs(data[i + 2] - b0) < 24
+      ) hits++;
+    }
+    return hits;
+  }, shot);
+};
+
+{
+  const generate = page.locator(".generate .btn");
+  const shape = await generate.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      clip: style.clipPath,
+      corner: style.cornerShape,
+      radius: style.borderTopRightRadius,
+    };
+  });
+  check(
+    `the chamfer is part of the button's box (${shape.corner}, ${shape.radius})`,
+    shape.clip === "none" && shape.corner === "bevel"
+      && Number.parseFloat(shape.radius) > 0,
+  );
+  /* And off the thing you type into, which is the only `field` on screen
+     before the map exists. It carries a step more inline padding than a
+     square one needs, so a caret at the start of the line clears the corner
+     rather than sitting in it. */
+  const typed = await page.locator("#phrase").evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      clip: style.clipPath,
+      corner: style.cornerShape,
+      radius: Number.parseFloat(style.borderTopRightRadius),
+      pad: Number.parseFloat(style.paddingInlineStart),
+    };
+  });
+  check(
+    `and off the phrase field, padded clear of it (${typed.radius}px cut, ${typed.pad}px in)`,
+    typed.clip === "none" && typed.corner === "bevel" && typed.radius > 0
+      && typed.pad > typed.radius,
+  );
+  /* Tabbed to, not focused by script: the ring is `:focus-visible`, and a
+     programmatic focus does not make it visible. */
+  await page.locator("#phrase").focus();
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press("Tab");
+    const focused = await page.evaluate(() =>
+      document.activeElement?.className ?? ""
+    );
+    if (focused.includes("btn-quiet")) break;
+  }
+  const hits = await ringPixels(".generate .btn");
+  check(
+    `and a keyboard focus ring is actually painted around it (${hits} px)`,
+    hits > 0,
+  );
+  await page.locator("#phrase").focus();
+}
+
 await page.waitForSelector(".valid", { timeout: 30_000 });
 check("a generated phrase is 24 words and passes its checksum", true);
 check(
@@ -359,10 +533,33 @@ check(
 check(
   "the write-it-down warning appears",
   (await page.locator(".warning").allTextContents()).some((t) =>
-    t.includes("Write these 24 words down")
+    t.includes("Save these 24 words in a password vault")
   ),
 );
-await page.locator(".generate button").click();
+/* The vault half of that warning needs a way to get the words out. Read back
+   off the real clipboard, because a button that says it copied and did not is
+   the failure this is for -- and the tick has to say so where the press
+   happened, which is the same button in the same green the address uses. */
+check("a whole phrase can be copied", !(await gateCopy.isDisabled()));
+await gateCopy.click();
+check(
+  "the clipboard takes the phrase itself",
+  (await page.evaluate(() => navigator.clipboard.readText()))
+    === firstGenerated,
+);
+check(
+  "and the button says so where it was pressed",
+  await page
+    .waitForFunction(
+      () =>
+        document.querySelector(".gate-phrase-copy")?.getAttribute("aria-label")
+          === "Phrase copied",
+      null,
+      { timeout: 5_000 },
+    )
+    .then(() => true, () => false),
+);
+await page.locator(".generate .btn").click();
 await page.waitForFunction(
   (previous) => document.querySelector("#phrase")?.value !== previous,
   firstGenerated,
@@ -388,7 +585,7 @@ check("valid phrase reports a valid checksum", true);
 check(
   "editing the phrase drops the write-it-down warning",
   !(await page.locator(".warning").allTextContents()).some((t) =>
-    t.includes("Write these 24 words down")
+    t.includes("Save these 24 words in a password vault")
   ),
 );
 
