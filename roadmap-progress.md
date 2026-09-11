@@ -69,6 +69,400 @@ in `fstar/` and the README summarises them for a reader who wants no F*.
 it started", where `theorem_end_to_end` says the same SQUARE -- decode returns
 that square's centre, not the point that was clicked.
 
+### 2026-09-11 — The seed phrase can be copied, because the worker now keeps it
+
+**Phase:** 7
+
+**What:** The worker holds the mnemonic beside the key and forgets both on
+`lock`. Two controls copy it: one in the panel's footer, where a standing
+warning used to say it could never be shown, and one in the lock dialog, whose
+warning now says this is the last chance to take it. `panel_phrase_note` left
+all six catalogues; three keys arrived. `CopyButton` learned an asynchronous
+source, handing the clipboard a promise through `ClipboardItem` rather than
+awaiting first -- awaiting spends the user gesture, which Safari refuses.
+
+**Rationale:** Requested, and it reverses the design's starting position: the
+phrase used to be wiped the instant the key existed, and the panel said so.
+The trade is bounded deliberately -- the words live in the worker, never on
+this thread, never in a query cache, never in storage, and a reload is a fresh
+worker with nothing in it. The lock dialog's warning changed with the fact:
+"they were never stored here" was no longer true, and a warning that is no
+longer true is worse than none.
+
+The half that matters most cannot be tested from the page: a locked tab
+holding the words looks identical from outside to one that forgot them. So
+`test/secrets.mjs` reads it off the worker's source -- one binding, two
+assignments, set only after the derivation, cleared in `lock` -- beside the
+end-to-end checks that the clipboard really receives the right 24 words.
+
+**Follow-on:** None.
+
+### 2026-09-11 — The mobile sheet gets a handle, and the drawer's controls stand down
+
+**Phase:** 7
+
+**What:** Below `--breakpoint-drawer` the panel's "close" icon and the tab that
+floated at the map's right edge to reopen it are both hidden, and a pill
+handle runs along the sheet's top edge instead. It rides `--sheet-offset`, so
+it sits on the sheet while the sheet is open and on the map's bottom edge when
+it is shut, and MapLibre's bottom controls clear `--sheet-offset + --grab-h`.
+
+**Rationale:** Requested: both of those controls describe a layout a phone
+does not have -- an icon meaning "close the panel on the right", and a tab at
+a right edge nothing is covering. A sheet is pulled, and the pill is the
+gesture a phone reader knows before reading anything. Riding the offset rather
+than carrying a position of its own is what keeps the two states in step with
+one transition.
+
+Also removed the 3.5rem the right edge reserved for that tab below the
+breakpoint: nothing stands there any more.
+
+### 2026-09-11 — The chamfer reaches the things you type into
+
+**Phase:** 7
+
+**What:** `.field` and the dropdown's closed trigger take the same bevel the
+buttons take, at the same size. The field's inline padding went from `px-3` to
+`px-4`, so a caret at the start of the line clears the corner rather than
+sitting in it.
+
+**Rationale:** Reverses an earlier call to keep the shape off the inputs --
+requested, on seeing it: with the buttons chamfered and the fields square, the
+row they share stopped agreeing with itself. The dropdown's trigger came along
+for that reason and not by instruction: it sits in that row and was the last
+square thing in it. Its POPOVER did not, and neither did the tooltip -- those
+are surfaces rather than controls, and they stay rectangles.
+
+Neither gets the `clip-path` fallback the buttons keep, because clipping a
+field takes its focus outline exactly the way it took the buttons'. A browser
+without `corner-shape` gets them square, which is what three of the five
+palettes look like anyway.
+
+### 2026-09-11 — The chamfer moves into the box, and brings the border and the focus ring with it
+
+**Phase:** 7
+
+**What:** The cut corner was `clip-path`, which cuts the shape out of the
+finished button: the border came away along the diagonal, so the two corners
+rendered as gaps in the outline rather than as angled edges, and an outline at
+`outline-offset: 2px` fell outside the polygon entirely. It is now
+`corner-shape: bevel` with a bevelled `border-radius`, behind
+`@supports (corner-shape: bevel)`, with the clip kept as the fallback. The
+chamfer SIZE is now the token -- `--cut-size`, `--cut-size-icon` -- and the
+polygons are derived from it, so the number is written once per palette
+instead of four times.
+
+**Rationale:** Closes most of the cyberpunk focus-ring item, which is reduced
+in the roadmap to the fallback branch. Measured both ways on a focused button
+in cyberpunk dark: 1066 accent-coloured pixels with the chamfer in the box,
+zero with the clip. The suite counts them the same way -- Playwright
+screenshots the region, the page decodes it on a canvas -- because computed
+style reports the outline identically whether or not it is painted, so nothing
+short of the pixels can tell the two apart.
+
+**Follow-on:** A browser without `corner-shape` still loses the ring; the
+reduced roadmap item says why the fallback is not written.
+
+### 2026-09-11 — The tooltip joins the theme, and the control that cannot be pressed can still say what it is
+
+**Phase:** 7
+
+**What:** Two fixes to the shared tooltip. It was painted `bg-ink` on
+`text-on-ink` -- the inverted pair -- which in the four dark palettes is a pale
+box with black text: a system tooltip sitting on top of the theme rather than
+in it. It now wears `sheet`, the same floating surface the dropdown's list is
+made of, and its arrow is two paths so the surface's border can follow the
+shape instead of drawing a line across its mouth. Separately, `IconButton`
+marks unavailable with `aria-disabled` and refuses the press itself, rather
+than handing the browser a `disabled` attribute.
+
+**Rationale:** A disabled button receives no hover and takes no focus, so the
+gate's copy button -- dark until the 24th word -- was the one control on the
+screen that could not say what it was. Measured before the change and after:
+warmed up, the eye beside it opened a tooltip and the copy button opened
+nothing. Playwright still reports it disabled, so the checks that hold it
+unpressable did not move. Also removed `cursor-help`, which was the last thing
+making the icon read as a 90s system affordance.
+
+**Follow-on:** None.
+
+### 2026-09-11 — The gear goes; the theme sits beside the language
+
+**Phase:** 7
+
+**What:** `SettingsMenu` is deleted. The panel's header had a gear that opened
+a popover holding exactly one control, the theme; it now sits at the foot of
+the panel next to the language, which is the row the gate has always had.
+`a11y_settings` left all six catalogues with it. `ThemePicker` is unchanged --
+both placements pass `labelHidden`, so the two are now identical but for where
+they are.
+
+**Rationale:** A category named in the header, a press to find out what was
+under it, and an overlay to hold a single dropdown. The two choices about the
+application rather than about the map belong in one row, and the gate already
+knew where that row goes.
+
+### 2026-09-11 — The provenance warning moves into the icon beside the button
+
+**Phase:** 7
+
+**What:** The unlock screen's standing warning about where a phrase comes from
+was a filled block under "Generate one for me". It is now the `InfoTip` beside
+that button -- the same component the import section's hint wears, so there is
+one tooltip in the app, not two. Its two message keys
+(`gate_phrase_warning_title`, `_body`) merged into one `gate_phrase_warning`
+across all six catalogues: the title/body split existed only to bold the first
+sentence, and a tooltip has no bold.
+
+**Rationale:** A tooltip hides a sentence from anyone who does not reach for
+it, and this is the highest-value security decision the screen asks for. Two
+things make that trade honest rather than a quiet demotion: the sentence is
+the icon's `aria-label` at all times, not only while the overlay is open, so a
+screen reader announces it on the way past the button; and the icon is
+permanent -- never dismissed, never conditional -- which is what the block it
+replaced was for. The gate had become a column of stacked boxes and the
+warning was reading as the form's furniture.
+
+**Follow-on:** None. `--color-alert` stays in use -- the write-it-down notice
+and the dialogs still wear `.warning`.
+
+### 2026-09-11 — Where a card's buttons sit is one decision, not five
+
+**Phase:** 6
+
+**What:** `download-actions` was a class NAME with its flex layout pasted at
+each of four call sites, so where a row's buttons sat was four independent
+decisions. It is one `@utility` now, and the file chooser -- a bare `<label>`
+in flow, with no row at all -- got one. They still run from the left.
+
+**Rationale:** Right alignment was tried and put down. The rows looked
+settled before only by accident: the ledger's line is `justify-between`, so
+the text beside its buttons pushed them to the right edge, while the file
+chooser had no such neighbour and sat alone on the left. One rule makes that
+an actual decision rather than an emergent one, and declaring no alignment in
+it is deliberate -- a row wanting a different one has to change the place
+every row can see.
+
+The gate is untouched. Its generate button is left-aligned with a comment
+saying it must read as an offer rather than as fine print, and its submit is
+a block button in a centred form -- a different screen with a different
+layout language.
+
+**Shown to fail first:** all three checks fail against the pasted class
+lists.
+
+**Tests:** 3 in `test/downloader.mjs` -- the utility exists, every row in the
+card is one, and no row re-declares the layout it owns. The count is exact
+because a sixth row added with its own flex classes is invisible in a diff.
+Nothing asserts which edge: that is the part that changed its mind once
+already, and what the checks hold is that the rows cannot come to disagree
+about it.
+
+### 2026-09-11 — A second loading mark, made of tiles
+
+**Phase:** 6
+
+**What:** The estimate is real planning work on the server and takes as long
+as the area is large, so the download card sat on one sentence -- "Checking
+how much there is to fetch" -- with nothing moving and, until now, nothing
+announced either. `LoadingTiles` is four squares in a 2x2 filling clockwise,
+sized in `em` so it matches the text it stands beside, and the estimating
+hint gained `role="status"`.
+
+It is the application's second loading indicator and deliberately not the
+first: `.map-loading` is a bar across the top of the map about the whole
+view, and says nothing about one section of a card waiting on its own while
+everything around it is already there.
+
+**Rationale:** Tiles rather than a spinner. The shape is the application's
+own -- the grid draws empty squares, the reticle is one, the buttons are cut
+from the same corner -- so a wait looks like the thing being waited for. A
+spinner would have been the one mark on screen with no relation to anything
+else.
+
+A component rather than four elements copied into each caller: the mark is
+its markup AND its stylesheet rule, and a second copy is how one of them
+comes to have three squares.
+
+Reduced motion needed a rule of its own beside `.map-loading`'s. The global
+block freezes animation, which would leave the four squares stopped at four
+different opacities -- that reads as a rendering fault, not a mark. They even
+out to a still block of tiles.
+
+**Shown to fail first:** all seven checks fail against a build without it --
+the mark is absent, so every reading comes back undefined.
+
+**Tests:** 7 e2e checks, holding the wait open by delaying the estimate.
+Computed style rather than the class alone: a rule that did not reach the
+element is four invisible spans, which looks exactly like the state it
+replaces. The delays are asserted as 0s, 0.15s, 0.45s, 0.3s -- clockwise for
+a 2x2 laid out 1 2 / 3 4 -- because filling in turn is what makes it read as
+tiles arriving rather than flashing.
+
+Two harness lessons, both earned: the estimate is cached against the region
+asked for and kept fresh for five minutes, so the check has to price a region
+nothing else in the file prices or there is no wait to catch; and a route
+handler that sleeps must continue inside a try, because `unroute` can beat it
+to its route and the throw comes from a promise nothing awaits -- which takes
+the suite down rather than failing a check. The tile-delay route above it
+already carried that catch and the comment explaining it.
+
+### 2026-09-11 — The map stops talking over itself; the panel says it instead
+
+**Phase:** 6
+
+**What:** At a phone's width the strip above the sheet held four boxes at four
+widths -- the coverage note at 312, the zoom note at 198, the attribution at
+194, the scale bar at 67 -- each with its own border and ground, none aligned
+to another. The map draws none of the notes now.
+
+All three -- no detail here, too far out for the grid, too many squares to
+draw -- are rows of a `THIS VIEW` section at the top of the panel, above `THIS
+SQUARE`. The three facts moved from `useState` in MapView to one `view` slice
+in the store (`blank`, `belowGrid`, `truncated`), written by the map and read
+by the panel. MapView lost three pieces of state, a ref, a layout effect and
+two class-list constants with them.
+
+The coverage row carries no button. It names the download control already in
+the panel's header one row above it, and stands down while that control's card
+is open. The truncated row keeps `--color-notice-soft` and
+`--color-notice-soft-line` as a ground and a left rule -- without it both were
+orphaned in six palettes.
+
+Separately, the attribution asks for no `compact` either way, which lets
+MapLibre decide from the map's own width whether the credit needs a toggle;
+`shutCredit` then closes it on the maps it called narrow. A phone gets a 24px
+button, a desktop map keeps the whole 168px line.
+
+**Rationale:** The note is a standing condition of the view, not an event: on
+a fresh install it is true nearly everywhere and for a long time. Four ragged
+rectangles competing for the one band the scale bar and the credit already
+occupy is the wrong home for something permanent, and shrinking it only moved
+the collision. The panel is where the application already explains itself.
+
+A card over the map was built first -- the three notes as rows of one box --
+and is not what shipped: it solved the ragged widths and left the thing
+sitting on the scale bar and the credit.
+
+`shutCredit` clears the class as well as the attribute. MapLibre syncs
+`maplibregl-compact-show` from the summary's click, not from the `toggle`
+event, so clearing `open` alone leaves it set and the first tap CLOSES an
+already-shut panel -- measured, not guessed: a probe that cleared only the
+attribute left the control at 36px and the next tap took it to 24px instead of
+opening it.
+
+**Shown to fail first:** against the old markup the credit opened at 194px, a
+tap on it CLOSED rather than opened, and the desktop map was compact. The
+notes' move is held by checks that fail the moment either place says any of
+it twice -- the map drawing a note of its own, or the section growing a
+control beside the header's.
+
+**Tests:** the phone-sized e2e block asserts the map draws nothing of the
+sort, that the panel says both facts under its own heading, that the section
+sits above the square, and that it carries no control of its own. Ten checks
+that named `.map-note` were repointed rather than deleted; three changed
+meaning instead: the theme-colour check now asserts the row has NO ground of
+its own (a row that grows one can carry a literal again) plus the panel's
+lightness under both themes, the download path is exercised through the header
+button the note names, and the focus check asserts the keyboard is left
+undisturbed -- with no control in the section there is nothing to drop.
+
+### 2026-09-11 — The map's overlays keep clear of the panel, not of a guess
+
+**Phase:** 6
+
+**What:** Below `--breakpoint-drawer` the panel is a sheet across the bottom,
+and every overlay drawn on the map -- MapLibre's zoom column, its scale bar,
+its attribution, the map's own notes, the search field -- was positioned
+against a right edge the sheet does not touch. On a 390px screen the zoom
+column landed 340px in from the right, which is the top-LEFT corner, under the
+search field; the attribution sat 91px off the left of the screen; the scale
+bar and the notes were under the sheet.
+
+`App.tsx` now sets the two facts it has -- `--panel-w` and `--panel-open` (1 or
+0) -- and `styles.css` derives what each EDGE of the map is carrying:
+`--panel-offset` for the right, `--sheet-offset` for the bottom, and
+`--right-clear` for the right edge including the reopen tab while the panel is
+shut. `AddressPanel` reports its own height through a ResizeObserver so the
+bottom offset is the sheet's real height rather than the 45vh cap it only
+reaches when its content is scrolling. `PanelResizer` paints one property
+instead of two.
+
+**Rationale:** The answer depends on the breakpoint and a stylesheet is the
+only thing that knows where the breakpoint is, so App was answering a question
+it could not see. Deriving in CSS is what makes the sheet case exist at all:
+before, no consumer could tell a covered edge from an uncovered one.
+
+`--right-clear` is added rather than floored. The old rule was
+`max(--panel-offset, 3.5rem)`, whose floor reads as "leave room for the reopen
+tab" but also holds the controls 3.5rem clear of a sheet that covers no side at
+all. The search field spends the same number instead of its own 5.5rem of fixed
+reserve, which on a phone with the sheet shut ran the field over the zoom
+buttons with the field drawn on top.
+
+The bottom offset is measured, not the cap: offsetting by 45vh left the scale
+bar and the attribution floating a hundred pixels above a tablet's sheet with
+bare map under them.
+
+**Shown to fail first:** all seven of the sheet-open checks failed against the
+old rule (zoom column 340px in from the right and overlapping the search field,
+attribution at left −91, scale bar and notes under the sheet), and the
+shut-sheet search overlap failed after the first fix -- buttons from 295, field
+to 312 -- which is what sent the field's width to the same lever. The four
+checks the old rule already passed (tab clearance, notes centred, scale on the
+map's floor with the sheet shut) are in the same block, so the fix had to keep
+them.
+
+**Tests:** 12 new e2e checks on a phone-sized page of its own, geometry rather
+than class lists for the reason the reopen tab is geometry -- these numbers
+reach MapLibre through a stylesheet that has to outrank MapLibre's own, so a
+rule can look right in the source and do nothing. `test/shell.mjs` now requires
+the resizer to paint the width and NOT the derived offset: a second hand
+writing the answer is how the answer came to disagree with the layout.
+
+### 2026-09-10 — A serif wordmark, and a way to save the phrase
+
+**Phase:** 6
+
+**What:** The wordmark's split shadow is gone. The cyberpunk palettes draw
+TESSARIUM in Bodoni Moda -- 15 KB of latin cut at 700, served from
+`ui/public/fonts` with its OFL notice beside it -- and the plain three keep the
+mono stack. `--brand-font` replaces `--glitch-a`/`--glitch-b` as the wordmark's
+lever, so the count of levers the plain palettes hold at rest is unchanged.
+
+The gate gained a copy button beside the phrase, the same `CopyButton` the
+address uses, disabled until the phrase is 24 words. The write-it-down warning
+now names a password vault as the first option, which is what the copy button
+is for.
+
+**Rationale:** Requested: the two-colour offset read as blurred rather than as
+misregistered, and there is no offset that is both legible and still the
+effect. A second FACE says the same thing about the palette and says it in the
+glyphs, where nothing has to be read through a fringe.
+
+Pixel faces were tried first and put down -- four of them, then four pixel
+slabs when a serif was asked for. The pixel route trades one kind of visual
+noise for another: the striped faces (Workbench, Sixtyfour) read as busy at
+the size the wordmark is set. A Didone earns the same distance from the mono
+body without any texture at all: hairlines against thick stems is contrast in
+the drawing rather than in the rendering.
+
+Declared `font-weight: 100 900` from a file cut at 700, so nothing synthesises
+a bold -- a synthesised bold thickens a Didone's hairlines into its stems, and
+the contrast IS the face. Self-hosted rather than fetched, which is the same
+rule the map's glyphs follow: a font from a CDN is a font that does not arrive
+on a train.
+
+Disabled rather than hidden on a partial phrase: half a secret on the
+clipboard is worse than none, and a button that appears on the last word typed
+moves the row under the pointer.
+
+Shown to fail first: pointing the lever at the mono stack fails the face
+check AND the loaded check (a @font-face whose file 404s resolves to the
+fallback silently, so the name alone proves nothing); removing the licence,
+or pointing the src at a CDN, fails the new payload checks; and copying the
+wrong text fails the clipboard read-back.
+
 ### 2026-09-10 — What the import section is for, in an info icon
 
 **Phase:** 6
