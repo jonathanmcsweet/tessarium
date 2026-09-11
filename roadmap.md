@@ -456,24 +456,20 @@ The prototype is complete: phrase in, grid drawn, click a square, get its
 address, paste one back. What remains is scope the prototype deliberately did
 not cover.
 
-- [ ] **The cyberpunk palettes have no visible keyboard focus ring.**
-      `clip-path` clips an element's outline along with its corner, and the
-      focus ring is drawn at `outline-offset: 2px` -- outside the chamfered
-      polygon, so nothing of it is painted. Every `.btn` and every
-      `.icon-button` is affected in cyberpunk dark, which is the default
-      palette, and in cyberpunk light. Confirmed by screenshotting a focused
-      button in each: the ring is fully present in plain dark and entirely
-      absent in cyberpunk dark. The plain palettes were fixed by accident when
-      the cut became a token they set to `none`, which is why this is now
-      visible as a difference between palettes rather than a constant.
+- [ ] **A browser without `corner-shape` still loses the focus ring.**
+      The chamfer is drawn by `corner-shape: bevel` where the browser has it,
+      which puts the cut inside the box: the border follows it and the outline
+      follows the border. `clip-path` is still the fallback, and it still
+      clips an outline drawn at `outline-offset: 2px` out of existence, so on
+      such a browser both cyberpunk palettes are back to no visible ring.
 
-      The fix has to live inside the clip: an inset ring (a negative
-      `outline-offset`, or a border painted inside the border box), applied by
-      the two utilities that clip rather than by `focus-ring`, which is shared
-      with every unclipped control and must not change for them. Nothing tests
-      the focus ring today, in any palette, so the fix wants a check that
-      fails first -- a screenshot diff of a focused control, or reading the
-      painted pixels just inside the border box.
+      The fix for that branch has to live inside the clip -- an inset ring, a
+      negative `outline-offset` applied in the `@supports not` block. It is
+      not written, because nothing here can exercise it: the suite's Chromium
+      supports `corner-shape`, so that branch never applies and any check of
+      it would pass without testing anything. Decide whether to carry a
+      fallback that cannot be tested, or to let the shape go square there
+      instead, which the plain palettes already prove is fine.
 
 - [ ] **No red sprite sheet for the low-light theme.** Low light draws
       Protomaps' `dark` icons — near-black shields, the whole POI set — which

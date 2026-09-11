@@ -226,11 +226,6 @@ export function AddressPanel(
         </div>
       </header>
 
-      <section className="selected border-b border-line p-4.5">
-        <h2 className="panel-title mb-2.5">{m.panel_this_square()}</h2>
-        {selection
-          ? (
-            <>
       {notes.length > 0 && (
         <section className="view-notes border-b border-line p-4.5">
           <h2 className="panel-title mb-2.5">{m.panel_this_view()}</h2>
@@ -264,6 +259,11 @@ export function AddressPanel(
                   sight. An address hidden with CSS is still in the page for
                   anything reading the DOM. */
                 }
+      <section className="selected border-b border-line p-4.5">
+        <h2 className="panel-title mb-2.5">{m.panel_this_square()}</h2>
+        {selection
+          ? (
+            <>
                 {
                   /* The mask is meaningless read aloud, so while concealed
                     the accessible name says what it is rather than spelling

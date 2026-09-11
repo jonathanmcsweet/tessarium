@@ -171,29 +171,35 @@
      button, and the shape half of this look. A lever rather than a constant
      because a plain theme with a bevelled button is not a plain theme.
 
-     The resting value is `none` rather than a zero-width cut, and the
-     difference is not cosmetic: `clip-path` clips the focus ring along with
-     the corner, so a theme that puts the shape down gets its whole ring
-     back.
+     The SIZE is the fact; the polygons are derived from it, because two
+     mechanisms draw this shape. Where the browser has `corner-shape`, a
+     bevelled `border-radius` draws it -- and then the border follows the
+     chamfer and the focus ring follows the border, which is what a clipped
+     button cannot do: `clip-path` cuts the border away along the diagonal
+     and takes the ring with it. The polygons are the fallback for a browser
+     without it, and `none` rather than a zero-width cut, since a rectangular
+     clip still eats the ring.
 
-     Two shapes because the icon buttons are 44px squares, where the text
+     Two sizes because the icon buttons are 44px squares, where the text
      button's 10px chamfer reads as a chip missing rather than as a shape.
-     They move together: a palette sets both or neither. */
+     All four move together: a palette sets them or none of them. */
+  --cut-size: 10px;
+  --cut-size-icon: 7px;
   --cut: polygon(
     0 0,
-    calc(100% - 10px) 0,
-    100% 10px,
+    calc(100% - var(--cut-size)) 0,
+    100% var(--cut-size),
     100% 100%,
-    10px 100%,
-    0 calc(100% - 10px)
+    var(--cut-size) 100%,
+    0 calc(100% - var(--cut-size))
   );
   --cut-icon: polygon(
     0 0,
-    calc(100% - 7px) 0,
-    100% 7px,
+    calc(100% - var(--cut-size-icon)) 0,
+    100% var(--cut-size-icon),
     100% 100%,
-    7px 100%,
-    0 calc(100% - 7px)
+    var(--cut-size-icon) 100%,
+    0 calc(100% - var(--cut-size-icon))
   );
 
   /* The map overlay: the coverage veil (blank), its boundary (edge), the
@@ -303,6 +309,8 @@
   --color-on-cta: #ffffff;
   --brand-font: var(--font-mono);
   --bg-image: none;
+  --cut-size: 0px;
+  --cut-size-icon: 0px;
   --cut: none;
   --cut-icon: none;
 
@@ -358,6 +366,8 @@
   --color-on-cta: #0c1319;
   --brand-font: var(--font-mono);
   --bg-image: none;
+  --cut-size: 0px;
+  --cut-size-icon: 0px;
   --cut: none;
   --cut-icon: none;
 
@@ -408,6 +418,8 @@
     --color-on-cta: #0c1319;
     --brand-font: var(--font-mono);
     --bg-image: none;
+    --cut-size: 0px;
+    --cut-size-icon: 0px;
     --cut: none;
     --cut-icon: none;
 
@@ -528,6 +540,8 @@
   --color-on-cta: #120909;
   --brand-font: var(--font-mono);
   --bg-image: none;
+  --cut-size: 0px;
+  --cut-size-icon: 0px;
   --cut: none;
   --cut-icon: none;
 
@@ -640,7 +654,7 @@ code {
    3.44:1, past the non-text minimum, where the decorative hairline would
    not be. */
 @utility field {
-  @apply w-full border border-line-strong bg-field px-3 py-2.5
+  @apply w-full border border-line-strong bg-field px-4 py-2.5
     text-sm leading-relaxed text-ink
     focus:outline-2 focus:outline-offset-1 focus:outline-focus;
 }
@@ -729,10 +743,71 @@ code {
   clip-path: var(--cut-icon);
 }
 
-/* The application's name, wherever it stands alone: tracked-out mono caps
-   with a split shadow behind. The shadow colours are theme tokens and are
-   transparent outside the dark theme, so light and low light keep a plain
-   wordmark with no second rule anywhere. */
+/* The chamfer, drawn properly where the browser can.
+
+   `clip-path` cuts the shape out of the finished button, which takes the
+   border away along the diagonal -- the two corners came out as gaps in the
+   outline rather than as angled edges -- and takes the focus ring with it,
+   since an outline at `outline-offset: 2px` lies outside the polygon
+   entirely. `corner-shape: bevel` makes the chamfer part of the box instead:
+   the border follows it, the outline follows the border, and the ring is
+   back in both cyberpunk palettes.
+
+   Unlayered on purpose, so it beats the utilities above without a selector
+   fight. The clip stays as the fallback, and a palette that puts the shape
+   down sets its size to zero, which leaves `border-radius: 0` and a bevel of
+   nothing to draw. */
+@supports (corner-shape: bevel) {
+  .btn,
+  .icon-cut {
+    clip-path: none;
+    corner-shape: bevel;
+  }
+
+  .btn {
+    border-radius: 0 var(--cut-size) 0 var(--cut-size);
+  }
+
+  .icon-cut {
+    border-radius: 0 var(--cut-size-icon) 0 var(--cut-size-icon);
+  }
+
+  /* The things you type into and choose from take the shape too, at the
+     buttons' size, and only here: neither has a clipped fallback, because
+     clipping one would take its focus outline the way it took the buttons'.
+     A browser without `corner-shape` gets them square, which is what the
+     plain palettes look like anyway. The field's inline padding above is a
+     step wider than a square one needs, so a caret at the start of the line
+     clears the corner.
+
+     The dropdown's trigger is here and its popover is not: the trigger is a
+     control sitting in a row with the fields and the buttons, and a square
+     one in that row is the only square thing left in it. The list it opens is
+     a surface, like the tooltip and the dropdown's own sheet, and those stay
+     rectangles.
+
+     `place-search-field` is the map's search box, which is a wrapper around
+     an input rather than the input itself -- the magnifier shares its border
+     -- and so carries its own copy of the field's border, fill and focus
+     ring instead of the utility. It is named here for the same reason it is
+     drawn there: square, on a map whose every other control is cut, it reads
+     as the one thing that was missed. */
+  .field,
+  .dropdown-button,
+  .place-search-field {
+    corner-shape: bevel;
+    border-radius: 0 var(--cut-size) 0 var(--cut-size);
+  }
+}
+
+/* The application's name, wherever it stands alone: tracked-out bold caps in
+   whichever face the palette holds. The cyberpunk pair spends the serif, the
+   plain three the same mono stack the rest of the application already loads,
+   so light and low light keep a plain wordmark with no second rule
+   anywhere.
+
+   Tracking is not part of the lever. One number for both faces, so the two
+   palettes cannot come to disagree about how wide the word stands. */
 @utility brand {
   @apply font-bold tracking-[0.18em] uppercase;
   font-family: var(--brand-font);

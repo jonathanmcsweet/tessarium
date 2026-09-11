@@ -1286,8 +1286,7 @@ check(
 );
 
 const pickTheme = async (value) => {
-  await page.locator(".panel-settings").click();
-  await page.locator(".settings-theme .dropdown-button").click();
+  await page.locator(".panel-foot .theme .dropdown-button").click();
   await page.locator(`.dropdown-option[data-value="${value}"]`).click();
   await page.waitForFunction(
     (want) =>
@@ -1394,11 +1393,21 @@ const levers = () =>
   page.evaluate(() => {
     const s = getComputedStyle(document.documentElement);
     const g = (n) => s.getPropertyValue(n).trim();
-    /* "missing" rather than a throw: a selector that has rotted must fail
-       the check that reads it, not the evaluate that collects it. */
+    /* null rather than a throw: a selector that has rotted must fail the
+       check that reads it, not the evaluate that collects it.
+
+       Both mechanisms, because the chamfer is drawn by `corner-shape` where
+       the browser has it and clipped where it does not, and "chamfered" means
+       the shape is there AND nothing is clipping it out of its own box. */
     const shape = (sel) => {
       const el = document.querySelector(sel);
-      return el ? getComputedStyle(el).clipPath : "missing";
+      if (el === null) return null;
+      const style = getComputedStyle(el);
+      return {
+        clip: style.clipPath,
+        corner: style.cornerShape,
+        radius: Number.parseFloat(style.borderTopRightRadius),
+      };
     };
     return {
       stops: [g("--color-cta-from"), g("--color-cta-mid"), g("--color-cta-to")],
@@ -1428,8 +1437,12 @@ for (const plain of ["light", "dark", "night"]) {
     !/Bodoni/.test(brand) && /mono|Menlo|Consolas/i.test(brand),
   );
   check(`${plain}: and the ground carries no wash`, wash === "none");
-  check(`${plain}: the buttons keep their corners`, cut === "none");
-  check(`${plain}: and so do the icon buttons`, iconCut === "none");
+  check(`${plain}: the buttons keep their corners`, square(cut));
+  check(`${plain}: and so do the icon buttons`, square(iconCut));
+  check(
+    `${plain}: and the search box and the dropdown`,
+    square(field) && square(trigger),
+  );
 }
 
 /* And the cyberpunk pair actually moves them, so the check above says
@@ -1446,8 +1459,24 @@ check(
 );
 check("and a wash on the ground", cyber.wash !== "none");
 check(
-  "and cuts the corner off its buttons",
-  cyber.cut.startsWith("polygon") && cyber.iconCut.startsWith("polygon"),
+  `and cuts the corner off its buttons (${cyber.cut?.radius}px)`,
+  chamfered(cyber.cut) && chamfered(cyber.iconCut),
+);
+/* The same corner off the things that are not buttons. */
+check(
+  `and off the search box and the dropdown too (${cyber.field?.radius}px)`,
+  chamfered(cyber.field) && chamfered(cyber.trigger),
+);
+
+/* The other half of the pair. Cyberpunk light INHERITS the shape rather than
+   setting it, which is exactly the arrangement that breaks quietly when a
+   palette starts overriding one of the four tokens and not the rest. */
+await pickTheme("cyber-light");
+const cyberLight = await levers();
+check(
+  `and so does cyberpunk light (${cyberLight.cut?.radius}px)`,
+  chamfered(cyberLight.cut) && chamfered(cyberLight.iconCut)
+    && chamfered(cyberLight.field) && chamfered(cyberLight.trigger),
 );
 
 /* "Match my device" is the one entry that is not a palette. It sets an
@@ -1702,8 +1731,25 @@ check(
   toastLight < 0.5,
 );
 check(
+      /* The two controls on this screen that are not buttons and take the
+         shape anyway: the map's search box, and the closed dropdown at the
+         foot of the panel. The `field` utility itself is checked at the
+         gate, which is the only place one is on screen before the map
+         exists. */
+      field: shape(".place-search-field"),
+      trigger: shape(".dropdown-button"),
   `and squares its corners like everything else (${toast.radius})`,
   toast.radius === "0px",
+/* Square is a bevel of nothing, and nothing clipping. Chamfered is a real
+   bevel, and still nothing clipping: a clipped button loses its border along
+   the diagonal and its focus ring altogether, which is the whole reason the
+   shape stopped being a polygon. */
+const square = (shape) =>
+  shape !== null && shape.clip === "none" && shape.radius === 0;
+const chamfered = (shape) =>
+  shape !== null && shape.clip === "none" && shape.corner === "bevel"
+  && shape.radius > 0;
+
 );
 /* And a SUCCESS takes itself away -- one short statement with nothing to
    re-read, unlike an error. Both halves of that pair have to hold: if success
