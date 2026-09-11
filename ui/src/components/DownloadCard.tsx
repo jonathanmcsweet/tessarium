@@ -213,7 +213,7 @@ function Offer(
         </p>
       )}
       {!nothingToWrite && (
-        <div className="download-actions mt-2.5 flex flex-wrap gap-2">
+        <div className="download-actions mt-2.5">
           <button
             type="button"
             className="btn btn-primary"
@@ -526,7 +526,7 @@ function LedgerRow({ entry, days, busy }: {
            third button silently retargeted selectors written by
            position. */
       }
-      <div className="download-actions flex flex-shrink flex-wrap gap-2">
+      <div className="download-actions flex-shrink">
         {
           /* No Update either, so the overview row has no buttons at all.
 
@@ -638,7 +638,7 @@ function ExportedFiles({ busy }: { busy: boolean; }) {
               </span>
               <span className="hint">{formatBytes(f.bytes)}</span>
             </div>
-            <div className="download-actions flex flex-shrink flex-wrap gap-2">
+            <div className="download-actions flex-shrink">
               {
                 /* `download` names the saved file rather than navigating to
                   it; same origin, so the CSP is untroubled. */
@@ -741,12 +741,14 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
               });
             }}
           />
-          <label
-            className={`button-link file-input mt-2.5 ${LINK_BUTTON} peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent`}
-            htmlFor="import-file"
-          >
-            {m.map_import_choose()}
-          </label>
+          <div className="download-actions mt-2.5">
+            <label
+              className={`button-link file-input ${LINK_BUTTON} peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent`}
+              htmlFor="import-file"
+            >
+              {m.map_import_choose()}
+            </label>
+          </div>
           {upload.isPending && sent !== null && (
             <p className="hint" role="status">
               {m.map_import_uploading({
@@ -772,7 +774,7 @@ function ImportFromFile({ busy }: { busy: boolean; }) {
                 zoom: waiting.max_zoom,
               })}
           </p>
-          <div className="download-actions mt-2.5 flex flex-wrap gap-2">
+          <div className="download-actions mt-2.5">
             <button
               type="button"
               className="btn btn-primary"

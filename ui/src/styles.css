@@ -813,6 +813,19 @@ code {
 /* Both class names, matching the specificity MapLibre itself uses for this
    one -- its own rule is .maplibregl-ctrl.maplibregl-ctrl-attrib and ties
    are settled by load order, which this file loses. */
+/* A row of buttons closing a section. They run from the left, which is where
+   they have always run; what is new is that they run from the SAME place.
+
+   One rule rather than the class list pasted at each row: where these sit
+   used to be five separate decisions, and the ledger's rows only looked
+   settled because the line they sit in is `justify-between` and the text
+   beside them pushed them over. Declaring no alignment here is deliberate --
+   a row that wants a different one has to change this, where every row can
+   see it. */
+@utility download-actions {
+  @apply flex flex-wrap items-center gap-2;
+}
+
 .map-wrap .maplibregl-ctrl.maplibregl-ctrl-attrib {
   background: var(--color-card);
 }
