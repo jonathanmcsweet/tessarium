@@ -1675,7 +1675,10 @@ check(
    markup mentions by name. Low light joins the plain pair here -- it is a
    palette for keeping night vision, not a second cyberpunk. */
 const levers = () =>
-  page.evaluate(() => {
+  page.evaluate(async () => {
+    /* A face still loading reports as absent, and `block` means the wordmark
+       is drawn in nothing at all until it lands. */
+    await document.fonts.ready;
     const s = getComputedStyle(document.documentElement);
     const g = (n) => s.getPropertyValue(n).trim();
     /* null rather than a throw: a selector that has rotted must fail the
@@ -1759,6 +1762,10 @@ check(
 await pickTheme("cyber-light");
 const cyberLight = await levers();
 check(
+/* And the face is really there. A @font-face whose file 404s resolves to the
+   fallback with nothing said, and the check above would pass on the name
+   alone -- the browser reports what the cascade asked for, not what it got. */
+check("which is loaded, not merely named", cyber.faceLoaded === true);
   `and so does cyberpunk light (${cyberLight.cut?.radius}px)`,
   chamfered(cyberLight.cut) && chamfered(cyberLight.iconCut)
     && chamfered(cyberLight.field) && chamfered(cyberLight.trigger),
@@ -2130,10 +2137,6 @@ await page.waitForFunction(
 );
 await page.evaluate(() => {
   /* Added nodes, not a re-query: a callback runs at a microtask checkpoint,
-/* And the face is really there. A @font-face whose file 404s resolves to the
-   fallback with nothing said, and the check above would pass on the name
-   alone -- the browser reports what the cascade asked for, not what it got. */
-check("which is loaded, not merely named", cyber.faceLoaded === true);
      so a bar that went up and came down inside one would be invisible to an
      "is it there now" test. The label is read as it appears, which is the only
      moment it is certain to exist. */
@@ -2180,10 +2183,7 @@ await page.route("**/tiles/**", async (route) => {
    Marked once, not once per attempt, so a retry cannot stack query parameters
    and change what is being asked for. */
 const started = await until(() =>
-  page.evaluate(async () => {
-    /* A face still loading reports as absent, and `block` means the wordmark
-       is drawn in nothing at all until it lands. */
-    await document.fonts.ready;
+  page.evaluate(() => {
     if (document.querySelector(".map-loading")) return false;
     window.__barSeen = false;
     window.__barLabel = null;
@@ -5101,6 +5101,15 @@ console.log(
    interaction library rather than two, and is recorded here rather than
    absorbed silently.
 
+   Raised again, from 200 to 215, when the cyberpunk wordmark got its own
+   face. Measured: the gate went from 190 KB over four requests to 205 over
+   five, and the fifth is the 15 KB woff2 -- already compressed, so gzip takes
+   nothing further off it. It is fetched on the gate because the gate is where
+   the wordmark is, and the palette the app opens in is a cyberpunk one. A
+   subset cut to the letters of the name would be about 2 KB and was not
+   taken: it turns a rename into a wordmark that falls back mid-word, with
+   nothing saying so.
+
    The remaining gap is room for the gate to grow, and it is still nowhere near
    the 551 KB a static map import costs, which is the regression this catches.
    Raise it only with a measurement saying why -- the same rule
@@ -5647,15 +5656,6 @@ const ROUNDS = 600;
 /* Away and back, so the name is genuinely absent for part of every cycle.
    Replacing it in place would not do: the old code would open the replacement,
    stream a file of the same length, and look correct. */
-   Raised again, from 200 to 215, when the cyberpunk wordmark got its own
-   face. Measured: the gate went from 190 KB over four requests to 205 over
-   five, and the fifth is the 15 KB woff2 -- already compressed, so gzip takes
-   nothing further off it. It is fetched on the gate because the gate is where
-   the wordmark is, and the palette the app opens in is a cyberpunk one. A
-   subset cut to the letters of the name would be about 2 KB and was not
-   taken: it turns a rename into a wordmark that falls back mid-word, with
-   nothing saying so.
-
 const flip = async (n) => {
   if (n === 0) return;
   try {
