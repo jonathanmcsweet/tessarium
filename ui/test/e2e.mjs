@@ -2908,6 +2908,109 @@ check(
   .then(() => true, () => false);
 check("the removed entry leaves the list", rowGone);
 const removedToast = await page
+/* ------------------------------ the small wait ----------------------------
+
+   The estimate is real planning work on the server and takes as long as the
+   area is large, so the card sits on one sentence -- "checking how much there
+   is to fetch" -- with nothing moving. The application's other loading
+   indicator is the bar across the top of the map, which is about the whole
+   view and says nothing about a section of a card waiting on its own.
+
+   Four squares filling in turn, in the shape the application already draws:
+   the grid's empty squares, the reticle, the cut corners. Held open here by
+   delaying the estimate, because the real wait is too short to catch and too
+   long to leave unmarked.
+
+   Read as geometry and computed style rather than by class alone: a mark
+   whose rule did not reach it is four invisible spans, which looks exactly
+   like the bug this replaces. */
+await page.route("**/api/basemap-estimate", async (route) => {
+  await new Promise((done) => setTimeout(done, 3000));
+  try {
+    await route.continue();
+  } catch {
+    /* Same as the tile delay above: unroute can beat a sleeping handler to
+       its route, and continuing a route already handled throws from a
+       promise nothing is awaiting -- which takes the whole suite down rather
+       than failing a check. */
+  }
+});
+/* Somewhere nothing else in this file prices, and closer in than the jumps
+   above. The estimate is cached against the region asked for and kept fresh
+   for five minutes, so reopening the card where it was last open answers out
+   of the cache with nothing pending -- no wait, and rightly no mark. The
+   check needs a real one. */
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [139.78, 35.7], zoom: 14 })
+);
+await page.waitForTimeout(600);
+await page.locator(".panel-download").click();
+await page.waitForSelector(".download-card", { timeout: 10_000 });
+const waiting = await page
+  .waitForSelector(".estimating .loading-tiles", { timeout: 10_000 })
+  .then(() => true, () => false);
+check("a section waiting on its own says so with a mark of its own", waiting);
+const mark = await page.evaluate(() => {
+  const el = document.querySelector(".estimating .loading-tiles");
+  if (!el) return null;
+  const squares = [...el.children];
+  const box = el.getBoundingClientRect();
+  return {
+    squares: squares.length,
+    hidden: el.getAttribute("aria-hidden"),
+    announced: document.querySelector(".estimating")?.getAttribute("role"),
+    width: Math.round(box.width),
+    height: Math.round(box.height),
+    animated: squares.map((sq) => getComputedStyle(sq).animationName),
+    delays: squares.map((sq) => getComputedStyle(sq).animationDelay),
+  };
+});
+check(`it is four squares (${mark?.squares})`, mark?.squares === 4);
+check(
+  `laid out square, at the size of the text beside it (${mark?.width}x${mark?.height})`,
+  mark !== null && mark.width === mark.height && mark.width > 8
+    && mark.width < 24,
+);
+check(
+  "each of them actually animating",
+  mark !== null && mark.animated.every((name) => name === "loading-tile"),
+);
+/* Clockwise, which is what makes it read as filling rather than flashing: a
+   2x2 laid out 1 2 / 3 4 turns 1, 2, 4, 3. */
+check(
+  `in turn rather than together (${mark?.delays.join(", ")})`,
+  mark !== null && new Set(mark.delays).size === 4
+    && mark.delays[0] === "0s" && mark.delays[1] === "0.15s"
+    && mark.delays[3] === "0.3s" && mark.delays[2] === "0.45s",
+);
+/* The sentence carries the meaning and its region announces itself, so the
+   mark must not speak as well -- and the region has to announce at all,
+   which it did not before this. */
+check(
+  `and saying nothing of its own (${mark?.hidden})`,
+  mark?.hidden === "true",
+);
+check(
+  `beside a sentence that is announced (${mark?.announced})`,
+  mark?.announced === "status",
+);
+check(
+  "and the mark goes when the answer lands",
+  await page.waitForFunction(
+    () => !document.querySelector(".estimating"),
+    null,
+    { timeout: 20_000 },
+  ).then(() => true, () => false),
+);
+await page.unroute("**/api/basemap-estimate");
+
+await page.locator(".panel-download").click();
+await page.waitForFunction(
+  () => !document.querySelector(".download-card"),
+  null,
+  { timeout: 10_000 },
+);
+
   .waitForFunction(
     () =>
       [...document.querySelectorAll(".app-toast")].some((t) => {

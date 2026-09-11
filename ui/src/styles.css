@@ -1006,3 +1006,61 @@ code {
     opacity: 0.5;
   }
 }
+/* The other wait, and the smaller one. The bar above crosses the whole
+   screen and is about the whole view; this stands in one section of a card,
+   beside the sentence saying what is being waited for.
+
+   Four squares filling in turn. The shape is this application's own -- the
+   grid draws empty squares, the reticle is one, the buttons are cut from the
+   same corner -- so a wait looks like the thing being waited for rather than
+   like a spinner borrowed from somewhere else.
+
+   Sized in em, so it matches whatever text it stands beside rather than
+   carrying a pixel size that only suits one caller. */
+.loading-tiles {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.15em;
+  flex: none;
+  width: 1em;
+  height: 1em;
+}
+
+.loading-tiles i {
+  background: var(--color-accent);
+  opacity: 0.2;
+  animation: loading-tile 1.2s ease-in-out infinite;
+}
+
+/* Clockwise: a 2x2 laid out 1 2 / 3 4 turns 1, 2, 4, 3. */
+.loading-tiles i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.loading-tiles i:nth-child(4) {
+  animation-delay: 0.3s;
+}
+
+.loading-tiles i:nth-child(3) {
+  animation-delay: 0.45s;
+}
+
+@keyframes loading-tile {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+
+  /* Frozen mid-cycle the four squares sit at four different opacities, which
+     reads as a rendering fault rather than as a mark. Evened out, it is a
+     small block of tiles standing still beside a sentence that says what is
+     happening -- which is what the sentence is for. */
+  .loading-tiles i {
+    animation: none;
+    opacity: 0.55;
+  }

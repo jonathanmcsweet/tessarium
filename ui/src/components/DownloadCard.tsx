@@ -60,6 +60,7 @@ import { useAppStore } from "../store";
 import { toastError } from "../toast";
 import { Dropdown } from "./Dropdown";
 import { IconButton } from "./IconButton";
+import { LoadingTiles } from "./LoadingTiles";
 import { InfoTip } from "./Tip";
 
 /* The checkbox face. React Aria hides the real input and leaves the
@@ -177,8 +178,16 @@ function Offer(
     && (estimate.data.covered || estimate.data.tiles === 0);
   return (
     <div className={`download-option ${className}`}>
+      {
+        /* `role="status"`, which it did not have: the sentence appears on its
+           own after a selection settles, and a wait nobody is told about is a
+           card that has gone quiet. */
+      }
       {regions !== null && estimate.isPending && (
-        <p className="hint">{m.map_download_estimating()}</p>
+        <p className="hint estimating flex items-center gap-2" role="status">
+          <LoadingTiles />
+          {m.map_download_estimating()}
+        </p>
       )}
       {estimate.isError && (
         <p className="hint invalid text-danger">
