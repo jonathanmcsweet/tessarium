@@ -1470,17 +1470,25 @@ check(
 const noteLightness = () => surfaceLightness(".map-note.action");
 await pickTheme("dark");
 check(
-  `the note over the map goes dark with the theme (lightness ${
-    (await noteLightness()).toFixed(2)
+  `the note is on the panel's ground, not one of its own (${await rowGround()})`,
+  transparent(await rowGround()),
+);
+check(
+  `which goes dark with the theme (lightness ${
+    (await surfaceLightness(".panel")).toFixed(2)
   })`,
-  (await noteLightness()) < 0.5,
+  (await surfaceLightness(".panel")) < 0.5,
 );
 await pickTheme("light");
 check(
   `and light with the light theme (lightness ${
-    (await noteLightness()).toFixed(2)
+    (await surfaceLightness(".panel")).toFixed(2)
   })`,
-  (await noteLightness()) > 0.5,
+  (await surfaceLightness(".panel")) > 0.5,
+);
+check(
+  `with the row still carrying no ground (${await rowGround()})`,
+  transparent(await rowGround()),
 );
 
 /* Second: it must cost nothing to look around. The floor draws every tile on
@@ -2651,7 +2659,7 @@ check(
 check(
   "and hands the keyboard back to the map rather than dropping it",
   await page.evaluate(() =>
-    document.activeElement?.classList.contains("maplibregl-canvas") ?? false
+    document.activeElement?.classList.contains("panel-download") ?? false
   ),
 );
 

@@ -80,19 +80,20 @@ export function App() {
         />
       )}
       {
-        /* Two widths, and they are not the same thing. --panel-w is the
-          drawer's own width, kept while it is shut so reopening returns what
-          was dragged to. --panel-offset is how much of the RIGHT EDGE is
-          covered, which is zero while it is shut -- it is what MapLibre's
-          own controls and attribution keep clear of, so none of them ends up
-          underneath the drawer. */
+        /* The two facts this component has: how wide the panel is, and
+          whether it is showing. --panel-w is kept while it is shut, so
+          reopening returns what was dragged to.
+
+          What each EDGE of the map has under it is derived from these two in
+          styles.css, where the breakpoint is -- below it the panel is a
+          sheet across the bottom and covers no side at all. */
       }
       <div
         ref={surface}
         className="app relative h-full min-h-0 flex-1 overflow-hidden"
         style={{
           "--panel-w": `${panelWidth}px`,
-          "--panel-offset": panelCollapsed ? "0px" : `${panelWidth}px`,
+          "--panel-open": panelCollapsed ? "0" : "1",
         } as CSSProperties}
       >
         {

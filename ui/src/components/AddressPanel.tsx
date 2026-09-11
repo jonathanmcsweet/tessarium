@@ -8,8 +8,8 @@
    most, and the eye toggle here takes that to none. */
 
 import { Download, Eye, EyeOff, PanelRightClose } from "lucide-react";
-import { lazy, Suspense } from "react";
-import { useCoreVersions, useLock } from "../core/queries";
+import { lazy, type RefObject, Suspense, useEffect, useRef } from "react";
+import { core, useCoreVersions, useLock } from "../core/queries";
 import { formatCoord } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
@@ -63,7 +63,15 @@ const DownloadCard = lazy(() =>
   loadDownloadCard().then((mod) => ({ default: mod.DownloadCard }))
 );
 
-export function AddressPanel() {
+export function AddressPanel(
+  {
+    /* The element carrying the shell's custom properties, handed down the
+       way PanelResizer's is: the panel reports its own height onto it, and
+       styles.css decides what that height means. Above the drawer breakpoint
+       it means nothing -- the panel is beside the map, not on it. */
+    surface,
+  }: { surface: RefObject<HTMLDivElement | null>; },
+) {
   const selection = useAppStore((s) => s.selection);
   const concealed = useAppStore((s) => s.concealed);
   const toggleConcealed = useAppStore((s) => s.toggleConcealed);
@@ -98,7 +106,11 @@ export function AddressPanel() {
   }`;
 
   return (
-    <aside className={`panel ${DRAWER} ${panelCollapsed ? SHUT : ""}`}>
+    <aside
+      ref={sheet}
+      id="panel"
+      className={`panel ${DRAWER} ${panelCollapsed ? SHUT : ""}`}
+    >
       {
         /* Wraps, because it has to. With a square selected the row is five
           controls -- reveal, downloads, settings, lock, hide -- and at the
@@ -130,6 +142,27 @@ export function AddressPanel() {
                 : <Eye size={18} aria-hidden />}
             />
           )}
+  /* How much of the map's bottom edge this covers as a sheet. Painted
+     straight onto the shell rather than kept in the store, for the reason
+     PanelResizer paints its width there: the answer changes whenever the
+     panel's content does -- a square selected, the maps card opened -- and
+     nothing about this application's rendering should depend on it.
+
+     Measured rather than assumed to be the 45vh cap, which it only reaches
+     when the content is long enough to be scrolling. */
+  const sheet = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const node = sheet.current;
+    if (!node) return;
+    /* The border box, not contentRect: the sheet has a top border and the
+       map has to clear that too. */
+    const observer = new ResizeObserver(() => {
+      surface.current?.style.setProperty("--panel-h", `${node.offsetHeight}px`);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [surface]);
+
           {
             /* The way in to the offline maps. It belongs beside the thing
               it opens, which is this panel. */

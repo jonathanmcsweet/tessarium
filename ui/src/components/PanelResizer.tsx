@@ -52,9 +52,9 @@ const HANDLE = "before:absolute before:top-1/2 before:left-1/2 before:h-8 "
 
 export function PanelResizer(
   {
-    /* The element carrying --panel-w and --panel-offset. Handed down rather
-       than looked up, so the one thing this component reaches outside itself
-       is a ref its parent chose to give it. */
+    /* The element carrying the panel's width. Handed down rather than looked
+       up, so the one thing this component reaches outside itself is a ref its
+       parent chose to give it. */
     surface,
   }: { surface: RefObject<HTMLDivElement | null>; },
 ) {
@@ -80,9 +80,6 @@ export function PanelResizer(
     const node = surface.current;
     if (!node) return;
     node.style.setProperty("--panel-w", `${width}px`);
-    /* The resizer only exists while the drawer is open, so the width and
-       the covered width are the same number here. */
-    node.style.setProperty("--panel-offset", `${width}px`);
   };
 
   const { moveProps } = useMove({

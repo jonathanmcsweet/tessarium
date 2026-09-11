@@ -561,7 +561,11 @@ export function MapView() {
       zoom: 19,
       maxZoom: 23,
       hash: false,
-      attributionControl: { compact: true },
+      /* No `compact` either way: MapLibre decides from the map's own width
+         whether the credit needs its toggle, and that decision is the one
+         shutCredit reads. Asking for compact everywhere would put a button
+         on a desktop map with room for the whole line. */
+      attributionControl: {},
       /* Arrow keys pan, +/- zoom. On by default; named here because it is
          load-bearing for keyboard access rather than incidental. */
       keyboard: true,
@@ -579,6 +583,7 @@ export function MapView() {
     map.addControl(
       new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }),
     );
+      shutCredit(map);
 
     map.on("load", () => {
       addOverlay(map);
@@ -1294,7 +1299,7 @@ export function MapView() {
         /* Search sits over the map rather than in the panel: it moves the
           map, and the panel is about the square already chosen. */
       }
-      <div className="map-search absolute top-2.5 left-2.5 z-2 w-[min(22rem,calc(100%-5.5rem))]">
+      <div className="map-search absolute top-2.5 left-2.5 z-2 w-[min(22rem,calc(100%-var(--right-clear,3.5rem)-3.75rem))]">
         <PlaceSearch
           center={() => {
             const c = mapRef.current?.getCenter();

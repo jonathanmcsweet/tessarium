@@ -836,6 +836,84 @@ code {
    controls stayed light through the dark theme's whole first release. */
 .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
   filter: invert(calc(1 - var(--map-light-ground)));
+/* --------------------------------------------------- the two covered edges
+
+   How much of the map the panel is sitting on, one number per edge. Every
+   overlay the application draws -- MapLibre's own controls, the map's notes,
+   the resize handle -- keeps clear of these rather than of the panel, which
+   none of them can see.
+
+   Derived here rather than written by App.tsx, because the answer turns on
+   the breakpoint and a stylesheet is the only thing that knows where the
+   breakpoint is. App sets the two facts it has: how wide the panel is, and
+   whether it is open. Setting the ANSWER there is what shipped -- below
+   --breakpoint-drawer the panel is a sheet across the BOTTOM, and a
+   --panel-offset of 340px then sent MapLibre's zoom column 340px in from a
+   right edge nothing was covering. On a phone that is the top-LEFT corner,
+   on top of the search field, with the attribution pushed off the left of
+   the screen and the scale bar under the sheet.
+
+   --panel-open is 1 or 0 rather than a length, so one multiplication says
+   both "how much" and "any at all".
+
+   --panel-h is the sheet's real height rather than the cap it is allowed to
+   grow to: the cap is a max-height, and on a tablet the panel's content
+   stops well short of it. Offsetting by the cap left the scale bar and the
+   attribution floating a hundred pixels above the sheet with bare map under
+   them. */
+.app {
+  --panel-offset: calc(var(--panel-open, 1) * var(--panel-w, 340px));
+  --sheet-offset: 0px;
+
+  /* The sheet's handle, which exists only below the breakpoint. Zero here so
+     every rule that has to clear it can add it unconditionally. */
+  --grab-h: 0px;
+
+  /* What is already standing on the map's right edge. The panel while it is
+     open; the tab that brings it back while it is shut -- one or the other,
+     never neither, so the controls that hug that edge and the search field
+     that must stop short of them both measure from here. */
+  --right-clear: calc(
+    var(--panel-offset) + (1 - var(--panel-open, 1)) * 3.5rem
+  );
+}
+
+/* biome-ignore lint/correctness/noUnknownFunction: theme() is Tailwind's,
+   and a media query is the one place a custom property cannot go -- the
+   alternative is the breakpoint written out as 52rem here and named
+   --breakpoint-drawer everywhere else, which is the drift this file spends
+   most of its length avoiding. */
+@media (width < theme(--breakpoint-drawer)) {
+  .app {
+    --panel-offset: 0px;
+    --sheet-offset: calc(var(--panel-open, 1) * var(--panel-h, 0px));
+    --grab-h: 2.25rem;
+
+    /* Nothing stands on the right edge here. The 3.5rem above is the reopen
+       tab's width, and the tab is drawer-width only: what brings the sheet
+       back on a phone is its handle, along the bottom. */
+    --right-clear: 0px;
+  }
+}
+
+/* The sheet's handle. It rides --sheet-offset, so it sits on the sheet's top
+   edge while the sheet is open and on the map's bottom edge while it is shut,
+   with one transition rather than two positions kept in step. The bar itself
+   is the one rounded thing in the application: a pill at the top of a sheet
+   is a gesture people already know, and a chamfered one is a shape nobody has
+   seen. */
+.sheet-grab {
+  bottom: var(--sheet-offset, 0px);
+  transition: bottom 180ms ease;
+}
+
+.sheet-grab-bar {
+  width: 2.25rem;
+  height: 0.25rem;
+  border-radius: 999px;
+  background: var(--color-line-strong);
+}
+
 }
 
 /* The theme squares every corner, and the map's own controls -- zoom,
@@ -848,16 +926,25 @@ code {
 
 /* MapLibre positions its controls and attribution against the map's own
    edges, and the map is the full width of the shell -- so without this they
-   sit UNDER the drawer. They track the covered width instead, and slide with
-   it. */
+   sit UNDER the panel. They track the covered edges instead, and slide with
+   them. */
 .map-wrap .maplibregl-ctrl-top-right,
 .map-wrap .maplibregl-ctrl-bottom-right {
-  /* Never less than the reopen tab's own width. With the drawer shut
-     --panel-offset is zero, so these slid back under the one control that
-     brings the drawer back: the zoom buttons and the tab stacked on the same
-     corner. The floor keeps that corner clear. */
-  right: max(var(--panel-offset, 340px), 3.5rem);
-  transition: right 180ms ease;
+  right: var(--right-clear, 3.5rem);
+}
+
+/* The bottom edge is only ever covered by the sheet, and the scale bar sits
+   in the opposite corner from everything else -- so this pair is not the
+   pair above. */
+.map-wrap .maplibregl-ctrl-bottom-left,
+.map-wrap .maplibregl-ctrl-bottom-right {
+  bottom: calc(var(--sheet-offset, 0px) + var(--grab-h, 0px));
+}
+
+.map-wrap .maplibregl-ctrl-top-right,
+.map-wrap .maplibregl-ctrl-bottom-right,
+.map-wrap .maplibregl-ctrl-bottom-left {
+  transition: right 180ms ease, bottom 180ms ease;
 }
 
 /* ------------------------------------------------------------ keyframes */
