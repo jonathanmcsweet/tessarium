@@ -1220,6 +1220,291 @@ const reopened = await page
   .then(() => true, () => false);
 check("and reopens from it", reopened);
 
+/* --------------------------------- the panel as a sheet --------------------
+
+   Below --breakpoint-drawer the panel stops being a drawer down the right
+   edge and becomes a sheet across the bottom. Nothing the application draws
+   over the map can see the panel, so all of them keep clear of two numbers
+   instead -- how much of the right edge is covered, and how much of the
+   bottom -- and App.tsx used to write the first of those from the panel's
+   width alone.
+
+   On a phone that was a lie about an edge the sheet does not touch, and
+   every overlay believed it: MapLibre's zoom column landed 340px in from the
+   right, which on a 390px screen is the top-LEFT corner, on top of the
+   search field. The attribution went off the left of the screen entirely,
+   and the scale bar and the map's notes sat under the sheet.
+
+   Geometry rather than a class check, for the reason the reopen tab above is
+   geometry: these numbers reach MapLibre through a stylesheet that has to
+   outrank MapLibre's own, so a rule can look right in the source and be
+   doing nothing at all. A page of its own at a phone's size, because the
+   drawer is a different component at that width and the rest of this file
+   is about the drawer. */
+const phone = await context.newPage();
+await phone.setViewportSize({ width: 390, height: 844 });
+await phone.goto(base, { waitUntil: "networkidle" });
+await phone.locator("#phrase").fill(sampleMnemonic);
+await phone.waitForSelector(".valid", { timeout: 30_000 });
+await phone.locator("button[type=submit]").click();
+await phone.waitForSelector(".map-wrap", { timeout: 60_000 });
+/* Out far enough for the grid to stop being drawn, which is one of the three
+   things the panel has to say about a view. */
+await phone.evaluate(() => window.__tessarium_map?.setZoom(16));
+await phone.waitForFunction(
+  () => document.querySelectorAll(".view-note").length > 1,
+  null,
+  { timeout: 15_000 },
+).catch(() => {});
+
+const overlaid = (a, b) =>
+  !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top
+    || b.bottom <= a.top);
+const overlays = () =>
+  phone.evaluate(() => {
+    const box = (selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+    };
+    return {
+      wrap: box(".map-wrap"),
+      /* The buttons themselves for the search check and the container for
+         the edge check: MapLibre's container carries the margin, and it is
+         the container that the offset moves. */
+      zoom: box(".map-wrap .maplibregl-ctrl-top-right"),
+      buttons: box(
+        ".map-wrap .maplibregl-ctrl-top-right .maplibregl-ctrl-group",
+      ),
+      attribution: box(".map-wrap .maplibregl-ctrl-bottom-right"),
+      scale: box(".map-wrap .maplibregl-ctrl-bottom-left"),
+      search: box(".map-search"),
+      panel: box(".panel"),
+      tab: box(".panel-reopen"),
+      grab: box(".sheet-grab-button"),
+    };
+  });
+
+const sheet = await overlays();
+check(
+  "at a phone's width the panel covers the bottom of the map, not its side",
+  sheet.panel.left <= sheet.wrap.left + 1
+    && sheet.panel.right >= sheet.wrap.right - 1,
+);
+check(
+  `the zoom column stays at the map's right edge (${
+    Math.round(sheet.wrap.right - sheet.zoom.right)
+  }px in)`,
+  sheet.wrap.right - sheet.zoom.right <= 1,
+);
+check(
+  "and clear of the search field",
+  !overlaid(sheet.buttons, sheet.search),
+);
+check(
+  `the attribution stays on the screen (left edge at ${
+    Math.round(sheet.attribution.left)
+  })`,
+  sheet.attribution.left >= sheet.wrap.left,
+);
+/* A pixel of tolerance throughout: the sheet's height is a percentage of an
+   odd viewport, so its top edge lands on a fraction. */
+check(
+  "and above the sheet rather than under it",
+  sheet.attribution.bottom <= sheet.panel.top + 1,
+);
+check(
+  "the scale bar clears the sheet too, in the other corner",
+  sheet.scale.bottom <= sheet.panel.top + 1,
+);
+
+/* --------------------------- what the map has to say ----------------------
+
+   It used to say it itself, in a card over the ground it was about: at a
+   phone's width that card was 312x102 in a strip it shared with the scale
+   bar and the credit, and the three of them piled up above the sheet.
+
+   The map draws none of it now. The panel says all three -- no detail here,
+   too far out for the grid, too many squares to draw -- under a heading of
+   its own, above the square. Nothing is left on the map to keep in sync with
+   it, which is the check: not that the panel gained a section, but that
+   there is exactly one place either of them says any of this. */
+const said = await phone.evaluate(() => ({
+  onMap: document.querySelectorAll(".map-notes, .map-note").length,
+  section: document.querySelectorAll(".view-notes").length,
+  rows: [...document.querySelectorAll(".view-note")].map((r) =>
+    (r.textContent ?? "").trim()
+  ),
+  heading: document.querySelector(".view-notes .panel-title")?.textContent
+    ?.trim() ?? null,
+  /* Nothing in the section is pressable: the one thing to do about any of
+     it is the download button in the panel's own header, which the coverage
+     row names in words. A button here would be a second way in, beside the
+     first, saying the same thing. */
+  controls: document.querySelectorAll(".view-notes button, .view-notes a")
+    .length,
+  header: document.querySelectorAll(".panel-download").length,
+  /* Above the square, not below it: it is about where the reader is looking,
+     which is the question that comes before which square they picked. */
+  beforeSelected: (() => {
+    const view = document.querySelector(".view-notes");
+    const selected = document.querySelector(".selected");
+    if (!view || !selected) return false;
+    return (view.compareDocumentPosition(selected)
+      & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  })(),
+}));
+check("the map draws no note of its own", said.onMap === 0);
+check(
+  `the panel says it instead, in one section (${said.section})`,
+  said.section === 1,
+);
+check(
+  `both facts are drawn here at once (${said.rows.length})`,
+  said.rows.length === 2,
+);
+check(
+  `under its own heading (${said.heading})`,
+  said.heading === m("panel_this_view"),
+);
+check(
+  "the uncovered ground is named in the panel's own words",
+  said.rows.some((row) => row.startsWith(m("map_coverage_gap"))),
+);
+check(
+  "and the grid's zoom in its own",
+  said.rows.includes(m("map_zoom_for_grid")),
+);
+check(
+  `and carries no control of its own (${said.controls})`,
+  said.controls === 0,
+);
+check(
+  `pointing at the download button already in the header (${said.header})`,
+  said.header === 1,
+);
+check("and the section sits above the square", said.beforeSelected);
+
+/* A sheet is closed by its handle. The drawer's pair -- an icon in the panel
+   header that means "close the panel on the right", and a tab floating at
+   that right edge to bring it back -- are describing a layout this width does
+   not have, and both stand down here. */
+check(
+  "the sheet wears a handle on its top edge",
+  sheet.grab !== null && Math.abs(sheet.grab.bottom - sheet.panel.top) <= 2,
+);
+check(
+  "and the drawer's own hide button is not on a phone",
+  !(await phone.locator(".panel-hide").isVisible()),
+);
+
+/* Shut, the sheet covers nothing and the handle is all that is left of it,
+   lying along the map's bottom edge. The search field still measures from the
+   right edge: at 5.5rem of fixed reserve it ran under the zoom buttons here,
+   with the field drawn on top of them. */
+await phone.locator(".sheet-grab-button").click();
+await phone.waitForFunction(
+  () => document.querySelector(".panel")?.classList.contains("collapsed"),
+  null,
+  { timeout: 10_000 },
+);
+await phone.waitForTimeout(300);
+const shut = await overlays();
+check(
+  "with the sheet shut its handle lies along the map's bottom edge",
+  shut.grab !== null && shut.grab.bottom >= shut.wrap.bottom - 1,
+);
+/* Not "absent": the tab is display:none below the breakpoint, so it is still
+   in the document with a zero box. What matters is that nothing is drawn
+   there. */
+check(
+  "and nothing reopens it from the right edge, which is the drawer's gesture",
+  !(await phone.locator(".panel-reopen").isVisible()),
+);
+check(
+  `and the search field still stops short of the zoom column (field to ${
+    Math.round(shut.search.right)
+  }, buttons from ${Math.round(shut.buttons.left)})`,
+  !overlaid(shut.buttons, shut.search),
+);
+/* Down to the handle rather than past it: the sheet covers nothing now, but
+   the handle does, and the scale bar reads the two as one number. */
+check(
+  `the scale bar drops to the handle, not through it (${
+    Math.round(shut.grab.top - shut.scale.bottom)
+  }px)`,
+  Math.abs(shut.scale.bottom - shut.grab.top) <= 2,
+);
+/* And it brings the sheet back, which is the half a one-way check misses. */
+await phone.locator(".sheet-grab-button").click();
+await phone.waitForFunction(
+  () => !document.querySelector(".panel")?.classList.contains("collapsed"),
+  null,
+  { timeout: 10_000 },
+);
+await phone.waitForTimeout(300);
+const pulledBack = await overlays();
+check(
+  "and pulling the handle again brings the sheet back",
+  Math.abs(pulledBack.grab.bottom - pulledBack.panel.top) <= 2
+    && pulledBack.panel.top < pulledBack.wrap.bottom - 1,
+);
+await phone.locator(".sheet-grab-button").click();
+await phone.waitForFunction(
+  () => document.querySelector(".panel")?.classList.contains("collapsed"),
+  null,
+  { timeout: 10_000 },
+);
+await phone.waitForTimeout(300);
+
+/* --------------------------------- the credit ------------------------------
+
+   MapLibre decides from the map's own width whether the attribution needs a
+   toggle, and then draws it open anyway: 194px of credit lying across the
+   bottom of a phone. */
+const band = () =>
+  phone.evaluate(() => {
+    const credit = document.querySelector(".maplibregl-ctrl-attrib");
+    return {
+      creditWidth: Math.round(credit?.getBoundingClientRect().width ?? 0),
+      creditCompact: credit?.classList.contains("maplibregl-compact") ?? false,
+    };
+  });
+
+const strip = await band();
+check(
+  `at a phone's width MapLibre calls the credit compact (${strip.creditCompact})`,
+  strip.creditCompact,
+);
+check(
+  `and it starts behind its toggle (${strip.creditWidth}px)`,
+  strip.creditWidth <= 40,
+);
+await phone.locator(".maplibregl-ctrl-attrib-button").click();
+await phone.waitForTimeout(250);
+const opened = await band();
+check(
+  `which a tap still opens (${opened.creditWidth}px)`,
+  opened.creditWidth > 100,
+);
+await phone.close();
+
+/* A map with room keeps the whole line: nothing here repeats a width, so the
+   one place that decides is MapLibre, and shutCredit only acts on the maps it
+   already called narrow. */
+const wideCredit = await page.evaluate(() => {
+  const el = document.querySelector(".maplibregl-ctrl-attrib");
+  return {
+    compact: el?.classList.contains("maplibregl-compact") ?? true,
+    width: Math.round(el?.getBoundingClientRect().width ?? 0),
+  };
+});
+check(
+  `the desktop map draws its credit in full (${wideCredit.width}px, compact ${wideCredit.compact})`,
+  !wideCredit.compact && wideCredit.width > 100,
+);
+
 /* ------------------------------------- appearance -------------------------
 
    Five palettes and a sixth entry that is not one. "Match my device" is a

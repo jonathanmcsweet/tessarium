@@ -217,8 +217,14 @@ export function AddressPanel(
               setLocked();
             }}
           />
+          {
+            /* Drawer-width only. Below the breakpoint this is a sheet, and a
+              sheet is closed by its handle -- an icon that says "close the
+              panel on the right" is describing a layout that is not on
+              screen. */
+          }
           <IconButton
-            className="panel-hide"
+            className="panel-hide max-drawer:hidden"
             label={m.panel_hide()}
             icon={<PanelRightClose size={18} aria-hidden />}
             onClick={togglePanel}

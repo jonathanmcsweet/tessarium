@@ -6,6 +6,7 @@ import { IconButton } from "./components/IconButton";
 import { loadMapView } from "./components/mapChunk";
 import { PanelResizer } from "./components/PanelResizer";
 import { PhraseEntry } from "./components/PhraseEntry";
+import { SheetGrab } from "./components/SheetGrab";
 import { useBackendDown } from "./core/health";
 import { m } from "./paraglide/messages";
 import { useAppStore } from "./store";
@@ -118,14 +119,17 @@ export function App() {
           <MapView />
         </Suspense>
         {!panelCollapsed && <PanelResizer surface={surface} />}
-        <AddressPanel />
+        <AddressPanel surface={surface} />
+        <SheetGrab />
         {
-          /* The way back in. The drawer's own hide button leaves with it, so
-            the control that reopens it has to live outside the drawer --
-            over the map, at the edge the drawer just gave back. */
+          /* The way back in, on a screen wide enough for the drawer to be
+            one. The drawer's own hide button leaves with it, so the control
+            that reopens it has to live outside the drawer -- over the map, at
+            the edge the drawer just gave back. Below the breakpoint the sheet
+            keeps its handle instead, and both of these stand down. */
         }
         {panelCollapsed && (
-          <div className="panel-reopen absolute top-3.5 right-2.5 z-6">
+          <div className="panel-reopen absolute top-3.5 right-2.5 z-6 max-drawer:hidden">
             <IconButton
               label={m.panel_show()}
               icon={<PanelRightOpen size={18} aria-hidden />}
