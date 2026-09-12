@@ -161,6 +161,46 @@ grid or algorithm.
   - `chore: adopt test/ and lib/ layout`
 - End messages with the `Co-Authored-By:` trailer naming the AI model used.
 
+## No inline foreign-language code — extract to its own file
+
+- NEVER embed another language (Python, etc.) inline in any other file
+
+## Backend code: OXCaml or OCaml
+
+### OCaml style — read like the surrounding code
+
+House style; rationale and worked examples in `docs/style-review.md`.
+
+- **ocamlformat is the formatter.** `core/.ocamlformat` pins it; run
+  `dune build @fmt --auto-promote` before committing. Never hand-format.
+- **Chain results, don't nest matches.** `open Syntax` gives `let*`/`let+`,
+  `traverse` (map, first error wins), and `parse_err file fmt` (a formatted
+  `Parse_error`).
+- **Pure core, injected edges.** Decision modules (`command_safety`,
+  `recurrence`, `resource_check`, `delegation`) take values and return values —
+  no clock, IO, or mutation. IO enters through injected functions
+  (`chat_client`, `tool_runner`, `git_hook`). `domain.ml` is the template for
+  new domain types.
+- **Prefer stdlib combinators** (`Option.value`/`fold`, `List.filter_map`) and
+  the shared helpers in `Syntax`, `Text`, and `json.ml` over spelling out a
+  match.
+- **Every public module gets an `.mli`** — the documentation lives there.
+  `ptime.mli` (a dependency) is the voice to copy.
+- **`bin/` is layered one way:** `main` (router) → `engine` (endpoints) → leaf
+  modules. A lower layer that needs something from above takes it as a
+  parameter (the scheduler is handed `fire_schedule`), never reaches up.
+- **Keep the comment density:** one short *why* comment per function. Leave
+  `OXCAML:` markers — they map the parked OxCaml migration.
+
+References (all but the last are dependencies, so their `.mli`s are readable in
+the switch's lib directory — `$(opam var lib)`, which is `/opt/opam/loom/lib/`
+on the dev box):
+
+- Bünzli's `ptime`, `cmdliner`, `fmt`, `logs` — <https://erratique.ch/software>
+- Eio — <https://github.com/ocaml-multicore/eio>
+- `containers` — <https://github.com/c-cube/ocaml-containers>
+- Jane Street style guide — <https://opensource.janestreet.com/standards/>
+
 ## Running things
 
 ```bash

@@ -219,6 +219,7 @@ test: test-core test-static test-extraction test-lowstar test-ui
 test-core:
 	tools/check-suites.sh
 	node tools/check-doc-constants.mjs
+	node tools/check-versions.mjs
 	tools/check-deps.sh
 	tools/check-basemap-target.sh
 	tools/check-dev-setup.sh
