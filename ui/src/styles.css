@@ -782,6 +782,10 @@ code {
   border-radius: 0;
 }
 
+/* MapLibre positions its controls and attribution against the map's own
+   edges, and the map is the full width of the shell -- so without this they
+   sit UNDER the drawer. They track the covered width instead, and slide with
+   it. */
 .map-wrap .maplibregl-ctrl-top-right,
 .map-wrap .maplibregl-ctrl-bottom-right {
   right: var(--right-clear, 3.5rem);
