@@ -72,7 +72,7 @@ modules:
       # enters the offline sandbox, so a pinned URL is as offline-safe as a
       # local file and is what Flathub expects.
       - type: archive
-        path: ../../dist/tessarium-0.2.1-linux-x86_64.tar.gz
+        path: ../../dist/tessarium-0.2.2-linux-x86_64.tar.gz
         strip-components: 1
       - type: file
         path: tessarium.sh

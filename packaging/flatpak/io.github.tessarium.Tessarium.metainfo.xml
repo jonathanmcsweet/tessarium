@@ -71,6 +71,11 @@
        none. See roadmap.md, Phase 7. -->
 
   <releases>
+    <release version="0.2.2" date="2026-09-12">
+      <description>
+        <p>Internal cleanup in the server. Nothing changes on screen.</p>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-09-12">
       <description>
         <p>A generated seed phrase now stays masked until you reveal it.</p>
