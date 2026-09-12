@@ -12,13 +12,9 @@ import {
 
 const STEP = 16;
 const COARSE = 64;
-const TARGET = "absolute inset-y-0 right-[var(--panel-offset,340px)] z-6 w-6 "
-  + "cursor-col-resize touch-none border-0 p-0 outline-none max-drawer:hidden";
-const HANDLE = "before:absolute before:top-1/2 before:left-1/2 before:h-8 "
-  + "before:w-1 before:-translate-x-1/2 before:-translate-y-1/2 "
-  + "before:bg-line-strong before:content-[''] "
-  + "before:transition-colors before:duration-100 "
-  + "hover:before:bg-accent focus-visible:before:bg-accent";
+const TARGET = "absolute inset-y-0 right-[var(--panel-offset,340px)] z-6 "
+  + "flex w-6 cursor-col-resize touch-none items-center justify-center "
+  + "border-0 p-0 outline-none max-drawer:hidden";
 
 export function PanelResizer(
   {
@@ -73,7 +69,7 @@ export function PanelResizer(
     <div
       {...moveProps}
       onKeyDown={onKeyDown}
-      className={`panel-resizer ${TARGET} ${HANDLE}`}
+      className={`panel-resizer ${TARGET}`}
       role="separator"
       tabIndex={0}
       aria-orientation="vertical"
@@ -82,6 +78,8 @@ export function PanelResizer(
       aria-valuemin={PANEL_MIN}
       aria-valuemax={PANEL_MAX}
       onDoubleClick={() => setPanelWidth(PANEL_DEFAULT)}
-    />
+    >
+      <span className="grab-pill" aria-hidden />
+    </div>
   );
 }

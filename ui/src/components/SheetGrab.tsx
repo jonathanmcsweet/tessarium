@@ -15,7 +15,7 @@ export function SheetGrab() {
         aria-controls="panel"
         onClick={togglePanel}
       >
-        <span className="sheet-grab-bar" aria-hidden />
+        <span className="grab-pill" aria-hidden />
       </button>
     </div>
   );

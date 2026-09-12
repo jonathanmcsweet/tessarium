@@ -1435,6 +1435,94 @@ check(
 );
 /* Back to the default, so nothing downstream inherits a resized layout. */
 await page.locator(".panel-resizer").dblclick();
+/* What you take hold of is one mark in two orientations. The drawer's edge
+   carried a square-ended bar while the sheet's top carried a rounded pill --
+   two shapes for the same affordance, and in the edgerunner palettes the
+   rounded one was the only round end on screen. Read off the page: the
+   claim is a shared rendering, not a shared class name. */
+/* The pointer is parked on the resizer by the double click above, and the
+   handle lights on hover -- so it is moved off, and its fade back is WAITED
+   for, before the resting colours are compared. Read without the wait, the
+   drawer's handle came back mid-transition, a colour that is neither the one
+   it rests at nor the one it lights to. The hover is checked on its own
+   below. */
+/* Focus too, not just the pointer: the separator was driven from the keyboard
+   above, so `:focus-visible` still holds it lit. */
+await page.mouse.move(4, 4);
+await page.locator(".panel-resizer").evaluate((el) => el.blur());
+/* Polled until it stops moving rather than awaited through the Animation API:
+   the transition has not been created yet at the moment the pointer leaves,
+   so `getAnimations()` comes back empty and resolves at once. */
+const settle = async () => {
+  let last = null;
+  for (let i = 0; i < 40; i++) {
+    const now = await page.locator(".panel-resizer > .grab-pill")
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    if (now === last) return now;
+    last = now;
+    await page.waitForTimeout(50);
+  }
+  return last;
+};
+const atRest = await settle();
+const handles = await page.evaluate(() => {
+  const read = (selector) => {
+    const el = document.querySelector(selector);
+    if (el === null) return null;
+    const style = getComputedStyle(el);
+    return {
+      width: style.width,
+      height: style.height,
+      radius: style.borderTopLeftRadius,
+      clip: style.clipPath,
+      turned: style.rotate,
+      paint: style.backgroundColor,
+    };
+  };
+  return {
+    sheet: read(".sheet-grab .grab-pill"),
+    drawer: read(".panel-resizer .grab-pill"),
+  };
+});
+check(
+  `the drawer's handle is the sheet's, turned (${handles.drawer?.turned})`,
+  handles.sheet !== null && handles.drawer !== null
+    && handles.drawer.width === handles.sheet.width
+    && handles.drawer.height === handles.sheet.height
+    && handles.drawer.clip === handles.sheet.clip
+    && handles.drawer.radius === handles.sheet.radius
+    && atRest === handles.sheet.paint
+    && handles.drawer.turned === "90deg"
+    && handles.sheet.turned === "none",
+);
+/* The edge is a 24px target holding a mark twice that long. It was a flex
+   item with nothing saying it could not shrink, so it came out the width of
+   its target and read as a stub. */
+check(
+  `and is as long as the sheet's (${handles.drawer?.width})`,
+  handles.drawer !== null
+    && Number.parseFloat(handles.drawer.width)
+      > (await page.locator(".panel-resizer").boundingBox()).width,
+);
+/* Lighting under the pointer is the only thing that says the edge is a
+   control at all: there is no label on it and no border around it. */
+await page.locator(".panel-resizer").hover();
+const lit = await settle();
+check(
+  `and it lights under the pointer, being a control with no other sign (${lit})`,
+  lit !== atRest,
+);
+await page.mouse.move(4, 4);
+await settle();
+
+/* And in a palette that cuts, neither of them has a round end. */
+check(
+  `with no round end where the palette cuts (${handles.drawer?.radius})`,
+  handles.drawer !== null
+    && Number.parseFloat(handles.drawer.radius) === 0
+    && (handles.drawer.clip.match(/^polygon\((.*)\)$/)?.[1] ?? "")
+        .split(",").length === 6,
+);
 
 /* The drawer sits OVER the map: the map's own box must not change when the
    drawer opens, shuts or is dragged. As a grid column it changed every time,
@@ -1768,7 +1856,7 @@ check(
    default palette, which is an edgerunner one. */
 check(
   "the handle is angular where the palette is",
-  await phone.locator(".sheet-grab-bar").evaluate((el) => {
+  await phone.locator(".sheet-grab .grab-pill").evaluate((el) => {
     const style = getComputedStyle(el);
     if (Number.parseFloat(style.borderTopLeftRadius) !== 0) return false;
     /* Counted by vertex rather than matched by shape: the computed value

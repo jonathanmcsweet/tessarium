@@ -586,21 +586,39 @@ code {
   padding-top: calc(var(--pill-mid) - var(--pill-h) / 2);
 }
 
-/* A pill at the top of a sheet is a gesture people already know, so the plain
-   palettes get the pill. */
-.sheet-grab-bar {
+/* What you take hold of to move the panel: the bar across the top of the
+   sheet on a phone, and the one down the drawer's edge on a desktop. One
+   shape, drawn once and turned a quarter turn for the edge, because these are
+   the same affordance in two orientations and were two different marks -- a
+   rounded pill on the sheet beside a square-ended bar on the drawer, in a
+   palette where nothing else has a round end. */
+@utility grab-pill {
+  /* Fixed in both, and it has to say so: on the drawer's edge it is a flex
+     item in a target narrower than the mark is long, and it was being shrunk
+     to the target's width before it was turned. */
+  flex: none;
   width: var(--pill-w);
   height: var(--pill-h);
   border-radius: 999px;
   background: var(--color-line-strong);
+  transition: background-color 100ms;
 }
 
-:root[data-icons="cut"] .sheet-grab {
+:root[data-icons="cut"] .app {
   --pill-w: 3rem;
   --pill-h: 0.5rem;
 }
 
-:root[data-icons="cut"] .sheet-grab-bar {
+.panel-resizer > .grab-pill {
+  rotate: 90deg;
+}
+
+.panel-resizer:hover > .grab-pill,
+.panel-resizer:focus-visible > .grab-pill {
+  background: var(--color-accent);
+}
+
+:root[data-icons="cut"] .grab-pill {
   border-radius: 0;
   clip-path: polygon(
     0.25rem 0,

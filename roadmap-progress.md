@@ -21,6 +21,38 @@ than a git log.
 
 ---
 
+### 2026-09-12 — One handle, in two orientations
+
+**Phase:** 7
+
+**What:** What you take hold of to move the panel was two different marks: a
+rounded pill across the top of the sheet on a phone, and a square-ended 4x32
+bar down the drawer's edge on a desktop, built out of Tailwind `before:`
+utilities on the separator. In the edgerunner palettes that made the sheet's
+the only round end on screen and the drawer's the only unchamfered bar.
+
+Both wear `grab-pill` now. The shape is written once, cut to the same six-sided
+mitre as every button when the palette cuts, and the drawer's is the same
+element turned a quarter turn, so one polygon serves both. It also needed
+`flex: none`: on the edge it is a flex item in a 24px target twice as narrow as
+the mark is long, and it was being shrunk to the target and read as a stub.
+
+The pill's cut sizes moved from `.sheet-grab` up to `.app`, which is what lets
+the edge see them.
+
+**Rationale:** Two marks for one affordance is two things to keep in step, and
+they were already out of step. Three checks read the rendered page: the
+drawer's handle matches the sheet's in width, height, radius, clip path and
+colour and differs only by 90 degrees; it is longer than the target holding it;
+and it lights under the pointer, which is the only thing saying the edge is a
+control at all.
+
+Shown to fail first, all three. The test had to blur the separator and poll the
+colour until it stops moving before reading the resting state: the separator is
+driven from the keyboard earlier in the suite, so `:focus-visible` still held it
+lit, and `getAnimations()` comes back empty at the moment the pointer leaves
+because the transition does not exist yet.
+
 ### 2026-09-12 — A region of the panel is a component, and a role is worn rather than aliased
 
 **Phase:** 7
