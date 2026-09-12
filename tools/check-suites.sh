@@ -25,6 +25,7 @@ suites=(
   "independent js implementation|checks passed, 0 failed"
   "server decisions|server decisions hold"
   "text cuts|text cuts hold"
+  "ledger rejections|ledger rejections hold"
   "coverage answers|coverage answers (hold|FAILED)"
   "tile set|tile set (holds|FAILED)"
   "region files|regions are files"

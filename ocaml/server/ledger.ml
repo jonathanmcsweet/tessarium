@@ -301,36 +301,39 @@ let point = function
       Ok (x, y)
   | _ -> Error "a polygon point must be [lon, lat]"
 
-let all f l =
-  List.fold_left
-    (fun acc v ->
-      let* acc = acc in
-      let* v = f v in
-      Ok (v :: acc))
-    (Ok []) l
-  |> Result.map List.rev
+let number_field name fields =
+  let* v = field name fields in
+  number v
+
+(* Map, first error wins. A fold would rebind the accumulator's result at
+   every element; this walks once and stops at the first Error. *)
+let traverse f l =
+  let rec go acc = function
+    | [] -> Ok (List.rev acc)
+    | x :: rest -> (
+        match f x with Ok v -> go (v :: acc) rest | Error _ as e -> e)
+  in
+  go [] l
 
 let region_of_json = function
   | `Assoc fields ->
-      let* min_lon = Result.bind (field "min_lon" fields) number in
-      let* min_lat = Result.bind (field "min_lat" fields) number in
-      let* max_lon = Result.bind (field "max_lon" fields) number in
-      let* max_lat = Result.bind (field "max_lat" fields) number in
+      let* min_lon = number_field "min_lon" fields in
+      let* min_lat = number_field "min_lat" fields in
+      let* max_lon = number_field "max_lon" fields in
+      let* max_lat = number_field "max_lat" fields in
       let* max_zoom =
-        match field "max_zoom" fields with
-        | Ok (`Int z) -> Ok z
-        | Ok _ -> Error "max_zoom must be an integer"
-        | Error _ as e -> e
+        let* z = field "max_zoom" fields in
+        match z with `Int z -> Ok z | _ -> Error "max_zoom must be an integer"
       in
       let* polygon =
         match List.assoc_opt "polygon" fields with
         | None -> Ok None
         | Some (`List rings) ->
             let* rings =
-              all
+              traverse
                 (function
                   | `List pts ->
-                      let* pts = all point pts in
+                      let* pts = traverse point pts in
                       Ok (Array.of_list pts)
                   | _ -> Error "a polygon ring must be a list of points")
                 rings
@@ -353,34 +356,32 @@ let region_of_json = function
 let entry_of_json = function
   | `Assoc fields ->
       let* name =
-        match field "name" fields with
-        | Ok (`String s) when valid_name s -> Ok s
-        | Ok _ -> Error "entry name is invalid"
-        | Error _ as e -> e
+        let* v = field "name" fields in
+        match v with
+        | `String s when valid_name s -> Ok s
+        | _ -> Error "entry name is invalid"
       in
       let* completed =
-        match field "completed" fields with
-        | Ok (`Int s) when s >= 0 -> Ok s
-        | Ok _ -> Error "completed must be a non-negative integer"
-        | Error _ as e -> e
+        let* v = field "completed" fields in
+        match v with
+        | `Int s when s >= 0 -> Ok s
+        | _ -> Error "completed must be a non-negative integer"
       in
       let* source =
-        match field "source" fields with
-        | Ok (`String s) -> Ok s
-        | Ok _ -> Error "source must be a string"
-        | Error _ as e -> e
+        let* v = field "source" fields in
+        match v with `String s -> Ok s | _ -> Error "source must be a string"
       in
       let* bytes =
-        match field "bytes" fields with
-        | Ok (`Int b) when b >= 0 -> Ok b
-        | Ok _ -> Error "bytes must be a non-negative integer"
-        | Error _ as e -> e
+        let* v = field "bytes" fields in
+        match v with
+        | `Int b when b >= 0 -> Ok b
+        | _ -> Error "bytes must be a non-negative integer"
       in
       let* regions =
-        match field "regions" fields with
-        | Ok (`List (_ :: _ as l)) -> all region_of_json l
-        | Ok _ -> Error "regions must be a non-empty list"
-        | Error _ as e -> e
+        let* v = field "regions" fields in
+        match v with
+        | `List (_ :: _ as l) -> traverse region_of_json l
+        | _ -> Error "regions must be a non-empty list"
       in
       Ok (make ~name ~regions ~completed ~source ~bytes)
   | _ -> Error "an entry must be an object"
@@ -390,7 +391,7 @@ let of_json = function
       match List.assoc_opt "v" fields with
       | Some (`Int v) when v = version -> (
           match List.assoc_opt "entries" fields with
-          | Some (`List l) -> all entry_of_json l
+          | Some (`List l) -> traverse entry_of_json l
           | _ -> Error "ledger has no entries list"
       )
       | Some (`Int v) ->
