@@ -47,6 +47,11 @@ These hold in all languages
 - Use the DRY principle (reducing redundancy by ensuring that every piece of knowledge has a single, authoritative representation in a system) unless the excess abstraction complicates the code by creating unnecessary layers that make it harder to understand, modify, test. 
 - Avoid undefined and null whenever possible
 
+## Chores
+- Always bump the version number for any part of the product (ex: core and dashboard) based on semantic versioning when commiting your final work to a branch.
+- Core and Dashboard do not need to have vesion parity.
+- SemVer reference: https://semver.org
+
 ## Hard rules
 
 **Work tracking lives in exactly two files.** All future work in `roadmap.md`;

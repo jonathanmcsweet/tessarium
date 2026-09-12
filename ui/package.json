@@ -2,7 +2,7 @@
   "name": "tessarium-ui",
   "private": true,
   "packageManager": "pnpm@11.24.0",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "scripts": {
     "sync-core": "rm -f public/tessarium.js && cp ../_build/default/ocaml/js/tessarium_js.bc.js public/tessarium.js && chmod +w public/tessarium.js",
