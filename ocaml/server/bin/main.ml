@@ -205,7 +205,7 @@ let tile_budget =
 
 let cmd =
   let doc = "serve the Tessarium map on localhost" in
-  let info = Cmd.info "tessarium-server" ~version:"0.2.0" ~doc in
+  let info = Cmd.info "tessarium-server" ~version:"0.2.1" ~doc in
   Cmd.v info
     Term.(
       const serve $ port $ ui $ basemap $ bundled $ api $ connect_src

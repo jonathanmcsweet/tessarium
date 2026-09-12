@@ -160,7 +160,7 @@ let min_zoom =
 
 let cmd =
   let doc = "fetch a region of a PMTiles basemap for offline use" in
-  let info = Cmd.info "tessarium-basemap" ~version:"0.2.0" ~doc in
+  let info = Cmd.info "tessarium-basemap" ~version:"0.2.1" ~doc in
   Cmd.v info
     Term.(
       const (fun url out bbox maxz minz describe ->
