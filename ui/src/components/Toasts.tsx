@@ -1,20 +1,3 @@
-/* What a toast looks like. The queue and its two timings are in ../toast.
-
-   Top centre, so it sits over neither the address panel on desktop nor a
-   thumb on mobile. The same placement the previous library was configured
-   for: the reason is the layout, not the library.
-
-   Every colour here is a token and every corner is square, which is the
-   point of drawing it ourselves: the same contrast test audits it as the
-   rest of the application, and a theme change reaches it with no rule of
-   its own. */
-
-import { X } from "lucide-react";
-/* The `UNSTABLE_` prefix says this API may change shape in a MINOR release,
-   which a caret range accepts. So react-aria-components is pinned to an
-   exact version in package.json: otherwise an unannounced rename would
-   arrive with a routine `pnpm update` and take the toasts out with it.
-   Moving the pin is a deliberate edit, checked by the end-to-end suite. */
 import {
   Button,
   UNSTABLE_Toast as Toast,
@@ -24,14 +7,13 @@ import {
 } from "react-aria-components";
 import { m } from "../paraglide/messages";
 import { type ToastBody, toasts } from "../toast";
+import { X } from "./icons";
 
 export function Toasts() {
   return (
     <ToastRegion
       queue={toasts}
       aria-label={m.a11y_toast_region()}
-      /* The region is a landmark and is only in the document while a toast
-         is up, so fixed positioning never covers anything. */
       className="fixed top-4 left-1/2 z-[60] flex -translate-x-1/2 flex-col
         gap-2 outline-none"
     >
@@ -39,13 +21,7 @@ export function Toasts() {
         {({ toast }) => (
           <Toast
             toast={toast}
-            /* Which kind, as data rather than a colour class: the suite has
-               to find an error toast, and finding it by the utility that
-               paints it would break the next time the painting changed. */
             data-kind={toast.content.kind}
-            /* `app-toast` is this application's own name for a toast. The
-               end-to-end suite reads it, so its assertions never name a
-               library -- and survived this very move. */
             className="app-toast flex w-[min(28rem,calc(100vw-2rem))]
               items-start gap-3 border border-line-strong bg-card px-4 py-3
               text-sm leading-normal shadow-card"
@@ -53,23 +29,14 @@ export function Toasts() {
             <ToastContent className="min-w-0 flex-1">
               <span
                 className={`app-toast-message block break-words ${
-                  /* An error is the accent as TEXT, the token that holds
-                     4.5:1 in every palette; the non-text accent does not,
-                     and this is 13px. A success is ordinary ink -- the tick
-                     that raised it already said which it was. */
                   toast.content.kind === "error"
                     ? "font-semibold text-accent-text"
-                    : "text-ink"}`}
+                    : "text-ink"
+                }`}
               >
                 {toast.content.message}
               </span>
             </ToastContent>
-            {
-              /* Not the shared IconButton: that carries a tooltip, and a
-                 tooltip inside a message that is itself transient is a
-                 second transient thing to chase. The label is still
-                 required, translated and announced. */
-            }
             <Button
               slot="close"
               aria-label={m.a11y_dismiss_toast()}
@@ -77,10 +44,6 @@ export function Toasts() {
                 cursor-pointer items-center justify-center border-0 bg-transparent
                 text-ink-soft hover:text-ink"
             >
-              {
-                /* The shared icon set, at the size the other dismiss controls
-                  use -- see Banner and MapProgress, which close the same way. */
-              }
               <X size={16} aria-hidden />
             </Button>
           </Toast>

@@ -18,7 +18,7 @@ An FE1 generalised Feistel (Black–Rogaway) over Z_a × Z_b:
 | Rounds | 16 (even, by proof obligation) | `fstar/Tessarium.Feistel.fst` |
 | Round function | keyed BLAKE2s-256, full PRF per round | injected, `ocaml/lib`; vector-pinned machine-integer port in `fstar/low` |
 | Tweak | the fixed string `tessarium-grid-3` | not an input anywhere |
-| Key | 32 bytes: Argon2id(t=3, m=64 MiB, p=1) over the NFKD phrase, salt `tessarium-kdf-4` ++ passphrase | `ocaml/lib/tessarium.ml`, `ocaml/argon2` |
+| Key | 32 bytes: Argon2id(t=3, m=64 MiB, p=1) over the NFKD phrase, salt `tessarium-kdf-4` | `ocaml/lib/tessarium.ml`, `ocaml/argon2` |
 
 The split is 2:1 — one bit of imbalance, which the FE1 analysis tolerates.
 The product is exactly the address space, so the permutation is exact: no

@@ -1,15 +1,3 @@
-/* Turning "which tiles does this server have" into something drawable.
-
-   The server answers a viewport with one character per tile, north-west
-   first, running west to east and then south. What the map needs is the
-   opposite shape: as few polygons as possible covering the tiles that are
-   MISSING, because those are what gets greyed out and outlined.
-
-   Kept apart from React and MapLibre so it can be tested as arithmetic --
-   the merge is the kind of loop that looks right and is off by one, and
-   the projection has to agree exactly with the server's tile grid or the
-   grey lands next to the blank rather than on it. */
-
 export type Coverage = {
   zoom: number;
   x: number;

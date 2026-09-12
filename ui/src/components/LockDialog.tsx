@@ -1,16 +1,3 @@
-/* The lock button, and the question it asks first.
-
-   Locking forgets the derived key, and getting back in means typing the 24
-   words again. The application cannot show them: it wipes the phrase the
-   moment the key is derived and keeps only the key, in a worker. So this
-   says so at the one moment it matters, which is the press.
-
-   A refresh does the same thing and cannot be intercepted politely -- the
-   browser's own "leave site?" prompt takes no wording -- so the panel
-   carries a standing note as well. This dialog is for the deliberate
-   case. */
-
-import { Lock } from "lucide-react";
 import {
   Button,
   Dialog,
@@ -19,12 +6,15 @@ import {
   Modal,
   ModalOverlay,
 } from "react-aria-components";
+import { core } from "../core/queries";
 import { m } from "../paraglide/messages";
+import { CopyButton } from "./CopyButton";
+import { Lock } from "./icons";
 
 export function LockDialog({ onConfirm }: { onConfirm: () => void; }) {
   return (
     <DialogTrigger>
-      <Button className="lock btn btn-quiet gap-1.5 px-3 text-ink-soft">
+      <Button className="lock btn btn-quiet gap-1.5 px-3">
         <Lock size={15} aria-hidden="true" />
         {m.panel_lock()}
       </Button>
@@ -49,14 +39,17 @@ export function LockDialog({ onConfirm }: { onConfirm: () => void; }) {
                   <strong>{m.lock_warning_title()}</strong>{" "}
                   {m.lock_warning_body()}
                 </p>
-                {
-                  /* Cancel first in the DOM, so Tab reaches it first and a
-                    screen reader reads it first -- and first on screen too,
-                    with the destructive button last, where a pointer expects
-                    the action it came to take. `flex-row-reverse` does the
-                    opposite: it puts the FIRST child on the right, which put
-                    Cancel under the thumb. */
-                }
+                <div className="phrase-copy mb-3 flex items-center gap-2 text-sm">
+                  <CopyButton
+                    className="lock-phrase-copy"
+                    label={m.panel_phrase_copy()}
+                    copiedLabel={m.panel_phrase_copied()}
+                    text={() =>
+                      core().heldPhrase().then((held) => held.mnemonic)}
+                    onFailure={m.panel_phrase_copy_failed()}
+                  />
+                  <span>{m.panel_phrase_copy()}</span>
+                </div>
                 <div className="modal-actions mt-4 flex justify-end gap-2">
                   <Button
                     className="btn btn-quiet border-line-strong"
@@ -65,7 +58,7 @@ export function LockDialog({ onConfirm }: { onConfirm: () => void; }) {
                     {m.lock_cancel()}
                   </Button>
                   <Button
-                    className="danger btn btn-danger"
+                    className="danger btn btn-primary"
                     onPress={() => {
                       close();
                       onConfirm();

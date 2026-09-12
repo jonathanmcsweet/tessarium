@@ -3,13 +3,7 @@
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import { useQueryClient } from "@tanstack/react-query";
 import maplibregl from "maplibre-gl";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchCoverage,
   isRunning,
@@ -45,23 +39,18 @@ declare global {
     __tessarium_map?: maplibregl.Map;
   }
 }
+type Scheme = ResolvedTheme;
 
-/* Below this the squares are smaller than a fingertip and the overlay is
-   noise. A 3 m cell is about 5 px at z18 and 20 px at z20. */
+/* Below this the squares are smaller than a fingertip. A 3 m cell is about 5 px at z18 and 20 px at z20. */
 const GRID_MIN_ZOOM = 18;
 
-/* The deepest tile the basemap is cut to, and the deepest zoom the server
-   answers a coverage query about. Past it the map overzooms what it has
-   rather than asking for more. */
+/* Past this the map overzooms */
 const MAX_TILE_ZOOM = 15;
 
-/* The map under the map. Its depth comes from the server -- see
-   /world.json -- because it is a fact about which archives are on disk. */
+/* The map under the map. Its depth comes from the server -- see /world.json*/
 const FLOOR_SOURCE = "protomaps-floor";
 
-/* How long a pan is left to settle before the browse cache fetches what is
-   missing. The coverage note has to outwait it: saying "not downloaded"
-   about tiles already on their way is worse than a moment's silence. */
+/* How long a pan is left to settle before the browse cache fetches what is missing*/
 const BROWSE_SETTLE_MS = 1200;
 
 /* A ceiling on cells per viewport. Reached only when the viewport is unusually
@@ -99,36 +88,9 @@ const cssToken = (name: string): string => {
   return value;
 };
 
-/* Whether a palette puts the map on a pale ground. The flavour, the sprite
-   sheet and the overlay all turn on this, so a sixth palette answers one
-   question instead of being added to three lists.
-
-   The answer comes from the palette itself (--map-light-ground in
-   styles.css), not from a list of scheme names here: the stylesheet needs
-   the same classification for MapLibre's control icons. Two lists for one
-   fact is one list a new palette silently falls off, which is how those
-   controls stayed light through the dark theme's first release. */
 const isLight = () => cssToken("--map-light-ground") === "1";
-
-/* Which pre-drawn sprite sheet the style asks for.
-
-   Map icons -- route-number shields most visibly -- are baked images, not
-   flavour colours, so no palette token reaches them. Protomaps ships a
-   sheet per flavour and we carry all five. Naming `light` for every scheme
-   put white motorway shields on a black map.
-
-   Low light takes `dark`, not `black`: their shields are the same near-black
-   badge, but `black` is a reduced sheet -- points of interest are drawn for
-   light and dark only -- so it would trade white shields for 35 missing
-   icons. A red sheet is a basemap build step, on the roadmap. */
 const spriteSheet = () => (isLight() ? "light" : "dark");
 
-/* The style, rebuilt whenever the archive on disk is replaced. Tiles come
-   through the server's /tiles endpoint rather than from the archive file:
-   the server knows about BOTH archives, the browse cache and the main one,
-   and a missing tile is a quiet 204 rather than a logged error. The version
-   goes into the tile URL so MapLibre's per-URL cache cannot keep old tiles
-   over new bytes. */
 const buildStyle = (
   version: number,
   scheme: Scheme,
@@ -145,10 +107,7 @@ const buildStyle = (
     protomaps: {
       type: "vector",
       /* TileJSON from the server, never hardcoded numbers: the zoom range
-         and bounds come from the archive headers, and the maxzoom is
-         load-bearing -- overzoom starts from the source's stated depth, so
-         a wrong 15 over a world-at-z6 archive renders blank at street
-         zoom over data the archive holds. */
+         and bounds come from the archive headers*/
       url: `/tiles.json?v=${version}`,
       attribution:
         '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
@@ -185,35 +144,6 @@ const buildStyle = (
   layers: basemapLayers(scheme),
 });
 
-/* The floor's layers, then the detail's, then the app's own on top.
-
-   The floor's layers are re-ided: the generator names layers after what
-   they draw, so all 71 would collide, and a style with two layers of one
-   name is rejected. The background is dropped from the floor set because
-   the detail set already carries it.
-
-   The floor's symbol layers are KEPT, even though labels are what would
-   double. Where nothing is downloaded, the city name is the most useful
-   thing on screen.
-
-   They do not double where detail exists, and the reason is ORDER rather
-   than collision: the detail set opens with `earth`, an opaque fill, which
-   paints over the whole floor stack wherever the detail tile has data.
-   Checked on screen at London z11 and z16. So the ordering is
-   load-bearing -- move a floor layer above the detail's ground and the
-   duplication becomes real. */
-/* The low-light map: "black" with warmth added, key by key.
-
-   Two moves. The ROADS -- black's near-neutral #14/#1f/#29 greys -- take a
-   small red lift, so a motorway is a warm line rather than a grey one. The
-   LABELS, the brightest marks on the map, move from grey to a soft red:
-   black's #999 city name would glow white-blue in a dark room, which is
-   what this theme exists to prevent. Halos and the ground are already
-   dark.
-
-   Route-number shields are sprite images and cannot be reached from here;
-   `spriteSheet` above asks for the dark sheet instead. Drawing a RED sheet
-   is a basemap build step, on the roadmap. */
 const NIGHT_ROADS = {
   tunnel_minor: "#2b2020",
   tunnel_link: "#2b2020",
@@ -252,44 +182,20 @@ const basemapLayers = (
   scheme: Scheme,
 ): maplibregl.LayerSpecification[] => {
   const lang = getLocale().split("-")[0] ?? "en";
-  /* Protomaps ships a flavour per scheme, so a dark application need not
-     sit beside a white map. Same generator and same layer ids either way,
-     which is why swapping is a style rebuild and not a special case
-     anywhere else. There is no red flavour, so low light starts from
-     "black" -- the darkest, least chromatic set -- and is tinted above. */
   const flavor = scheme === "night"
     ? nightFlavor(namedFlavor("black"))
     : namedFlavor(isLight() ? "light" : "dark");
+
   const floor = layers(FLOOR_SOURCE, flavor, { lang })
     .filter((layer) => layer.type !== "background")
     .map((layer) => ({ ...layer, id: `${FLOOR_SOURCE}-${layer.id}` }));
+
   const detail = layers("protomaps", flavor, { lang });
-  /* The ground goes under BOTH, so it is pulled out of the detail set. Left
-     where the generator put it, it sat above the floor's layers and painted
-     over every one of them: the screen stayed as blank as before while the
-     floor's tiles loaded underneath. */
   const ground = detail.filter((layer) => layer.type === "background");
   const over = detail.filter((layer) => layer.type !== "background");
   return [...ground, ...floor, ...over];
 };
 
-/* Which palette is on screen. The grid and the coverage wash are drawn by
-   this application rather than by the basemap, so they do not come with the
-   flavour and have to be told which ground they land on: dark values are
-   lighter than the map, light ones darker. Both exist to be read against
-   the cartography, not to be a particular colour. */
-type Scheme = ResolvedTheme;
-
-/* The overlay's colours, read from the palette the document is wearing.
-
-   styles.css is their only home (--color-map-* per palette). They used to
-   be a Record over the five schemes here as well, and the selection colour
-   really was a copy: it is the accent, and the two had to be edited in
-   step. MapLibre needs literal colour strings rather than var() references,
-   which is why this is a read and not a stylesheet rule.
-
-   Called at layer-add time, never cached: applyTheme sets the attribute
-   synchronously, so a style rebuild always reads the palette on screen. */
 const overlayColors = () => ({
   blank: cssToken("--color-map-blank"),
   blankOpacity: Number(cssToken("--map-blank-opacity")),
@@ -492,20 +398,24 @@ const cellCenter = (cell: {
   },
 });
 
-/* A note over the map: transparent to the pointer, wide enough for a
-   sentence in any of six languages. bg-card, not white -- a literal white
-   here shipped as a white pill with near-white text through the dark
-   theme's whole first release, invisible to the token audit. */
-const NOTE = "map-note pointer-events-none max-w-full border border-line "
-  + "bg-card/95 px-4 py-1.5 text-center text-sm shadow-card";
+/* MapLibre decides by the map's width whether the attribution needs its info
+   toggle -- and then opens it anyway. On a phone that is 194px of credit lying
+   across the bottom of the map, beside everything else the map has to say
+   there; collapsed it is a 24px button, and a tap still shows the line.
 
-/* A note with something to do lays its text and button in a row, wrapping
-   on a narrow screen rather than pushing the button off the map. Only the
-   button takes the pointer back: on a phone this sits where a thumb starts
-   a pan, and a pill that swallowed that drag made the map feel broken. */
-const NOTE_ACTION =
-  "action flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 "
-  + "py-1.5 pr-2 pl-4 text-left";
+   Only on the maps MapLibre itself called narrow, so a desktop map keeps the
+   credit in full and nothing here repeats a width the library already knows.
+
+   The class goes with the attribute. MapLibre syncs `maplibregl-compact-show`
+   from the summary's own click rather than from the `toggle` event, so
+   clearing `open` alone leaves it set -- and the first tap then CLOSES a
+   panel that is already shut, which reads as a button that does nothing. */
+const shutCredit = (map: maplibregl.Map) => {
+  const credit = map.getContainer().querySelector(".maplibregl-ctrl-attrib");
+  if (!credit?.classList.contains("maplibregl-compact")) return;
+  credit.removeAttribute("open");
+  credit.classList.remove("maplibregl-compact-show");
+};
 
 export function MapView() {
   const container = useRef<HTMLDivElement>(null);
@@ -517,11 +427,10 @@ export function MapView() {
      not report done-versus-total tiles in any stable way, so a percentage
      would be theatre. */
   const [tilesLoading, setTilesLoading] = useState(false);
-  const [truncated, setTruncated] = useState(false);
-  /* Whether the MIDDLE of the view has no tile at the zoom being drawn: the
-     note is about where the user is looking, not about a corner. */
-  const [blank, setBlank] = useState(false);
-  const [zoom, setZoom] = useState(0);
+  /* What the map has to say about the view, written to the store and said by
+     the panel. `blank` is whether the MIDDLE of the view has no tile at the
+     zoom being drawn -- what the reader is looking at, not a corner of it. */
+  const noteView = useAppStore((s) => s.noteView);
   /* Bumped after every style swap so the effects that draw onto the style
      (grid, selection) know their sources were just recreated empty. */
   const [styleEpoch, setStyleEpoch] = useState(0);
@@ -546,7 +455,6 @@ export function MapView() {
   const setBasemapFailed = useAppStore((s) => s.setBasemapFailed);
   const clearBasemapFailed = useAppStore((s) => s.clearBasemapFailed);
   const downloadOpen = useAppStore((s) => s.downloadOpen);
-  const openDownload = useAppStore((s) => s.openDownload);
   const closeDownload = useAppStore((s) => s.closeDownload);
   const endImport = useAppStore((s) => s.endImport);
 
@@ -561,7 +469,11 @@ export function MapView() {
       zoom: 19,
       maxZoom: 23,
       hash: false,
-      attributionControl: { compact: true },
+      /* No `compact` either way: MapLibre decides from the map's own width
+         whether the credit needs its toggle, and that decision is the one
+         shutCredit reads. Asking for compact everywhere would put a button
+         on a desktop map with room for the whole line. */
+      attributionControl: {},
       /* Arrow keys pan, +/- zoom. On by default; named here because it is
          load-bearing for keyboard access rather than incidental. */
       keyboard: true,
@@ -582,8 +494,8 @@ export function MapView() {
 
     map.on("load", () => {
       addOverlay(map);
-      setZoom(map.getZoom());
       setReady(true);
+      shutCredit(map);
     });
 
     return () => {
@@ -657,13 +569,13 @@ export function MapView() {
        worker. The older answer lands second, paints its cells over a
        viewport the user has left, and drags setTruncated back with it. */
     const mine = ++gridSeq.current;
-    setZoom(map.getZoom());
+    noteView({ belowGrid: map.getZoom() < GRID_MIN_ZOOM });
 
     const source = map.getSource("grid") as
       | maplibregl.GeoJSONSource
       | undefined;
     if (map.getZoom() < GRID_MIN_ZOOM) {
-      setTruncated(false);
+      noteView({ truncated: false });
       source?.setData(emptyGeoJson);
       return;
     }
@@ -686,7 +598,7 @@ export function MapView() {
     ).catch(() => null);
     if (!g || mine !== gridSeq.current) return;
 
-    setTruncated(g.truncated);
+    noteView({ truncated: g.truncated });
 
     const features: GeoJSON.Feature[] = new Array(g.count);
     for (let i = 0; i < g.count; i++) {
@@ -698,7 +610,7 @@ export function MapView() {
       });
     }
     source?.setData({ type: "FeatureCollection", features });
-  }, [client]);
+  }, [client, noteView]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: styleEpoch is deliberate -- a style swap recreates the grid source empty, so the effect must re-run to refill it
   useEffect(() => {
@@ -784,8 +696,8 @@ export function MapView() {
       type: "FeatureCollection",
       features: blankEdges(answer, answer.zoom),
     });
-    setBlank(centreIsBlank(answer));
-  }, [client]);
+    noteView({ blank: centreIsBlank(answer) });
+  }, [client, noteView]);
 
   /* Nothing to say when there is no archive at all -- the missing-basemap
      banner already says it, and a grey wash under it would be a second
@@ -800,7 +712,7 @@ export function MapView() {
     const map = mapRef.current;
     if (!map || !ready) return;
     if (coverageOff) {
-      setBlank(false);
+      noteView({ blank: false });
       return;
     }
     /* Browsing fetches the viewport's missing tiles 1.2 s after a pan
@@ -1218,41 +1130,6 @@ export function MapView() {
     void selectAt(flyTo.lat, flyTo.lon);
   }, [flyTo, ready, selectAt]);
 
-  /* The note can go away on its own -- browsed tiles land, a fly-to settles
-     -- and if its button held the keyboard, focus would drop to <body>,
-     where arrow keys and Enter do nothing. It is handed back to the map,
-     which is what the note was covering.
-
-     Whether focus was inside is RECORDED while the note is alive, not read
-     when it goes: by the time an effect's cleanup runs React has already
-     mutated the DOM and the answer is always "no". Focus leaving to nowhere
-     (a null relatedTarget, which is what removing a focused element looks
-     like) is not the user moving on, so it does not clear the flag. */
-  const notesRef = useRef<HTMLDivElement>(null);
-  const noteHeldFocus = useRef(false);
-  const noteShown = blank && !downloadOpen;
-  useLayoutEffect(() => {
-    const node = notesRef.current;
-    if (!noteShown || !node) return;
-    const took = () => {
-      noteHeldFocus.current = true;
-    };
-    const gave = (event: FocusEvent) => {
-      const next = event.relatedTarget as Node | null;
-      if (next && !node.contains(next)) noteHeldFocus.current = false;
-    };
-    node.addEventListener("focusin", took);
-    node.addEventListener("focusout", gave);
-    return () => {
-      node.removeEventListener("focusin", took);
-      node.removeEventListener("focusout", gave);
-      if (noteHeldFocus.current) {
-        noteHeldFocus.current = false;
-        mapRef.current?.getCanvas().focus();
-      }
-    };
-  }, [noteShown]);
-
   return (
     <div className="map-wrap">
       <div ref={container} className="map" />
@@ -1294,7 +1171,7 @@ export function MapView() {
         /* Search sits over the map rather than in the panel: it moves the
           map, and the panel is about the square already chosen. */
       }
-      <div className="map-search absolute top-2.5 left-2.5 z-2 w-[min(22rem,calc(100%-5.5rem))]">
+      <div className="map-search absolute top-2.5 left-2.5 z-2 w-[min(22rem,calc(100%-var(--right-clear,3.5rem)-3.75rem))]">
         <PlaceSearch
           center={() => {
             const c = mapRef.current?.getCenter();
@@ -1313,60 +1190,6 @@ export function MapView() {
              place to look at, an address is a square to be told about. */
           onPickAddress={(lon, lat) => requestFlyTo(lat, lon)}
         />
-      </div>
-      {
-        /* One column, because these are not mutually exclusive: a view can
-          be outside coverage AND too far out for the grid, and two notes
-          pinned to the same corner would sit on top of each other. */
-      }
-      {
-        /* Centred on the uncovered part of the map, not on the map, or a
-          note drifts under the drawer as it widens. The container spans the
-          map and only the notes inside it take the pointer, or it would
-          swallow clicks meant for the map itself. */
-      }
-      <div
-        className="map-notes pointer-events-none absolute bottom-7 left-[calc((100%-var(--panel-offset,340px))/2)] flex w-max max-w-[80%] -translate-x-1/2 flex-col-reverse items-center gap-2"
-        ref={notesRef}
-      >
-        {
-          /* Hidden while the card is open: the note exists to open that
-            card, and leaving it on top puts a pill over the controls and
-            wins the hit test. */
-        }
-        {blank && !downloadOpen && (
-          <div className={`${NOTE} ${NOTE_ACTION}`} role="status">
-            {
-              /* One message, because only one fact is honest here: the
-                detail is not downloaded. What the floor draws underneath
-                ranges from a full country map to one stretched polygon, so
-                "this is the wider map" is a promise the app cannot keep,
-                and "no map here" contradicts a map the user can see. */
-            }
-            <span>{m.map_coverage_gap()}</span>
-            <button
-              type="button"
-              className="note-action btn pointer-events-auto px-3.5 text-sm"
-              onClick={() =>
-                openDownload()}
-            >
-              {m.map_coverage_download()}
-            </button>
-          </div>
-        )}
-        {zoom < GRID_MIN_ZOOM && (
-          <div className={NOTE} role="status">
-            {m.map_zoom_for_grid()}
-          </div>
-        )}
-        {truncated && (
-          <div
-            className={`${NOTE} warn border-notice-soft-line bg-notice-soft text-warn`}
-            role="status"
-          >
-            {m.map_too_many_squares()}
-          </div>
-        )}
       </div>
     </div>
   );

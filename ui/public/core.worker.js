@@ -21,6 +21,15 @@ const core = self.tessarium;
    walks away should be able to make the tab useless without closing it. */
 let key = null;
 
+/* And the words it was derived from, kept for exactly one purpose: handing
+   them back to someone who asks to copy them. They used to be wiped the
+   moment the key existed. Keeping them is a deliberate trade, and this is the
+   place to make it -- the page never holds them, cannot read them except by
+   asking, and `lock` forgets them with the key. Nothing writes them anywhere:
+   no storage, no URL, no request. A reload is still a fresh worker with
+   nothing in it. */
+let phrase = null;
+
 /* Two kinds of failure, kept apart deliberately.
 
    A handler THROWS when the request could not be answered -- locked,
@@ -227,21 +236,21 @@ const refusalOf = (r) =>
     message: String(r.message),
   };
 
-async function deriveKey(mnemonic, passphrase) {
-  const inputs = core.kdfInputs(mnemonic, passphrase);
-  /* A refusal from the core, carrying its own code: a bad phrase or an
-     over-long passphrase. Rethrown rather than reworded -- the core is where
-     the rule lives, so it is where the name of the failure belongs. */
+async function deriveKey(mnemonic) {
+  const inputs = core.kdfInputs(mnemonic);
+  /* A refusal from the core, carrying its own code -- a bad phrase. Rethrown
+     rather than reworded: the core is where the rule lives, so it is where
+     the name of the failure belongs. */
   const refused = refusalOf(inputs.error);
   if (refused !== null) {
     throw new Refused(refused.code, refused.message, refused.arg);
   }
   const password = bytesOfHex(inputs.password);
   const salt = bytesOfHex(inputs.salt);
-  /* The core already bounds both inputs (max_passphrase_bytes), so these
-     can only trip on a drift between its limit and the glue's buffers --
-     checked BEFORE anything is written, because the glue's own check runs
-     after the write and cannot protect the memory around the buffers. */
+  /* Neither input carries anything the user can lengthen: 24 BIP-39 words
+     cannot exceed 215 bytes and the salt is a fixed string. Checked anyway,
+     BEFORE anything is written, because the glue's own check runs after the
+     write and cannot protect the memory around the buffers. */
   if (password.length > 1024 || salt.length > 1024) {
     throw broken("KDF input exceeds the wasm buffers");
   }
@@ -290,7 +299,7 @@ const ops = {
     return { mnemonic: core.mnemonicOfEntropy(hex) };
   },
 
-  async unlock({ mnemonic, passphrase }) {
+  async unlock({ mnemonic }) {
     const invalid = refusalOf(core.validateMnemonic(mnemonic));
     if (invalid !== null) return { ok: false, error: invalid };
     /* The wasm KDF would run over plain HTTP -- unlike the old WebCrypto
@@ -309,10 +318,10 @@ const ops = {
         },
       };
     }
-    /* A refused derivation -- over-long passphrase, wasm trouble -- is a
-       result to display like a failed checksum, not a rejected promise. */
+    /* A refused derivation -- wasm trouble -- is a result to display like a
+       failed checksum, not a rejected promise. */
     try {
-      key = await deriveKey(mnemonic, passphrase ?? "");
+      key = await deriveKey(mnemonic);
     } catch (e) {
       if (e instanceof Refused) {
         return {
@@ -322,11 +331,20 @@ const ops = {
       }
       throw e;
     }
+    phrase = mnemonic;
     return { ok: true, error: null };
+  },
+
+  /* The words back out, for the copy control in the panel and the one in the
+     lock dialog. Null rather than a refusal when there is nothing held: the
+     caller is a button that should go quiet, not an error. */
+  heldPhrase() {
+    return { mnemonic: phrase };
   },
 
   lock() {
     key = null;
+    phrase = null;
     return { ok: true };
   },
 

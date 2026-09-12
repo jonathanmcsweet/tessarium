@@ -51,7 +51,7 @@ const ROUNDS = 16;
    half-rename in the one file whose whole job is to disagree. */
 const TWEAK = Buffer.from("tessarium-grid-3");
 const DOMAIN_PREFIX = Buffer.from("tessarium/v3/fe1");
-const KDF_SALT_PREFIX = "tessarium-kdf-4";
+const KDF_SALT = "tessarium-kdf-4";
 
 // ------------------------------------------------------------------- grid
 
@@ -146,18 +146,18 @@ export function decrypt(key, tweak, y) {
 
 // ------------------------------------------------------------ key + codec
 
-export function deriveKey(mnemonic, passphrase = "") {
+export function deriveKey(mnemonic) {
   const norm = mnemonic.normalize("NFKD").trim().toLowerCase();
   const words = norm.split(/\s+/);
   if (words.length !== 24) throw new Error("24-word mnemonic required");
   // Single-stage Argon2id since kdf-3 (t=3, m=64 MiB, p=1 -- the same three
   // numbers the OCaml stubs and the wasm glue bake; a drift between the four
-  // spellings changes every key and the differential rings). The passphrase
-  // rides in the salt behind the version prefix, NFKD-normalised, verbatim
-  // otherwise.
+  // spellings changes every key and the differential rings). The salt is the
+  // version string alone: it carried a passphrase until that came out of the
+  // app, and the empty one concatenated to nothing, so no key moved.
   return Buffer.from(argon2id(
     enc.encode(words.join(" ").normalize("NFKD")),
-    enc.encode(KDF_SALT_PREFIX + passphrase.normalize("NFKD")),
+    enc.encode(KDF_SALT),
     { t: 3, m: 65536, p: 1, dkLen: 32 },
   ));
 }

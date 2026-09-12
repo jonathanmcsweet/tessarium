@@ -13,10 +13,10 @@ cd "$root"
 
 dune build ocaml/tools/differential.exe
 
-run() { # seed mnemonic [passphrase]
-  echo "== seed $1 ${3:+(passphrase set) }-- ${2:0:30}..."
+run() { # seed mnemonic
+  echo "== seed $1 -- ${2:0:30}..."
   ./_build/default/ocaml/tools/differential.exe --count 2000000 --seed "$1" \
-    --mnemonic "$2" ${3:+--passphrase "$3"} 2> /dev/null \
+    --mnemonic "$2" 2> /dev/null \
     | node js/differential.mjs -
 }
 
@@ -29,5 +29,4 @@ run 1001 "$A"
 run 1002 "$B"
 run 1003 "$C"
 run 1004 "$D"
-run 1005 "$A" "TREZOR"
-echo "deep sweep complete: 5 x 2,012,298 points, all agreeing"
+echo "deep sweep complete: 4 x 2,012,298 points, all agreeing"

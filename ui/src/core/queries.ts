@@ -50,8 +50,7 @@ export function useValidatePhrase(phrase: string) {
 
 export function useUnlock() {
   return useMutation({
-    mutationFn: (input: { mnemonic: string; passphrase: string; }) =>
-      core().unlock(input.mnemonic, input.passphrase),
+    mutationFn: (input: { mnemonic: string; }) => core().unlock(input.mnemonic),
   });
 }
 

@@ -30,7 +30,7 @@ Most of the address math here isn't just tested. It's mathematically
 proven, using a formal verification programming language that checks every step of the logic rather than trusting that a programmer got it right. That buys three guarantees:
 
 1. Every point on Earth maps to exactly one square and no other
-2. Converting an address back to a location always lands exactly where it started
+2. Converting an address back always lands in the square it originally came from
 3. The scrambling step that makes your map private never gives two different squares the same address, and never leaves a square with no address at all.
 
 ## What's not proven?
@@ -50,22 +50,73 @@ proven one on millions of test points, and they agree exactly, every time.
 The exact numbers and the reasoning behind them are in
 [docs/fe1-security.md](docs/fe1-security.md).
 
-## Run it
+# Building Tessarium
+
+## Prerequisites
+
+**opam** — the OCaml package manager.
+
+→ https://opam.ocaml.org/doc/Install.html
+
+## Everything else
+
+A more detailed install guide will be coming soon
 
 ```bash
-tools/setup.sh               # installs everything needed, into your home folder
-eval "$(make env)"           # makes it all available in this terminal
-make ui                      # build the web app
-make build                   # bundle it into the server program
-tools/fetch-basemap.sh       # grabs a sample map (central London) plus a world overview
-make run                     # starts the app at http://127.0.0.1:7373 and opens your browser
+tools/setup.sh          # installs what's missing if you're running debian
+tools/setup.sh --check  # report only, change nothing
+eval "$(make env)"      # put it all on PATH
+```
+## Then build
+
+```bash
+tools/bootstrap.sh      # node modules, basemap tiles, first compile
+make build              # native binaries and the browser bundle
+make ui                 # the web UI
+make run                # serve on 127.0.0.1:7373
 ```
 
+## Test dependencies
+```bash
+cd ui && pnpm exec playwright install chromium
+make test-ui
+```
+
+## Verify
+
+```bash
+make verify    # prove every F* module (zero admits enforced)
+make test      # all five test suites
+```
+
+## Run it
+
+### Quick start
+```bash
+pnpm run dev                 # the whole app at http://localhost:7380
+```
+
+
+```bash
+eval "$(make env)"           # puts the toolchain on this terminal's PATH, which `make` needs
+pnpm run build               # build the web app and bundle it into the server program
+make run                     # starts the app at http://127.0.0.1:7373 and opens your browser
+tools/fetch-basemap.sh       # grabs a sample map (central London) on top of the world overview
+```
+
+Downloaded maps do not live in the checkout. They go to
+`~/.local/share/tessarium/basemap` — the same store an installed copy uses, so
+a re-clone or a `git clean` cannot take hundreds of megabytes of maps with it,
+and development and an installed app read one set. `TESSARIUM_BASEMAP` points
+somewhere else. A checkout that still holds a `basemap/` directory has it moved
+there on the next run, rather than fetched again.
+
 `make package` builds a release you can hand to someone else: two small
-programs and a starter map, nothing else to install. It ships with a
-low-resolution map of the whole world built in, so it works offline from the
-first launch. Detail for wherever you actually are is downloaded
-afterward, inside the app.
+programs and a map of the whole world, nothing else to install. The world map
+is built in at the depth this app ever draws it -- towns and roads everywhere,
+about 43 MB -- so it works offline from the first launch and there is nothing
+to download for the planet. Street-level detail for wherever you actually are
+is downloaded afterward, inside the app.
 `tools/fetch-basemap.sh -b min_lon,min_lat,max_lon,max_lat -z 15` grabs
 detail for anywhere yourself, pulling only the area you asked for rather
 than the whole planet's map data.

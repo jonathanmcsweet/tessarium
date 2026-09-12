@@ -27,8 +27,22 @@ let parse_bbox s =
       | _ -> Error "bbox values must be numbers")
   | _ -> Error "bbox must have four comma-separated values"
 
-let run source_desc url output bbox max_zoom min_zoom =
-  let* min_lon, min_lat, max_lon, max_lat = parse_bbox bbox in
+let run source_desc url output bbox max_zoom min_zoom describe =
+  (* --describe reads the header and stops, so it needs no box. Packaging asks
+     this: an archive can only be extracted as deep as it goes, so a source
+     shallower than the depth a package ships would be clipped to its own
+     ceiling and shipped silently. The header is the only honest answer, and
+     it is read here rather than decoded from byte offsets in a shell script,
+     which would be this layout's second home. *)
+  let* box =
+    match (describe, bbox) with
+    | true, _ -> Ok None
+    | false, None ->
+        Error "--bbox is required, unless you only want --describe"
+    | false, Some given ->
+        let* parsed = parse_bbox given in
+        Ok (Some parsed)
+  in
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
   let fs = Eio.Stdenv.fs env in
@@ -45,6 +59,12 @@ let run source_desc url output bbox max_zoom min_zoom =
     h.Pmtiles.Header.max_zoom h.Pmtiles.Header.addressed_tiles
     (human h.Pmtiles.Header.data_length);
 
+  match box with
+  | None -> Ok ()
+  | Some (min_lon, min_lat, max_lon, max_lat) ->
+  (* Clipped to what the source holds: asking for zoom 6 of a zoom 4 archive
+     yields zoom 4, quietly. --describe above is how a caller who cares finds
+     that out first. *)
   let max_zoom = min max_zoom h.Pmtiles.Header.max_zoom in
   let min_zoom = max min_zoom h.Pmtiles.Header.min_zoom in
 
@@ -114,8 +134,17 @@ let output =
   Arg.(value & opt string "basemap/map.pmtiles" & info [ "o"; "out" ] ~docv:"FILE" ~doc)
 
 let bbox =
-  let doc = "Region as min_lon,min_lat,max_lon,max_lat." in
-  Arg.(required & opt (some string) None & info [ "bbox" ] ~docv:"BBOX" ~doc)
+  let doc =
+    "Region as min_lon,min_lat,max_lon,max_lat. Required unless --describe."
+  in
+  Arg.(value & opt (some string) None & info [ "bbox" ] ~docv:"BBOX" ~doc)
+
+let describe =
+  let doc =
+    "Print the archive's zoom range, tile count and size, then stop. Nothing \
+     is fetched and nothing is written."
+  in
+  Arg.(value & flag & info [ "describe" ] ~doc)
 
 let max_zoom =
   let doc =
@@ -131,15 +160,15 @@ let min_zoom =
 
 let cmd =
   let doc = "fetch a region of a PMTiles basemap for offline use" in
-  let info = Cmd.info "tessarium-basemap" ~version:"0.1.0" ~doc in
+  let info = Cmd.info "tessarium-basemap" ~version:"0.2.0" ~doc in
   Cmd.v info
     Term.(
-      const (fun url out bbox maxz minz ->
-          match run url url out bbox maxz minz with
+      const (fun url out bbox maxz minz describe ->
+          match run url url out bbox maxz minz describe with
           | Ok () -> 0
           | Error e ->
               prerr_endline ("error: " ^ e);
               1)
-      $ url $ output $ bbox $ max_zoom $ min_zoom)
+      $ url $ output $ bbox $ max_zoom $ min_zoom $ describe)
 
 let () = exit (Cmd.eval' cmd)

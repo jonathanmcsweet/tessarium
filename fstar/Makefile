@@ -24,9 +24,22 @@ ROOTS := $(wildcard Tessarium.*.fst)
 # source for the word was the obvious alternative and is wrong: it fires on the
 # word "assume" in a comment, and misses an escape hatch reached through an
 # abbreviation.
-FSTAR_FLAGS := --warn_error -321 --report_assumes error
+#
+# It covers less than it reads as covering, though: measured on this release it
+# fires on `admit`, `assume (p)`, `magic` and `admitP` -- every hatch reached
+# through a TERM -- and is silent on `assume val`, `assume type` and an
+# interface whose implementation is missing, which are the same hole reached
+# through a DECLARATION. tools/check-fstar-assumes.sh covers exactly that
+# remainder, and `verify` runs it.
+#
+# @247 is the other half of `touch -c` below. F* declines to write a module's
+# .checked when a dependency's cache is stale, warns, and exits 0; `touch -c`
+# then stamps the STALE artifact fresh and every later `make verify` reports
+# nothing to be done for a module it never rechecked. Fatal here, so the run
+# that could not cache fails instead of lying about it.
+FSTAR_FLAGS := --warn_error -321@247 --report_assumes error
 
-.PHONY: all verify extract fstarlib check-extraction low-verify low-extract clean
+.PHONY: all verify no-assumes extract fstarlib check-extraction low-verify low-extract clean
 
 all: verify
 
@@ -48,7 +61,12 @@ include .depend
 	$(FSTAR) $(FSTAR_FLAGS) --cache_checked_modules $<
 	@touch -c $@
 
-verify: $(ALL_CHECKED_FILES)
+# What --report_assumes error does not see. Ordered first so a tree carrying an
+# assumed declaration is refused before minutes of proving say it is fine.
+no-assumes:
+	@../tools/check-fstar-assumes.sh
+
+verify: no-assumes $(ALL_CHECKED_FILES)
 
 # One module per invocation. `--extract` walks what F* calls a "possibly-partial
 # dependency graph": a module that has an interface is loaded from that
@@ -57,8 +75,15 @@ verify: $(ALL_CHECKED_FILES)
 # module holding the band table.
 MODULES := $(basename $(wildcard Tessarium.*.fst))
 
+# $(OUT)/*.ml goes first, the way low-extract clears low/out. Without it a
+# module that stops being extracted -- its .fst deleted, or an .fsti added so
+# --extract loads it from the interface alone -- leaves its LAST output in
+# place, and CI's `git diff --exit-code ocaml/extracted` sees an unchanged file
+# rather than a module that no longer comes out. The dune file lives in that
+# directory and is tracked, so the glob and not the directory.
 extract: verify
 	@mkdir -p $(OUT)
+	@rm -f $(OUT)/*.ml
 	@for m in $(MODULES); do \
 	  echo "  extract $$m"; \
 	  $(FSTAR) $(FSTAR_FLAGS) --codegen OCaml --odir $(OUT) \

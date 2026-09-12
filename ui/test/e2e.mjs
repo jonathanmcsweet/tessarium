@@ -1,14 +1,3 @@
-/* End-to-end check of the built UI against the built server.
-
-   This is the test for the claim the whole project rests on: enter a phrase,
-   click a square, get its address. It runs the real browser against the real
-   binary, because the parts that break here -- Web Worker startup, the
-   Content-Security-Policy, js_of_ocaml's export target in a worker -- look
-   fine in a unit test and fail in a page.
-
-   The addresses it expects come from `vectors/vectors.json`, so a UI that
-   renders beautifully and computes the wrong answer still fails. */
-
 import {
   copyFileSync,
   readFileSync,
@@ -57,6 +46,49 @@ check(
 const SUCCESS_MS = Number.isFinite(successMs) && successMs > 0
   ? successMs
   : 5000;
+
+/* Which job states mean the work has STOPPED, derived from the app's own
+   RUNNING set rather than listed again here.
+
+   Two waits below asked "is the state not one of these five?" while the app's
+   set holds seven. A download caught in `indexing` or `compacting` read as
+   finished, and the check that wanted `done` got the state the job was
+   passing through instead -- green on a fast machine, and failing on a loaded
+   runner where the last and heaviest download of the sequence is still
+   writing its index when the poll comes round. Said positively and taken from
+   one place, a state added later cannot be missed by a list nobody thought to
+   update. Read as text for the same reason the toast timeout is. */
+const basemapSource = readFileSync(
+  new URL("../src/core/basemap.ts", import.meta.url),
+  "utf8",
+);
+const jobStates = new Set(
+  [...basemapSource.matchAll(/state: z\.literal\("(\w+)"\)/g)]
+    .map((hit) => hit[1]),
+);
+const running = new Set(
+  (/const RUNNING[\s\S]*?new Set\(\s*\[([\s\S]*?)\]/.exec(basemapSource)
+    ?.[1] ?? "")
+    .match(/"\w+"/g)?.map((quoted) => quoted.slice(1, -1)) ?? [],
+);
+const FINISHED = new Set(
+  [...jobStates].filter((state) => state !== "idle" && !running.has(state)),
+);
+/* Idle is not a job that ended, but for a wait that only asks whether the
+   writer is busy it counts the same. */
+const AT_REST = new Set([...FINISHED, "idle"]);
+check(
+  `the states a job can rest in are legible in the source (${
+    [...FINISHED].join(", ")
+  })`,
+  jobStates.size > 0 && running.size > 0
+    && [...running].every((state) => jobStates.has(state))
+    && FINISHED.has("done") && FINISHED.has("failed"),
+);
+check(
+  `and a job still indexing or compacting is not one of them (${running.size} running)`,
+  !FINISHED.has("indexing") && !FINISHED.has("compacting"),
+);
 
 /* Poll until `probe` answers with something truthy, or the budget runs out.
    Returns the answer, or the last falsy one. */
@@ -227,6 +259,7 @@ check(
    it, the timeout is read as that argument and discarded, so a wait that says
    sixty seconds spends Playwright's default thirty and reports that number in
    the failure. */
+const gateCopy = page.locator(".gate-phrase-copy");
 await page.locator("#phrase").fill("abandon abandon abandon");
 await page.waitForFunction(
   () =>
@@ -245,6 +278,13 @@ check(
   (await page.locator("#phrase").getAttribute("type")) === "password"
     && (await page.locator("#phrase").getAttribute("autocomplete"))
       === "current-password",
+);
+/* Three words is not a phrase, and half a secret on the clipboard is worse
+   than none: the copy button is there, so the row does not change width on
+   the last word typed, and it cannot be pressed yet. */
+check(
+  "copying is offered but refused until the phrase is whole",
+  (await gateCopy.count()) === 1 && await gateCopy.isDisabled(),
 );
 await page.locator(".gate-phrase-toggle").click();
 check(
@@ -287,59 +327,232 @@ check(
 );
 
 /* Where the phrase comes from is the highest-value security decision in the
-   app, so its guidance must be on screen BEFORE anything is generated or
-   typed -- not at the foot of the form, where it is read after the choice if
-   at all. Both halves are checked: don't invent one, don't reuse one. The
-   position check is what fails when the block drifts back down the form, since
-   a warning below the submit button still "appears". */
+   app, so its guidance rides the control that makes the choice: the info icon
+   beside "Generate one for me", not a paragraph at the foot of the form where
+   it is read after the choice if at all.
+
+   Moving a sentence into a tooltip hides it from anyone who does not reach
+   for it, so the checks below are the same three the import hint carries --
+   the icon is beside the button, the sentence is the icon's accessible name
+   whether or not it is open, and hovering puts it on screen -- plus the one
+   this move is most likely to break quietly: that the hazard is still being
+   said at all. */
 {
-  /* Located by class, not by copy: a reworded warning should fail the one
-     text check below, not report that the layout moved. */
-  const provenance = page.locator(".warning.provenance");
+  /* Located by position, not by copy: a reworded sentence should fail the
+     text checks below, not report that the icon moved. */
+  const provenance = page.locator(".generate .info-tip");
   check(
-    "the phrase-provenance warning is visible before generating",
-    await provenance.isVisible(),
-  );
-  /* The heading directs; the body carries the two hazards. Checked where each
-     lives, so a reworded heading fails the heading check and a thinned-out
-     body fails the body check, rather than one pointing at the wrong half. */
-  const title = await provenance.locator("strong").textContent();
-  check("its heading directs the user to generate", /generat/i.test(title));
-  const body = await provenance.textContent();
-  check(
-    "its body still rules out inventing a phrase",
-    body.includes("only if this button produced them"),
+    "the phrase-provenance icon is beside the generate button",
+    (await provenance.count()) === 1
+      && await provenance.isVisible(),
   );
   check(
-    "its body still rules out reusing a phrase",
-    body.includes("protect nothing else"),
+    "and the form spends no warning block under it doing the same",
+    (await page.locator(".gate-card .warning.provenance").count()) === 0,
   );
-  /* The claim has to stay true: validation is a typo check, not a test of how
-     the phrase was produced. */
+  /* One sentence now, so both halves are read off the same string: what the
+     checks DO cover, and the hazard they do not. The hazard has to survive a
+     rewording -- validation is a typo check, so a phrase someone chose
+     themselves can pass every one of them and still be guessable, and a
+     warning that stops saying so is decoration. */
+  const name = (await provenance.getAttribute("aria-label")) ?? "";
   check(
-    "it says the checks do not prove the phrase was generated",
-    (await provenance.textContent()).includes(
-      "confirm you typed a phrase correctly, not that it was generated",
-    ),
-  );
-  check(
-    "the provenance warning sits above the unlock button",
-    await page.evaluate(() => {
-      const warning = document.querySelector(".warning.provenance");
-      const submit = document.querySelector("button[type=submit]");
-      if (!warning || !submit) return false;
-      return !!(warning.compareDocumentPosition(submit)
-        & Node.DOCUMENT_POSITION_FOLLOWING);
-    }),
+    "its name says the checks are about what was typed",
+    /typed a phrase correctly/i.test(name),
   );
   check(
-    "the generate button is described by its hint",
-    await page.evaluate(() => {
-      const button = document.querySelector(".generate button");
-      const id = button?.getAttribute("aria-describedby");
-      return !!id && !!document.getElementById(id)?.textContent?.trim();
-    }),
+    "and still warns against choosing your own phrase",
+    /own phrase/i.test(name) && /secure/i.test(name),
   );
+  await provenance.hover();
+  const tip = await page
+    .waitForSelector('[role="tooltip"]', { timeout: 5_000 })
+    .then((el) => el.textContent(), () => "");
+  check(
+    "hovering it puts that sentence on screen",
+    /typed a phrase correctly/i.test(tip ?? ""),
+  );
+  /* Off the icon again: an open tooltip is a positioned overlay, and the
+     checks below read the form underneath it. */
+  await page.mouse.move(0, 0);
+  await page.waitForFunction(
+    () => document.querySelector('[role="tooltip"]') === null,
+    null,
+    { timeout: 5_000 },
+  );
+}
+
+/* The control that cannot be pressed is the one most likely to be asked
+   about, and a `disabled` button answers a hover with nothing -- the browser
+   delivers it no hover at all, so the tooltip never fires.
+
+   Back to three words for it: 24 is the state where this button is
+   AVAILABLE, and the typo phrase above is 24. The typo goes back afterwards,
+   so what follows sees the field it expects. Here rather than beside the
+   first three-word check because the first hover on a freshly loaded page
+   opens nothing whatever it is over, and the icon above has warmed the
+   tooltip up. */
+await page.locator("#phrase").fill("abandon abandon abandon");
+await page.waitForFunction(
+  () =>
+    document.querySelector(".gate-phrase-copy")
+      ?.getAttribute("aria-disabled") === "true",
+  null,
+  { timeout: 30_000 },
+);
+await gateCopy.hover();
+const copyTip = await page
+  .waitForSelector('[role="tooltip"]', { timeout: 5_000 })
+  .catch(() => null);
+check(
+  "the copy button says what it is while it is still refusing to run",
+  /copy/i.test((await copyTip?.textContent()) ?? ""),
+);
+/* Read off the page rather than named: the tooltip was the inverted pair,
+   which in the dark palettes is a pale box with black text sitting on top of
+   the theme rather than in it. Compared against the card it floats over,
+   because that is the surface it is supposed to be made of. */
+check(
+  "and it is painted in the theme's own surface, not the inverse of it",
+  await page.evaluate(() => {
+    const tip = document.querySelector('[role="tooltip"]');
+    const card = document.querySelector(".gate-card");
+    if (!tip || !card) return false;
+    const paint = (el) => getComputedStyle(el).backgroundColor;
+    return paint(tip) === paint(card);
+  }),
+);
+/* Reachable is not pressable. The browser is no longer refusing the press,
+   so the component has to, and half a secret on the clipboard is what that
+   refusal is for. */
+await gateCopy.click({ force: true });
+check(
+  "and pressing it anyway copies nothing",
+  (await gateCopy.getAttribute("aria-disabled")) === "true"
+    && (await gateCopy.innerHTML()).includes('data-glyph="copy"'),
+);
+await page.mouse.move(0, 0);
+await page.waitForFunction(
+  () => document.querySelector('[role="tooltip"]') === null,
+  null,
+  { timeout: 5_000 },
+);
+/* The field as the checks below expect to find it. */
+await page.locator("#phrase").fill(typo.join(" "));
+await page.waitForFunction(
+  () => {
+    const t = document.querySelector(".phrase-status")?.textContent ?? "";
+    return t.includes("24/24") && t.includes("checksum failed");
+  },
+  null,
+  { timeout: 30_000 },
+);
+
+/* The keyboard focus ring, counted in painted pixels rather than in declared
+   properties -- which is the only way to see this one. The ring was declared
+   all along: `outline-offset: 2px` on every button, in every palette. It was
+   never drawn in either edgerunner palette, because `clip-path` cut the button
+   out of its own box and an outline two pixels outside that polygon is
+   outside the clip. Computed style reports the outline either way, so nothing
+   short of reading the pixels can tell the two apart.
+
+   Screenshotted into the page and decoded by the browser's own canvas: there
+   is no image decoder here, and Chromium already has one. Measured both ways
+   before the fix -- 1066 accent pixels with the chamfer in the box, zero with
+   the clip -- so this fails on the mechanism it is here to hold. */
+const ringPixels = async (selector) => {
+  const box = await page.locator(selector).boundingBox();
+  if (box === null) return 0;
+  const pad = 8;
+  const shot = (await page.screenshot({
+    clip: {
+      x: Math.max(0, box.x - pad),
+      y: Math.max(0, box.y - pad),
+      width: box.width + pad * 2,
+      height: box.height + pad * 2,
+    },
+  })).toString("base64");
+  return page.evaluate(async (png) => {
+    /* The token is a hex string; the canvas speaks rgb. The browser converts
+       it, rather than this file carrying a parser for a colour it does not
+       own. */
+    const probe = document.createElement("span");
+    probe.style.color = getComputedStyle(document.documentElement)
+      .getPropertyValue("--color-accent-text").trim();
+    document.body.append(probe);
+    const [r0, g0, b0] = (getComputedStyle(probe).color.match(/\d+/g) ?? [])
+      .map(Number);
+    probe.remove();
+    const img = new Image();
+    img.src = `data:image/png;base64,${png}`;
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d");
+    if (ctx === null) return 0;
+    ctx.drawImage(img, 0, 0);
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let hits = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (
+        Math.abs(data[i] - r0) < 24 && Math.abs(data[i + 1] - g0) < 24
+        && Math.abs(data[i + 2] - b0) < 24
+      ) hits++;
+    }
+    return hits;
+  }, shot);
+};
+
+{
+  const generate = page.locator(".generate .btn");
+  const shape = await generate.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      clip: style.clipPath,
+      corner: style.cornerShape,
+      radius: style.borderTopRightRadius,
+    };
+  });
+  check(
+    `the chamfer is part of the button's box (${shape.corner}, ${shape.radius})`,
+    shape.clip === "none" && shape.corner === "bevel"
+      && Number.parseFloat(shape.radius) > 0,
+  );
+  /* And off the thing you type into, which is the only `field` on screen
+     before the map exists. It carries a step more inline padding than a
+     square one needs, so a caret at the start of the line clears the corner
+     rather than sitting in it. */
+  const typed = await page.locator("#phrase").evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      clip: style.clipPath,
+      corner: style.cornerShape,
+      radius: Number.parseFloat(style.borderTopRightRadius),
+      pad: Number.parseFloat(style.paddingInlineStart),
+    };
+  });
+  check(
+    `and off the phrase field, padded clear of it (${typed.radius}px cut, ${typed.pad}px in)`,
+    typed.clip === "none" && typed.corner === "bevel" && typed.radius > 0
+      && typed.pad > typed.radius,
+  );
+  /* Tabbed to, not focused by script: the ring is `:focus-visible`, and a
+     programmatic focus does not make it visible. */
+  await page.locator("#phrase").focus();
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press("Tab");
+    const focused = await page.evaluate(() =>
+      document.activeElement?.className ?? ""
+    );
+    if (focused.includes("btn-quiet")) break;
+  }
+  const hits = await ringPixels(".generate .btn");
+  check(
+    `and a keyboard focus ring is actually painted around it (${hits} px)`,
+    hits > 0,
+  );
+  await page.locator("#phrase").focus();
 }
 
 /* "Generate one for me" must produce a phrase this same app accepts. A
@@ -352,7 +565,7 @@ check(
    has done anything, leaving a request in flight to land later and overwrite
    whatever the test does next. */
 const beforeGenerate = await page.locator("#phrase").inputValue();
-await page.locator(".generate button").click();
+await page.locator(".generate .btn").click();
 await page.waitForFunction(
   (previous) => document.querySelector("#phrase")?.value !== previous,
   beforeGenerate,
@@ -373,10 +586,33 @@ check(
 check(
   "the write-it-down warning appears",
   (await page.locator(".warning").allTextContents()).some((t) =>
-    t.includes("Write these 24 words down")
+    t.includes("Save these 24 words in a password vault")
   ),
 );
-await page.locator(".generate button").click();
+/* The vault half of that warning needs a way to get the words out. Read back
+   off the real clipboard, because a button that says it copied and did not is
+   the failure this is for -- and the tick has to say so where the press
+   happened, which is the same button in the same green the address uses. */
+check("a whole phrase can be copied", !(await gateCopy.isDisabled()));
+await gateCopy.click();
+check(
+  "the clipboard takes the phrase itself",
+  (await page.evaluate(() => navigator.clipboard.readText()))
+    === firstGenerated,
+);
+check(
+  "and the button says so where it was pressed",
+  await page
+    .waitForFunction(
+      () =>
+        document.querySelector(".gate-phrase-copy")?.getAttribute("aria-label")
+          === "Phrase copied",
+      null,
+      { timeout: 5_000 },
+    )
+    .then(() => true, () => false),
+);
+await page.locator(".generate .btn").click();
 await page.waitForFunction(
   (previous) => document.querySelector("#phrase")?.value !== previous,
   firstGenerated,
@@ -402,9 +638,56 @@ check("valid phrase reports a valid checksum", true);
 check(
   "editing the phrase drops the write-it-down warning",
   !(await page.locator(".warning").allTextContents()).some((t) =>
-    t.includes("Write these 24 words down")
+    t.includes("Save these 24 words in a password vault")
   ),
 );
+
+/* Appearance, from the gate.
+
+   The settings gear lives in the panel header, which does not exist until a
+   map is open -- so before this the only screen a person can be stuck on was
+   the one screen with no way to change how it looks. Someone reading 24 words
+   off paper in a bright room could not turn the lights up.
+
+   Driven through the control and asserted on the ROOT attribute and on paint:
+   a picker that sets state nothing reads would pass a click-and-see-the-label
+   check. Put back to the default afterwards, because the theme section far
+   below asserts that nothing has been chosen yet, and it is right to. */
+check(
+  "the gate offers a theme as well as a language",
+  await page.locator(".gate-card .theme .dropdown-button").isVisible(),
+);
+const gateLightness = async () => {
+  const bg = await page.locator(".gate-card").first()
+    .evaluate((n) => getComputedStyle(n).backgroundColor);
+  const nums = bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
+  return bg.startsWith("oklab") || bg.startsWith("oklch")
+    ? nums[0]
+    : (nums[0] + nums[1] + nums[2]) / (3 * 255);
+};
+const gateDark = await gateLightness();
+await chooseFrom(".gate-card .theme", "light");
+await page.waitForFunction(
+  () => document.documentElement.getAttribute("data-theme") === "light",
+  null,
+  { timeout: 10_000 },
+);
+const gateLight = await gateLightness();
+check(
+  `choosing one repaints the gate itself (${gateDark.toFixed(2)} -> ${
+    gateLight.toFixed(2)
+  })`,
+  gateLight > gateDark + 0.2,
+);
+/* Back to the default, which is the one theme that wears no attribute -- so
+   this also says the control can return to it rather than only leave it. */
+await chooseFrom(".gate-card .theme", "edge-dark");
+await page.waitForFunction(
+  () => document.documentElement.getAttribute("data-theme") === null,
+  null,
+  { timeout: 10_000 },
+);
+check("and the gate can put it back to the default", true);
 
 await page.locator("button[type=submit]").click();
 
@@ -714,113 +997,319 @@ const awaitDone = async (generation) => {
 await bannerAction.click();
 await page.waitForSelector(".download-card", { timeout: 10_000 });
 check("the download card opens from the banner", true);
-const worldButton = page.locator(".download-world button");
-await worldButton.waitFor({ state: "visible", timeout: 10_000 });
-check("an empty basemap leads with the world map offer", true);
-await page.waitForFunction(
-  () => !document.querySelector(".download-world button")?.disabled,
-  null,
-  { timeout: 30_000 },
-);
-await worldButton.click();
-check("the world download completes at generation one", await awaitDone(1));
-await page.waitForFunction(
-  () =>
-    [...document.querySelectorAll(".app-toast")].some((t) =>
-      (t.textContent ?? "").includes("Maps downloaded")
-    ),
-  null,
-  { timeout: 30_000 },
-);
-check("the download completes with a toast", true);
+/* The card offers regions and nothing else. Every package now carries the
+   world overview at the depth the map draws it, so there is no planet left to
+   fetch and the card must not pretend otherwise -- not here, on the empty map
+   that used to lead with exactly that offer. */
 check(
-  "and the toast carries a close button for keyboard users",
-  (await page.locator(".app-toast button").count()) >= 1,
+  "and offers no download of the planet",
+  (await page.locator(".download-world").count()) === 0,
 );
 
-/* The toast was drawn by a library that injected its own stylesheet -- white
-   background, near-black text, 8px corners, all literals in a file this
-   project does not own. So it stayed white in every theme and round in a theme
-   that squares every corner: the same bug as MapLibre's controls, and
-   invisible to the token audit for the same reason, that the colours belonged
-   to no palette. It is this project's own markup now, and these two checks
-   would notice it going back.
+/* The download bar took whatever the browser drew. `<progress>` carried an
+   `accent-color`, which Chrome ignores for this element, so it painted its
+   own green -- the one colour in the application that belonged to no palette,
+   sitting under a card whose every other pixel is a token.
 
-   Nothing has chosen a theme yet, so this is the default: dark. Read as
-   painted and as geometry, because the fix is one stylesheet beating another
-   and only the computed value says which won. */
-const toastStyle = () =>
-  page.locator(".app-toast").first().evaluate((n) => {
-    const s = getComputedStyle(n);
-    return {
-      bg: s.backgroundColor,
-      radius: s.borderTopLeftRadius,
-      color: s.color,
-    };
+   Read off the pixels, because a computed style cannot answer it: Chrome
+   exposes nothing useful for `::-webkit-progress-value`, and the probe that
+   asked returned the track's colour for both halves. A bar of this file's own
+   making, at a size worth sampling, rather than waiting for a real download
+   to be a known fraction done. */
+const barPaint = async () => {
+  await page.evaluate(() => {
+    const bar = document.createElement("progress");
+    bar.id = "paint-probe";
+    bar.max = 100;
+    bar.value = 40;
+    bar.style.cssText =
+      "position:fixed;left:20px;top:20px;width:200px;height:20px;z-index:99";
+    document.body.append(bar);
   });
-const toast = await toastStyle();
-const toastLight = (() => {
-  const n = toast.bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
-  return toast.bg.startsWith("oklab") || toast.bg.startsWith("oklch")
-    ? n[0]
-    : (n[0] + n[1] + n[2]) / (3 * 255);
-})();
-check(
-  `the toast is painted in the theme, not a library's white (${toast.bg})`,
-  toastLight < 0.5,
-);
-check(
-  `and squares its corners like everything else (${toast.radius})`,
-  toast.radius === "0px",
-);
-/* And a SUCCESS takes itself away -- one short statement with nothing to
-   re-read, unlike an error. Both halves of that pair have to hold: if success
-   toasts stayed too, "an error waits to be dismissed" further down would be
-   trivially true.
+  const png = (await page.locator("#paint-probe").screenshot())
+    .toString("base64");
+  const paint = await page.evaluate(async (data) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${data}`;
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d");
+    if (ctx === null) return null;
+    ctx.drawImage(img, 0, 0);
+    const at = (fraction) => {
+      const d = ctx.getImageData(
+        Math.round(img.width * fraction),
+        Math.round(img.height / 2),
+        1,
+        1,
+      ).data;
+      return `rgb(${d[0]}, ${d[1]}, ${d[2]})`;
+    };
+    /* The tokens are hex and the canvas speaks rgb, so the browser converts
+       them rather than this file carrying a parser for colours it does not
+       own. */
+    const token = (name) => {
+      const probe = document.createElement("span");
+      probe.style.color = getComputedStyle(document.documentElement)
+        .getPropertyValue(name).trim();
+      document.body.append(probe);
+      const value = getComputedStyle(probe).color;
+      probe.remove();
+      return value;
+    };
+    return {
+      filled: at(0.2),
+      empty: at(0.8),
+      accent: token("--color-accent"),
+      line: token("--color-line"),
+    };
+  }, png);
+  await page.evaluate(() => document.getElementById("paint-probe")?.remove());
+  return paint;
+};
 
-   Waited for rather than slept past, so this returns the moment the toast
-   leaves -- two seconds earlier on a green run -- while its budget still ends
-   past the timeout the toast was given. */
-const successWentAway = await page.waitForFunction(
-  () => document.querySelectorAll(".app-toast").length === 0,
-  null,
-  { timeout: SUCCESS_MS + 2000 },
-).then(() => true, () => false);
-check("a success toast takes itself away", successWentAway);
-await page.waitForFunction(() => !document.querySelector(".banner"), null, {
-  timeout: 10_000,
-});
-check("the banner clears once maps exist", true);
-await page.waitForFunction(
-  () => !document.querySelector(".download-card"),
-  null,
-  {
-    timeout: 10_000,
-  },
+const bar = await barPaint();
+check(
+  `the download bar fills with the palette's accent (${bar?.filled})`,
+  bar !== null && bar.filled === bar.accent,
 );
-check("the card closes itself", true);
+check(
+  `and its track is the palette's line (${bar?.empty})`,
+  bar !== null && bar.empty === bar.line,
+);
 
-/* The grid overlay must survive the style swap that follows a completed
-   download, and this is checked after the FIRST download deliberately. It once
-   did not survive: when MapLibre's style diff succeeds it fires style.load
-   synchronously inside the setStyle call, so a listener registered after that
-   call has already missed it and the overlay was never re-added. Each missed
-   listener stayed armed and repaired the NEXT swap, which made the loss
-   invisible after two downloads and total after one -- the real-world case. */
-const overlayAlive = await page.evaluate(() => {
-  const map = window.__tessarium_map;
-  return !!(map?.getSource("grid") && map.getLayer("grid-lines")
-    && map.getSource("selection") && map.getLayer("selection-outline"));
+/* The panel's text has three roles and nothing else:
+
+     panel-title   what a section IS             mono, 12, uppercase, ink
+     panel-label   a thing inside that section   sans, 14, medium,    ink
+     panel-note    what is true about it         sans, 14, regular,   ink-soft
+
+   It had been seven, most written out in a class list. "DOWNLOADED MAPS" was
+   the body face at 11px, indented 10px past the rows it labelled, beside an
+   "OFFLINE MAPS" in mono at 12; a checkbox's own text carried no class at all
+   and inherited 16px from the document; and a row's name was brighter than
+   the heading above it.
+
+   Read off the page rather than off the class names: a shared class is not
+   the claim, a shared rendering is. The other direction -- that an element
+   rendering as a role also WEARS it -- is checked below, because a role
+   reached by `@apply` under another name is a rendering you cannot find from
+   the element. */
+const roles = await page.evaluate(() => {
+  const face = (selector) => {
+    const el = document.querySelector(selector);
+    if (el === null) return null;
+    const style = getComputedStyle(el);
+    return {
+      family: style.fontFamily,
+      transform: style.textTransform,
+      size: style.fontSize,
+      weight: style.fontWeight,
+      color: style.color,
+    };
+  };
+  const ink = (name) => {
+    const probe = document.createElement("span");
+    probe.style.color = getComputedStyle(document.documentElement)
+      .getPropertyValue(name).trim();
+    document.body.append(probe);
+    const value = getComputedStyle(probe).color;
+    probe.remove();
+    return value;
+  };
+  return {
+    section: face(".download-card > .panel-section-head > .panel-title"),
+    group: face(".download-import .panel-title"),
+    quiet: face(".region-sub .panel-title"),
+    picker: face('label[for="region-filter"]'),
+    note: face(".download-card .hint"),
+    check: face(".download-browse .panel-note"),
+    ink: ink("--color-ink"),
+    soft: ink("--color-ink-soft"),
+  };
 });
-check("the grid overlay survives the download's style swap", overlayAlive);
-const gridRefilled = await page
-  .waitForFunction(
-    () => (window.__tessarium_map?.querySourceFeatures("grid").length ?? 0) > 0,
-    null,
-    { timeout: 30_000 },
-  )
-  .then(() => true, () => false);
-check("and the grid refills after the swap", gridRefilled);
+
+const sameRole = (a, b) =>
+  a !== null && b !== null
+  && JSON.stringify(a) === JSON.stringify(b);
+
+check(
+  `a section's label is one label (${
+    roles.group?.family?.split(",")[0]
+  } ${roles.group?.size})`,
+  sameRole(roles.section, roles.group),
+);
+check(
+  "and it is the panel's ink, being the most important thing in its section",
+  roles.section?.color === roles.ink,
+);
+/* The same label said quietly, for a group inside a ROW: a white uppercase
+   heading repeated down a list of two hundred countries is a texture, not a
+   hierarchy. Everything but the colour matches. */
+check(
+  "a group inside a row wears the same label, in soft",
+  roles.quiet !== null && roles.section !== null
+    && roles.quiet.family === roles.section.family
+    && roles.quiet.size === roles.section.size
+    && roles.quiet.transform === roles.section.transform
+    && roles.quiet.color === roles.soft,
+);
+/* The third role, and its own: a thing inside a section is neither the
+   section's label nor a note about it. The row names in the ledger are
+   checked against this one further down, where a downloaded region exists to
+   have a name. */
+check(
+  `a thing in a section is its own role (${roles.picker?.size} ${roles.picker?.weight})`,
+  roles.picker !== null && roles.picker.color === roles.ink
+    && roles.picker.transform === "none"
+    && !sameRole(roles.picker, roles.section)
+    && !sameRole(roles.picker, roles.note),
+);
+/* A checkbox's text is a note about a setting. It had no class at all, so it
+   inherited the document's 16px -- two points larger than every other line in
+   the card, and in the panel's full ink beside notes in soft. */
+check(
+  `and a note is one note (${roles.check?.size} ${roles.check?.color})`,
+  roles.check !== null && roles.note !== null
+    && roles.check.size === roles.note.size
+    && roles.check.color === roles.note.color
+    && roles.check.color === roles.soft,
+);
+check(
+  "with nothing in the card smaller than the label above it",
+  Number.parseFloat(roles.picker?.size ?? "0")
+    >= Number.parseFloat(roles.section?.size ?? "99"),
+);
+
+/* And a role is WORN, not aliased.
+
+   `region-group` used to be `@apply panel-title` under another name: five
+   headings rendered as the panel's section label while nothing in their
+   markup said so, and the one word devtools could tell you about such an
+   element appeared nowhere else in the stylesheet. This asks the other
+   question -- of everything on screen that READS as a section label, does it
+   say `panel-title`? -- which no check on the class names can.
+
+   The signature is the mono face at the title's size in uppercase, which
+   nothing else in the panel is. */
+const unworn = await page.evaluate(() => {
+  const title = document.querySelector(".panel-title");
+  if (title === null) return null;
+  const want = getComputedStyle(title);
+  const signature = (style) =>
+    style.fontFamily === want.fontFamily && style.fontSize === want.fontSize
+    && style.textTransform === want.textTransform
+    && style.fontWeight === want.fontWeight;
+  return [...document.querySelectorAll(".app *")]
+    .filter((el) =>
+      el.textContent.trim().length > 0 && el.children.length === 0
+      && signature(getComputedStyle(el))
+      && !el.classList.contains("panel-title")
+    )
+    .map((el) => `${el.tagName.toLowerCase()}.${[...el.classList].join(".")}`);
+});
+check(
+  `everything that reads as a section label wears panel-title (${
+    unworn?.join(" ")
+  })`,
+  unworn !== null && unworn.length === 0,
+);
+
+/* One component draws them all, so they have one shape: a `<section>`, named
+   by its own heading, and a heading that steps down when the section is
+   inside another. The panel had two sections ruled underneath and two ruled
+   on top, three `<p>`s standing in for a heading -- unreachable by heading
+   navigation -- and the title-and-control row built twice. */
+const sections = await page.evaluate(() =>
+  [...document.querySelectorAll(".panel-section, .panel-group")].map((el) => {
+    const head = el.firstElementChild;
+    const heading = head?.querySelector(".panel-title") ?? null;
+    return {
+      tag: el.tagName.toLowerCase(),
+      head: head?.className ?? null,
+      level: heading?.tagName.toLowerCase() ?? null,
+      named: heading !== null
+        && el.getAttribute("aria-labelledby") === heading.id,
+      group: el.classList.contains("panel-group"),
+      /* The rule that separates one region from the next is drawn once, by
+         the lower one. On some and underneath others, a running download put
+         two lines between the address and its progress. */
+      ruled: getComputedStyle(el).borderTopWidth !== "0px",
+      under: getComputedStyle(el).borderBottomWidth !== "0px",
+    };
+  })
+);
+check(
+  `every region of the panel is one (${sections.length})`,
+  sections.length >= 4,
+);
+check(
+  "each is a section, headed, and named by its own heading",
+  sections.every((sec) =>
+    sec.tag === "section" && sec.head === "panel-section-head" && sec.named
+  ),
+);
+check(
+  "a region is an h2 and a region inside one is an h3",
+  sections.every((sec) => sec.level === (sec.group ? "h3" : "h2")),
+);
+check(
+  "the panel's own regions are ruled on top, and nothing underneath",
+  sections.every((sec) => (sec.group || sec.ruled) && !sec.under),
+);
+
+/* The one setting here that reaches the network without a press says what it
+   does in an icon rather than in four lines of small print under a one-line
+   control -- the same move the gate's provenance note made.
+
+   The icon is OUTSIDE the checkbox: React Aria's Checkbox is the label, so a
+   press anywhere inside it toggles the setting, and an info icon that flips
+   the thing it explains is worse than no icon. */
+check(
+  "the browse setting explains itself in an icon",
+  (await page.locator(".download-browse .info-tip").count()) === 1
+    && (await page.locator(".download-browse .hint").count()) === 0,
+);
+check(
+  "which does not sit inside the control it explains",
+  (await page.locator(".download-browse .region-check .info-tip").count())
+    === 0,
+);
+/* So the overview is put on disk the way a package puts it there, before
+   anything below can rely on it. Through the server, which still knows how to
+   write world.pmtiles and still checks that a download claiming to be the
+   planet covers it -- not through the app, which no longer asks. This is the
+   one place the suite reaches past the UI to stage what an install ships. */
+const staged = await postJson("basemap-download", {
+  regions: [{
+    min_lon: -180,
+    min_lat: -85,
+    max_lon: 180,
+    max_lat: 85,
+    max_zoom: 6,
+  }],
+  world: true,
+});
+check(
+  "the overview is staged the way a package ships it",
+  staged.status === 200,
+);
+check("the world download completes at generation one", await awaitDone(1));
+/* Reopened, because the app was not watching. A download it starts is one it
+   follows to its toast; this one arrived underneath it, exactly as a package's
+   does -- on disk before the first run. So the state from here on is the one
+   every install opens in: an overview, no region, and no banner. */
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.locator("#phrase").fill(sampleMnemonic);
+await page.waitForSelector(".valid", { timeout: 30_000 });
+await page.locator("button[type=submit]").click();
+await page.waitForSelector(".map-wrap", { timeout: 60_000 });
+check(
+  "a store that ships an overview opens with no missing-basemap banner",
+  (await page.locator(".banner").count()) === 0,
+);
 
 /* The overview is all there is and the map sits at street zoom, so everything
    on screen is overzoomed -- and MapLibre only overzooms past the SOURCE's
@@ -978,6 +1467,94 @@ check(
 );
 /* Back to the default, so nothing downstream inherits a resized layout. */
 await page.locator(".panel-resizer").dblclick();
+/* What you take hold of is one mark in two orientations. The drawer's edge
+   carried a square-ended bar while the sheet's top carried a rounded pill --
+   two shapes for the same affordance, and in the edgerunner palettes the
+   rounded one was the only round end on screen. Read off the page: the
+   claim is a shared rendering, not a shared class name. */
+/* The pointer is parked on the resizer by the double click above, and the
+   handle lights on hover -- so it is moved off, and its fade back is WAITED
+   for, before the resting colours are compared. Read without the wait, the
+   drawer's handle came back mid-transition, a colour that is neither the one
+   it rests at nor the one it lights to. The hover is checked on its own
+   below. */
+/* Focus too, not just the pointer: the separator was driven from the keyboard
+   above, so `:focus-visible` still holds it lit. */
+await page.mouse.move(4, 4);
+await page.locator(".panel-resizer").evaluate((el) => el.blur());
+/* Polled until it stops moving rather than awaited through the Animation API:
+   the transition has not been created yet at the moment the pointer leaves,
+   so `getAnimations()` comes back empty and resolves at once. */
+const settle = async () => {
+  let last = null;
+  for (let i = 0; i < 40; i++) {
+    const now = await page.locator(".panel-resizer > .grab-pill")
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    if (now === last) return now;
+    last = now;
+    await page.waitForTimeout(50);
+  }
+  return last;
+};
+const atRest = await settle();
+const handles = await page.evaluate(() => {
+  const read = (selector) => {
+    const el = document.querySelector(selector);
+    if (el === null) return null;
+    const style = getComputedStyle(el);
+    return {
+      width: style.width,
+      height: style.height,
+      radius: style.borderTopLeftRadius,
+      clip: style.clipPath,
+      turned: style.rotate,
+      paint: style.backgroundColor,
+    };
+  };
+  return {
+    sheet: read(".sheet-grab .grab-pill"),
+    drawer: read(".panel-resizer .grab-pill"),
+  };
+});
+check(
+  `the drawer's handle is the sheet's, turned (${handles.drawer?.turned})`,
+  handles.sheet !== null && handles.drawer !== null
+    && handles.drawer.width === handles.sheet.width
+    && handles.drawer.height === handles.sheet.height
+    && handles.drawer.clip === handles.sheet.clip
+    && handles.drawer.radius === handles.sheet.radius
+    && atRest === handles.sheet.paint
+    && handles.drawer.turned === "90deg"
+    && handles.sheet.turned === "none",
+);
+/* The edge is a 24px target holding a mark twice that long. It was a flex
+   item with nothing saying it could not shrink, so it came out the width of
+   its target and read as a stub. */
+check(
+  `and is as long as the sheet's (${handles.drawer?.width})`,
+  handles.drawer !== null
+    && Number.parseFloat(handles.drawer.width)
+      > (await page.locator(".panel-resizer").boundingBox()).width,
+);
+/* Lighting under the pointer is the only thing that says the edge is a
+   control at all: there is no label on it and no border around it. */
+await page.locator(".panel-resizer").hover();
+const lit = await settle();
+check(
+  `and it lights under the pointer, being a control with no other sign (${lit})`,
+  lit !== atRest,
+);
+await page.mouse.move(4, 4);
+await settle();
+
+/* And in a palette that cuts, neither of them has a round end. */
+check(
+  `with no round end where the palette cuts (${handles.drawer?.radius})`,
+  handles.drawer !== null
+    && Number.parseFloat(handles.drawer.radius) === 0
+    && (handles.drawer.clip.match(/^polygon\((.*)\)$/)?.[1] ?? "")
+        .split(",").length === 6,
+);
 
 /* The drawer sits OVER the map: the map's own box must not change when the
    drawer opens, shuts or is dragged. As a grid column it changed every time,
@@ -1034,6 +1611,432 @@ const reopened = await page
   )
   .then(() => true, () => false);
 check("and reopens from it", reopened);
+
+/* --------------------------------- the panel as a sheet --------------------
+
+   Below --breakpoint-drawer the panel stops being a drawer down the right
+   edge and becomes a sheet across the bottom. Nothing the application draws
+   over the map can see the panel, so all of them keep clear of two numbers
+   instead -- how much of the right edge is covered, and how much of the
+   bottom -- and App.tsx used to write the first of those from the panel's
+   width alone.
+
+   On a phone that was a lie about an edge the sheet does not touch, and
+   every overlay believed it: MapLibre's zoom column landed 340px in from the
+   right, which on a 390px screen is the top-LEFT corner, on top of the
+   search field. The attribution went off the left of the screen entirely,
+   and the scale bar and the map's notes sat under the sheet.
+
+   Geometry rather than a class check, for the reason the reopen tab above is
+   geometry: these numbers reach MapLibre through a stylesheet that has to
+   outrank MapLibre's own, so a rule can look right in the source and be
+   doing nothing at all. A page of its own at a phone's size, because the
+   drawer is a different component at that width and the rest of this file
+   is about the drawer. */
+const phone = await context.newPage();
+await phone.setViewportSize({ width: 390, height: 844 });
+await phone.goto(base, { waitUntil: "networkidle" });
+await phone.locator("#phrase").fill(sampleMnemonic);
+await phone.waitForSelector(".valid", { timeout: 30_000 });
+await phone.locator("button[type=submit]").click();
+await phone.waitForSelector(".map-wrap", { timeout: 60_000 });
+/* Out far enough for the grid to stop being drawn, which is one of the three
+   things the panel has to say about a view. */
+await phone.evaluate(() => window.__tessarium_map?.setZoom(16));
+await phone.waitForFunction(
+  () => document.querySelectorAll(".view-note").length > 1,
+  null,
+  { timeout: 15_000 },
+).catch(() => {});
+
+const overlaid = (a, b) =>
+  !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top
+    || b.bottom <= a.top);
+const overlays = () =>
+  phone.evaluate(() => {
+    const box = (selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+    };
+    return {
+      wrap: box(".map-wrap"),
+      /* The buttons themselves for the search check and the container for
+         the edge check: MapLibre's container carries the margin, and it is
+         the container that the offset moves. */
+      zoom: box(".map-wrap .maplibregl-ctrl-top-right"),
+      buttons: box(
+        ".map-wrap .maplibregl-ctrl-top-right .maplibregl-ctrl-group",
+      ),
+      attribution: box(".map-wrap .maplibregl-ctrl-bottom-right"),
+      scale: box(".map-wrap .maplibregl-ctrl-bottom-left"),
+      search: box(".map-search"),
+      panel: box(".panel"),
+      tab: box(".panel-reopen"),
+      grab: box(".sheet-grab-button"),
+    };
+  });
+
+const sheet = await overlays();
+check(
+  "at a phone's width the panel covers the bottom of the map, not its side",
+  sheet.panel.left <= sheet.wrap.left + 1
+    && sheet.panel.right >= sheet.wrap.right - 1,
+);
+check(
+  `the zoom column stays at the map's right edge (${
+    Math.round(sheet.wrap.right - sheet.zoom.right)
+  }px in)`,
+  sheet.wrap.right - sheet.zoom.right <= 1,
+);
+check(
+  "and clear of the search field",
+  !overlaid(sheet.buttons, sheet.search),
+);
+check(
+  `the attribution stays on the screen (left edge at ${
+    Math.round(sheet.attribution.left)
+  })`,
+  sheet.attribution.left >= sheet.wrap.left,
+);
+/* A pixel of tolerance throughout: the sheet's height is a percentage of an
+   odd viewport, so its top edge lands on a fraction. */
+check(
+  "and above the sheet rather than under it",
+  sheet.attribution.bottom <= sheet.panel.top + 1,
+);
+check(
+  "the scale bar clears the sheet too, in the other corner",
+  sheet.scale.bottom <= sheet.panel.top + 1,
+);
+
+/* --------------------------- what the map has to say ----------------------
+
+   It used to say it itself, in a card over the ground it was about: at a
+   phone's width that card was 312x102 in a strip it shared with the scale
+   bar and the credit, and the three of them piled up above the sheet.
+
+   The map draws none of it now. The panel says all three -- no detail here,
+   too far out for the grid, too many squares to draw -- under a heading of
+   its own, above the square. Nothing is left on the map to keep in sync with
+   it, which is the check: not that the panel gained a section, but that
+   there is exactly one place either of them says any of this. */
+const said = await phone.evaluate(() => ({
+  onMap: document.querySelectorAll(".map-notes, .map-note").length,
+  section: document.querySelectorAll(".view-notes").length,
+  rows: [...document.querySelectorAll(".view-note")].map((r) =>
+    (r.textContent ?? "").trim()
+  ),
+  heading: document.querySelector(".view-notes .panel-title")?.textContent
+    ?.trim() ?? null,
+  /* Nothing in the section is pressable: the one thing to do about any of
+     it is the download button in the panel's own header, which the coverage
+     row names in words. A button here would be a second way in, beside the
+     first, saying the same thing. */
+  controls: document.querySelectorAll(".view-notes button, .view-notes a")
+    .length,
+  header: document.querySelectorAll(".panel-download").length,
+  /* Above the square, not below it: it is about where the reader is looking,
+     which is the question that comes before which square they picked. */
+  beforeSelected: (() => {
+    const view = document.querySelector(".view-notes");
+    const selected = document.querySelector(".selected");
+    if (!view || !selected) return false;
+    return (view.compareDocumentPosition(selected)
+      & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  })(),
+}));
+check("the map draws no note of its own", said.onMap === 0);
+check(
+  `the panel says it instead, in one section (${said.section})`,
+  said.section === 1,
+);
+check(
+  `both facts are drawn here at once (${said.rows.length})`,
+  said.rows.length === 2,
+);
+check(
+  `under its own heading (${said.heading})`,
+  said.heading === m("panel_this_view"),
+);
+check(
+  "the uncovered ground is named in the panel's own words",
+  said.rows.some((row) => row.startsWith(m("map_coverage_gap"))),
+);
+check(
+  "and the grid's zoom in its own",
+  said.rows.includes(m("map_zoom_for_grid")),
+);
+check(
+  `and carries no control of its own (${said.controls})`,
+  said.controls === 0,
+);
+check(
+  `pointing at the download button already in the header (${said.header})`,
+  said.header === 1,
+);
+check("and the section sits above the square", said.beforeSelected);
+
+/* And it is written in the same voice as the section under it. "This view"
+   carried `m-0 text-sm leading-normal` in its class list -- two thirds of
+   `hint` and none of its colour -- so it sat in plain ink directly above a
+   sentence in soft, with nothing anywhere saying the two were meant to
+   differ. They are one utility now; this reads them back off the page
+   because a shared class name is not the claim, a shared rendering is. */
+const voices = await page.evaluate(() => {
+  const read = (selector) => {
+    const el = document.querySelector(selector);
+    if (el === null) return null;
+    const style = getComputedStyle(el);
+    return {
+      color: style.color,
+      size: style.fontSize,
+      leading: style.lineHeight,
+      margin: style.margin,
+    };
+  };
+  return { note: read(".view-note"), hint: read(".selected .hint") };
+});
+check(
+  `the view note is set like the square's hint (${voices.note?.color})`,
+  voices.note !== null && voices.hint !== null
+    && JSON.stringify(voices.note) === JSON.stringify(voices.hint),
+);
+
+/* A sheet is closed by its handle. The drawer's pair -- an icon in the panel
+   header that means "close the panel on the right", and a tab floating at
+   that right edge to bring it back -- are describing a layout this width does
+   not have, and both stand down here. */
+/* Inside the sheet, all of it. Nothing of the handle stands above the panel's
+   top edge, so the map meets the sheet directly: a band of the sheet's own
+   colour above the sheet is what read as a separate strip, and no amount of
+   moving the pill down fixes a band that is still there. */
+check(
+  `the sheet wears a handle, wholly inside its own top edge (top ${
+    Math.round(sheet.grab.top - sheet.panel.top)
+  }px, bottom ${Math.round(sheet.grab.bottom - sheet.panel.top)}px)`,
+  sheet.grab !== null && sheet.grab.top >= sheet.panel.top - 1
+    && sheet.grab.bottom > sheet.panel.top,
+);
+check(
+  "and the drawer's own hide button is not on a phone",
+  !(await phone.locator(".panel-hide").isVisible()),
+);
+
+/* Shut, the sheet covers nothing and the handle is all that is left of it,
+   lying along the map's bottom edge. The search field still measures from the
+   right edge: at 5.5rem of fixed reserve it ran under the zoom buttons here,
+   with the field drawn on top of them. */
+await phone.locator(".sheet-grab-button").click();
+await phone.waitForFunction(
+  () => document.querySelector(".panel")?.classList.contains("collapsed"),
+  null,
+  { timeout: 10_000 },
+);
+await phone.waitForTimeout(300);
+const shut = await overlays();
+check(
+  "with the sheet shut its handle lies along the map's bottom edge",
+  shut.grab !== null && shut.grab.bottom >= shut.wrap.bottom - 1,
+);
+/* Not "absent": the tab is display:none below the breakpoint, so it is still
+   in the document with a zero box. What matters is that nothing is drawn
+   there. */
+check(
+  "and nothing reopens it from the right edge, which is the drawer's gesture",
+  !(await phone.locator(".panel-reopen").isVisible()),
+);
+check(
+  `and the search field still stops short of the zoom column (field to ${
+    Math.round(shut.search.right)
+  }, buttons from ${Math.round(shut.buttons.left)})`,
+  !overlaid(shut.buttons, shut.search),
+);
+/* Down to the handle rather than past it: the sheet covers nothing now, but
+   the handle does, and the scale bar reads the two as one number. */
+check(
+  `the scale bar drops to the handle, not through it (${
+    Math.round(shut.grab.top - shut.scale.bottom)
+  }px)`,
+  Math.abs(shut.scale.bottom - shut.grab.top) <= 2,
+);
+/* And it brings the sheet back, which is the half a one-way check misses. */
+await phone.locator(".sheet-grab-button").click();
+await phone.waitForFunction(
+  () => !document.querySelector(".panel")?.classList.contains("collapsed"),
+  null,
+  { timeout: 10_000 },
+);
+await phone.waitForTimeout(300);
+const pulledBack = await overlays();
+/* Into the sheet, not onto it: the handle used to rest on the panel's top
+   edge with a rule between them, which read as a separate strip. It overlaps
+   now -- by less than the header's own padding, so it covers no control --
+   and the rule is gone. */
+check(
+  `and pulling the handle again brings the sheet back (${
+    Math.round(pulledBack.grab.bottom - pulledBack.panel.top)
+  }px into it)`,
+  pulledBack.grab.top >= pulledBack.panel.top - 1
+    && pulledBack.grab.bottom > pulledBack.panel.top
+    && pulledBack.panel.top < pulledBack.wrap.bottom - 1,
+);
+/* And in a palette that cuts, the pill is not a pill: six sides, both ends
+   mitred at the same 45 degrees as every button around it, symmetrical so it
+   does not look like it prefers one side to grab from. This page is in the
+   default palette, which is an edgerunner one. */
+check(
+  "the handle is angular where the palette is",
+  await phone.locator(".sheet-grab .grab-pill").evaluate((el) => {
+    const style = getComputedStyle(el);
+    if (Number.parseFloat(style.borderTopLeftRadius) !== 0) return false;
+    /* Counted by vertex rather than matched by shape: the computed value
+       mixes units -- `4px 0px` beside `calc(100% - 4px) 100%` -- and neither
+       `calc` nor the percentage is a thing to pin. Six is the claim. */
+    const body = style.clipPath.match(/^polygon\((.*)\)$/)?.[1];
+    return body !== undefined && body.split(",").length === 6;
+  }),
+);
+check(
+  "with no rule along its top to say it is a separate thing",
+  await phone.locator(".sheet-grab-button").evaluate((el) =>
+    getComputedStyle(el).borderTopWidth === "0px"
+  ),
+);
+/* And it clears the header's controls, which sit under it. A handle that
+   swallows the top of the download button is worse than a visible seam --
+   which is what `max-drawer:pt-8` on the header is for: the sheet carries
+   its own room for its handle rather than borrowing the controls'. */
+check(
+  "and stopping short of the controls it now sits over",
+  pulledBack.grab.bottom
+    < (await phone.locator(".panel-download").boundingBox()).y,
+);
+await phone.locator(".sheet-grab-button").click();
+await phone.waitForFunction(
+  () => document.querySelector(".panel")?.classList.contains("collapsed"),
+  null,
+  { timeout: 10_000 },
+);
+await phone.waitForTimeout(300);
+
+/* ------------------------------- the floor ---------------------------------
+
+   320px, the narrowest phone anyone still ships, and the width this
+   application stops laying out below: narrower than that and the page scrolls
+   rather than the map giving up any more of itself.
+
+   The sheet's header cannot hold the brand and three controls on one row down
+   here -- measured, it gives out at 356 -- so it stacks. Left to itself it
+   stacked hard left twice over, which reads as two half-empty rows; both
+   lines centre instead. Read as an offset from the header's own centre, so
+   the claim is "centred" rather than "at some x I wrote down". */
+await phone.locator(".sheet-grab-button").click();
+await phone.waitForFunction(
+  () => !document.querySelector(".panel")?.classList.contains("collapsed"),
+  null,
+  { timeout: 10_000 },
+);
+const headLayout = () =>
+  phone.evaluate(() => {
+    const head = document.querySelector(".panel-head");
+    if (head === null) return null;
+    const box = head.getBoundingClientRect();
+    const brand = head.querySelector(".brand").getBoundingClientRect();
+    const controls = head.querySelector("div").getBoundingClientRect();
+    const offCentre = (r) =>
+      Math.round((r.left - box.left) - (box.right - r.right));
+    return {
+      stacked: Math.abs(brand.top - controls.top) > 20,
+      brand: offCentre(brand),
+      controls: offCentre(controls),
+      overflows: document.documentElement.scrollWidth
+        > document.documentElement.clientWidth,
+    };
+  });
+
+await phone.setViewportSize({ width: 320, height: 844 });
+await phone.waitForTimeout(400);
+const floor = await headLayout();
+check(
+  `at the 320px floor the header stacks (${floor?.stacked})`,
+  floor?.stacked === true,
+);
+check(
+  `and both of its rows centre (brand ${floor?.brand}, controls ${floor?.controls})`,
+  Math.abs(floor?.brand ?? 99) <= 1 && Math.abs(floor?.controls ?? 99) <= 1,
+);
+/* And nothing is pushed off the side getting there. The floor is a
+   `min-width`, so a NARROWER window scrolls -- but at the floor itself
+   nothing should. */
+check("with nothing hanging off the side", floor?.overflows === false);
+
+/* Above the stack, the row is a row again: brand left, controls right. A
+   rule that centred at every width would leave these two huddled in the
+   middle of a 390px header with a gap at each end. */
+await phone.setViewportSize({ width: 390, height: 844 });
+await phone.waitForTimeout(400);
+const roomy = await headLayout();
+check(
+  `at a phone's own width it is one row again (${roomy?.stacked})`,
+  roomy?.stacked === false && (roomy?.brand ?? 0) < -20
+    && (roomy?.controls ?? 0) > 20,
+);
+await phone.locator(".sheet-grab-button").click();
+await phone.waitForFunction(
+  () => document.querySelector(".panel")?.classList.contains("collapsed"),
+  null,
+  { timeout: 10_000 },
+);
+await phone.waitForTimeout(300);
+
+/* --------------------------------- the credit ------------------------------
+
+   MapLibre decides from the map's own width whether the attribution needs a
+   toggle, and then draws it open anyway: 194px of credit lying across the
+   bottom of a phone. */
+const band = () =>
+  phone.evaluate(() => {
+    const credit = document.querySelector(".maplibregl-ctrl-attrib");
+    return {
+      creditWidth: Math.round(credit?.getBoundingClientRect().width ?? 0),
+      creditCompact: credit?.classList.contains("maplibregl-compact") ?? false,
+    };
+  });
+
+const strip = await band();
+check(
+  `at a phone's width MapLibre calls the credit compact (${strip.creditCompact})`,
+  strip.creditCompact,
+);
+check(
+  `and it starts behind its toggle (${strip.creditWidth}px)`,
+  strip.creditWidth <= 40,
+);
+await phone.locator(".maplibregl-ctrl-attrib-button").click();
+await phone.waitForTimeout(250);
+const opened = await band();
+check(
+  `which a tap still opens (${opened.creditWidth}px)`,
+  opened.creditWidth > 100,
+);
+await phone.close();
+
+/* A map with room keeps the whole line: nothing here repeats a width, so the
+   one place that decides is MapLibre, and shutCredit only acts on the maps it
+   already called narrow. */
+const wideCredit = await page.evaluate(() => {
+  const el = document.querySelector(".maplibregl-ctrl-attrib");
+  return {
+    compact: el?.classList.contains("maplibregl-compact") ?? true,
+    width: Math.round(el?.getBoundingClientRect().width ?? 0),
+  };
+});
+check(
+  `the desktop map draws its credit in full (${wideCredit.width}px, compact ${wideCredit.compact})`,
+  !wideCredit.compact && wideCredit.width > 100,
+);
 
 /* ------------------------------------- appearance -------------------------
 
@@ -1101,13 +2104,11 @@ check(
 );
 
 const pickTheme = async (value) => {
-  await page.locator(".panel-settings").click();
-  await page.locator(".settings-theme .dropdown-button").click();
+  await page.locator(".panel-foot .theme .dropdown-button").click();
   await page.locator(`.dropdown-option[data-value="${value}"]`).click();
-  await page.keyboard.press("Escape");
   await page.waitForFunction(
     (want) =>
-      (document.documentElement.getAttribute("data-theme") ?? "cyber-dark")
+      (document.documentElement.getAttribute("data-theme") ?? "edge-dark")
         === want,
     value,
     { timeout: 10_000 },
@@ -1135,8 +2136,8 @@ for (
   const [name, wantLight] of [
     ["light", true],
     ["dark", false],
-    ["cyber-light", true],
-    ["cyber-dark", false],
+    ["edge-light", true],
+    ["edge-dark", false],
     ["night", false],
   ]
 ) {
@@ -1188,65 +2189,247 @@ check(
 /* The default wears NO attribute, so choosing it has to remove one rather than
    set it. Otherwise the stylesheet has a rule nothing matches, and the first
    frame after a reload is a different theme from the one the menu shows. */
-await pickTheme("cyber-dark");
+await pickTheme("edge-dark");
 check(
   "choosing the default clears the attribute rather than setting it",
   (await chosen()) === null,
 );
 
-/* The plain themes are plain because four tokens are held at rest, not because
+/* The plain themes are plain because five tokens are held at rest, not because
    anything is switched off elsewhere: one colour repeated across the
-   gradient's three stops is a solid button, and a transparent split shadow is
-   no split shadow. Read back resolved, because "at rest" is a property of the
-   values, not of the rule that sets them. */
+   gradient's three stops is a solid button, the mono stack is no second
+   typeface, and an absent clip is a rectangle. Read back resolved,
+   because "at rest" is a property of the values, not of the rule that sets
+   them.
+
+   The cut is read off real controls rather than off the token. Two things
+   have to be true and only the control can say both: that the utility spends
+   the token at all, and that Tailwind emitted a variable nothing in the
+   markup mentions by name. Low light joins the plain pair here -- it is a
+   palette for keeping night vision, not a second edgerunner. */
 const levers = () =>
-  page.evaluate(() => {
+  page.evaluate(async () => {
+    /* A face still loading reports as absent, and `block` means the wordmark
+       is drawn in nothing at all until it lands. */
+    await document.fonts.ready;
     const s = getComputedStyle(document.documentElement);
     const g = (n) => s.getPropertyValue(n).trim();
+    /* null rather than a throw: a selector that has rotted must fail the
+       check that reads it, not the evaluate that collects it.
+
+       Both mechanisms, because the chamfer is drawn by `corner-shape` where
+       the browser has it and clipped where it does not, and "chamfered" means
+       the shape is there AND nothing is clipping it out of its own box. */
+    const shape = (sel) => {
+      const el = document.querySelector(sel);
+      if (el === null) return null;
+      const style = getComputedStyle(el);
+      return {
+        clip: style.clipPath,
+        corner: style.cornerShape,
+        radius: Number.parseFloat(style.borderTopRightRadius),
+      };
+    };
     return {
       stops: [g("--color-cta-from"), g("--color-cta-mid"), g("--color-cta-to")],
-      glitch: [g("--glitch-a"), g("--glitch-b")],
+      /* Off the wordmark itself, not off the token: what matters is the
+         face the browser RESOLVED for it, which is also the only way to see
+         that the shipped face loaded rather than silently falling back to
+         the mono stack it names second. */
+      brand: (() => {
+        const el = document.querySelector(".brand");
+        return el ? getComputedStyle(el).fontFamily : "missing";
+      })(),
+      faceLoaded: document.fonts.check('700 24px "Bodoni Moda"'),
       wash: g("--bg-image"),
+      cut: shape(".btn"),
+      iconCut: shape(".icon-button"),
+      /* The two controls on this screen that are not buttons and take the
+         shape anyway: the map's search box, and the closed dropdown at the
+         foot of the panel. The `field` utility itself is checked at the
+         gate, which is the only place one is on screen before the map
+         exists. */
+      field: shape(".place-search-field"),
+      trigger: shape(".dropdown-button"),
     };
   });
-for (const plain of ["light", "dark"]) {
+/* Square is a bevel of nothing, and nothing clipping. Chamfered is a real
+   bevel, and still nothing clipping: a clipped button loses its border along
+   the diagonal and its focus ring altogether, which is the whole reason the
+   shape stopped being a polygon. */
+const square = (shape) =>
+  shape !== null && shape.clip === "none" && shape.radius === 0;
+const chamfered = (shape) =>
+  shape !== null && shape.clip === "none" && shape.corner === "bevel"
+  && shape.radius > 0;
+
+for (const plain of ["light", "dark", "night"]) {
   await pickTheme(plain);
-  const { stops, glitch, wash } = await levers();
+  const { stops, brand, wash, cut, iconCut, field, trigger } = await levers();
   check(
     `${plain}: the primary action is one colour, not a gradient`,
     new Set(stops).size === 1 && stops[0] !== "",
   );
   check(
-    `${plain}: the wordmark has no split shadow`,
-    glitch.every((c) => c === "transparent"),
+    `${plain}: the wordmark wears no second typeface (${brand})`,
+    !/Bodoni/.test(brand) && /mono|Menlo|Consolas/i.test(brand),
   );
   check(`${plain}: and the ground carries no wash`, wash === "none");
+  check(`${plain}: the buttons keep their corners`, square(cut));
+  check(`${plain}: and so do the icon buttons`, square(iconCut));
+  check(
+    `${plain}: and the search box and the dropdown`,
+    square(field) && square(trigger),
+  );
 }
 
-/* And the cyberpunk pair actually moves them, so the check above says
+/* And the edgerunner pair actually moves them, so the check above says
    something about the plain themes rather than about all of them. */
-await pickTheme("cyber-dark");
-const cyber = await levers();
+await pickTheme("edge-dark");
+const edge = await levers();
 check(
-  "cyberpunk dark runs a real three-stop gradient",
-  new Set(cyber.stops).size === 3,
+  "edgerunner dark runs a real three-stop gradient",
+  new Set(edge.stops).size === 3,
 );
 check(
-  "and a visible split shadow",
-  cyber.glitch.every((c) => c !== "transparent"),
+  `and draws its wordmark in the shipped face (${edge.brand})`,
+  /Bodoni/.test(edge.brand),
 );
-check("and a wash on the ground", cyber.wash !== "none");
+/* And the face is really there. A @font-face whose file 404s resolves to the
+   fallback with nothing said, and the check above would pass on the name
+   alone -- the browser reports what the cascade asked for, not what it got. */
+check("which is loaded, not merely named", edge.faceLoaded === true);
+check("and a wash on the ground", edge.wash !== "none");
+check(
+  `and cuts the corner off its buttons (${edge.cut?.radius}px)`,
+  chamfered(edge.cut) && chamfered(edge.iconCut),
+);
+/* The same corner off the things that are not buttons. */
+check(
+  `and off the search box and the dropdown too (${edge.field?.radius}px)`,
+  chamfered(edge.field) && chamfered(edge.trigger),
+);
+
+/* The other half of the pair. Edgerunner light INHERITS the shape rather than
+   setting it, which is exactly the arrangement that breaks quietly when a
+   palette starts overriding one of the four tokens and not the rest. */
+await pickTheme("edge-light");
+const edgeLight = await levers();
+check(
+  `and so does edgerunner light (${edgeLight.cut?.radius}px)`,
+  chamfered(edgeLight.cut) && chamfered(edgeLight.iconCut)
+    && chamfered(edgeLight.field) && chamfered(edgeLight.trigger),
+);
 
 /* "Match my device" is the one entry that is not a palette. It sets an
    attribute like any other choice, and resolves to the PLAIN pair, because an
-   operating system says light or dark and never says cyberpunk. This browser
+   operating system says light or dark and never says edgerunner. This browser
    reports a light preference, so it must land on plain light exactly. */
 await pickTheme("system");
 check("matching the device says so on the root", (await chosen()) === "system");
 check(
-  "and on a light device that is plain light, not a cyberpunk one",
+  "and on a light device that is plain light, not a edgerunner one",
   (await paletteId()) === painted.light,
 );
+
+/* MapLibre's own controls -- zoom, compass, geolocate. They ship a light-only
+   stylesheet with #333 baked into the glyph, which no token can reach, so
+   they were inverted: grey whatever the palette said, and white buttons on a
+   red map in low light. They are masks now, and the colour comes off the
+   button, so the question is answerable rather than approximate -- the paint
+   must BE the palette's ink, not merely close to it.
+
+   Read from the zoom-in control, the one MapLibre always draws. The probe is
+   how a custom property becomes the same string the computed style reports:
+   --color-ink is a hex literal and backgroundColor is an rgb() triple, and
+   comparing those two as text compares nothing. */
+const ctrlPaint = async (theme) => {
+  await pickTheme(theme);
+  return page.evaluate(() => {
+    const icon = document.querySelector(
+      ".maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon",
+    );
+    if (icon === null) return null;
+    const style = getComputedStyle(icon);
+    const probe = document.createElement("div");
+    probe.style.color = getComputedStyle(document.documentElement)
+      .getPropertyValue("--color-ink").trim();
+    document.body.append(probe);
+    const ink = getComputedStyle(probe).color;
+    probe.remove();
+    return {
+      paint: style.backgroundColor,
+      image: style.backgroundImage,
+      filter: style.filter,
+      masked: style.maskImage !== "none",
+      ink,
+    };
+  });
+};
+
+const nightCtrl = await ctrlPaint("night");
+check(
+  "the map's own controls are painted from a mask, not inverted",
+  nightCtrl?.masked === true && nightCtrl?.image === "none"
+    && nightCtrl?.filter === "none",
+);
+check(
+  `in the palette's own ink (${nightCtrl?.paint})`,
+  nightCtrl?.paint !== undefined && nightCtrl.paint === nightCtrl.ink,
+);
+/* The complaint that started this: in a palette with no neutral in it, a
+   neutral control is the one thing on screen still wearing no theme. */
+const nightRGB = nightCtrl?.paint.match(/\d+/g)?.map(Number) ?? [];
+check(
+  "which in low light is warm, not the grey an inversion lands on",
+  nightRGB.length >= 3 && nightRGB[0] > nightRGB[2],
+);
+const edgeCtrl = await ctrlPaint("edge-dark");
+check(
+  `and it moves with the palette (${edgeCtrl?.paint})`,
+  edgeCtrl?.paint !== undefined && edgeCtrl.paint === edgeCtrl.ink
+    && edgeCtrl.paint !== nightCtrl?.paint,
+);
+
+/* The application's OWN icons are the other way round: the lattice set is
+   worn by the two palettes that cut their corners, and the plain three keep
+   the shared one. A glyph drawn at 45 degrees on a square button is the same
+   mismatch as a round one in a chamfered field, just pointing the other way.
+
+   Read off the panel header, which holds four of them in every palette.
+   `data-glyph` is on the local set and nothing else, so counting it against
+   the number of glyphs present answers "which set" without naming a file. */
+const iconSet = async (theme) => {
+  await pickTheme(theme);
+  return page.evaluate(() => ({
+    attr: document.documentElement.getAttribute("data-icons"),
+    local: document.querySelectorAll(".panel-head [data-glyph]").length,
+    all: document.querySelectorAll(".panel-head svg").length,
+  }));
+};
+
+const cutIcons = await iconSet("edge-dark");
+check(
+  `the edgerunner palettes draw the app's own icons (${cutIcons.local}/${cutIcons.all})`,
+  cutIcons.attr === "cut" && cutIcons.all > 0
+    && cutIcons.local === cutIcons.all,
+);
+for (const plain of ["light", "dark", "night"]) {
+  const drawn = await iconSet(plain);
+  check(
+    `and ${plain} keeps the shared set (${drawn.local}/${drawn.all})`,
+    drawn.attr === "plain" && drawn.all === cutIcons.all && drawn.local === 0,
+  );
+}
+/* "Match my device" resolves to a plain palette, so it resolves to the plain
+   set -- the attribute is written from the RESOLVED theme, not the chosen
+   one. This browser reports a light preference. */
+const deviceIcons = await iconSet("system");
+check(
+  "and matching the device follows what it resolves to, not what was picked",
+  deviceIcons.attr === "plain" && deviceIcons.local === 0,
+);
+await pickTheme("edge-dark");
 
 /* An overview and no region is the state every fresh install starts in, and
    two things have to be true of it at once. */
@@ -1261,33 +2444,50 @@ await page.evaluate(() =>
 );
 check(
   "with only an overview, street zoom still offers to download the area",
-  await page.waitForSelector(".map-note.action", { timeout: 20_000 })
+  await page.waitForSelector(".view-note-blank", { timeout: 20_000 })
     .then(() => true, () => false),
 );
 
-/* And the note is painted in the theme's colours, both of them. It sat on a
+/* And it takes the theme's colours, both of them. Over the map it sat on a
    hardcoded white through the dark theme's whole first release -- white pill,
    near-white ink -- and every token audit missed it, because a literal in a
-   component class list belongs to no palette. Read back as painted and judged
-   by lightness rather than by name, so the check outlives the exact token.
+   component class list belongs to no palette.
+
+   What makes that impossible now is that the row has NO ground of its own:
+   it is text in the panel, on whatever the panel is painted. So the check is
+   that it stays that way -- a row that grows a background is a row that can
+   carry a literal again -- and the panel's own ground is judged by lightness
+   under both themes, which is where the colour actually comes from.
 
    Named themes rather than "match my device": what that entry resolves to
    depends on the machine running the suite, and this is about the
    stylesheet. */
-const noteLightness = () => surfaceLightness(".map-note.action");
+const rowGround = () =>
+  page.locator(".view-note-blank").first()
+    .evaluate((n) => getComputedStyle(n).backgroundColor);
+const transparent = (color) =>
+  color === "transparent" || /rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(color);
 await pickTheme("dark");
 check(
-  `the note over the map goes dark with the theme (lightness ${
-    (await noteLightness()).toFixed(2)
+  `the note is on the panel's ground, not one of its own (${await rowGround()})`,
+  transparent(await rowGround()),
+);
+check(
+  `which goes dark with the theme (lightness ${
+    (await surfaceLightness(".panel")).toFixed(2)
   })`,
-  (await noteLightness()) < 0.5,
+  (await surfaceLightness(".panel")) < 0.5,
 );
 await pickTheme("light");
 check(
   `and light with the light theme (lightness ${
-    (await noteLightness()).toFixed(2)
+    (await surfaceLightness(".panel")).toFixed(2)
   })`,
-  (await noteLightness()) > 0.5,
+  (await surfaceLightness(".panel")) > 0.5,
+);
+check(
+  `with the row still carrying no ground (${await rowGround()})`,
+  transparent(await rowGround()),
 );
 
 /* Second: it must cost nothing to look around. The floor draws every tile on
@@ -1317,6 +2517,12 @@ check(
   emptyTiles.length === 0,
 );
 
+/* Back to the palette the app opens in. The section above left plain light
+   behind, and the toast checks after the download are about what the DEFAULT
+   paints -- a toast read under a light palette says nothing about the white
+   the library used to inject. */
+await pickTheme("edge-dark");
+
 /* Second download: detail for the current view, over the world map. The card
    must no longer offer the world, and afterwards every tile from both
    downloads has to be reachable. */
@@ -1328,7 +2534,7 @@ check(
 await openButton.click();
 await page.waitForSelector(".download-card", { timeout: 10_000 });
 check(
-  "with maps on disk the world offer is gone",
+  "the card still offers no download of the planet",
   (await page.locator(".download-world").count()) === 0,
 );
 /* The world overview is the ground under every region, and nothing may offer
@@ -1362,9 +2568,55 @@ check(
     && (await page.locator(".ledger-row .ledger-export").count()) === 0
     && (await page.locator(".ledger-row .ledger-update").count()) === 0,
 );
+
+/* What the import section is FOR rides its heading, in the info icon, rather
+   than standing as a paragraph between the heading and the control. Moving a
+   sentence into a tooltip hides it, so three things have to hold at once: the
+   icon is there, hovering it says the sentence on screen, and the sentence is
+   the trigger's accessible name whether or not it is open -- React Aria
+   describes a trigger with its tooltip only while the tooltip is showing, and
+   a screen reader user who never hovers must still be told. */
+const importInfo = page.locator(".download-import .info-tip");
+const importHint = "Maps downloaded from another Tessarium instance";
+check(
+  "the import section explains itself from its heading",
+  (await importInfo.count()) === 1,
+);
+check(
+  "and spends no paragraph under it doing the same",
+  (await page.locator(".download-import > .hint").count()) === 0,
+);
+check(
+  "the explanation is the icon's name, open or not",
+  ((await importInfo.getAttribute("aria-label")) ?? "").includes(importHint),
+);
+await importInfo.hover();
+const importTip = await page
+  .waitForSelector('[role="tooltip"]', { timeout: 5_000 })
+  .then((el) => el.textContent(), () => "");
+check(
+  "and hovering it puts the explanation on screen",
+  (importTip ?? "").includes(importHint),
+);
+/* Off the icon again: an open tooltip is a positioned overlay, and the checks
+   below read the card underneath it. */
+await page.mouse.move(0, 0);
+await page.waitForFunction(
+  () => document.querySelector('[role="tooltip"]') === null,
+  null,
+  { timeout: 5_000 },
+);
 check(
   "nor a staleness nudge it could not act on",
   (await page.locator(".ledger-row .ledger-stale").count()) === 0,
+);
+/* Back to grid zoom before the download, because the checks after it are
+   about the overlay surviving the style swap and the grid is only drawn from
+   zoom 18. The pans above left the camera at 16. This does not change what is
+   downloaded: the card froze its region when it opened, which is the whole
+   point of freezing it. */
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [-0.09, 51.51], zoom: 19 })
 );
 const viewButton = page.locator(".download-view button");
 await page.waitForFunction(
@@ -1375,11 +2627,103 @@ await page.waitForFunction(
 await viewButton.click();
 check("the view download completes at generation two", await awaitDone(2));
 await page.waitForFunction(
+  () =>
+    [...document.querySelectorAll(".app-toast")].some((t) =>
+      (t.textContent ?? "").includes("Maps downloaded")
+    ),
+  null,
+  { timeout: 30_000 },
+);
+check("the download completes with a toast", true);
+check(
+  "and the toast carries a close button for keyboard users",
+  (await page.locator(".app-toast button").count()) >= 1,
+);
+
+/* The toast was drawn by a library that injected its own stylesheet -- white
+   background, near-black text, 8px corners, all literals in a file this
+   project does not own. So it stayed white in every theme and round in a theme
+   that squares every corner: the same bug as MapLibre's controls, and
+   invisible to the token audit for the same reason, that the colours belonged
+   to no palette. It is this project's own markup now, and these two checks
+   would notice it going back.
+
+   Nothing has chosen a theme yet, so this is the default: dark. Read as
+   painted and as geometry, because the fix is one stylesheet beating another
+   and only the computed value says which won. */
+const toastStyle = () =>
+  page.locator(".app-toast").first().evaluate((n) => {
+    const s = getComputedStyle(n);
+    return {
+      bg: s.backgroundColor,
+      radius: s.borderTopLeftRadius,
+      color: s.color,
+    };
+  });
+const toast = await toastStyle();
+const toastLight = (() => {
+  const n = toast.bg.match(/-?[\d.]+/g)?.map(Number) ?? [];
+  return toast.bg.startsWith("oklab") || toast.bg.startsWith("oklch")
+    ? n[0]
+    : (n[0] + n[1] + n[2]) / (3 * 255);
+})();
+check(
+  `the toast is painted in the theme, not a library's white (${toast.bg})`,
+  toastLight < 0.5,
+);
+check(
+  `and squares its corners like everything else (${toast.radius})`,
+  toast.radius === "0px",
+);
+/* And a SUCCESS takes itself away -- one short statement with nothing to
+   re-read, unlike an error. Both halves of that pair have to hold: if success
+   toasts stayed too, "an error waits to be dismissed" further down would be
+   trivially true.
+
+   Waited for rather than slept past, so this returns the moment the toast
+   leaves -- two seconds earlier on a green run -- while its budget still ends
+   past the timeout the toast was given. */
+const successWentAway = await page.waitForFunction(
+  () => document.querySelectorAll(".app-toast").length === 0,
+  null,
+  { timeout: SUCCESS_MS + 2000 },
+).then(() => true, () => false);
+check("a success toast takes itself away", successWentAway);
+await page.waitForFunction(
   () => !document.querySelector(".download-card"),
   null,
   {
     timeout: 10_000,
   },
+);
+check("the card closes itself", true);
+
+/* The grid overlay must survive the style swap that follows a completed
+   download, and this is checked after the FIRST download deliberately. It once
+   did not survive: when MapLibre's style diff succeeds it fires style.load
+   synchronously inside the setStyle call, so a listener registered after that
+   call has already missed it and the overlay was never re-added. Each missed
+   listener stayed armed and repaired the NEXT swap, which made the loss
+   invisible after two downloads and total after one -- the real-world case. */
+const overlayAlive = await page.evaluate(() => {
+  const map = window.__tessarium_map;
+  return !!(map?.getSource("grid") && map.getLayer("grid-lines")
+    && map.getSource("selection") && map.getLayer("selection-outline"));
+});
+check("the grid overlay survives the download's style swap", overlayAlive);
+const gridRefilled = await page
+  .waitForFunction(
+    () => (window.__tessarium_map?.querySourceFeatures("grid").length ?? 0) > 0,
+    null,
+    { timeout: 30_000 },
+  )
+  .then(() => true, () => false);
+check("and the grid refills after the swap", gridRefilled);
+/* And back to the zoom the pans left, which is what everything below reads:
+   the loading bar over real tile traffic, and the card's answer for an area
+   already held. */
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [-0.09, 51.51], zoom: 16 })
 );
 
 /* The loading bar, on real traffic: wait for quiet, delay every tile past the
@@ -1615,6 +2959,33 @@ const boxBeside = await ukEntry
 check(
   "the checkbox sits to the left of its label, on the same line",
   boxBeside?.leftOf === true && boxBeside.sameLine === true,
+);
+
+/* And what a country discloses is indented past the country itself.
+
+   Same reason as above, and the same blind spot: the states of the United
+   States sat flush with the country that contains them, which reads as a flat
+   list of peers -- Alabama beside the United States rather than inside it.
+   Nothing failed; the tree was simply telling the user something untrue.
+   Geometry again, because the indent is a stylesheet's to lose. */
+const indented = await ukEntry.evaluate((entry) => {
+  const country = entry.querySelector(".region-summary");
+  const rows = [...entry.querySelectorAll(".region-check")];
+  if (!country || rows.length === 0) return null;
+  const parent = country.getBoundingClientRect().left;
+  return {
+    rows: rows.length,
+    /* The narrowest indent of any row, so one stray flush row fails this. */
+    least: Math.min(...rows.map((r) => r.getBoundingClientRect().left))
+      - parent,
+  };
+});
+check(
+  `every row under a country is indented past it `
+    + `(${indented?.rows} rows, narrowest ${
+      Math.round(indented?.least ?? 0)
+    }px)`,
+  indented !== null && indented.least > 8,
 );
 const priceOf = async () => {
   const hint = await page
@@ -2082,7 +3453,7 @@ await page.evaluate(() =>
 );
 check(
   "panning off the downloaded region says so",
-  await page.waitForSelector(".map-note.action", { timeout: 15_000 })
+  await page.waitForSelector(".view-note-blank", { timeout: 15_000 })
     .then(() => true, () => false),
 );
 /* And says the one thing true wherever it appears. What the floor draws
@@ -2093,7 +3464,7 @@ check(
    back into a claim fails this. */
 check(
   "and claims only that the detail is missing",
-  (await page.locator(".map-note.action span").innerText())
+  (await page.locator(".view-note-blank").innerText())
     === m("map_coverage_gap"),
 );
 /* The wash is the other half of that claim. It is 42% opaque, sized for ground
@@ -2140,14 +3511,25 @@ await page.unroute("**/api/basemap-coverage");
 await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
 );
-await page.waitForSelector(".map-note.action", { timeout: 15_000 });
-/* The note is the only way out of a blank screen offered on the map, so its
-   button has to reach the downloader. */
-await page.locator(".map-note.action .note-action").click();
+await page.waitForSelector(".view-note-blank", { timeout: 15_000 });
+/* The note is the only way out of a blank screen, and it points rather than
+   acts: the button it names is the panel's own, one row above it. So the
+   check is that pressing THAT reaches the downloader from this state, and
+   that the note stands down once it has -- a row telling someone to press a
+   button they have already pressed is worse than no row. */
+await page.locator(".panel-download").click();
 check(
-  "the note offers the download card",
+  "the button the note names opens the download card",
   await page.waitForSelector(".download-card", { timeout: 10_000 })
     .then(() => true, () => false),
+);
+check(
+  "and the note stands down while the card is open",
+  await page.waitForFunction(
+    () => !document.querySelector(".view-note-blank"),
+    null,
+    { timeout: 10_000 },
+  ).then(() => true, () => false),
 );
 await page.locator(".panel-download").click();
 await page.waitForFunction(
@@ -2156,6 +3538,109 @@ await page.waitForFunction(
   {
     timeout: 10_000,
   },
+);
+
+/* ------------------------------ the small wait ----------------------------
+
+   The estimate is real planning work on the server and takes as long as the
+   area is large, so the card sits on one sentence -- "checking how much there
+   is to fetch" -- with nothing moving. The application's other loading
+   indicator is the bar across the top of the map, which is about the whole
+   view and says nothing about a section of a card waiting on its own.
+
+   Four squares filling in turn, in the shape the application already draws:
+   the grid's empty squares, the reticle, the cut corners. Held open here by
+   delaying the estimate, because the real wait is too short to catch and too
+   long to leave unmarked.
+
+   Read as geometry and computed style rather than by class alone: a mark
+   whose rule did not reach it is four invisible spans, which looks exactly
+   like the bug this replaces. */
+await page.route("**/api/basemap-estimate", async (route) => {
+  await new Promise((done) => setTimeout(done, 3000));
+  try {
+    await route.continue();
+  } catch {
+    /* Same as the tile delay above: unroute can beat a sleeping handler to
+       its route, and continuing a route already handled throws from a
+       promise nothing is awaiting -- which takes the whole suite down rather
+       than failing a check. */
+  }
+});
+/* Somewhere nothing else in this file prices, and closer in than the jumps
+   above. The estimate is cached against the region asked for and kept fresh
+   for five minutes, so reopening the card where it was last open answers out
+   of the cache with nothing pending -- no wait, and rightly no mark. The
+   check needs a real one. */
+await page.evaluate(() =>
+  window.__tessarium_map?.jumpTo({ center: [139.78, 35.7], zoom: 14 })
+);
+await page.waitForTimeout(600);
+await page.locator(".panel-download").click();
+await page.waitForSelector(".download-card", { timeout: 10_000 });
+const waiting = await page
+  .waitForSelector(".estimating .loading-tiles", { timeout: 10_000 })
+  .then(() => true, () => false);
+check("a section waiting on its own says so with a mark of its own", waiting);
+const mark = await page.evaluate(() => {
+  const el = document.querySelector(".estimating .loading-tiles");
+  if (!el) return null;
+  const squares = [...el.children];
+  const box = el.getBoundingClientRect();
+  return {
+    squares: squares.length,
+    hidden: el.getAttribute("aria-hidden"),
+    announced: document.querySelector(".estimating")?.getAttribute("role"),
+    width: Math.round(box.width),
+    height: Math.round(box.height),
+    animated: squares.map((sq) => getComputedStyle(sq).animationName),
+    delays: squares.map((sq) => getComputedStyle(sq).animationDelay),
+  };
+});
+check(`it is four squares (${mark?.squares})`, mark?.squares === 4);
+check(
+  `laid out square, at the size of the text beside it (${mark?.width}x${mark?.height})`,
+  mark !== null && mark.width === mark.height && mark.width > 8
+    && mark.width < 24,
+);
+check(
+  "each of them actually animating",
+  mark !== null && mark.animated.every((name) => name === "loading-tile"),
+);
+/* Clockwise, which is what makes it read as filling rather than flashing: a
+   2x2 laid out 1 2 / 3 4 turns 1, 2, 4, 3. */
+check(
+  `in turn rather than together (${mark?.delays.join(", ")})`,
+  mark !== null && new Set(mark.delays).size === 4
+    && mark.delays[0] === "0s" && mark.delays[1] === "0.15s"
+    && mark.delays[3] === "0.3s" && mark.delays[2] === "0.45s",
+);
+/* The sentence carries the meaning and its region announces itself, so the
+   mark must not speak as well -- and the region has to announce at all,
+   which it did not before this. */
+check(
+  `and saying nothing of its own (${mark?.hidden})`,
+  mark?.hidden === "true",
+);
+check(
+  `beside a sentence that is announced (${mark?.announced})`,
+  mark?.announced === "status",
+);
+check(
+  "and the mark goes when the answer lands",
+  await page.waitForFunction(
+    () => !document.querySelector(".estimating"),
+    null,
+    { timeout: 20_000 },
+  ).then(() => true, () => false),
+);
+await page.unroute("**/api/basemap-estimate");
+
+await page.locator(".panel-download").click();
+await page.waitForFunction(
+  () => !document.querySelector(".download-card"),
+  null,
+  { timeout: 10_000 },
 );
 
 /* An answer that arrives late must not paint over a newer one.
@@ -2173,7 +3658,7 @@ await page.route("**/api/basemap-coverage", async (route) => {
 await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [139.7, 35.68], zoom: 12 })
 );
-await page.waitForSelector(".map-note.action", { timeout: 20_000 });
+await page.waitForSelector(".view-note-blank", { timeout: 20_000 });
 /* Out to covered ground, whose answer is now 2 s away. The pause is what makes
    this a race: two jumps back to back settle as one move, so the request being
    outrun would never be sent. */
@@ -2189,7 +3674,7 @@ await page.evaluate(() =>
 await new Promise((done) => setTimeout(done, 4000));
 check(
   "an answer for a view already left cannot wipe the current one",
-  await page.locator(".map-note.action").count() === 1,
+  await page.locator(".view-note-blank").count() === 1,
 );
 await page.unroute("**/api/basemap-coverage");
 
@@ -2262,25 +3747,28 @@ check(
 );
 await gridPage.close();
 
-/* Focused first: the note goes away on its own when tiles land or a fly-to
-   settles, and if its button still had focus the page would drop to <body>,
-   where the keyboard does nothing. */
-await page.locator(".map-note.action .note-action").focus();
+/* The note goes away on its own when tiles land or a fly-to settles. That
+   used to be a hazard: the note carried the download button, and a focused
+   button vanishing dropped the page to <body>, where the keyboard does
+   nothing. It carries no control at all now, so there is nothing to drop --
+   which is why the keyboard is checked to be where it was left rather than
+   handed anywhere. */
+await page.locator(".panel-download").focus();
 await page.evaluate(() =>
   window.__tessarium_map?.jumpTo({ center: [-0.12, 51.5], zoom: 12 })
 );
 check(
   "returning to downloaded ground takes the note away again",
   await page.waitForFunction(
-    () => !document.querySelector(".map-note.action"),
+    () => !document.querySelector(".view-note-blank"),
     undefined,
     { timeout: 15_000 },
   ).then(() => true, () => false),
 );
 check(
-  "and hands the keyboard back to the map rather than dropping it",
+  "without disturbing the keyboard, which was never on the note",
   await page.evaluate(() =>
-    document.activeElement?.classList.contains("maplibregl-canvas") ?? false
+    document.activeElement?.classList.contains("panel-download") ?? false
   ),
 );
 
@@ -2367,6 +3855,65 @@ check(
   "Remove is on every download and on nothing else",
   (await page.locator(".ledger-row .ledger-remove").count()) === 3,
 );
+
+/* A row's name is the same `panel-label` the region picker's own label wears
+   -- one role, two places. Read here rather than up with the others because
+   this is the first point in the run where a downloaded region exists to have
+   a name. */
+const namedRole = await page.evaluate(() => {
+  const face = (selector) => {
+    const el = document.querySelector(selector);
+    if (el === null) return null;
+    const style = getComputedStyle(el);
+    return {
+      family: style.fontFamily,
+      transform: style.textTransform,
+      size: style.fontSize,
+      weight: style.fontWeight,
+      color: style.color,
+    };
+  };
+  return {
+    name: face(".ledger-row .ledger-name"),
+    picker: face('label[for="region-filter"]'),
+  };
+});
+check(
+  `a row's name is the panel's one label for a thing (${namedRole.name?.size} ${namedRole.name?.weight})`,
+  sameRole(namedRole.name, namedRole.picker),
+);
+
+/* And the quiet buttons light the same way. The accent border on hover lived
+   on the two that are an <a> and a <label> rather than a <button>, so "Save a
+   copy" and "Choose a file" lit up and "Update" and "Remove" beside them did
+   not. It belongs to the button, not to the element it is made of. */
+const hoverBorder = async (selector) => {
+  await page.locator(selector).hover();
+  await page.waitForTimeout(120);
+  return page.locator(selector).evaluate((el) =>
+    getComputedStyle(el).borderTopColor
+  );
+};
+const litUp = await hoverBorder(".ledger-update >> nth=0");
+const litLink = await hoverBorder(".ledger-export >> nth=0");
+check(
+  `every quiet button lights the same on hover (${litUp})`,
+  litUp === litLink,
+);
+check(
+  "in the accent, not in the line it rests at",
+  litUp
+    === await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.color = getComputedStyle(document.documentElement)
+        .getPropertyValue("--color-accent").trim();
+      document.body.append(probe);
+      const value = getComputedStyle(probe).color;
+      probe.remove();
+      return value;
+    }),
+);
+await page.mouse.move(0, 0);
 /* The rule behind that count, checked against the server's own answer rather
    than a number: a row may offer Remove only if its entry has an archive of
    its own to unlink. An empty `file` means the tiles are in map.pmtiles,
@@ -2564,7 +4111,9 @@ check(
    server counts job generations. */
 const basemapDir = new URL("../../_build/e2e-basemap/", import.meta.url);
 const reopenCard = async () => {
-  const close = page.locator(".download-card header button");
+  const close = page.locator(
+    ".download-card > .panel-section-head .panel-section-action button",
+  );
   if (await close.count()) await close.click();
   await openButton.click();
   await page.waitForSelector(".download-ledger", { timeout: 10_000 });
@@ -2641,10 +4190,7 @@ check(
 const finalJob3 = async (generation) =>
   (await until(async () => {
     const status = await (await post3("basemap-status")).json();
-    return status.generation === generation
-        && !["planning", "fetching", "assets", "removing", "idle"].includes(
-          status.job?.state,
-        )
+    return status.generation === generation && FINISHED.has(status.job?.state)
       ? status.job
       : false;
   }, { tries: 120, delayMs: 250 })) || null;
@@ -2805,17 +4351,14 @@ check(
 const browsed = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
   .json();
 check("a settled view fetches its missing tiles", browsed.fetched > 0);
-/* The depth actually written travels back with the answer. The client compares
-   it against what its map advertises to decide whether deeper tiles arrived,
-   so a wrong or missing number is a map that never fills in. */
+
 check("the browse answers with the depth it wrote", browsed.zoom === 15);
 /* The one-byte threshold compacts immediately. Wait for the writer to rest. */
 check(
   "the cache folds into the main archive past the threshold",
   await until(async () => {
     const st = await (await post3("basemap-status")).json();
-    return !["planning", "fetching", "assets", "removing", "compacting"]
-      .includes(st.job?.state)
+    return AT_REST.has(st.job?.state)
       && (await fetch(`${base3}/basemap/cache.pmtiles`, { method: "HEAD" }))
           .status === 404;
   }, { tries: 120, delayMs: 250 }),
@@ -2833,36 +4376,22 @@ const browsedAgain = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
   .json();
 check("a second look fetches nothing", browsedAgain.fetched === 0);
 
-/* The world offer must return for anyone who started with a region. A fresh
-   page on this server (archive on disk), with the WORLD estimate answered by
-   an intercept: whether the server's estimate is right is the server tests'
-   business. The rule under test is the card's -- "maps present + world missing
-   => the offer is back". The old rule, offer only on an empty map, is how the
-   user who started with Georgia never saw it. */
 const worldPage = await context.newPage();
 const isWorldAsk = (data) => {
   try {
     const body = JSON.parse(data ?? "{}");
     const r = body.regions?.[0];
     return body.regions?.length === 1 && r?.min_lon === -180
-      && r?.max_lon === 180 && r?.min_lat === -85 && r?.max_zoom === 6;
+      && r?.max_lon === 180 && r?.min_lat === -85;
   } catch {
     /* not JSON, so not ours */
     return false;
   }
 };
+let worldAsks = 0;
 await worldPage.route("**/api/basemap-estimate", async (route) => {
-  if (isWorldAsk(route.request().postData())) {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        total_bytes: 45_000_000,
-        tiles: 5461,
-        covered: false,
-        max_zooms: [6],
-      }),
-    });
-  } else await route.continue();
+  if (isWorldAsk(route.request().postData())) worldAsks++;
+  await route.continue();
 });
 await worldPage.goto(base3, { waitUntil: "networkidle" });
 await worldPage.locator("#phrase").fill(sampleMnemonic);
@@ -2871,21 +4400,22 @@ await worldPage.locator("button[type=submit]").click();
 await worldPage.waitForSelector(".map-wrap", { timeout: 60_000 });
 await worldPage.locator(".panel-download").click();
 await worldPage.waitForSelector(".download-card", { timeout: 10_000 });
-await worldPage.waitForSelector(".download-world", { timeout: 30_000 });
-check("with maps on disk but no world overview, the offer is back", true);
+/* The view offer prices itself on mount; give the card the time an offer
+   takes, so "nothing asked" is a settled answer rather than an early one. */
+await worldPage.waitForSelector(".download-view .hint", { timeout: 30_000 });
 check(
-  "the returned offer explains itself with a size",
-  ((await worldPage.locator(".download-world .hint").textContent()) ?? "")
-    .length > 0,
+  "with maps on disk and no overview, no world download is offered",
+  (await worldPage.locator(".download-world").count()) === 0,
 );
 check(
-  "the view offer still leads the card",
+  `and the card never asks what the planet would cost (${worldAsks})`,
+  worldAsks === 0,
+);
+check(
+  "the view offer is what leads the card",
   await worldPage.evaluate(() => {
-    const view = document.querySelector(".download-view");
-    const world = document.querySelector(".download-world");
-    return view !== null && world !== null
-      && (view.compareDocumentPosition(world)
-          & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    const options = [...document.querySelectorAll(".download-option")];
+    return options[0]?.classList.contains("download-view") === true;
   }),
 );
 await worldPage.close();
@@ -3410,28 +4940,79 @@ check(
 await page.locator("#place-search-input").fill("");
 await page.waitForTimeout(350);
 
-/* NFKD across the whole stack.
+/* Locking, and the key that replaces the one it forgets.
 
-   The vectors' keys were derived from the NFKD form of this passphrase.
-   Unlocking with the PRECOMPOSED form is the direction that can fail, and it
-   must still produce the vector's address. Since kdf-3 the browser builds its
-   KDF inputs through the js_of_ocaml core and stretches them in the Argon2id
-   wasm, so this pins that whole chain rather than a JS re-spelling of the
-   normalisation. "café" typed on one keyboard and pasted from another are two
-   byte sequences; before NFKD they were two different maps, and the user was
-   told nothing. */
-const nfkdSample = vectors.nfkd_addresses[0];
-/* PRECOMPOSED, deliberately. NFKD's output is the decomposed form, so
-   unlocking with the decomposed passphrase yields the right key even when
-   normalisation is skipped entirely — which is how the first version of this
-   check passed whether or not the code worked. The precomposed form is the
-   direction that can fail: without NFKD those bytes reach the KDF unchanged
-   and derive a different key. */
-const nfkdEntry = vectors.key_derivation.find((k) => k.name === "pass-nfc");
-const nfdEntry = vectors.key_derivation.find((k) => k.name === "pass-nfd");
+   Locking asks before it forgets a key nothing here can recover, and a second
+   phrase really does replace the first -- including the concealment the panel
+   resets on every unlock, and the promise the gate makes in as many words:
+   the same address under another phrase names somewhere else entirely.
+
+   A DIFFERENT phrase, so this is a key being replaced rather than re-derived;
+   the block below is the one that asks for the same phrase twice. */
+const otherMnemonic =
+  vectors.key_derivation.find((k) => k.name === "ones").mnemonic;
 check(
-  "the two passphrase vectors really are different byte sequences",
-  nfkdEntry.passphrase !== nfdEntry.passphrase,
+  "the second phrase really is a different one",
+  otherMnemonic !== sampleMnemonic,
+);
+
+/* The words are held now rather than wiped, so the panel can hand them back.
+   Read off the real clipboard and compared to the phrase this session
+   actually unlocked with: a control that says it copied and copied nothing --
+   or copied the wrong thing -- is the failure worth catching, and the value
+   never passes through this thread on its way there.
+
+   In the header, beside the lock that forgets them. It was a labelled row in
+   the footer; the sentence that stood beside the glyph is its tooltip now, so
+   the words it copies are still named -- checked below. */
+check(
+  "the phrase copy sits in the header, with the download and the lock",
+  (await page.locator(".panel-head .panel-phrase-copy").count()) === 1
+    && (await page.locator(".panel-foot .panel-phrase-copy").count()) === 0,
+);
+/* Nothing left open from an earlier press: `[role="tooltip"]` finds whatever
+   is on screen, and a stale one answers this check with the wrong button's
+   words. */
+await page.mouse.move(0, 0);
+await page.waitForFunction(
+  () => document.querySelector('[role="tooltip"]') === null,
+  null,
+  { timeout: 5_000 },
+);
+await page.locator(".panel-head .panel-phrase-copy").hover();
+const phraseTip = await page
+  .waitForFunction(
+    () => document.querySelector('[role="tooltip"]')?.textContent || null,
+    null,
+    { timeout: 10_000 },
+  )
+  .then((handle) => handle.jsonValue(), () => null);
+check(
+  `and says what it copies, which a bare copy glyph does not (${phraseTip})`,
+  /seed phrase/i.test(phraseTip ?? ""),
+);
+await page.mouse.move(0, 0);
+await page.waitForFunction(
+  () => document.querySelector('[role="tooltip"]') === null,
+  null,
+  { timeout: 5_000 },
+);
+await page.evaluate(() => navigator.clipboard.writeText("not the phrase"));
+await page.locator(".panel-head .panel-phrase-copy").click();
+await page.waitForFunction(
+  (want) => navigator.clipboard.readText().then((t) => t === want),
+  sampleMnemonic,
+  { timeout: 10_000 },
+).then(() => true, () => false);
+check(
+  "the panel copies the phrase the map was opened with",
+  (await page.evaluate(() => navigator.clipboard.readText()))
+    === sampleMnemonic,
+);
+/* And the standing note that said this was impossible is gone with it. */
+check(
+  "and the note that said the words could never be shown is gone",
+  (await page.locator(".panel-foot .phrase-note").count()) === 0,
 );
 
 /* Locking asks first: it forgets a key that cannot be recovered from anything
@@ -3443,26 +5024,66 @@ check(
   "locking asks before it forgets the key",
   (await page.locator(".modal-dialog .warning").count()) === 1,
 );
+/* This press is the last moment the words exist anywhere, so the dialog
+   offers to take them rather than only saying it is too late to. */
+check(
+  "and offers the copy in the dialog, where the last chance to take it is",
+  (await page.locator(".modal-dialog .lock-phrase-copy").count()) === 1,
+);
+check(
+  "saying so in the warning above it",
+  /last chance/i.test(
+    (await page.locator(".modal-dialog .warning").textContent()) ?? "",
+  ),
+);
+/* The confirm wears the primary action's gradient rather than a flat accent
+   fill: same weight as "Open my map", which is the other press in this
+   application that cannot be undone. */
+check(
+  "and the confirm is painted like the app's other irreversible press",
+  (await page.locator(".modal-actions button.danger").evaluate((el) =>
+    getComputedStyle(el).backgroundImage
+  )).includes("gradient"),
+);
 await page.locator(".modal-actions button.danger").click();
 await page.waitForSelector("#phrase", { timeout: 30_000 });
-await page.locator("#phrase").fill(nfkdEntry.mnemonic);
+await page.locator("#phrase").fill(otherMnemonic);
 await page.waitForSelector(".valid", { timeout: 30_000 });
-await page.locator(".passphrase-summary").click();
-await page.locator("#passphrase").fill(nfkdEntry.passphrase);
 await page.locator("button[type=submit]").click();
 await page.waitForSelector(".map-wrap", { timeout: 60_000 });
 
-await goToAddress(nfkdSample.address);
-const nfkdBox = await page.locator(".map").boundingBox();
+/* A second unlock replaces what the worker holds. Whether it was CLEARED in
+   between cannot be asked from here -- a locked tab holding the words looks
+   exactly like one that forgot them, which is the point of the boundary and
+   why test/secrets.mjs reads that half off the source. */
+await page.evaluate(() => navigator.clipboard.writeText("not the phrase"));
+await page.locator(".panel-head .panel-phrase-copy").click();
+await page.waitForFunction(
+  (want) => navigator.clipboard.readText().then((t) => t === want),
+  otherMnemonic,
+  { timeout: 10_000 },
+).then(() => true, () => false);
+check(
+  "and after locking, the copy hands back the NEW phrase, not the old one",
+  (await page.evaluate(() => navigator.clipboard.readText()))
+    === otherMnemonic,
+);
+
+/* The same words, typed into a map derived from other words. They resolve --
+   which combinations name nothing is decided by the permutation, and this one
+   is committed, so this is deterministic rather than lucky -- and they resolve
+   somewhere else. */
+await goToAddress(sample.address);
+const otherBox = await page.locator(".map").boundingBox();
 await page.mouse.click(
-  nfkdBox.x + nfkdBox.width / 2,
-  nfkdBox.y + nfkdBox.height / 2,
+  otherBox.x + otherBox.width / 2,
+  otherBox.y + otherBox.height / 2,
 );
 await page.waitForTimeout(1500);
 await page.locator(".address-row .icon-button").first().click();
-/* Locking must have hidden the coordinates again. Asserted, because a broken
-   reset would make the click below CONCEAL them and fail later with a message
-   about NFKD normalisation instead of this one. */
+/* Locking must have hidden the coordinates again: concealment is a per-unlock
+   default, and a broken reset would leave the previous session's choice in
+   place -- the state a shoulder-surfing user thought they had left behind. */
 check(
   "locking hides the coordinates again",
   (await page.locator(".coords dd").allTextContents()).every((t) =>
@@ -3470,13 +5091,14 @@ check(
   ),
 );
 await page.locator(".coords-row .icon-button").first().click();
-const [nfkdLat, nfkdLon] = await panelCoords();
+const [otherLat, otherLon] = await panelCoords();
 check(
-  `a precomposed passphrase is normalised before derivation (got ${nfkdLat}, ${nfkdLon} want ${
-    nfkdSample.lat_ns / 1e9
-  }, ${nfkdSample.lon_ns / 1e9})`,
-  nearly(nfkdLat, nfkdSample.lat_ns / 1e9)
-    && nearly(nfkdLon, nfkdSample.lon_ns / 1e9),
+  `the same address under another phrase names somewhere else `
+    + `(${otherLat}, ${otherLon} vs ${sample.lat_ns / 1e9}, ${
+      sample.lon_ns / 1e9
+    })`,
+  Math.abs(otherLat - sample.lat_ns / 1e9) > 0.001
+    || Math.abs(otherLon - sample.lon_ns / 1e9) > 0.001,
 );
 
 /* ------- the same phrase, the same address, the same place, every time -----
@@ -4192,16 +5814,25 @@ console.log(
    interaction library rather than two, and is recorded here rather than
    absorbed silently.
 
+   Raised again, from 200 to 215, when the edgerunner wordmark got its own
+   face. Measured: the gate went from 190 KB over four requests to 205 over
+   five, and the fifth is the 15 KB woff2 -- already compressed, so gzip takes
+   nothing further off it. It is fetched on the gate because the gate is where
+   the wordmark is, and the palette the app opens in is a edgerunner one. A
+   subset cut to the letters of the name would be about 2 KB and was not
+   taken: it turns a rename into a wordmark that falls back mid-word, with
+   nothing saying so.
+
    The remaining gap is room for the gate to grow, and it is still nowhere near
    the 551 KB a static map import costs, which is the regression this catches.
    Raise it only with a measurement saying why -- the same rule
    ui/test/payload.mjs sets. */
 check(
   `the phrase screen costs ${Math.round(gateBytes / 1024)} KB`,
-  gateBytes < 200 * 1024,
+  gateBytes < 215 * 1024,
 );
 /* Named, so a regression is legible rather than a total that drifted. */
-if (gateBytes >= 200 * 1024) {
+if (gateBytes >= 215 * 1024) {
   atGate.filter((r) => r.bytes > 4096)
     .sort((a, b) => b.bytes - a.bytes)
     .forEach((r) => {

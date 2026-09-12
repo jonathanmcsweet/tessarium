@@ -89,10 +89,12 @@ check(
   "a region carries its own label",
   /LabelledRegion/.test(client) && /label\?:\s*string/.test(client),
 );
-/* Every offer names its regions: the picker through its per-pick names; the
-   world and the current view through the single label they have. */
+/* Every offer names its regions: the picker through its per-pick names, the
+   current view through the single label it has. Two, not four: the planet
+   used to be offered twice -- once on an empty map and once when the overview
+   was missing -- and is now shipped with every package instead. */
 const offers = [...card.matchAll(/<Offer\b[\s\S]*?\/>/g)].map((m) => m[0]);
-check(`every offer is found (${offers.length})`, offers.length === 4);
+check(`every offer is found (${offers.length})`, offers.length === 2);
 offers.forEach((call, i) => {
   check(
     `offer ${i + 1} (${
@@ -182,13 +184,56 @@ check(
     && !/\}\s*\/\s*\$\{formatBytes/.test(progress),
 );
 
+/* ----------------------------------------------- where a button sits */
+
+/* Five rows of buttons in this card, and where they sit is one decision
+   rather than five. It was five: the ledger's rows only looked settled
+   because the line they sit in is `justify-between` and the text beside them
+   pushed them over, and the file chooser -- which has no such neighbour --
+   was a bare label in flow.
+
+   This says nothing about WHICH edge. It says the rows cannot disagree about
+   it, which is the part that survives changing one's mind.
+
+   The count is exact on purpose: a sixth row added with its own flex classes
+   is the failure this catches, and it is invisible in a diff. */
+const rows = [...card.matchAll(/"download-actions([^"]*)"/g)];
+check(
+  `every button row in the card is one (${rows.length})`,
+  rows.length === 5,
+);
+check(
+  ".download-actions is one rule in the stylesheet",
+  /@utility download-actions \{/.test(read("styles.css")),
+);
+/* `flex-shrink` is a call site's own business -- it is about how the row
+   behaves inside the ledger's line, not about how its buttons line up. What
+   no row may restate is the layout the utility owns. */
+check(
+  "and no row re-declares that layout",
+  !rows.some(([, extra]) =>
+    /(?:^|\s)flex(?:\s|$)|flex-wrap|gap-|justify-|items-/.test(extra)
+  ),
+);
+
 /* ------------------------------------------------------- one look, one home */
 
 /* The section label was twenty-eight characters of Tailwind pasted five
    times, and the ledger row's shell was duplicated between the two renderers
-   that draw it -- so the wrap fix on one would not apply to the other. */
+   that draw it -- so the wrap fix on one would not apply to the other.
+
+   The label is no longer a class the card writes at all: a section of the
+   panel is `PanelSection`, which draws the heading. What the card must not do
+   is build one by hand again, which `test/shared-controls.mjs` holds by
+   letting exactly one file write `panel-title`. */
 const css = read("styles.css");
-const shared = ["region-group", "ledger-row", "ledger-row-text", "ledger-name"];
+const shared = [
+  "panel-section",
+  "panel-section-head",
+  "ledger-row",
+  "ledger-row-text",
+  "ledger-name",
+];
 for (const name of shared) {
   check(
     `.${name} is one rule in the stylesheet`,

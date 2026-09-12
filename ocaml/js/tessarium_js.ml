@@ -62,11 +62,11 @@ let () =
           same OCaml the server runs, so the NFKD and joining rules cannot
           drift between targets. The worker feeds the returned bytes to the
           wasm and gets the 32-byte key. Always an object: `error` is null
-          on success, else the reason (invalid phrase, over-long
-          passphrase) ready to display. *)
+          on success, else the reason (an invalid phrase) ready to
+          display. *)
        val derivationVersion = jstr Tessarium.derivation_version
 
-       method kdfInputs mnemonic passphrase =
+       method kdfInputs mnemonic =
          let inputs password salt error =
            object%js
              val password = jstr password
@@ -76,15 +76,10 @@ let () =
          in
          match Tessarium.validate_mnemonic (ostr mnemonic) with
          | Error e -> inputs "" "" (Js.Opt.return (jrefusal e))
-         | Ok () -> (
-             let mnemonic = ostr mnemonic and passphrase = ostr passphrase in
-             match Tessarium.kdf_salt ~passphrase with
-             | exception Tessarium.Bad_passphrase e ->
-                 inputs "" "" (Js.Opt.return (jrefusal e))
-             | salt ->
-                 inputs
-                   (hex_of_string (Tessarium.kdf_password ~mnemonic))
-                   (hex_of_string salt) Js.Opt.empty)
+         | Ok () ->
+             inputs
+               (hex_of_string (Tessarium.kdf_password ~mnemonic:(ostr mnemonic)))
+               (hex_of_string Tessarium.kdf_salt) Js.Opt.empty
 
        (* Entropy in, 24 words out. The caller supplies the bytes -- in the
           browser that is `crypto.getRandomValues` -- so the randomness stays

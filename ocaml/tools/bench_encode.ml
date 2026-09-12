@@ -9,7 +9,6 @@ let () =
         "legal winner thank year wave sausage worth useful legal winner thank \
          year wave sausage worth useful legal winner thank year wave sausage \
          worth title"
-      ~passphrase:""
   in
   let n = 20_000 in
   let t0 = Unix.gettimeofday () in
