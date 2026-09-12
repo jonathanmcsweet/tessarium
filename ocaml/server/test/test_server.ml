@@ -250,6 +250,21 @@ let () =
   routes `POST "/assets/app.js" Route.Method_not_allowed;
   routes `GET "/basemap" Route.Not_found;
   routes `GET "/../etc/passwd" Route.Not_found;
+  (* The routing table falls through in one order, and these are the cases
+     that tell one order from another: a prefix matched but not completed, and
+     a prefix matched with too much after it. *)
+  routes `GET "/healthz/extra" Route.Not_found;
+  routes `POST "/healthz" Route.Method_not_allowed;
+  routes `GET "/api" Route.Not_found;
+  routes `POST "/api" Route.Not_found;
+  routes `POST "/api/encode/extra" Route.Not_found;
+  routes `POST "/import" Route.Import;
+  routes `GET "/import" Route.Method_not_allowed;
+  routes `POST "/import/extra" Route.Method_not_allowed;
+  routes `GET "/tiles" Route.Not_found;
+  routes `POST "/tiles" Route.Method_not_allowed;
+  routes `POST "/basemap" Route.Not_found;
+  routes `POST "/basemap/planet.pmtiles" Route.Method_not_allowed;
   routes `HEAD "/basemap/planet.pmtiles" (Route.Basemap [ "planet.pmtiles" ]);
 
   (* The tile endpoint: strict, so every accepted URL names exactly one
