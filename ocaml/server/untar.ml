@@ -12,11 +12,7 @@ let block = 512
 
 let trimmed s =
   (* Fixed-width, NUL-padded fields; some writers space-pad octal. *)
-  let s = match String.index_opt s '\000' with
-    | Some i -> String.sub s 0 i
-    | None -> s
-  in
-  String.trim s
+  String.trim (Text.before '\000' s)
 
 (* A tarball arriving over a connection that dropped is a partial one, and
    its last header is whatever bytes made it. Every field below is therefore
@@ -60,10 +56,8 @@ let pax_path payload =
                   (String.length record - (sp - pos + 1))
               in
               let acc =
-                match String.index_opt record '=' with
-                | Some eq when String.sub record 0 eq = "path" ->
-                    Some
-                      (String.sub record (eq + 1) (String.length record - eq - 1))
+                match Text.cut '=' record with
+                | Some ("path", value) -> Some value
                 | _ -> acc
               in
               scan (pos + len) acc

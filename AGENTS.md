@@ -171,7 +171,7 @@ grid or algorithm.
 
 House style; rationale and worked examples in `docs/style-review.md`.
 
-- **ocamlformat is the formatter.** `core/.ocamlformat` pins it; run
+- **ocamlformat is the formatter.** `ocaml/.ocamlformat` pins it; run
   `dune build @fmt --auto-promote` before committing. Never hand-format.
 - **Chain results, don't nest matches.** `open Syntax` gives `let*`/`let+`,
   `traverse` (map, first error wins), and `parse_err file fmt` (a formatted

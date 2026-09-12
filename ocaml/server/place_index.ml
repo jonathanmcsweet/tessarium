@@ -580,10 +580,9 @@ let search ~fs ~basemap_dir ~query ~limit =
          must not hold the domain against every other request. *)
       incr seen;
       if !seen land 8191 = 0 then Eio.Fiber.yield ();
-      match String.index_opt line '\t' with
+      match Text.cut '\t' line with
       | None -> ()
-      | Some tab -> (
-          let folded = String.sub line 0 tab in
+      | Some (folded, _) -> (
           match match_of ~query:q folded with
           | None -> ()
           | Some quality -> (

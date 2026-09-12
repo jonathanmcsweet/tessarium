@@ -88,14 +88,11 @@ let cache_control segments =
     (* `index-D4ipvZ4X.js` -- a dash then 8+ base64url characters then the
        extension. *)
     let base =
-      match String.rindex_opt name '.' with
-      | None -> name
-      | Some i -> String.sub name 0 i
+      match Text.rcut '.' name with None -> name | Some (stem, _) -> stem
     in
-    match String.rindex_opt base '-' with
+    match Text.rcut '-' base with
     | None -> false
-    | Some i ->
-        let tag = String.sub base (i + 1) (String.length base - i - 1) in
+    | Some (_, tag) ->
         String.length tag >= 8
         && String.for_all
              (function

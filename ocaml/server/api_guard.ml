@@ -53,10 +53,7 @@ let from_another_site header =
 let content_type_base header =
   Option.map
     (fun v ->
-      let v = String.lowercase_ascii (String.trim v) in
-      match String.index_opt v ';' with
-      | Some i -> String.trim (String.sub v 0 i)
-      | None -> v)
+      String.trim (Text.before ';' (String.lowercase_ascii (String.trim v))))
     (header "content-type")
 
 let is_json header = content_type_base header = Some "application/json"

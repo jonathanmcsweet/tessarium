@@ -46,20 +46,15 @@ let parse ~header ~length =
       let h = String.trim h in
       let prefix = "bytes=" in
       let n = String.length prefix in
-      if
-        String.length h <= n
-        || not (String.equal (String.lowercase_ascii (String.sub h 0 n)) prefix)
-      then Whole
+      if not (String.starts_with ~prefix (String.lowercase_ascii h)) then Whole
       else
         let spec = String.sub h n (String.length h - n) in
         (* Several ranges is a valid request we choose not to serve. *)
         if String.contains spec ',' then Whole
         else
-          match String.index_opt spec '-' with
+          match Text.cut '-' spec with
           | None -> Whole
-          | Some i -> (
-              let lhs = String.sub spec 0 i in
-              let rhs = String.sub spec (i + 1) (String.length spec - i - 1) in
+          | Some (lhs, rhs) -> (
               match (String.trim lhs, String.trim rhs) with
               | "", "" -> Whole
               | "", r -> (

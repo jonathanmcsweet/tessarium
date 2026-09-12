@@ -154,11 +154,9 @@ let accepts_gzip get =
         | [] -> ("", false)
         | coding :: params ->
             let weighted p =
-              match String.index_opt p '=' with
-              | Some i when String.trim (String.sub p 0 i) = "q" ->
-                  not
-                    (zero_weight
-                       (String.sub p (i + 1) (String.length p - i - 1)))
+              match Text.cut '=' p with
+              | Some (key, value) when String.trim key = "q" ->
+                  not (zero_weight value)
               | _ -> true
             in
             (String.trim coding, List.for_all weighted params)
@@ -1356,7 +1354,7 @@ let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock
                 let n = String.length q in
                 if
                   n > 3 && n <= 24
-                  && String.sub q 0 3 = "?v="
+                  && String.starts_with ~prefix:"?v=" q
                   && String.for_all
                        (fun c -> c >= '0' && c <= '9')
                        (String.sub q 3 (n - 3))
