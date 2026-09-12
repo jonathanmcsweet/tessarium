@@ -56,7 +56,6 @@ const SHUT = "collapsed invisible translate-x-full "
    nothing here is pressable: the one thing to do about any of it is the
    download button in the header above, which the coverage row names. */
 
-
 const DownloadCard = lazy(() =>
   loadDownloadCard().then((mod) => ({ default: mod.DownloadCard }))
 );
@@ -88,7 +87,7 @@ export function AddressPanel(
     view.truncated
       ? { key: "truncated", text: m.map_too_many_squares(), warn: true }
       : null,
-    view.belowGrid 
+    view.belowGrid
       ? { key: "below-grid", text: m.map_zoom_for_grid() }
       : null,
     view.blank && !downloadOpen

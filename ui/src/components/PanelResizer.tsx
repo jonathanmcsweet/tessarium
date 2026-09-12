@@ -43,7 +43,6 @@ export function PanelResizer(
       dragging.current = useAppStore.getState().panelWidth;
     },
     onMove(event) {
-
       const from = dragging.current ?? useAppStore.getState().panelWidth;
       const scale = event.pointerType === "keyboard"
         ? (event.shiftKey ? COARSE : STEP)
@@ -59,7 +58,6 @@ export function PanelResizer(
       dragging.current = null;
     },
   });
-
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Home" || event.key === "End") {

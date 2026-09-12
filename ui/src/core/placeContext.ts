@@ -242,7 +242,6 @@ export function namedSubdivision(
   return asked.length === 1 ? asked[0]?.name ?? null : null;
 }
 
-
 export function containingSubdivision(
   subdivisions: readonly SubdivisionShape[],
   lon: number,

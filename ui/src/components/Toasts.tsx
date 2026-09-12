@@ -1,4 +1,3 @@
-import { X } from "./icons";
 import {
   Button,
   UNSTABLE_Toast as Toast,
@@ -8,6 +7,7 @@ import {
 } from "react-aria-components";
 import { m } from "../paraglide/messages";
 import { type ToastBody, toasts } from "../toast";
+import { X } from "./icons";
 
 export function Toasts() {
   return (
@@ -31,7 +31,8 @@ export function Toasts() {
                 className={`app-toast-message block break-words ${
                   toast.content.kind === "error"
                     ? "font-semibold text-accent-text"
-                    : "text-ink"}`}
+                    : "text-ink"
+                }`}
               >
                 {toast.content.message}
               </span>

@@ -66,7 +66,6 @@ export function Tip(
   );
 }
 
-
 export function InfoTip({ label }: { label: string; }) {
   return (
     <Tip label={label}>

@@ -106,16 +106,15 @@ function Offer(
     className: string;
   },
 ) {
-
   const estimate = useBasemapEstimate(regions);
   const download = useBasemapDownload();
-  const labelled: LabelledRegion[] | null = regions === null 
-  ? null
-  : regions
-  .map((region, i) => {
-    const label = names?.[i] ?? regionLabel;
-    return label === undefined ? region : { ...region, label };
-  });
+  const labelled: LabelledRegion[] | null = regions === null
+    ? null
+    : regions
+      .map((region, i) => {
+        const label = names?.[i] ?? regionLabel;
+        return label === undefined ? region : { ...region, label };
+      });
 
   const clamped = estimate.isSuccess && regions !== null
     ? regions
@@ -164,8 +163,8 @@ function Offer(
           {estimate.data.covered
             ? m.map_download_covered()
             : estimate.data.tiles === 0
-              ? m.map_download_none()
-              : describe(formatBytes(estimate.data.total_bytes))}
+            ? m.map_download_none()
+            : describe(formatBytes(estimate.data.total_bytes))}
         </p>
       )}
       {showClamped && (
@@ -412,12 +411,12 @@ function LedgerRow({ entry, days, busy }: {
   const meta = entry.overview
     ? m.map_ledger_overview({ size })
     : ageUnknown
-      ? m.map_ledger_age_unknown({ size })
-      : m.map_ledger_meta({
-        size,
-        date: new Intl.DateTimeFormat(getLocale(), { dateStyle: "medium" })
-          .format(new Date(entry.completed * 1000)),
-      });
+    ? m.map_ledger_age_unknown({ size })
+    : m.map_ledger_meta({
+      size,
+      date: new Intl.DateTimeFormat(getLocale(), { dateStyle: "medium" })
+        .format(new Date(entry.completed * 1000)),
+    });
 
   return (
     <li className="ledger-row">
@@ -438,18 +437,17 @@ function LedgerRow({ entry, days, busy }: {
         </span>
       </div>
       <div className="download-actions flex-shrink">
-          !partOfBaseMap && (
-            <button
-              type="button"
-              className="ledger-update btn btn-quiet border-line-strong"
-              onClick={() => update.mutate(entry.id, loudly)}
-              disabled={busy || update.isPending || remove.isPending}
-            >
-              {m.map_ledger_update()}
-            </button>
-          )
-        {
-          !entry.overview
+        {!partOfBaseMap && (
+          <button
+            type="button"
+            className="ledger-update btn btn-quiet border-line-strong"
+            onClick={() => update.mutate(entry.id, loudly)}
+            disabled={busy || update.isPending || remove.isPending}
+          >
+            {m.map_ledger_update()}
+          </button>
+        )}
+        {!entry.overview
           && (entry.file
             ? (
               <a
@@ -470,23 +468,20 @@ function LedgerRow({ entry, days, busy }: {
               >
                 {m.map_export_action()}
               </button>
-            ))
-        }
-        {
-          !partOfBaseMap && (
-            <button
-              type="button"
-              className="ledger-remove btn btn-quiet border-line-strong"
-              onClick={() => {
-                if (!confirming) setConfirming(true);
-                else remove.mutate(entry.id, loudly);
-              }}
-              disabled={busy || update.isPending || remove.isPending}
-            >
-              {confirming ? m.map_ledger_confirm() : m.map_ledger_remove()}
-            </button>
-          )
-        }
+            ))}
+        {!partOfBaseMap && (
+          <button
+            type="button"
+            className="ledger-remove btn btn-quiet border-line-strong"
+            onClick={() => {
+              if (!confirming) setConfirming(true);
+              else remove.mutate(entry.id, loudly);
+            }}
+            disabled={busy || update.isPending || remove.isPending}
+          >
+            {confirming ? m.map_ledger_confirm() : m.map_ledger_remove()}
+          </button>
+        )}
       </div>
     </li>
   );

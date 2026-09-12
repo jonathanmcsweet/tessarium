@@ -64,7 +64,6 @@ const FIELD = "place-search-field flex items-center gap-2 border "
   + "focus-within:outline-2 focus-within:outline-offset-1 "
   + "focus-within:outline-accent-text";
 
-
 const placeRows = (
   results: readonly PlaceResult[],
   shapes: readonly Country[],
@@ -101,7 +100,6 @@ const placeRows = (
     .sort(compareRows)
     .slice(0, SHOWN);
 
-
 export function PlaceSearch(
   { onPick, onPickAddress, center }: {
     onPick: (lon: number, lat: number) => void;
@@ -123,7 +121,6 @@ export function PlaceSearch(
   const isPartial = shape === "partial";
   const lookup = useAddressLookup(debounced, isAddress);
   const addressError = lookup.error ? sayError(lookup.error) : null;
-
 
   const locale = getLocale();
   const terms = useMemo(
@@ -195,10 +192,10 @@ export function PlaceSearch(
       m.search_prefix_hint({ example: m.search_prefix_example() })
     }`
     : isAddress
-      ? (addressError ?? m.search_searching())
-      : shape === "no" && longEnough
-        ? (search.isFetching ? m.search_searching() : m.search_none())
-        : null;
+    ? (addressError ?? m.search_searching())
+    : shape === "no" && longEnough
+    ? (search.isFetching ? m.search_searching() : m.search_none())
+    : null;
 
   const pickAddress = (option: Option) => {
     onPickAddress(option.lon, option.lat);

@@ -24,7 +24,6 @@ function Bar(
     hint?: string | undefined;
   },
 ) {
-
   const ceiling = Math.max(total, 1);
   return (
     <li className="download-row">
