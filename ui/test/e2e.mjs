@@ -584,6 +584,21 @@ check(
     && (await page.locator(".phrase-status").textContent()).includes("24/24"),
 );
 check(
+  "a generated phrase stays masked",
+  (await page.locator("#phrase").getAttribute("type")) === "password",
+);
+await page.locator(".gate-phrase-toggle").click();
+check(
+  "and the toggle still reveals it, to be read onto paper",
+  (await page.locator("#phrase").getAttribute("type")) === "text"
+    && (await page.locator("#phrase").inputValue()) === firstGenerated,
+);
+await page.locator(".gate-phrase-toggle").click();
+check(
+  "and hides it again",
+  (await page.locator("#phrase").getAttribute("type")) === "password",
+);
+check(
   "the write-it-down warning appears",
   (await page.locator(".warning").allTextContents()).some((t) =>
     t.includes("Save these 24 words in a password vault")
