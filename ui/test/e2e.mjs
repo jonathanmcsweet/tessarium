@@ -1,14 +1,3 @@
-/* End-to-end check of the built UI against the built server.
-
-   This is the test for the claim the whole project rests on: enter a phrase,
-   click a square, get its address. It runs the real browser against the real
-   binary, because the parts that break here -- Web Worker startup, the
-   Content-Security-Policy, js_of_ocaml's export target in a worker -- look
-   fine in a unit test and fail in a page.
-
-   The addresses it expects come from `vectors/vectors.json`, so a UI that
-   renders beautifully and computes the wrong answer still fails. */
-
 import {
   copyFileSync,
   readFileSync,
@@ -57,6 +46,49 @@ check(
 const SUCCESS_MS = Number.isFinite(successMs) && successMs > 0
   ? successMs
   : 5000;
+
+/* Which job states mean the work has STOPPED, derived from the app's own
+   RUNNING set rather than listed again here.
+
+   Two waits below asked "is the state not one of these five?" while the app's
+   set holds seven. A download caught in `indexing` or `compacting` read as
+   finished, and the check that wanted `done` got the state the job was
+   passing through instead -- green on a fast machine, and failing on a loaded
+   runner where the last and heaviest download of the sequence is still
+   writing its index when the poll comes round. Said positively and taken from
+   one place, a state added later cannot be missed by a list nobody thought to
+   update. Read as text for the same reason the toast timeout is. */
+const basemapSource = readFileSync(
+  new URL("../src/core/basemap.ts", import.meta.url),
+  "utf8",
+);
+const jobStates = new Set(
+  [...basemapSource.matchAll(/state: z\.literal\("(\w+)"\)/g)]
+    .map((hit) => hit[1]),
+);
+const running = new Set(
+  (/const RUNNING[\s\S]*?new Set\(\s*\[([\s\S]*?)\]/.exec(basemapSource)
+    ?.[1] ?? "")
+    .match(/"\w+"/g)?.map((quoted) => quoted.slice(1, -1)) ?? [],
+);
+const FINISHED = new Set(
+  [...jobStates].filter((state) => state !== "idle" && !running.has(state)),
+);
+/* Idle is not a job that ended, but for a wait that only asks whether the
+   writer is busy it counts the same. */
+const AT_REST = new Set([...FINISHED, "idle"]);
+check(
+  `the states a job can rest in are legible in the source (${
+    [...FINISHED].join(", ")
+  })`,
+  jobStates.size > 0 && running.size > 0
+    && [...running].every((state) => jobStates.has(state))
+    && FINISHED.has("done") && FINISHED.has("failed"),
+);
+check(
+  `and a job still indexing or compacting is not one of them (${running.size} running)`,
+  !FINISHED.has("indexing") && !FINISHED.has("compacting"),
+);
 
 /* Poll until `probe` answers with something truthy, or the budget runs out.
    Returns the answer, or the last falsy one. */
@@ -4158,10 +4190,7 @@ check(
 const finalJob3 = async (generation) =>
   (await until(async () => {
     const status = await (await post3("basemap-status")).json();
-    return status.generation === generation
-        && !["planning", "fetching", "assets", "removing", "idle"].includes(
-          status.job?.state,
-        )
+    return status.generation === generation && FINISHED.has(status.job?.state)
       ? status.job
       : false;
   }, { tries: 120, delayMs: 250 })) || null;
@@ -4322,17 +4351,14 @@ check(
 const browsed = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
   .json();
 check("a settled view fetches its missing tiles", browsed.fetched > 0);
-/* The depth actually written travels back with the answer. The client compares
-   it against what its map advertises to decide whether deeper tiles arrived,
-   so a wrong or missing number is a map that never fills in. */
+
 check("the browse answers with the depth it wrote", browsed.zoom === 15);
 /* The one-byte threshold compacts immediately. Wait for the writer to rest. */
 check(
   "the cache folds into the main archive past the threshold",
   await until(async () => {
     const st = await (await post3("basemap-status")).json();
-    return !["planning", "fetching", "assets", "removing", "compacting"]
-      .includes(st.job?.state)
+    return AT_REST.has(st.job?.state)
       && (await fetch(`${base3}/basemap/cache.pmtiles`, { method: "HEAD" }))
           .status === 404;
   }, { tries: 120, delayMs: 250 }),
@@ -4350,16 +4376,6 @@ const browsedAgain = await (await post3("basemap-browse", { ...lb, zoom: 15 }))
   .json();
 check("a second look fetches nothing", browsedAgain.fetched === 0);
 
-/* And it never comes back. This is the exact state that used to bring the
-   offer up -- an archive on disk, no world overview beside it -- and the rule
-   now is that the card says nothing about the planet in it either. A package
-   ships the overview; a store without one is a developer's, and no button in
-   the app can make it appear.
-
-   Two things asserted, because a missing offer could just be an offer whose
-   estimate never answered: nothing is drawn, AND the card never asks what the
-   planet would cost. The ask is recognised by its box, so a region estimate
-   passing through is not mistaken for one. */
 const worldPage = await context.newPage();
 const isWorldAsk = (data) => {
   try {

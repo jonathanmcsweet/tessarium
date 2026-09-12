@@ -236,6 +236,14 @@ test-static:
 # about to drive rather than assuming one is up. No --ui: this exercises the UI
 # compiled into the binary, which is what ships.
 #
+# Every one of them is pinned at a loopback upstream, the fixture server
+# included. Unpinned, --basemap-source defaults to the newest Protomaps daily
+# build and --basemap-assets to a GitHub tarball, so one estimate or download
+# posted to the wrong port would put this suite at the mercy of two services
+# nobody here runs. The fixture server is never asked for either, and is
+# pinned anyway: the default it was carrying was a trap set for whoever next
+# adds a check against port $(FIXTURE_PORT). ui/test/harness.mjs holds it.
+#
 # Several instances. The one under test starts with an EMPTY basemap directory
 # and downloads its tiles, in-app, from the fixture server, which serves a
 # generated archive -- so the e2e drives the whole region downloader against
@@ -264,7 +272,9 @@ test-ui: ui
 	@./_build/default/ocaml/tools/gen_basemap_fixture.exe _build/e2e-fixture
 	@cp _build/e2e-fixture/map-shallow.pmtiles _build/e2e-mismatch/map.pmtiles
 	@./_build/default/ocaml/server/bin/main.exe \
-	  --port $(FIXTURE_PORT) --basemap _build/e2e-fixture --no-open & \
+	  --port $(FIXTURE_PORT) --basemap _build/e2e-fixture --no-open \
+	  --basemap-source http://127.0.0.1:$(FIXTURE_PORT)/basemap/map.pmtiles \
+	  --basemap-assets http://127.0.0.1:$(FIXTURE_PORT)/basemap/assets.tar.gz & \
 	  echo $$! > .fixture.pid; \
 	  ./_build/default/ocaml/server/bin/main.exe \
 	  --port $(E2E_PORT) --basemap _build/e2e-basemap --no-open \
