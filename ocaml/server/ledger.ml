@@ -24,27 +24,26 @@
 type entry = {
   name : string;  (** what the picker called it; display only *)
   regions : Basemap_job.request list;
-      (** canonically sorted, never empty. Depths are as GRANTED, not as
-          asked: a clamped giant records the zoom it actually fetched, so
-          Remove and Update speak of tiles that exist. *)
+      (** canonically sorted, never empty. Depths are as GRANTED, not as asked:
+          a clamped giant records the zoom it actually fetched, so Remove and
+          Update speak of tiles that exist. *)
   completed : int;
-      (** when the download that made or refreshed this entry finished, in
-          epoch seconds. Zero when the tiles predate the ledger and their
-          age is unknown, which the UI draws as "needs updating".
+      (** when the download that made or refreshed this entry finished, in epoch
+          seconds. Zero when the tiles predate the ledger and their age is
+          unknown, which the UI draws as "needs updating".
 
           Every download dates itself, interrupted ones included. What an
-          interrupted region is missing is a question the map's coverage
-          shading already answers, and dating by the last part to write
-          would have called finished downloads unfinished: the parts overlap
-          at their seams, so the last one routinely writes nothing. Tiles
-          already held were not re-fetched, so their age belongs to the
-          entries that fetched them, and a resumed download records the
-          resuming run. *)
+          interrupted region is missing is a question the map's coverage shading
+          already answers, and dating by the last part to write would have
+          called finished downloads unfinished: the parts overlap at their
+          seams, so the last one routinely writes nothing. Tiles already held
+          were not re-fetched, so their age belongs to the entries that fetched
+          them, and a resumed download records the resuming run. *)
   source : string;  (** the resolved archive it was fetched from *)
   bytes : int;
-      (** bytes actually fetched from the source by the download that made
-          this entry -- the number the estimate quoted, not the archive
-          bytes copied while merging *)
+      (** bytes actually fetched from the source by the download that made this
+          entry -- the number the estimate quoted, not the archive bytes copied
+          while merging *)
 }
 
 type t = entry list
@@ -82,8 +81,8 @@ let canonical_text regions =
   List.iter
     (fun (r : Basemap_job.request) ->
       Buffer.add_string b
-        (Printf.sprintf "%.7f,%.7f,%.7f,%.7f,%d" (pos r.min_lon)
-           (pos r.min_lat) (pos r.max_lon) (pos r.max_lat) r.max_zoom);
+        (Printf.sprintf "%.7f,%.7f,%.7f,%.7f,%d" (pos r.min_lon) (pos r.min_lat)
+           (pos r.max_lon) (pos r.max_lat) r.max_zoom);
       (match r.polygon with
       | None -> ()
       | Some rings ->
@@ -253,7 +252,7 @@ let json_of_region (r : Basemap_job.request) : Yojson.Safe.t =
     (* Written only when there is one, so an entry recorded before regions
        carried labels still serialises to the bytes it always did, as does
        one whose picker sent no name. Optional on the way back in too. *)
-    @ (match r.label with None -> [] | Some l -> [ ("label", `String l) ])
+    @ match r.label with None -> [] | Some l -> [ ("label", `String l) ]
   in
   match r.polygon with
   | None -> `Assoc box
@@ -392,8 +391,7 @@ let of_json = function
       | Some (`Int v) when v = version -> (
           match List.assoc_opt "entries" fields with
           | Some (`List l) -> traverse entry_of_json l
-          | _ -> Error "ledger has no entries list"
-      )
+          | _ -> Error "ledger has no entries list")
       | Some (`Int v) ->
           Error
             (Printf.sprintf
@@ -422,7 +420,8 @@ let foreign fields =
   let ends_in_suffix k =
     String.length k > String.length suffix
     && String.equal
-         (String.sub k (String.length k - String.length suffix)
+         (String.sub k
+            (String.length k - String.length suffix)
             (String.length suffix))
          suffix
   in

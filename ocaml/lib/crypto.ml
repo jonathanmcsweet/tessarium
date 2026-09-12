@@ -15,13 +15,15 @@ let sha256 s = Digestif.SHA256.(to_raw_string (digest_string s))
 (* ------------------------------------------------------- integer plumbing *)
 
 let z_of_be_bytes s =
-  String.fold_left (fun acc c -> Z.add (Z.mul acc (Z.of_int 256)) (Z.of_int (Char.code c)))
+  String.fold_left
+    (fun acc c -> Z.add (Z.mul acc (Z.of_int 256)) (Z.of_int (Char.code c)))
     Z.zero s
 
 (* BLAKE2s serializes little-endian; reading its digest low byte first keeps
    the whole protocol swap-free on every implementation. *)
 let z_of_le_bytes s =
-  String.fold_right (fun c acc -> Z.add (Z.mul acc (Z.of_int 256)) (Z.of_int (Char.code c)))
+  String.fold_right
+    (fun c acc -> Z.add (Z.mul acc (Z.of_int 256)) (Z.of_int (Char.code c)))
     s Z.zero
 
 let be_bytes_of_z z n =
@@ -63,10 +65,11 @@ let domain_prefix = "tessarium/v3/fe1"
 let () =
   if String.length domain_prefix <> 16 then
     failwith
-      "crypto: the domain prefix must be 16 bytes -- redo the transcription \
-       in fstar/low/Tessarium.Low.Blake2s.fst first"
+      "crypto: the domain prefix must be 16 bytes -- redo the transcription in \
+       fstar/low/Tessarium.Low.Blake2s.fst first"
 
-let round_fn (key : string) (tweak : string) (i : Z.t) (x : Z.t) (m : Z.t) : Z.t =
+let round_fn (key : string) (tweak : string) (i : Z.t) (x : Z.t) (m : Z.t) : Z.t
+    =
   let buf = Buffer.create 64 in
   Buffer.add_string buf domain_prefix;
   let tl = String.length tweak in
@@ -80,6 +83,7 @@ let round_fn (key : string) (tweak : string) (i : Z.t) (x : Z.t) (m : Z.t) : Z.t
   if Buffer.length buf <> 43 then
     failwith "crypto: the round message must be 43 bytes";
   let digest =
-    Digestif.BLAKE2S.(to_raw_string (Keyed.mac_string ~key (Buffer.contents buf)))
+    Digestif.BLAKE2S.(
+      to_raw_string (Keyed.mac_string ~key (Buffer.contents buf)))
   in
   Z.rem (z_of_le_bytes (String.sub digest 0 16)) m

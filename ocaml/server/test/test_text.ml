@@ -30,8 +30,7 @@ let () =
     (Text.rcut '=' "a=b=c" = Some ("a=b", "c"));
   check "rcut agrees with cut when there is only one"
     (Text.rcut '.' "index.js" = Some ("index", "js"));
-  check "rcut on a separator-free string is None"
-    (Text.rcut '.' "index" = None);
+  check "rcut on a separator-free string is None" (Text.rcut '.' "index" = None);
 
   check "before is the left half when there is a separator"
     (Text.before ';' "application/json; charset=utf-8" = "application/json");

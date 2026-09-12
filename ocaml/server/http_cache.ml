@@ -5,9 +5,13 @@
    stale body rather than admit an attacker. 128 bits is far past the point
    where that is a real risk, and it keeps the header short. *)
 let width = 32
-let truncate hex = if String.length hex <= width then hex else String.sub hex 0 width
+
+let truncate hex =
+  if String.length hex <= width then hex else String.sub hex 0 width
+
 let hash s = truncate Digestif.BLAKE2S.(to_hex (digest_string s))
 let suffix = function None -> "" | Some e -> "-" ^ e
+
 let of_digest ~encoding digest =
   Printf.sprintf "\"%s%s\"" (truncate digest) (suffix encoding)
 

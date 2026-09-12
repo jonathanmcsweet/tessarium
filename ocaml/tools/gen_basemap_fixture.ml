@@ -37,9 +37,7 @@ let mvt_tile =
   let geometry = varint 9 ^ varint 50 ^ varint 50 in
   let feature = varint_field 3 1 ^ bytes_field 4 geometry in
   let layer =
-    varint_field 15 2
-    ^ bytes_field 1 "fixture"
-    ^ bytes_field 2 feature
+    varint_field 15 2 ^ bytes_field 1 "fixture" ^ bytes_field 2 feature
     ^ varint_field 5 4096
   in
   (* A second layer shaped like the real basemap's: one named place with a
@@ -48,20 +46,17 @@ let mvt_tile =
      test ambiguous. *)
   let named_feature =
     (* tags: name -> "Fixtureville", kind -> "locality", population -> 4242 *)
-    let tags = varint 0 ^ varint 0 ^ varint 1 ^ varint 1 ^ varint 2 ^ varint 2 in
-    varint_field 3 1
-    ^ bytes_field 2 tags
-    ^ bytes_field 4 geometry
+    let tags =
+      varint 0 ^ varint 0 ^ varint 1 ^ varint 1 ^ varint 2 ^ varint 2
+    in
+    varint_field 3 1 ^ bytes_field 2 tags ^ bytes_field 4 geometry
   in
   let str_value v = bytes_field 1 v in
   let int_value n = varint_field 4 n in
   let places =
-    varint_field 15 2
-    ^ bytes_field 1 "places"
+    varint_field 15 2 ^ bytes_field 1 "places"
     ^ bytes_field 2 named_feature
-    ^ bytes_field 3 "name"
-    ^ bytes_field 3 "kind"
-    ^ bytes_field 3 "population"
+    ^ bytes_field 3 "name" ^ bytes_field 3 "kind" ^ bytes_field 3 "population"
     ^ bytes_field 4 (str_value "Fixtureville")
     ^ bytes_field 4 (str_value "locality")
     ^ bytes_field 4 (int_value 4242)
@@ -93,7 +88,8 @@ let pmtiles ?metadata ?(compression = Pmtiles.Header.Gzip) ?stride ~min_lon
     (Pmtiles.Build.of_box ?metadata ~compression ?stride ~min_zoom:0 ~max_zoom
        ~min_lon ~min_lat ~max_lon ~max_lat
        ~center:(10, (min_lon +. max_lon) /. 2., (min_lat +. max_lat) /. 2.)
-       ~body:(fun _ -> tile) ())
+       ~body:(fun _ -> tile)
+       ())
 
 (* -------------------------------------------------------------------- tar *)
 
@@ -210,5 +206,7 @@ let () =
          | Ok m -> m
          | Error e -> failwith e)
        ());
-  write (Filename.concat dir "assets.tar.gz") (Gzip.compress (assets_tarball ()));
+  write
+    (Filename.concat dir "assets.tar.gz")
+    (Gzip.compress (assets_tarball ()));
   Printf.printf "basemap fixture written to %s\n" dir

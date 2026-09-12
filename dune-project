@@ -3,6 +3,11 @@
 
 (generate_opam_files true)
 
+; OCaml sources only. dune's own formatter puts a blank line between a comment
+; and the stanza it documents, and every stanza in this project is documented.
+(formatting
+ (enabled_for ocaml))
+
 (source (uri "https://github.com/tessarium/tessarium"))
 (license Apache-2.0)
 

@@ -15,7 +15,6 @@ let lat_min = Z.of_string "-90000000000"
 let lat_span = Z.of_string "180000000000"
 let lon_min = Z.of_string "-180000000000"
 let lon_span = Z.of_string "360000000000"
-
 let lehmer = ref (Z.of_int 20260821)
 let m61 = Z.sub (Z.shift_left Z.one 61) Z.one
 
@@ -36,16 +35,18 @@ let points =
       (Z.mul (Z.of_int 1337) Tessarium_Table.rows_per_band)
       lat_min lat_span Tessarium_Table.rows
   in
-  [ (Z.add lat_min lat_span, Z.zero);
+  [
+    (Z.add lat_min lat_span, Z.zero);
     (lat_min, Z.zero);
     (Z.zero, lon_min);
     (Z.zero, Z.add lon_min lon_span);
     (seam, Z.of_int 5_000_000);
     (Z.pred seam, Z.of_int 5_000_000);
-    (Z.zero, Z.zero) ]
+    (Z.zero, Z.zero);
+  ]
   @ List.init 2000 (fun _ ->
-        (Z.add lat_min (next (Z.succ lat_span)),
-         Z.add lon_min (next (Z.succ lon_span))))
+      ( Z.add lat_min (next (Z.succ lat_span)),
+        Z.add lon_min (next (Z.succ lon_span)) ))
 
 let failures = ref 0
 let checks = ref 0
@@ -65,23 +66,26 @@ let () =
       List.iter
         (fun (lat, lon) ->
           incr checks;
-          let (a1, a2, a3, an) as oaddr =
+          let ((a1, a2, a3, an) as oaddr) =
             Tessarium_Api.encode rf key tweak lat lon
           in
           let c1, c2, c3, cn = C_core.encode ~key ~lat ~lon in
-          if not (Z.equal a1 c1 && Z.equal a2 c2 && Z.equal a3 c3 && Z.equal an cn)
+          if
+            not
+              (Z.equal a1 c1 && Z.equal a2 c2 && Z.equal a3 c3 && Z.equal an cn)
           then
             fail "encode disagrees at %s %s under key %d\n" (zs lat) (zs lon)
               (Char.code key.[0]);
           incr checks;
           let od = Tessarium_Api.decode rf key tweak oaddr in
           let cd = C_core.decode ~key oaddr in
-          (match (od, cd) with
+          match (od, cd) with
           | FStar_Pervasives_Native.Some (ola, olo), Some (cla, clo)
-            when Z.equal ola cla && Z.equal olo clo -> ()
+            when Z.equal ola cla && Z.equal olo clo ->
+              ()
           | _ ->
               fail "decode of own address disagrees at %s %s\n" (zs lat)
-                (zs lon)))
+                (zs lon))
         points)
     keys;
   (* scanned addresses: agreement on Some AND None, both cores. Both
@@ -101,7 +105,8 @@ let () =
         match (od, cd) with
         | FStar_Pervasives_Native.None, None -> incr nones
         | FStar_Pervasives_Native.Some (ola, olo), Some (cla, clo)
-          when Z.equal ola cla && Z.equal olo clo -> incr somes
+          when Z.equal ola cla && Z.equal olo clo ->
+            incr somes
         | _ ->
             let w1, w2, w3, n = addr in
             fail "decode disagrees on %s.%s.%s.%s\n" (zs w1) (zs w2) (zs w3)
@@ -120,9 +125,10 @@ let () =
         Tessarium_Api.bounds_of_point lat lon
       in
       let cla_lo, cla_hi, clo_lo, clo_hi = C_core.bounds_of_point ~lat ~lon in
-      if not
-           (Z.equal ola_lo cla_lo && Z.equal ola_hi cla_hi
-           && Z.equal olo_lo clo_lo && Z.equal olo_hi clo_hi)
+      if
+        not
+          (Z.equal ola_lo cla_lo && Z.equal ola_hi cla_hi
+         && Z.equal olo_lo clo_lo && Z.equal olo_hi clo_hi)
       then fail "bounds disagree at %s %s\n" (zs lat) (zs lon))
     points;
   if !failures > 0 then begin
@@ -130,5 +136,6 @@ let () =
     exit 1
   end;
   Printf.printf
-    "the C core and the extracted core agree on %d side-by-side checks (%d keys, %d points, %d scanned addresses)\n"
+    "the C core and the extracted core agree on %d side-by-side checks (%d \
+     keys, %d points, %d scanned addresses)\n"
     !checks (List.length keys) (List.length points) 1500

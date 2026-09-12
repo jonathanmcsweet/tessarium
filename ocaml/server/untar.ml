@@ -52,7 +52,8 @@ let pax_path payload =
             ->
               let record = String.sub payload pos (len - 1) in
               let record =
-                String.sub record (sp - pos + 1)
+                String.sub record
+                  (sp - pos + 1)
                   (String.length record - (sp - pos + 1))
               in
               let acc =

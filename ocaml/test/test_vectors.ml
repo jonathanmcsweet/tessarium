@@ -7,7 +7,6 @@
    generator checked only against itself proves nothing. *)
 
 let vectors_path = "../../vectors/vectors.json"
-
 let failures = ref 0
 let checks = ref 0
 
@@ -30,8 +29,10 @@ let check_eq name a b =
   check (Printf.sprintf "%s (got %s, want %s)" name a b) (String.equal a b)
 
 let hex s =
-  String.concat "" (List.map (fun c -> Printf.sprintf "%02x" (Char.code c))
-                      (List.init (String.length s) (String.get s)))
+  String.concat ""
+    (List.map
+       (fun c -> Printf.sprintf "%02x" (Char.code c))
+       (List.init (String.length s) (String.get s)))
 
 let member k = function
   | `Assoc l -> List.assoc k l
@@ -49,11 +50,14 @@ let () =
   let json = Yojson.Safe.from_file vectors_path in
 
   (* constants agree with the extracted table *)
-  check_eq "grid_version" Tessarium.grid_version (to_str (member "grid_version" json));
+  check_eq "grid_version" Tessarium.grid_version
+    (to_str (member "grid_version" json));
   check "total_cells"
-    (Z.equal Tessarium.total_cells (Z.of_int (to_int (member "total_cells" json))));
+    (Z.equal Tessarium.total_cells
+       (Z.of_int (to_int (member "total_cells" json))));
   check "address_space"
-    (Z.equal Tessarium.address_space (Z.of_int (to_int (member "address_space" json))));
+    (Z.equal Tessarium.address_space
+       (Z.of_int (to_int (member "address_space" json))));
 
   (* key derivation *)
   let keys = Hashtbl.create 8 in
@@ -63,14 +67,21 @@ let () =
       let mnemonic = to_str (member "mnemonic" v) in
       let key = derive_key ~mnemonic in
       Hashtbl.replace keys name key;
-      check_eq (Printf.sprintf "derive_key[%s]" name) (hex key) (to_str (member "key" v)))
+      check_eq
+        (Printf.sprintf "derive_key[%s]" name)
+        (hex key)
+        (to_str (member "key" v)))
     (to_list (member "key_derivation" json));
 
   (* grid: point -> cell -> centre *)
   List.iter
     (fun v ->
-      let lat_ns = to_int (member "lat_ns" v) and lon_ns = to_int (member "lon_ns" v) in
-      let cell = Z.to_int (Tessarium_Grid.point_to_cell (Z.of_int lat_ns) (Z.of_int lon_ns)) in
+      let lat_ns = to_int (member "lat_ns" v)
+      and lon_ns = to_int (member "lon_ns" v) in
+      let cell =
+        Z.to_int
+          (Tessarium_Grid.point_to_cell (Z.of_int lat_ns) (Z.of_int lon_ns))
+      in
       check
         (Printf.sprintf "point_to_cell(%d,%d) = %d want %d" lat_ns lon_ns cell
            (to_int (member "cell" v)))
@@ -87,8 +98,9 @@ let () =
   (* feistel permutation, under the fixed key the vectors were generated with
      -- not a derived one *)
   let unhex h =
-    String.init (String.length h / 2) (fun i ->
-        Char.chr (int_of_string ("0x" ^ String.sub h (2 * i) 2)))
+    String.init
+      (String.length h / 2)
+      (fun i -> Char.chr (int_of_string ("0x" ^ String.sub h (2 * i) 2)))
   in
   let zero_key =
     unhex "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
@@ -98,14 +110,14 @@ let () =
       let x = to_int (member "x" v) and y = to_int (member "y" v) in
       let enc =
         Z.to_int
-          (Tessarium_Feistel.encrypt Tessarium.round_fn zero_key Tessarium.grid_version
-             (Z.of_int x))
+          (Tessarium_Feistel.encrypt Tessarium.round_fn zero_key
+             Tessarium.grid_version (Z.of_int x))
       in
       check (Printf.sprintf "encrypt(%d) = %d want %d" x enc y) (enc = y);
       let dec =
         Z.to_int
-          (Tessarium_Feistel.decrypt Tessarium.round_fn zero_key Tessarium.grid_version
-             (Z.of_int y))
+          (Tessarium_Feistel.decrypt Tessarium.round_fn zero_key
+             Tessarium.grid_version (Z.of_int y))
       in
       check (Printf.sprintf "decrypt(%d) round-trips" y) (dec = x))
     (to_list (member "feistel_vectors" json));
@@ -114,14 +126,17 @@ let () =
   List.iter
     (fun v ->
       let key = Hashtbl.find keys (to_str (member "mnemonic" v)) in
-      let lat_ns = to_int (member "lat_ns" v) and lon_ns = to_int (member "lon_ns" v) in
+      let lat_ns = to_int (member "lat_ns" v)
+      and lon_ns = to_int (member "lon_ns" v) in
       let want = to_str (member "address" v) in
       let got = Tessarium.encode ~core ~key ~lat_ns ~lon_ns in
       check_eq (Printf.sprintf "encode(%d,%d)" lat_ns lon_ns) got want;
       match Tessarium.decode ~core ~key want with
       | Error e -> check (Printf.sprintf "decode(%s): %s" want e) false
       | Ok (dlat, dlon) ->
-          let cell p q = Tessarium_Grid.point_to_cell (Z.of_int p) (Z.of_int q) in
+          let cell p q =
+            Tessarium_Grid.point_to_cell (Z.of_int p) (Z.of_int q)
+          in
           check
             (Printf.sprintf "decode(%s) lands in the same cell" want)
             (Z.equal (cell dlat dlon) (cell lat_ns lon_ns)))
@@ -131,7 +146,10 @@ let () =
      it was pasted must not matter. The salt has no user input in it at all
      since the passphrase came out, so the phrase is the only thing that can
      move a key. *)
-  let m = to_str (member "mnemonic" (List.hd (to_list (member "key_derivation" json)))) in
+  let m =
+    to_str
+      (member "mnemonic" (List.hd (to_list (member "key_derivation" json))))
+  in
   check "mnemonic case and padding do not matter"
     (String.equal
        (hex (derive_key ~mnemonic:("  " ^ String.uppercase_ascii m ^ "  ")))
@@ -150,7 +168,9 @@ let () =
       let addr = to_str a in
       check
         (Printf.sprintf "%s names no location" addr)
-        (match Tessarium.decode ~core ~key:addr_key addr with Error _ -> true | Ok _ -> false))
+        (match Tessarium.decode ~core ~key:addr_key addr with
+        | Error _ -> true
+        | Ok _ -> false))
     (to_list (member "invalid_addresses" json));
 
   (* ------------------------------------------------------ normalisation *)
@@ -162,7 +182,9 @@ let () =
      on any choice they made. Without normalisation they hash differently, and
      nothing tells the user why the map is not the one they expected. *)
   check "NFKD makes a precomposed and a decomposed accent one string"
-    (String.equal (Tessarium.nfkd "caf\xc3\xa9") (Tessarium.nfkd "cafe\xcc\x81"));
+    (String.equal
+       (Tessarium.nfkd "caf\xc3\xa9")
+       (Tessarium.nfkd "cafe\xcc\x81"));
   check "NFKD leaves ASCII alone"
     (String.equal (Tessarium.nfkd "mnemonic") "mnemonic");
   (* NFKD, not NFD: compatibility characters fold too. Half-width katakana is
@@ -182,7 +204,8 @@ let () =
   List.iter
     (fun (entropy, want) ->
       check_eq
-        (Printf.sprintf "mnemonic_of_entropy(%02x repeated)" (Char.code entropy.[0]))
+        (Printf.sprintf "mnemonic_of_entropy(%02x repeated)"
+           (Char.code entropy.[0]))
         (Tessarium.mnemonic_of_entropy entropy)
         want)
     [
@@ -209,7 +232,9 @@ let () =
   check "every generated phrase passes validation"
     (List.for_all (fun m -> Tessarium.validate_mnemonic m = Ok ()) generated);
   check "every generated phrase is 24 words"
-    (List.for_all (fun m -> List.length (String.split_on_char ' ' m) = 24) generated);
+    (List.for_all
+       (fun m -> List.length (String.split_on_char ' ' m) = 24)
+       generated);
   (* Distinct inputs give distinct phrases. Cheap, and it would catch a
      generator that had been wired to a constant. *)
   check "distinct entropy gives distinct phrases"
@@ -237,7 +262,9 @@ let () =
   check "and a longer one" (not (mac "tessarium-grid-333"));
 
   check "entropy of the wrong length is refused"
-    (try ignore (Tessarium.mnemonic_of_entropy (String.make 16 '\x00')); false
+    (try
+       ignore (Tessarium.mnemonic_of_entropy (String.make 16 '\x00'));
+       false
      with Invalid_argument _ -> true);
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;

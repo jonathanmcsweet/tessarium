@@ -33,10 +33,14 @@ let () =
   (* A bundle in the shape a package builds: the overview, a glyph tree two
      levels deep, and the sprites beside them. *)
   let bundle = dir "bundle" in
-  Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 Eio.Path.(fs / bundle / "fonts" / "Noto Sans Regular");
-  Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 Eio.Path.(fs / bundle / "sprites" / "v4");
+  Eio.Path.mkdirs ~exists_ok:true ~perm:0o755
+    Eio.Path.(fs / bundle / "fonts" / "Noto Sans Regular");
+  Eio.Path.mkdirs ~exists_ok:true ~perm:0o755
+    Eio.Path.(fs / bundle / "sprites" / "v4");
   write Eio.Path.(fs / bundle / "world.pmtiles") "PMTiles-world";
-  write Eio.Path.(fs / bundle / "fonts" / "Noto Sans Regular" / "0-255.pbf") "glyphs";
+  write
+    Eio.Path.(fs / bundle / "fonts" / "Noto Sans Regular" / "0-255.pbf")
+    "glyphs";
   write Eio.Path.(fs / bundle / "sprites" / "v4" / "light.json") "{}";
   (* Something the packager did not mean to ship. A bundle is assembled by a
      script, and a stray file in it must not become a write to the user's
@@ -52,7 +56,7 @@ let () =
     (read Eio.Path.(fs / fresh / "world.pmtiles") = Some "PMTiles-world");
   check "so do the glyphs, at their own depth"
     (read Eio.Path.(fs / fresh / "fonts" / "Noto Sans Regular" / "0-255.pbf")
-     = Some "glyphs");
+    = Some "glyphs");
   check "and the sprites"
     (read Eio.Path.(fs / fresh / "sprites" / "v4" / "light.json") = Some "{}");
   check "nothing outside the bundle's own entries is copied"
@@ -66,14 +70,16 @@ let () =
   (* What a user gets after fetching the world in the app: their overview is
      deeper than the shipped one, and every restart must leave it alone. *)
   write Eio.Path.(fs / fresh / "world.pmtiles") "the deeper one they fetched";
-  write Eio.Path.(fs / fresh / "fonts" / "Noto Sans Regular" / "0-255.pbf") "theirs";
+  write
+    Eio.Path.(fs / fresh / "fonts" / "Noto Sans Regular" / "0-255.pbf")
+    "theirs";
   Tessarium_server.Bundled.seed ~fs ~from:bundle ~into:fresh;
   check "a second run does not overwrite the world overview"
     (read Eio.Path.(fs / fresh / "world.pmtiles")
-     = Some "the deeper one they fetched");
+    = Some "the deeper one they fetched");
   check "nor reach inside a directory it already seeded"
     (read Eio.Path.(fs / fresh / "fonts" / "Noto Sans Regular" / "0-255.pbf")
-     = Some "theirs");
+    = Some "theirs");
 
   (* --------------------------------------------------- a partial directory *)
   (* Half a bundle is the state left by a package that grew an entry: what
@@ -100,7 +106,7 @@ let () =
   Tessarium_server.Bundled.seed ~fs ~from:bundle ~into:torn;
   check "a torn copy is discarded rather than published"
     (read Eio.Path.(fs / torn / "fonts" / "Noto Sans Regular" / "0-255.pbf")
-     = Some "glyphs");
+    = Some "glyphs");
   check "and its temporary directory does not survive"
     (not (exists Eio.Path.(fs / torn / "fonts.seeding")));
 
@@ -119,8 +125,7 @@ let () =
   (* Pointed at a perfectly readable directory on purpose: a link to
      somewhere unreadable would leave this passing because the copy failed,
      which is passing for the wrong reason. *)
-  Eio.Path.symlink ~link_to:elsewhere
-    Eio.Path.(fs / bundle_with_link / "fonts");
+  Eio.Path.symlink ~link_to:elsewhere Eio.Path.(fs / bundle_with_link / "fonts");
   write Eio.Path.(fs / bundle_with_link / "world.pmtiles") "PMTiles-world";
   Tessarium_server.Bundled.seed ~fs ~from:bundle_with_link ~into:linked;
   check "a linked entry is not followed"
@@ -143,7 +148,8 @@ let () =
      AppImage all find their own. The test binary is not installed anywhere,
      so what is checkable here is the shape. *)
   let default = Tessarium_server.Bundled.default_dir () in
-  check ("the default bundle sits under share/tessarium/basemap (" ^ default ^ ")")
+  check
+    ("the default bundle sits under share/tessarium/basemap (" ^ default ^ ")")
     (String.ends_with ~suffix:"/share/tessarium/basemap" default);
   check "and is named relative to the binary's prefix, not the cwd"
     (Filename.is_relative default = Filename.is_relative Sys.executable_name);

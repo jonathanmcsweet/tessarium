@@ -1,10 +1,9 @@
 (** Splitting a string at a delimiter. Pure.
 
-    Seven modules here were each spelling out [String.index_opt] followed by
-    two [String.sub] calls with hand-computed lengths, which is where an
-    off-by-one hides. The vocabulary is Bünzli's [astring]: [cut] returns the
-    two halves without the separator, or [None] when there is none to cut at.
-*)
+    Seven modules here were each spelling out [String.index_opt] followed by two
+    [String.sub] calls with hand-computed lengths, which is where an off-by-one
+    hides. The vocabulary is Bünzli's [astring]: [cut] returns the two halves
+    without the separator, or [None] when there is none to cut at. *)
 
 val cut : char -> string -> (string * string) option
 (** [cut sep s] is the text before and after the FIRST [sep] in [s], neither

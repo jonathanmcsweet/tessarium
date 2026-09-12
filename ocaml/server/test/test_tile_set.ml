@@ -23,8 +23,7 @@ let check name ok =
    claims. [may_hold] reads only the header, so that is all these tests care
    about; every id points at the same byte. *)
 let archive_of ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ids =
-  Pmtiles.Build.archive ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
-    ~max_lat
+  Pmtiles.Build.archive ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
     ~tiles:(List.map (fun id -> (id, "x")) ids)
     ()
 
@@ -33,9 +32,11 @@ let archive_of ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat ids =
 let georgia = (-85.6, 30.3, -80.8, 35.0)
 let london = (-0.5, 51.3, 0.3, 51.7)
 
-let box_archive ?(min_zoom = 0) ?(max_zoom = 12) (min_lon, min_lat, max_lon, max_lat) =
+let box_archive ?(min_zoom = 0) ?(max_zoom = 12)
+    (min_lon, min_lat, max_lon, max_lat) =
   Pmtiles.Build.of_box ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
-    ~body:(fun _ -> "x") ()
+    ~body:(fun _ -> "x")
+    ()
 
 let () =
   Eio_main.run @@ fun env ->
@@ -50,12 +51,9 @@ let () =
   in
   (* The sort reads mtime. Writing three files in a row would leave the order
      up to the filesystem's timestamp resolution, so set mtimes by hand. *)
-  let touch name secs =
-    Unix.utimes (Filename.concat dir_name name) secs secs
-  in
+  let touch name secs = Unix.utimes (Filename.concat dir_name name) secs secs in
 
   (* ------------------------------------------------------------- order *)
-
   let _, world = box_archive ~max_zoom:6 (-180., -85., 180., 85.) in
   let _, ga = box_archive georgia in
   let _, uk = box_archive london in
@@ -76,7 +74,7 @@ let () =
     (List.nth_opt names 0 = Some Tile_set.cache_file);
   check "then the regions, newest first"
     (List.nth_opt names 1 = Some "London-2026-01-03-bbbbbb.pmtiles"
-     && List.nth_opt names 2 = Some "Georgia-2026-01-02-aaaaaa.pmtiles");
+    && List.nth_opt names 2 = Some "Georgia-2026-01-02-aaaaaa.pmtiles");
   check "then the old merged archive"
     (List.nth_opt names 3 = Some Tile_set.base_file);
   check "and the world overview last, because it is the coarsest"
@@ -101,7 +99,6 @@ let () =
           (Tile_set.detail ~dir)));
 
   (* ---------------------------------------------------- the shortcut *)
-
   let h_ga, _ = box_archive georgia in
   let inside ~z ~lon ~lat =
     Tile_set.may_hold h_ga ~z
@@ -122,7 +119,9 @@ let () =
   let min_lon, min_lat, max_lon, max_lat = georgia in
   let corners =
     [
-      (min_lon, min_lat); (min_lon, max_lat); (max_lon, min_lat);
+      (min_lon, min_lat);
+      (min_lon, max_lat);
+      (max_lon, min_lat);
       (max_lon, max_lat);
     ]
   in
@@ -148,7 +147,8 @@ let () =
       ~min_lat:(min_lat +. step) ~max_lon:(max_lon -. step)
       ~max_lat:(max_lat -. step) []
   in
-  check "an archive whose header is a tile tighter than its tiles is still opened"
+  check
+    "an archive whose header is a tile tighter than its tiles is still opened"
     (Tile_set.may_hold h_tight ~z:tight_z
        ~x:(Pmtiles.Tile_id.tile_x ~z:tight_z ~lon:min_lon)
        ~y:(Pmtiles.Tile_id.tile_y ~z:tight_z ~lat:min_lat));

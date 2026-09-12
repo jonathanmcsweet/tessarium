@@ -8,9 +8,19 @@ type t = { body : string }
 
 let body t = t.body
 
-type refusal = From_another_site | Not_json | Too_large | Not_binary
-type disposal = Drained | Connection_must_close
-type outcome = Allowed of t | Refused of refusal * disposal
+type refusal =
+  | From_another_site
+  | Not_json
+  | Too_large
+  | Not_binary
+
+type disposal =
+  | Drained
+  | Connection_must_close
+
+type outcome =
+  | Allowed of t
+  | Refused of refusal * disposal
 
 let max_body = 1 lsl 22
 
@@ -93,7 +103,8 @@ let check ~header ~declares_body ~read =
   let refuse r =
     let disposal =
       if not declares_body then Drained
-      else match read () with Some _ -> Drained | None -> Connection_must_close
+      else
+        match read () with Some _ -> Drained | None -> Connection_must_close
     in
     Refused (r, disposal)
   in

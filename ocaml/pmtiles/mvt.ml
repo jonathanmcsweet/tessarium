@@ -12,19 +12,22 @@
    tables and a run of geometry commands. Unknown fields are skipped by wire
    type, so a tile carrying more than this understands still reads. *)
 
-type value = Str of string | Num of float | Bool of bool
+type value =
+  | Str of string
+  | Num of float
+  | Bool of bool
 
 type feature = {
   name : string;  (** the [name] tag, empty when the feature has none *)
   kind : string;  (** the [kind] tag: locality, street, ... *)
   kind_detail : string;
-      (** the [kind_detail] tag, empty when the feature has none. For a
-          place it is the word a person would use -- city, town, village,
-          hamlet -- where [kind] says only "locality" for all four. *)
+      (** the [kind_detail] tag, empty when the feature has none. For a place it
+          is the word a person would use -- city, town, village, hamlet -- where
+          [kind] says only "locality" for all four. *)
   weight : float;
       (** the [population] tag where the basemap carries one. It is what
-          separates Paris from the eleven other places called Paris, so a
-          search can offer the one the user meant first. *)
+          separates Paris from the eleven other places called Paris, so a search
+          can offer the one the user meant first. *)
   x : float;  (** tile-local, in extent units *)
   y : float;
 }
@@ -51,9 +54,11 @@ let bytes_of s pos =
 let skip s pos wire =
   match wire with
   | 0 -> snd (varint s pos)
-  | 1 -> if pos + 8 > String.length s then fail "fixed64 past the end" else pos + 8
+  | 1 ->
+      if pos + 8 > String.length s then fail "fixed64 past the end" else pos + 8
   | 2 -> snd (bytes_of s pos)
-  | 5 -> if pos + 4 > String.length s then fail "fixed32 past the end" else pos + 4
+  | 5 ->
+      if pos + 4 > String.length s then fail "fixed32 past the end" else pos + 4
   | w -> fail (Printf.sprintf "wire type %d" w)
 
 (* Walks the fields of a message, handing each to [f] as (field, wire, pos)
@@ -142,7 +147,11 @@ let first_point geometry =
 
 (* --------------------------------------------------------------- layers *)
 
-type layer = { layer_name : string; extent : int; features : feature list }
+type layer = {
+  layer_name : string;
+  extent : int;
+  features : feature list;
+}
 
 let parse_layer s =
   let name = ref "" and extent = ref 4096 in
@@ -167,7 +176,7 @@ let parse_layer s =
           pos
       | 5, 0 ->
           let v, pos = varint s pos in
-          extent := (if v > 0 then v else 4096);
+          extent := if v > 0 then v else 4096;
           pos
       | _ -> skip s pos wire);
   let keys = Array.of_list (List.rev !keys) in
@@ -291,10 +300,12 @@ let named ~z ~x ~y tile =
     (fun l ->
       List.map
         (fun f ->
-          let lon, lat =
-            lon_lat ~z ~x ~y ~extent:l.extent ~px:f.x ~py:f.y
-          in
-          (l.layer_name, f.name, describing_kind l.layer_name f, f.weight,
-           lon, lat))
+          let lon, lat = lon_lat ~z ~x ~y ~extent:l.extent ~px:f.x ~py:f.y in
+          ( l.layer_name,
+            f.name,
+            describing_kind l.layer_name f,
+            f.weight,
+            lon,
+            lat ))
         l.features)
     (layers tile)

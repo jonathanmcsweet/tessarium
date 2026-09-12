@@ -15,8 +15,8 @@
 
 let usage () =
   prerr_endline
-    "usage: differential [--count N] [--seed S] [--mnemonic WORDS] \
-     [--bench] [--out FILE]";
+    "usage: differential [--count N] [--seed S] [--mnemonic WORDS] [--bench] \
+     [--out FILE]";
   exit 2
 
 (* The historical default. Kept stable so an old corpus and a new one with no
@@ -35,11 +35,21 @@ let () =
   let mnemonic = ref default_mnemonic in
   let rec parse = function
     | [] -> ()
-    | "--count" :: v :: r -> count := int_of_string v; parse r
-    | "--seed" :: v :: r -> seed := int_of_string v; parse r
-    | "--mnemonic" :: v :: r -> mnemonic := v; parse r
-    | "--out" :: v :: r -> out := v; parse r
-    | "--bench" :: r -> bench := true; parse r
+    | "--count" :: v :: r ->
+        count := int_of_string v;
+        parse r
+    | "--seed" :: v :: r ->
+        seed := int_of_string v;
+        parse r
+    | "--mnemonic" :: v :: r ->
+        mnemonic := v;
+        parse r
+    | "--out" :: v :: r ->
+        out := v;
+        parse r
+    | "--bench" :: r ->
+        bench := true;
+        parse r
     | _ -> usage ()
   in
   parse (List.tl (Array.to_list Sys.argv));
@@ -120,12 +130,12 @@ let () =
     let n = List.length sample in
     let t0 = Unix.gettimeofday () in
     let addrs =
-      List.map (fun (lat, lon) -> Tessarium.encode_z ~core ~key ~lat ~lon) sample
+      List.map
+        (fun (lat, lon) -> Tessarium.encode_z ~core ~key ~lat ~lon)
+        sample
     in
     let t1 = Unix.gettimeofday () in
-    List.iter
-      (fun a -> ignore (Tessarium.decode ~core ~key a))
-      addrs;
+    List.iter (fun a -> ignore (Tessarium.decode ~core ~key a)) addrs;
     let t2 = Unix.gettimeofday () in
     Printf.eprintf "encode %.2f us/op   decode %.2f us/op   (%d ops each)\n%!"
       ((t1 -. t0) *. 1e6 /. float_of_int n)
@@ -142,9 +152,11 @@ let () =
      the mnemonic above is already public. *)
   Printf.fprintf oc "# key: %s\n"
     (String.concat ""
-       (List.map (fun c -> Printf.sprintf "%02x" (Char.code c))
+       (List.map
+          (fun c -> Printf.sprintf "%02x" (Char.code c))
           (List.init (String.length key) (String.get key))));
-  Printf.fprintf oc "# seed %d, %d points (%d at band seams)\n" !seed total !seams;
+  Printf.fprintf oc "# seed %d, %d points (%d at band seams)\n" !seed total
+    !seams;
   Printf.fprintf oc "# lat_ns lon_ns cell centre_lat_ns centre_lon_ns address\n";
   (* The proved theorems, restated as runtime assertions over the whole
      corpus. The F* proves them about the source and fstar/check replays
@@ -158,8 +170,8 @@ let () =
   let law name ok lat lon =
     if not ok then begin
       incr violations;
-      Printf.eprintf "LAW VIOLATED %s at lat=%s lon=%s\n" name
-        (Z.to_string lat) (Z.to_string lon)
+      Printf.eprintf "LAW VIOLATED %s at lat=%s lon=%s\n" name (Z.to_string lat)
+        (Z.to_string lon)
     end
   in
   List.iter
@@ -173,27 +185,21 @@ let () =
          first cut of this leg compared raw longitude where the theorem
          folds it, and flagged half the corpus. *)
       (* theorem_roundtrip: the cell's own centre names the same cell. *)
-      law "roundtrip" (Tessarium_Grid.point_to_cell clat clon = cell)
-        lat lon;
+      law "roundtrip" (Tessarium_Grid.point_to_cell clat clon = cell) lat lon;
       (* theorem_containment: the point lies inside its cell's bounds --
          stated only for lat < lat_min + lat_span, and for the FOLDED
          longitude, so the antimeridian's two spellings name one cell. *)
       (* The precondition comes from the EXTRACTED Spec, not this file's
          local literals, for the same reason row_edge does above: this
          file must not be able to hide a Spec bug by reproducing it. *)
-      (if
-         Z.lt lat
-           (Z.add Tessarium_Spec.lat_min Tessarium_Spec.lat_span)
-       then begin
-         let lat_lo, lat_hi, lon_lo, lon_hi =
-           Tessarium_Grid.cell_bounds cell
-         in
-         let folded = Tessarium_Grid.lon_fold lon in
-         law "containment"
-           (Z.leq lat_lo lat && Z.lt lat lat_hi
-           && Z.leq lon_lo folded && Z.lt folded lon_hi)
-           lat lon
-       end);
+      if Z.lt lat (Z.add Tessarium_Spec.lat_min Tessarium_Spec.lat_span) then begin
+        let lat_lo, lat_hi, lon_lo, lon_hi = Tessarium_Grid.cell_bounds cell in
+        let folded = Tessarium_Grid.lon_fold lon in
+        law "containment"
+          (Z.leq lat_lo lat && Z.lt lat lat_hi && Z.leq lon_lo folded
+         && Z.lt folded lon_hi)
+          lat lon
+      end;
       (* theorem_decode_encode: decoding what was encoded never fails and
          answers with this exact cell's representative point. Slightly
          STRONGER than the theorem, deliberately: the theorem is stated
@@ -206,9 +212,9 @@ let () =
             (Z.equal (Z.of_int dlat) clat && Z.equal (Z.of_int dlon) clon)
             lat lon
       | Error _ -> law "decode-encode" false lat lon);
-      Printf.fprintf oc "%s %s %s %s %s %s\n" (Z.to_string lat) (Z.to_string lon)
-        (Z.to_string cell) (Z.to_string clat) (Z.to_string clon)
-        address)
+      Printf.fprintf oc "%s %s %s %s %s %s\n" (Z.to_string lat)
+        (Z.to_string lon) (Z.to_string cell) (Z.to_string clat)
+        (Z.to_string clon) address)
     points;
   if !violations > 0 then begin
     Printf.eprintf "%d proved laws violated at runtime\n" !violations;

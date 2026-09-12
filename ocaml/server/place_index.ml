@@ -68,8 +68,7 @@ let fold s =
         | 0x88 | 0x89 | 0x8a | 0x8b | 0xa8 | 0xa9 | 0xaa | 0xab -> Some 'e'
         | 0x8c | 0x8d | 0x8e | 0x8f | 0xac | 0xad | 0xae | 0xaf -> Some 'i'
         | 0x91 | 0xb1 -> Some 'n'
-        | 0x92 | 0x93 | 0x94 | 0x95 | 0x96 | 0xb2 | 0xb3 | 0xb4 | 0xb5 | 0xb6
-          ->
+        | 0x92 | 0x93 | 0x94 | 0x95 | 0x96 | 0xb2 | 0xb3 | 0xb4 | 0xb5 | 0xb6 ->
             Some 'o'
         | 0x99 | 0x9a | 0x9b | 0x9c | 0xb9 | 0xba | 0xbb | 0xbc -> Some 'u'
         | 0x9d | 0xbd | 0xbf -> Some 'y'
@@ -82,8 +81,7 @@ let fold s =
              "ørsta" still finds "Ørsta". *)
           Buffer.add_char buf c;
           Buffer.add_char buf
-            (if d >= 0x80 && d <= 0x9e then Char.chr (d + 0x20)
-             else s.[!i + 1]));
+            (if d >= 0x80 && d <= 0x9e then Char.chr (d + 0x20) else s.[!i + 1]));
       i := !i + 2
     end
     else if (Char.code c = 0xc4 || Char.code c = 0xc5) && !i + 1 < n then begin
@@ -114,8 +112,7 @@ let fold s =
    not be forgeable. A name carrying a newline would split its row, and one
    carrying a tab could form a whole valid row with coordinates of its own
    choosing. Both become spaces on the way in. *)
-let sanitise s =
-  String.map (function '\t' | '\n' | '\r' -> ' ' | c -> c) s
+let sanitise s = String.map (function '\t' | '\n' | '\r' -> ' ' | c -> c) s
 
 let to_line e =
   let name = sanitise e.name in
@@ -126,8 +123,9 @@ let of_line line =
   match String.split_on_char '\t' line with
   | [ _folded; name; kind; layer; weight; lon; lat ] -> (
       match
-        (float_of_string_opt weight, float_of_string_opt lon,
-         float_of_string_opt lat)
+        ( float_of_string_opt weight,
+          float_of_string_opt lon,
+          float_of_string_opt lat )
       with
       | Some weight, Some lon, Some lat
         when Float.is_finite lon && Float.is_finite lat && name <> "" ->
@@ -194,9 +192,9 @@ let cluster_key seen ~folded ~layer ~lon ~lat =
       if !near = None then begin
         let k = (folded, layer, cell lon + dx, cell lat + dy) in
         match Hashtbl.find_opt seen k with
-        | Some (_, e) when
-            Float.abs (e.lon -. lon) <= merge_radius
-            && Float.abs (e.lat -. lat) <= merge_radius ->
+        | Some (_, e)
+          when Float.abs (e.lon -. lon) <= merge_radius
+               && Float.abs (e.lat -. lat) <= merge_radius ->
             near := Some k
         | _ -> ()
       end
@@ -213,9 +211,7 @@ let count ~max_zoom (archive : Pmtiles.Archive.t) =
   let within (e : Pmtiles.Directory.entry) =
     let n = ref 0 in
     for k = 0 to e.Pmtiles.Directory.run_length - 1 do
-      let z, _, _ =
-        Pmtiles.Tile_id.to_zxy (e.Pmtiles.Directory.tile_id + k)
-      in
+      let z, _, _ = Pmtiles.Tile_id.to_zxy (e.Pmtiles.Directory.tile_id + k) in
       if z <= max_zoom then incr n
     done;
     !n
@@ -259,8 +255,8 @@ let build_one ~seen ~max_zoom ~on_tile ~offset ~grand
           | None -> None
           | Some raw -> (
               match if gz then Gzip.decompress raw else raw with
-              | exception _ -> None
-                  (* one unreadable tile is not a failed index *)
+              | exception _ ->
+                  None (* one unreadable tile is not a failed index *)
               | plain -> Some plain))
       in
       for k = 0 to e.Pmtiles.Directory.run_length - 1 do
@@ -316,8 +312,7 @@ let save ~fs ~basemap_dir entries =
   let part = Eio.Path.(dir / (filename ^ ".part")) in
   (* The directory is served over HTTP, so a half-written index left behind
      is fetchable, not just untidy. *)
-  Fun.protect
-    ~finally:(fun () ->
+  Fun.protect ~finally:(fun () ->
       match Eio.Path.kind ~follow:true part with
       | `Regular_file -> ( try Eio.Path.unlink part with _ -> ())
       | _ | (exception _) -> ())
@@ -347,7 +342,10 @@ let remove ~fs ~basemap_dir =
 
 (* Ranked, best first. [score] is the whole ranking key built by [rank_key],
    not a single band, and lower is better. *)
-type hit = { entry : entry; score : int }
+type hit = {
+  entry : entry;
+  score : int;
+}
 
 (* How well the name answers the query decides first; importance only breaks
    ties. The other way round would bury an exact hit under a populous partial
@@ -390,8 +388,8 @@ let score_of ~needle folded =
          if band < !best then best := band);
       incr i
     done;
-    if !best = max_int then None
-      (* Shorter names win within a band: "York" over "Yorkshire Road". *)
+    if !best = max_int then
+      None (* Shorter names win within a band: "York" over "Yorkshire Road". *)
     else Some ((!best * 100_000) + min 99_999 h)
   end
 
@@ -474,7 +472,10 @@ let terms_of ~limit text =
   flush ();
   List.filteri (fun i _ -> i < limit) (List.rev !out)
 
-type query = { head : string list; context : string list }
+type query = {
+  head : string list;
+  context : string list;
+}
 
 let parse_query q =
   let folded = ascii_punctuation (fold q) in
@@ -506,13 +507,20 @@ let contains ~needle folded =
   at 0
 
 let carried terms folded =
-  List.fold_left (fun n t -> if contains ~needle:t folded then n + 1 else n) 0 terms
+  List.fold_left
+    (fun n t -> if contains ~needle:t folded then n + 1 else n)
+    0 terms
 
 (* How this name answers the query: how many words of the NAME it carries,
    how exactly it carries the first of them, and how much of the CONTEXT it
    carries too. The first word is required -- a name with none of what was
    asked for is not a worse answer, it is not an answer. *)
-type quality = { head_depth : int; band : int; context_depth : int; length : int }
+type quality = {
+  head_depth : int;
+  band : int;
+  context_depth : int;
+  length : int;
+}
 
 let match_of ~(query : query) folded =
   match query.head with
@@ -541,7 +549,7 @@ let match_of ~(query : query) folded =
 let rank_key q =
   let depth = max 0 (max_head - q.head_depth) in
   let context = max 0 (max_context - q.context_depth) in
-  ((((depth * 4) + q.band) * (max_context + 1)) + context) * 100_000
+  (((((depth * 4) + q.band) * (max_context + 1)) + context) * 100_000)
   + q.length
 
 let search ~fs ~basemap_dir ~query ~limit =

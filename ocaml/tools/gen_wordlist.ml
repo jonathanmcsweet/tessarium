@@ -40,4 +40,5 @@ let () =
   if n mod 8 <> 0 then print_newline ();
   print_string "|]\n\n";
   print_string "let index : (string, int) Hashtbl.t = Hashtbl.create 4096\n\n";
-  print_string "let () = Array.iteri (fun i w -> Hashtbl.replace index w i) words\n"
+  print_string
+    "let () = Array.iteri (fun i w -> Hashtbl.replace index w i) words\n"

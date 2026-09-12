@@ -1,0 +1,4 @@
+# Build artifacts, regenerated and diffed by CI. Reformatting either one
+# fails the extraction check rather than surviving quietly.
+extracted/**
+fstarlib/**

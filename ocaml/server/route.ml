@@ -8,18 +8,21 @@ type t =
   | Health
   | Asset of string list  (** under the UI root *)
   | Basemap of string list  (** under the basemap root *)
-  | Tile of { z : int; x : int; y : int }
-      (** one vector tile, looked up across the tile archives *)
+  | Tile of {
+      z : int;
+      x : int;
+      y : int;
+    }  (** one vector tile, looked up across the tile archives *)
   | Tile_json of { floor : bool }
-      (** the source metadata MapLibre needs -- zoom range and bounds, read
-          from the archive headers. Two of them: the detail the user
-          downloaded, and the shallow floor underneath it, cut so it is
-          never asked for a tile it does not have *)
+      (** the source metadata MapLibre needs -- zoom range and bounds, read from
+          the archive headers. Two of them: the detail the user downloaded, and
+          the shallow floor underneath it, cut so it is never asked for a tile
+          it does not have *)
   | Api of string  (** the API sub-path, e.g. "session" *)
   | Import
-      (** a map file uploaded to be merged in. Not an [Api] endpoint: the
-          body is gigabytes of tiles streamed to disk, and every /api/ body
-          is read into memory under a 4 MiB bound *)
+      (** a map file uploaded to be merged in. Not an [Api] endpoint: the body
+          is gigabytes of tiles streamed to disk, and every /api/ body is read
+          into memory under a 4 MiB bound *)
   | Not_found
   | Method_not_allowed
 
@@ -35,7 +38,9 @@ let tile_route segments =
   in
   match segments with
   | [ zs; xs; ys ] -> (
-      match (plain_int zs, plain_int xs, Filename.chop_suffix_opt ~suffix:".mvt" ys) with
+      match
+        (plain_int zs, plain_int xs, Filename.chop_suffix_opt ~suffix:".mvt" ys)
+      with
       | Some z, Some x, Some ys when z <= Pmtiles.Tile_id.max_zoom -> (
           match plain_int ys with
           | Some y when x < 1 lsl z && y < 1 lsl z -> Some (Tile { z; x; y })

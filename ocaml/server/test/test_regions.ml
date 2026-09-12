@@ -52,7 +52,8 @@ let () =
   (* The planet down to zoom 5, which is deep enough for two boxes far apart
      to have tiles of their own and shallow enough to build in a moment. *)
   let source = Filename.concat root "source.pmtiles" in
-  Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(fs / source)
+  Eio.Path.save ~create:(`Or_truncate 0o644)
+    Eio.Path.(fs / source)
     (source_archive ~min_zoom:0 ~max_zoom:5 ~min_lon:(-180.) ~min_lat:(-85.)
        ~max_lon:180. ~max_lat:85. ());
 
@@ -66,9 +67,7 @@ let () =
       ~budget:D.default_budget ~name:(Some name) ~now ~refresh:false ~replaces
       ~target:D.Detail reqs
   in
-  let listing () =
-    List.filter Tile_set.is_region (Eio.Path.read_dir dir)
-  in
+  let listing () = List.filter Tile_set.is_region (Eio.Path.read_dir dir) in
   let entries () =
     match D.ledger_json ~fs ~basemap_dir with
     | Error e -> failwith e
@@ -79,7 +78,8 @@ let () =
     | Ok _ -> []
   in
   let field k = function
-    | `Assoc fs -> ( match List.assoc_opt k fs with Some v -> v | None -> `Null)
+    | `Assoc fs -> (
+        match List.assoc_opt k fs with Some v -> v | None -> `Null)
     | _ -> `Null
   in
   let str k j = match field k j with `String s -> s | _ -> "" in
@@ -93,23 +93,28 @@ let () =
   in
 
   (* ------------------------------------------------- one region, one file *)
-
   download ~name:"Georgia"
-    [ req ~min_lon:(-85.6) ~min_lat:30.3 ~max_lon:(-80.8) ~max_lat:35.0 ~max_zoom:5 ];
+    [
+      req ~min_lon:(-85.6) ~min_lat:30.3 ~max_lon:(-80.8) ~max_lat:35.0
+        ~max_zoom:5;
+    ];
   check ("the download finished: " ^ outcome ()) (state () = "done");
 
   let files = listing () in
   check "it wrote exactly one region file" (List.length files = 1);
   let ga_file = match files with [ f ] -> f | _ -> "" in
   check "named after the region, the day and the record"
-    (ga_file = "Georgia-2026-08-28-"
-               ^ String.sub (str "id" (List.hd (entries ()))) 0 8
-               ^ ".pmtiles");
+    (ga_file
+    = "Georgia-2026-08-28-"
+      ^ String.sub (str "id" (List.hd (entries ()))) 0 8
+      ^ ".pmtiles");
   check "and nothing was merged into the old archive"
     (not (Eio.Path.is_file Eio.Path.(dir / Tile_set.base_file)));
   check "no half-written file was left behind"
-    (not (List.exists (fun n -> Filename.check_suffix n ".part")
-            (Eio.Path.read_dir dir)));
+    (not
+       (List.exists
+          (fun n -> Filename.check_suffix n ".part")
+          (Eio.Path.read_dir dir)));
 
   (* The record lives inside the file it describes, so a machine handed only
      this file can say what it holds. *)
@@ -117,7 +122,8 @@ let () =
     Eio.Switch.run @@ fun sw ->
     let a =
       Pmtiles.Archive.open_
-        (Pmtiles_source.file_source (Eio.Path.open_in ~sw Eio.Path.(dir / name)))
+        (Pmtiles_source.file_source
+           (Eio.Path.open_in ~sw Eio.Path.(dir / name)))
     in
     match Ledger.of_metadata (Pmtiles.Archive.metadata a) with
     | Ok l -> l
@@ -127,15 +133,12 @@ let () =
     (List.length (ledger_in ga_file) = 1);
   check "which names the region the user asked for"
     (match ledger_in ga_file with
-     | [ e ] -> e.Ledger.name = "Georgia"
-     | _ -> false);
+    | [ e ] -> e.Ledger.name = "Georgia"
+    | _ -> false);
   check "and the list points at the file to carry away"
-    (match entries () with
-     | [ e ] -> str "file" e = ga_file
-     | _ -> false);
+    (match entries () with [ e ] -> str "file" e = ga_file | _ -> false);
 
   (* --------------------------------------------- a second region, beside *)
-
   clock := !clock + 86_400;
   download ~name:"London"
     [ req ~min_lon:(-0.5) ~min_lat:51.3 ~max_lon:0.3 ~max_lat:51.7 ~max_zoom:5 ];
@@ -144,11 +147,12 @@ let () =
     (List.length (listing ()) = 2);
   check "dated the day it was fetched, not the day the first one was"
     (List.exists
-       (fun n -> Filename.check_suffix n ".pmtiles"
-                 && String.length n > 8
-                 && String.sub n 0 7 = "London-"
-                 && String.length n > 20
-                 && String.sub n 7 10 = "2026-08-29")
+       (fun n ->
+         Filename.check_suffix n ".pmtiles"
+         && String.length n > 8
+         && String.sub n 0 7 = "London-"
+         && String.length n > 20
+         && String.sub n 7 10 = "2026-08-29")
        (listing ()));
   check "and both are listed" (List.length (entries ()) = 2);
   check "each pointing at its own file"
@@ -158,36 +162,39 @@ let () =
      one map. *)
   let holds ~z ~lon ~lat =
     Eio.Switch.run @@ fun sw ->
-    let x = Pmtiles.Tile_id.tile_x ~z ~lon and y = Pmtiles.Tile_id.tile_y ~z ~lat in
+    let x = Pmtiles.Tile_id.tile_x ~z ~lon
+    and y = Pmtiles.Tile_id.tile_y ~z ~lat in
     let id = Pmtiles.Tile_id.of_zxy ~z ~x ~y in
     List.exists
       (fun (e : Tile_set.entry) ->
         Tile_set.may_hold e.Tile_set.header ~z ~x ~y
-        && (let a =
-              Pmtiles.Archive.open_
-                (Pmtiles_source.file_source
-                   (Eio.Path.open_in ~sw Eio.Path.(dir / e.Tile_set.name)))
-            in
-            Pmtiles.Archive.tile a id <> None))
+        &&
+        let a =
+          Pmtiles.Archive.open_
+            (Pmtiles_source.file_source
+               (Eio.Path.open_in ~sw Eio.Path.(dir / e.Tile_set.name)))
+        in
+        Pmtiles.Archive.tile a id <> None)
       (Tile_set.entries ~dir)
   in
-  check "a tile over the first region is served" (holds ~z:5 ~lon:(-84.4) ~lat:33.7);
+  check "a tile over the first region is served"
+    (holds ~z:5 ~lon:(-84.4) ~lat:33.7);
   check "and a tile over the second, from the other file"
     (holds ~z:5 ~lon:(-0.1) ~lat:51.5);
-  check "and one over neither is not"
-    (not (holds ~z:5 ~lon:139.7 ~lat:35.7));
+  check "and one over neither is not" (not (holds ~z:5 ~lon:139.7 ~lat:35.7));
 
   (* ----------------------------------------------------- asking again *)
-
   clock := !clock + 86_400;
   download ~name:"Georgia"
-    [ req ~min_lon:(-85.6) ~min_lat:30.3 ~max_lon:(-80.8) ~max_lat:35.0 ~max_zoom:5 ];
+    [
+      req ~min_lon:(-85.6) ~min_lat:30.3 ~max_lon:(-80.8) ~max_lat:35.0
+        ~max_zoom:5;
+    ];
   check "asking for a region already held says so rather than fetching it"
     (outcome () = "you already have the maps for that area");
   check "and writes no second copy of it" (List.length (listing ()) = 2);
 
   (* ------------------------------------------------------------ carrying *)
-
   let ga_id =
     match List.find_opt (fun e -> str "file" e = ga_file) (entries ()) with
     | Some e -> str "id" e
@@ -200,7 +207,6 @@ let () =
     (not (Eio.Path.is_directory Eio.Path.(dir / "export")));
 
   (* ------------------------------------------------------------ removing *)
-
   D.run_remove t ~fs ~basemap_dir ~id:ga_id;
   check "removing a region takes its file with it"
     (not (Eio.Path.is_file Eio.Path.(dir / ga_file)));
@@ -219,7 +225,8 @@ let () =
   let away = Eio.Path.(fs / away_dir) in
   Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 Eio.Path.(away / "import");
   Eio.Path.save ~create:(`Or_truncate 0o644)
-    Eio.Path.(away / "import" / "staged.pmtiles") carried;
+    Eio.Path.(away / "import" / "staged.pmtiles")
+    carried;
   let t2 = D.create () in
   Eio.Switch.run (fun sw ->
       match
@@ -233,17 +240,17 @@ let () =
     (away_files = [ carried_name ]);
   check "byte for byte, because it was put in place rather than rebuilt"
     (match Eio.Path.load Eio.Path.(away / carried_name) with
-     | got -> got = carried
-     | exception _ -> false);
+    | got -> got = carried
+    | exception _ -> false);
   check "and the staged copy does not stay behind"
     (not (Eio.Path.is_file Eio.Path.(away / "import" / "staged.pmtiles")));
   check "the machine that received it can name what it was given"
     (match D.ledger_json ~fs ~basemap_dir:away_dir with
-     | Ok (`Assoc fields) -> (
-         match List.assoc_opt "entries" fields with
-         | Some (`List [ e ]) -> str "file" e = carried_name
-         | _ -> false)
-     | _ -> false);
+    | Ok (`Assoc fields) -> (
+        match List.assoc_opt "entries" fields with
+        | Some (`List [ e ]) -> str "file" e = carried_name
+        | _ -> false)
+    | _ -> false);
 
   (* ------------------------------------------------- the map under the map *)
 
@@ -253,12 +260,13 @@ let () =
 
      Two locks, tested separately, because one of them is an absence and an
      absence is easy to delete by accident. *)
-
   D.run_download t ~fs ~net ~source ~assets:"" ~basemap_dir
     ~budget:D.default_budget ~name:None ~now ~refresh:false ~replaces:None
     ~target:D.World
-    [ req ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
-        ~max_zoom:3 ];
+    [
+      req ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
+        ~max_zoom:3;
+    ];
   check ("the overview downloaded: " ^ outcome ()) (state () = "done");
   check "it goes to its own file"
     (Eio.Path.is_file Eio.Path.(dir / Tile_set.world_file));
@@ -280,33 +288,33 @@ let () =
      that box as the world map, and the button beside it as the one that
      deletes it. The overview is listed now because it must not be removable:
      shown, sized, with no verb attached, it is visibly there to stay. *)
-  let world_row () =
-    List.find_opt (fun e -> bool "overview" e) (entries ())
-  in
+  let world_row () = List.find_opt (fun e -> bool "overview" e) (entries ()) in
   check "the overview is listed once, as the overview"
     (List.length (entries ()) = 2 && world_row () <> None);
   check "under a reserved id no download could ever be given"
     (match world_row () with
-     | Some e -> str "id" e = D.overview_id
-     | None -> false);
+    | Some e -> str "id" e = D.overview_id
+    | None -> false);
   check "with nothing to carry away, because every package ships one"
     (match world_row () with Some e -> str "file" e = "" | None -> false);
   check "sized from the file on disk"
     (match world_row () with
-     | Some e -> (
-         match field "bytes" e with
-         | `Int n ->
-             n
-             = (match Eio.Path.stat ~follow:true
-                        Eio.Path.(dir / Tile_set.world_file) with
-                | st -> Optint.Int63.to_int st.Eio.File.Stat.size
-                | exception Eio.Io _ -> -1)
-         | _ -> false)
-     | None -> false);
+    | Some e -> (
+        match field "bytes" e with
+        | `Int n -> (
+            n
+            =
+            match
+              Eio.Path.stat ~follow:true Eio.Path.(dir / Tile_set.world_file)
+            with
+            | st -> Optint.Int63.to_int st.Eio.File.Stat.size
+            | exception Eio.Io _ -> -1)
+        | _ -> false)
+    | None -> false);
   check "and no completion date, because nobody recorded downloading it"
     (match world_row () with
-     | Some e -> field "completed" e = `Int 0
-     | None -> false);
+    | Some e -> field "completed" e = `Int 0
+    | None -> false);
 
   (* Listing the overview makes its id sayable, so each verb has to refuse
      that id by name rather than by not recognising it. All three verbs take
@@ -314,8 +322,7 @@ let () =
   let says_overview () =
     let r = outcome () in
     let rec find i =
-      i + 8 <= String.length r
-      && (String.sub r i 8 = "overview" || find (i + 1))
+      i + 8 <= String.length r && (String.sub r i 8 = "overview" || find (i + 1))
     in
     state () = "failed" && find 0
   in
@@ -323,44 +330,51 @@ let () =
   (* The reason matters, not just the refusal. With no guard of its own this
      id falls through to [home_of], which says "no such downloaded map" --
      true of the record, false of the row the user is looking at. *)
-  check ("removing the overview by its listed id is refused as such: "
-         ^ outcome ())
+  check
+    ("removing the overview by its listed id is refused as such: " ^ outcome ())
     (says_overview ());
   check "and the overview is still on disk"
     (Eio.Path.is_file Eio.Path.(dir / Tile_set.world_file));
   D.run_export t ~fs ~basemap_dir ~id:D.overview_id;
-  check ("exporting it is refused as such too: " ^ outcome ())
+  check
+    ("exporting it is refused as such too: " ^ outcome ())
     (says_overview ());
   check "and updating it is refused before any work starts"
-    (Eio.Switch.run @@ fun sw ->
-     match
-       D.start_update t ~sw ~fs ~net ~source ~assets:"" ~basemap_dir
-         ~budget:D.default_budget ~now ~id:D.overview_id
-     with
-     | Error _ -> true
-     | Ok () -> false);
+    ( Eio.Switch.run @@ fun sw ->
+      match
+        D.start_update t ~sw ~fs ~net ~source ~assets:"" ~basemap_dir
+          ~budget:D.default_budget ~now ~id:D.overview_id
+      with
+      | Error _ -> true
+      | Ok () -> false );
 
   (* Second lock. An overview claiming to be a region -- hand-built, or an
      export renamed on a USB stick -- must not become removable by saying so.
      Removal refuses the file name outright and reads no record inside it. *)
-  let planted = Ledger.make ~name:"Pretending" ~completed:1 ~source:"nowhere"
-      ~bytes:1
-      ~regions:[ req ~min_lon:(-10.) ~min_lat:(-10.) ~max_lon:10. ~max_lat:10.
-                   ~max_zoom:3 ]
+  let planted =
+    Ledger.make ~name:"Pretending" ~completed:1 ~source:"nowhere" ~bytes:1
+      ~regions:
+        [
+          req ~min_lon:(-10.) ~min_lat:(-10.) ~max_lon:10. ~max_lat:10.
+            ~max_zoom:3;
+        ]
   in
   let planted_meta =
     match Ledger.to_metadata [ planted ] ~previous:"{}" with
     | Ok m -> m
     | Error e -> failwith e
   in
-  Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / Tile_set.world_file)
+  Eio.Path.save ~create:(`Or_truncate 0o644)
+    Eio.Path.(dir / Tile_set.world_file)
     (source_archive ~metadata:planted_meta ~min_zoom:0 ~max_zoom:3
        ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85. ());
   check "an overview claiming to be a region is still listed only as itself"
     (List.length (entries ()) = 2
-     && not (List.exists (fun e -> str "id" e = Ledger.id planted) (entries ())));
+    && not (List.exists (fun e -> str "id" e = Ledger.id planted) (entries ()))
+    );
   D.run_remove t ~fs ~basemap_dir ~id:(Ledger.id planted);
-  check ("removing it by the id it claims fails: " ^ outcome ())
+  check
+    ("removing it by the id it claims fails: " ^ outcome ())
     (state () = "failed");
   check "and the overview is still there"
     (Eio.Path.is_file Eio.Path.(dir / Tile_set.world_file));
@@ -390,25 +404,30 @@ let () =
   let legacy =
     Ledger.make ~name:"Map view" ~completed:1 ~source:"nowhere" ~bytes:1
       ~regions:
-        [ req ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
-            ~max_zoom:6 ]
+        [
+          req ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
+            ~max_zoom:6;
+        ]
   in
-  check "an entry spanning the planet is recognised as such, whatever it is\
-         called"
+  check
+    "an entry spanning the planet is recognised as such, whatever it iscalled"
     (Ledger.spans_world legacy);
   check "and one spanning a country is not"
     (not
        (Ledger.spans_world
           (Ledger.make ~name:"Georgia" ~completed:1 ~source:"nowhere" ~bytes:1
              ~regions:
-               [ req ~min_lon:(-85.6) ~min_lat:30.3 ~max_lon:(-80.8)
-                   ~max_lat:35.0 ~max_zoom:12 ])));
+               [
+                 req ~min_lon:(-85.6) ~min_lat:30.3 ~max_lon:(-80.8)
+                   ~max_lat:35.0 ~max_zoom:12;
+               ])));
   let legacy_meta =
     match Ledger.to_metadata [ legacy ] ~previous:"{}" with
     | Ok m -> m
     | Error e -> failwith e
   in
-  Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / Tile_set.base_file)
+  Eio.Path.save ~create:(`Or_truncate 0o644)
+    Eio.Path.(dir / Tile_set.base_file)
     (source_archive ~metadata:legacy_meta ~min_zoom:0 ~max_zoom:6
        ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85. ());
   check "the legacy overview is listed, because its tiles are really there"
@@ -417,12 +436,14 @@ let () =
     (List.exists
        (fun e ->
          str "id" e = Ledger.id legacy
-         && match e with
-            | `Assoc f -> List.assoc_opt "overview" f = Some (`Bool true)
-            | _ -> false)
+         &&
+         match e with
+         | `Assoc f -> List.assoc_opt "overview" f = Some (`Bool true)
+         | _ -> false)
        (entries ()));
   D.run_remove t ~fs ~basemap_dir ~id:(Ledger.id legacy);
-  check ("removing the legacy overview fails: " ^ outcome ())
+  check
+    ("removing the legacy overview fails: " ^ outcome ())
     (state () = "failed");
   check "and the merged archive still holds its tiles"
     (Eio.Path.is_file Eio.Path.(dir / Tile_set.base_file));
@@ -444,8 +465,10 @@ let () =
   let sample =
     Ledger.make ~name:"Map view" ~completed:1 ~source:"nowhere" ~bytes:1
       ~regions:
-        [ req ~min_lon:(-0.25) ~min_lat:51.45 ~max_lon:0.0 ~max_lat:51.55
-            ~max_zoom:15 ]
+        [
+          req ~min_lon:(-0.25) ~min_lat:51.45 ~max_lon:0.0 ~max_lat:51.55
+            ~max_zoom:15;
+        ]
   in
   check "a small box over London is not the overview by what it holds"
     (not (Ledger.spans_world sample));
@@ -454,7 +477,8 @@ let () =
     | Ok m -> m
     | Error e -> failwith e
   in
-  Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / Tile_set.base_file)
+  Eio.Path.save ~create:(`Or_truncate 0o644)
+    Eio.Path.(dir / Tile_set.base_file)
     (source_archive ~metadata:sample_meta ~min_zoom:0 ~max_zoom:5
        ~min_lon:(-0.25) ~min_lat:51.45 ~max_lon:0.0 ~max_lat:51.55 ());
   let sample_row () =
@@ -465,7 +489,9 @@ let () =
   check "with no file of its own, which is what says where it lives"
     (match sample_row () with Some e -> str "file" e = "" | None -> false);
   check "and it is not flagged as the overview, because it is not one"
-    (match sample_row () with Some e -> not (bool "overview" e) | None -> false);
+    (match sample_row () with
+    | Some e -> not (bool "overview" e)
+    | None -> false);
   D.run_remove t ~fs ~basemap_dir ~id:(Ledger.id sample);
   check ("removing it is refused: " ^ outcome ()) (state () = "failed");
   check "and the base archive still holds its tiles"
@@ -484,10 +510,10 @@ let () =
       with
       | Error e -> check ("updating it is refused: " ^ e) false
       | Ok () -> ());
-  check ("updating it fails rather than duplicating it: " ^ outcome ())
+  check
+    ("updating it fails rather than duplicating it: " ^ outcome ())
     (state () = "failed");
-  check "and no second archive was written for it"
-    (List.length (listing ()) = 0);
+  check "and no second archive was written for it" (List.length (listing ()) = 0);
   Eio.Path.unlink Eio.Path.(dir / Tile_set.base_file);
 
   (* The other half of the rule, caught missing by the end-to-end suite:
@@ -498,30 +524,29 @@ let () =
   D.run_download t ~fs ~net ~source ~assets:"" ~basemap_dir
     ~budget:D.default_budget ~name:(Some "The lot") ~now ~refresh:false
     ~replaces:None ~target:D.Detail
-    [ req ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
-        ~max_zoom:2 ];
-  check ("the whole world as detail downloads: " ^ outcome ())
+    [
+      req ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
+        ~max_zoom:2;
+    ];
+  check
+    ("the whole world as detail downloads: " ^ outcome ())
     (state () = "done");
-  let whole =
-    List.find_opt (fun e -> str "name" e = "The lot") (entries ())
-  in
+  let whole = List.find_opt (fun e -> str "name" e = "The lot") (entries ()) in
   check "it is listed like any other region" (whole <> None);
   check "and is not flagged as the overview"
     (match whole with
-     | Some (`Assoc f) -> List.assoc_opt "overview" f = Some (`Bool false)
-     | _ -> false);
+    | Some (`Assoc f) -> List.assoc_opt "overview" f = Some (`Bool false)
+    | _ -> false);
   (match whole with
-   | Some e -> D.run_remove t ~fs ~basemap_dir ~id:(str "id" e)
-   | None -> ());
+  | Some e -> D.run_remove t ~fs ~basemap_dir ~id:(str "id" e)
+  | None -> ());
   check ("and removing it works: " ^ outcome ()) (state () = "removed");
-
 
   (* ================================================ carrying maps by hand *)
 
   (* Everything below uses its own directory. The one above has a history,
      and these tests are about a file arriving on a machine that has never
      seen it. *)
-
   let fresh name =
     let d = Filename.concat root name in
     Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 Eio.Path.(fs / d);
@@ -531,10 +556,13 @@ let () =
     Eio.Path.mkdirs ~exists_ok:true ~perm:0o755
       Eio.Path.(fs / basemap_dir / "import");
     Eio.Path.save ~create:(`Or_truncate 0o644)
-      Eio.Path.(fs / basemap_dir / "import" / "staged.pmtiles") bytes
+      Eio.Path.(fs / basemap_dir / "import" / "staged.pmtiles")
+      bytes
   in
   let staged_bytes ~basemap_dir =
-    match Eio.Path.load Eio.Path.(fs / basemap_dir / "import" / "staged.pmtiles") with
+    match
+      Eio.Path.load Eio.Path.(fs / basemap_dir / "import" / "staged.pmtiles")
+    with
     | b -> Some b
     | exception _ -> None
   in
@@ -545,7 +573,8 @@ let () =
         | Error e -> check ("the import started: " ^ e) false)
   in
   let listing_in ~basemap_dir =
-    List.filter Tile_set.is_region (Eio.Path.read_dir Eio.Path.(fs / basemap_dir))
+    List.filter Tile_set.is_region
+      (Eio.Path.read_dir Eio.Path.(fs / basemap_dir))
   in
   let entries_in ~basemap_dir =
     match D.ledger_json ~fs ~basemap_dir with
@@ -580,7 +609,8 @@ let () =
          ~y:(Pmtiles.Tile_id.tile_y ~z ~lat))
     <> None
   in
-  let with_ledger entries ~min_zoom ~max_zoom (min_lon, min_lat, max_lon, max_lat) =
+  let with_ledger entries ~min_zoom ~max_zoom
+      (min_lon, min_lat, max_lon, max_lat) =
     source_archive
       ~metadata:
         (match Ledger.to_metadata entries ~previous:"{}" with
@@ -636,22 +666,23 @@ let () =
     (List.length landed = 1);
   check "and the other is told the seat is taken, not that its file is bad"
     (match (!ra, !rb) with
-     | Ok (), Error (D.Busy _) | Error (D.Busy _), Ok () -> true
-     | _ -> false);
+    | Ok (), Error (D.Busy _) | Error (D.Busy _), Ok () -> true
+    | _ -> false);
   check "so what is staged is one whole archive, not two interleaved"
     (match staged_bytes ~basemap_dir:up_dir with
-     | Some b -> b = payload_a || b = payload_b
-     | None -> false);
+    | Some b -> b = payload_a || b = payload_b
+    | None -> false);
 
   (* An upload must not land while a job holds the writer's seat: the import
      merge reads staged.pmtiles, and a rename over it mid-merge swaps the file
      out from under the reader. *)
-  D.set tu (Job.Fetching { done_bytes = 0; total_bytes = 1; part = 1; parts = 1;
-                           regions = [] });
+  D.set tu
+    (Job.Fetching
+       { done_bytes = 0; total_bytes = 1; part = 1; parts = 1; regions = [] });
   check "an upload arriving while a job runs is refused"
     (match upload tu ~chunk:64 payload_a with
-     | Error (D.Busy _) -> true
-     | _ -> false);
+    | Error (D.Busy _) -> true
+    | _ -> false);
   D.set tu Job.Idle;
 
   (* And the other direction: committing an import while bytes are still
@@ -678,24 +709,31 @@ let () =
   let georgia_entry =
     Ledger.make ~name:"Georgia" ~completed:1 ~source:"a planet build" ~bytes:1
       ~regions:
-        [ req ~min_lon:(-85.6) ~min_lat:30.3 ~max_lon:(-80.8) ~max_lat:35.0
-            ~max_zoom:4 ]
+        [
+          req ~min_lon:(-85.6) ~min_lat:30.3 ~max_lon:(-80.8) ~max_lat:35.0
+            ~max_zoom:4;
+        ]
   in
   let london_entry =
     Ledger.make ~name:"London" ~completed:2 ~source:"another planet build"
       ~bytes:2
       ~regions:
-        [ req ~min_lon:(-0.5) ~min_lat:51.3 ~max_lon:0.3 ~max_lat:51.7
-            ~max_zoom:4 ]
+        [
+          req ~min_lon:(-0.5) ~min_lat:51.3 ~max_lon:0.3 ~max_lat:51.7
+            ~max_zoom:4;
+        ]
   in
   let two_records =
-    with_ledger [ georgia_entry; london_entry ] ~min_zoom:0 ~max_zoom:4
-      (-180., -85., 180., 85.)
+    with_ledger
+      [ georgia_entry; london_entry ]
+      ~min_zoom:0 ~max_zoom:4 (-180., -85., 180., 85.)
   in
   stage ~basemap_dir:keep_dir two_records;
   let tk = D.create () in
   import tk ~basemap_dir:keep_dir;
-  check ("an archive of several records imports: " ^ str "state" (field "job" (D.status tk)))
+  check
+    ("an archive of several records imports: "
+    ^ str "state" (field "job" (D.status tk)))
     (str "state" (field "job" (D.status tk)) = "done");
   check "and the staged copy is cleared away once it has landed"
     (staged_bytes ~basemap_dir:keep_dir = None);
@@ -713,44 +751,51 @@ let () =
      name and source, labelled every progress bar with it, and wrote one
      combined row. London's name, date and byte count were lost for good, and
      the two regions could only be removed together. *)
-  let named n = List.find_opt (fun e -> str "name" e = n) (entries_in ~basemap_dir:keep_dir) in
-  check "each record arrives as itself" (List.length (listing_in ~basemap_dir:keep_dir) = 2);
+  let named n =
+    List.find_opt (fun e -> str "name" e = n) (entries_in ~basemap_dir:keep_dir)
+  in
+  check "each record arrives as itself"
+    (List.length (listing_in ~basemap_dir:keep_dir) = 2);
   check "under its own name" (named "Georgia" <> None && named "London" <> None);
   check "with its own source, not the first record's"
     (match (named "Georgia", named "London") with
-     | Some g, Some l -> str "source" g <> str "source" l
-     | _ -> false);
+    | Some g, Some l -> str "source" g <> str "source" l
+    | _ -> false);
   check "and its own file to carry on with"
     (match (named "Georgia", named "London") with
-     | Some g, Some l -> str "file" g <> "" && str "file" l <> ""
-                         && str "file" g <> str "file" l
-     | _ -> false);
+    | Some g, Some l ->
+        str "file" g <> "" && str "file" l <> "" && str "file" g <> str "file" l
+    | _ -> false);
   check "each holding the tiles of its own place and not the other's"
     (match (named "Georgia", named "London") with
-     | Some g, Some l ->
-         holds_in ~basemap_dir:keep_dir (str "file" g) ~z:4 ~lon:(-84.4) ~lat:33.7
-         && holds_in ~basemap_dir:keep_dir (str "file" l) ~z:4 ~lon:(-0.1) ~lat:51.5
-         && not (holds_in ~basemap_dir:keep_dir (str "file" g) ~z:4 ~lon:(-0.1) ~lat:51.5)
-     | _ -> false);
+    | Some g, Some l ->
+        holds_in ~basemap_dir:keep_dir (str "file" g) ~z:4 ~lon:(-84.4)
+          ~lat:33.7
+        && holds_in ~basemap_dir:keep_dir (str "file" l) ~z:4 ~lon:(-0.1)
+             ~lat:51.5
+        && not
+             (holds_in ~basemap_dir:keep_dir (str "file" g) ~z:4 ~lon:(-0.1)
+                ~lat:51.5)
+    | _ -> false);
   (* The point of separate identities: one can go without the other. *)
   (match named "London" with
-   | Some l -> D.run_remove tk ~fs ~basemap_dir:keep_dir ~id:(str "id" l)
-   | None -> ());
+  | Some l -> D.run_remove tk ~fs ~basemap_dir:keep_dir ~id:(str "id" l)
+  | None -> ());
   check "so removing one leaves the other"
     (List.length (entries_in ~basemap_dir:keep_dir) = 1
-     && named "Georgia" <> None);
+    && named "Georgia" <> None);
 
   (* Names travel with the regions, not beside them, so an imported region
      knows what to call each of its boxes. *)
   check "and the imported regions carry the name they were exported under"
     (match named "Georgia" with
-     | Some g ->
-         List.for_all
-           (fun (r : Job.request) -> r.Job.label = Some "Georgia")
-           (List.concat_map
-              (fun (e : Ledger.entry) -> e.Ledger.regions)
-              (ledger_in ~basemap_dir:keep_dir (str "file" g)))
-     | None -> false);
+    | Some g ->
+        List.for_all
+          (fun (r : Job.request) -> r.Job.label = Some "Georgia")
+          (List.concat_map
+             (fun (e : Ledger.entry) -> e.Ledger.regions)
+             (ledger_in ~basemap_dir:keep_dir (str "file" g)))
+    | None -> false);
 
   (* -------------------------------------- an import is not a download *)
 
@@ -770,17 +815,21 @@ let () =
      to a couple of levels and say so. *)
   let tiny = { D.full = 4; quick = 2; max_parts = 1; compact = 48_000_000 } in
   import ~budget:tiny td ~basemap_dir:deep_dir;
-  check ("an archive with no record imports: "
-         ^ str "reason" (field "job" (D.status td)))
+  check
+    ("an archive with no record imports: "
+    ^ str "reason" (field "job" (D.status td)))
     (str "state" (field "job" (D.status td)) = "done");
-  let deep_file = match listing_in ~basemap_dir:deep_dir with [ f ] -> f | _ -> "" in
+  let deep_file =
+    match listing_in ~basemap_dir:deep_dir with [ f ] -> f | _ -> ""
+  in
   check "into one file" (deep_file <> "");
   check "recording the depth the source really holds, not the budget's"
     (match ledger_in ~basemap_dir:deep_dir deep_file with
-     | [ e ] ->
-         List.for_all (fun (r : Job.request) -> r.Job.max_zoom = 5)
-           e.Ledger.regions
-     | _ -> false);
+    | [ e ] ->
+        List.for_all
+          (fun (r : Job.request) -> r.Job.max_zoom = 5)
+          e.Ledger.regions
+    | _ -> false);
   check "and holding the deep tiles the summary promised"
     (holds_in ~basemap_dir:deep_dir deep_file ~z:5 ~lon:0. ~lat:0.);
 
@@ -803,7 +852,8 @@ let () =
     if not !swapped then begin
       swapped := true;
       Eio.Path.save ~create:(`Or_truncate 0o644)
-        Eio.Path.(fs / swap_dir / "import" / "next.tmp") replacement;
+        Eio.Path.(fs / swap_dir / "import" / "next.tmp")
+        replacement;
       Eio.Path.rename
         Eio.Path.(fs / swap_dir / "import" / "next.tmp")
         Eio.Path.(fs / swap_dir / "import" / "staged.pmtiles")
@@ -812,8 +862,9 @@ let () =
   in
   let ts = D.create () in
   import ~now:swapping_now ts ~basemap_dir:swap_dir;
-  check ("the first import still finished: "
-         ^ str "reason" (field "job" (D.status ts)))
+  check
+    ("the first import still finished: "
+    ^ str "reason" (field "job" (D.status ts)))
     (str "state" (field "job" (D.status ts)) = "done");
   check "the upload that arrived during it was swapped in" !swapped;
   check "and the finished import did not delete somebody else's upload"
@@ -832,27 +883,34 @@ let () =
   let kent =
     Ledger.make ~name:"Kent" ~completed:1 ~source:"a planet build" ~bytes:1
       ~regions:
-        [ req ~min_lon:0.2 ~min_lat:51.0 ~max_lon:1.4 ~max_lat:51.5 ~max_zoom:4 ]
+        [
+          req ~min_lon:0.2 ~min_lat:51.0 ~max_lon:1.4 ~max_lat:51.5 ~max_zoom:4;
+        ]
   in
-  let kent_bytes = with_ledger [ kent ] ~min_zoom:0 ~max_zoom:4 (0.2, 51.0, 1.4, 51.5) in
+  let kent_bytes =
+    with_ledger [ kent ] ~min_zoom:0 ~max_zoom:4 (0.2, 51.0, 1.4, 51.5)
+  in
   Eio.Path.save ~create:(`Or_truncate 0o644)
-    Eio.Path.(fs / dup_dir / Tile_set.base_file) kent_bytes;
+    Eio.Path.(fs / dup_dir / Tile_set.base_file)
+    kent_bytes;
   Eio.Path.save ~create:(`Or_truncate 0o644)
-    Eio.Path.(fs / dup_dir / "Kent-2026-01-01-abcdef.pmtiles") kent_bytes;
+    Eio.Path.(fs / dup_dir / "Kent-2026-01-01-abcdef.pmtiles")
+    kent_bytes;
   let dup_rows =
     List.filter
       (fun e -> str "id" e = Ledger.id kent)
       (entries_in ~basemap_dir:dup_dir)
   in
-  check "a region held in both layouts is listed once"
-    (List.length dup_rows = 1);
+  check "a region held in both layouts is listed once" (List.length dup_rows = 1);
   check "as the copy that has a file of its own, which is the removable one"
     (match dup_rows with
-     | [ e ] -> str "file" e = "Kent-2026-01-01-abcdef.pmtiles"
-     | _ -> false);
+    | [ e ] -> str "file" e = "Kent-2026-01-01-abcdef.pmtiles"
+    | _ -> false);
   D.run_remove tk ~fs ~basemap_dir:dup_dir ~id:(Ledger.id kent);
   check "and removing it takes that file"
-    (not (Eio.Path.is_file Eio.Path.(fs / dup_dir / "Kent-2026-01-01-abcdef.pmtiles")));
+    (not
+       (Eio.Path.is_file
+          Eio.Path.(fs / dup_dir / "Kent-2026-01-01-abcdef.pmtiles")));
 
   (* --------------------------------------- what a remembered ledger says *)
 
@@ -862,14 +920,19 @@ let () =
      name, so one name can end up holding a different region. *)
   let swap_name = "Kent-2026-01-01-abcdef.pmtiles" in
   Eio.Path.save ~create:(`Or_truncate 0o644)
-    Eio.Path.(fs / dup_dir / swap_name) kent_bytes;
+    Eio.Path.(fs / dup_dir / swap_name)
+    kent_bytes;
   check "a fresh file is read for what it says"
-    (List.exists (fun e -> str "name" e = "Kent") (entries_in ~basemap_dir:dup_dir));
+    (List.exists
+       (fun e -> str "name" e = "Kent")
+       (entries_in ~basemap_dir:dup_dir));
   let sussex =
     Ledger.make ~name:"Sussex" ~completed:3 ~source:"a planet build" ~bytes:3
       ~regions:
-        [ req ~min_lon:(-0.8) ~min_lat:50.7 ~max_lon:0.9 ~max_lat:51.1
-            ~max_zoom:4 ]
+        [
+          req ~min_lon:(-0.8) ~min_lat:50.7 ~max_lon:0.9 ~max_lat:51.1
+            ~max_zoom:4;
+        ]
   in
   Eio.Path.save ~create:(`Or_truncate 0o644)
     Eio.Path.(fs / dup_dir / (swap_name ^ ".new"))
@@ -897,16 +960,19 @@ let () =
      least likely to have the room. *)
   let ex_dir = fresh "export-stops" in
   Eio.Path.save ~create:(`Or_truncate 0o644)
-    Eio.Path.(fs / ex_dir / Tile_set.base_file) kent_bytes;
+    Eio.Path.(fs / ex_dir / Tile_set.base_file)
+    kent_bytes;
   let te = D.create () in
   te.D.cancel_requested <- true;
   D.run_export te ~fs ~basemap_dir:ex_dir ~id:(Ledger.id kent);
-  check ("a cancelled export says so: " ^ str "state" (field "job" (D.status te)))
+  check
+    ("a cancelled export says so: " ^ str "state" (field "job" (D.status te)))
     (str "state" (field "job" (D.status te)) = "cancelled");
   check "and leaves nothing half-written in the export directory"
     (match Eio.Path.read_dir Eio.Path.(fs / ex_dir / "export") with
-     | names -> not (List.exists (fun n -> Filename.check_suffix n ".part") names)
-     | exception _ -> true);
+    | names ->
+        not (List.exists (fun n -> Filename.check_suffix n ".part") names)
+    | exception _ -> true);
 
   (* The job holds the writer's seat, so a clear asked for while it runs is
      the job's to carry out as it leaves. Browsing is off by then and nothing
@@ -918,7 +984,8 @@ let () =
        ~max_lon:140.0 ~max_lat:36.0 ());
   te.D.clear_requested <- true;
   D.run_export te ~fs ~basemap_dir:ex_dir ~id:(Ledger.id kent);
-  check ("the export finished: " ^ str "reason" (field "job" (D.status te)))
+  check
+    ("the export finished: " ^ str "reason" (field "job" (D.status te)))
     (str "state" (field "job" (D.status te)) = "exported");
   check "and the cache clear asked for while it ran was not forgotten"
     (not (Eio.Path.is_file Eio.Path.(fs / ex_dir / Tile_set.cache_file)));
@@ -936,8 +1003,9 @@ let () =
   let ti = D.create () in
   ti.D.clear_requested <- true;
   import ti ~basemap_dir:ic_dir;
-  check ("a one-record archive is put straight into place: "
-         ^ str "reason" (field "job" (D.status ti)))
+  check
+    ("a one-record archive is put straight into place: "
+    ^ str "reason" (field "job" (D.status ti)))
     (str "state" (field "job" (D.status ti)) = "done");
   check "and it honours a cache clear on its way out too"
     (not (Eio.Path.is_file Eio.Path.(fs / ic_dir / Tile_set.cache_file)));
@@ -950,8 +1018,9 @@ let () =
      not merely present. *)
   let before = Eio.Path.load Eio.Path.(fs / ex_dir / Tile_set.base_file) in
   D.run_remove te ~fs ~basemap_dir:ex_dir ~id:(Ledger.id kent);
-  check ("removing a merged entry is refused: "
-         ^ str "reason" (field "job" (D.status te)))
+  check
+    ("removing a merged entry is refused: "
+    ^ str "reason" (field "job" (D.status te)))
     (str "state" (field "job" (D.status te)) = "failed");
   check "and the base archive is byte for byte what it was"
     (Eio.Path.load Eio.Path.(fs / ex_dir / Tile_set.base_file) = before);
@@ -976,17 +1045,19 @@ let () =
   in
   check "the exact question and the lenient one are the same question"
     (D.covers_the_planet [ world_box () ]
-     && Ledger.spans_regions ~margin:1.0 [ world_box () ]);
+    && Ledger.spans_regions ~margin:1.0 [ world_box () ]);
   check "and they differ only by the slack they are given"
     ((not (D.covers_the_planet [ nearly ]))
-     && Ledger.spans_regions ~margin:1.0 [ nearly ]);
+    && Ledger.spans_regions ~margin:1.0 [ nearly ]);
   check "a clipped world is not the world to either of them"
     ((not
         (D.covers_the_planet
            [ world_box ~polygon:[| [| (-1., -1.); (1., -1.); (1., 1.) |] |] () ]))
-     && not
-          (Ledger.spans_regions ~margin:1.0
-             [ world_box ~polygon:[| [| (-1., -1.); (1., -1.); (1., 1.) |] |] () ]));
+    && not
+         (Ledger.spans_regions ~margin:1.0
+            [
+              world_box ~polygon:[| [| (-1., -1.); (1., -1.); (1., 1.) |] |] ();
+            ]));
 
   Printf.printf "\n%d checks, %d failures\n" !checks !failures;
   if !failures > 0 then exit 1;

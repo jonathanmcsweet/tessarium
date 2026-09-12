@@ -78,9 +78,7 @@ let security_headers cfg =
    browser suite caught it -- the check after the oversized one failed, then
    two more. *)
 let respond_string ?etag ?(close = false) cfg ~status ~content_type body =
-  let validator =
-    match etag with None -> [] | Some t -> [ ("etag", t) ]
-  in
+  let validator = match etag with None -> [] | Some t -> [ ("etag", t) ] in
   let closing = if close then [ ("connection", "close") ] else [] in
   let headers =
     Http.Header.of_list
@@ -90,13 +88,15 @@ let respond_string ?etag ?(close = false) cfg ~status ~content_type body =
   in
   ( `Response
       (Cohttp_eio.Server.respond ~headers ~status
-         ~body:(Cohttp_eio.Body.of_string body) ()),
+         ~body:(Cohttp_eio.Body.of_string body)
+         ()),
     status,
     String.length body )
 
 let respond_json ?etag ?close cfg ~status json =
   respond_string ?etag ?close cfg ~status
-    ~content_type:"application/json; charset=utf-8" (Yojson.Safe.to_string json)
+    ~content_type:"application/json; charset=utf-8"
+    (Yojson.Safe.to_string json)
 
 let error ?close cfg ~status message =
   respond_json ?close cfg ~status (`Assoc [ ("error", `String message) ])
@@ -147,7 +147,7 @@ let zero_weight q =
 let accepts_gzip get =
   match get "accept-encoding" with
   | None -> false
-  | Some v ->
+  | Some v -> (
       (* "coding;q=0.5" -> ("coding", acceptable?) *)
       let entry e =
         match String.split_on_char ';' e with
@@ -167,7 +167,7 @@ let accepts_gzip get =
       let named n = List.assoc_opt n entries in
       (* Most specific wins: an explicit gzip;q=0 refuses gzip even next to a
          wildcard that would allow it. *)
-      (match (named "gzip", named "x-gzip") with
+      match (named "gzip", named "x-gzip") with
       | Some ok, _ | None, Some ok -> ok
       | None, None -> ( match named "*" with Some ok -> ok | None -> false))
 
@@ -233,8 +233,8 @@ let tilejson_body cfg ~host ~query ~if_none_match ~min_zoom ~max_zoom ~bounds =
            base to resolve against. The host is the client's own Host
            header; this server is loopback-only plain HTTP. *)
         ( "tiles",
-          `List [ `String ("http://" ^ host ^ "/tiles/{z}/{x}/{y}.mvt" ^ query) ]
-        );
+          `List
+            [ `String ("http://" ^ host ^ "/tiles/{z}/{x}/{y}.mvt" ^ query) ] );
         ("minzoom", `Int min_zoom);
         ("maxzoom", `Int max_zoom);
         ("bounds", `List (List.map (fun v -> `Float v) bounds));
@@ -296,7 +296,8 @@ let serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which =
                let size = Optint.Int63.to_int stat.Eio.File.Stat.size in
                if Basemap_download.data_is_whole ~size a then Some a else None
            | exception Eio.Io _ -> None)
-         (open_tile_archives ~basemap_root ~sw (Tile_set.names ~dir:basemap_root)))
+         (open_tile_archives ~basemap_root ~sw
+            (Tile_set.names ~dir:basemap_root)))
   in
   match which with
   | `Floor ->
@@ -393,8 +394,8 @@ let serve_tile cfg ~basemap_root ~meth ~client_headers ~z ~x ~y =
               | v -> Option.map (fun b -> (b, archive.Pmtiles.Archive.header)) v
               | exception exn ->
                   Logs.warn (fun m ->
-                      m "tile %d/%d/%d: unreadable %s: %s" z x y
-                        e.Tile_set.name (Printexc.to_string exn));
+                      m "tile %d/%d/%d: unreadable %s: %s" z x y e.Tile_set.name
+                        (Printexc.to_string exn));
                   None))
       (Tile_set.entries ~dir:basemap_root)
   in
@@ -424,7 +425,8 @@ let serve_tile cfg ~basemap_root ~meth ~client_headers ~z ~x ~y =
          must not decompress a tile just to say nothing changed. *)
       let enc, inflate =
         match header.Pmtiles.Header.tile_compression with
-        | Pmtiles.Header.Gzip when accepts_gzip (Http.Header.get client_headers) ->
+        | Pmtiles.Header.Gzip when accepts_gzip (Http.Header.get client_headers)
+          ->
             (Some "gzip", false)
         | Pmtiles.Header.Gzip -> (None, true)
         | Pmtiles.Header.Brotli -> (Some "br", false)
@@ -455,7 +457,7 @@ let serve_tile cfg ~basemap_root ~meth ~client_headers ~z ~x ~y =
           Http.Header.of_list
             (("content-type", "application/x-protobuf")
             :: ("content-length", string_of_int (String.length bytes))
-            (* Revalidate, never trust: an update or a removal changes tiles
+               (* Revalidate, never trust: an update or a removal changes tiles
                under the same URL. The ETag above makes that cheap -- same
                rule, but the answer is an empty 304 rather than the tile
                again. MapLibre's in-memory cache carries the session; the
@@ -487,7 +489,9 @@ let serve_embedded cfg ~segments ~meth ~headers =
       (* One answer to "which encoding is this", used for both the header and
          the tag. Working it out twice is how a tag ends up describing the
          other representation. *)
-      let enc = if accepts_gzip (Http.Header.get headers) then Some "gzip" else None in
+      let enc =
+        if accepts_gzip (Http.Header.get headers) then Some "gzip" else None
+      in
       let extra =
         match enc with None -> [] | Some e -> [ ("content-encoding", e) ]
       in
@@ -498,7 +502,8 @@ let serve_embedded cfg ~segments ~meth ~headers =
       let etag = Http_cache.of_digest ~encoding:enc digest in
       let cache_control = Url_path.cache_control segments in
       if
-        Http_cache.is_fresh ~if_none_match:(joined headers "if-none-match")
+        Http_cache.is_fresh
+          ~if_none_match:(joined headers "if-none-match")
           ~etag
       then Some (not_modified cfg ~etag ~cache_control ~vary)
       else
@@ -532,9 +537,12 @@ let stream_region file ~offset ~length oc =
   let rec go ~offset ~remaining =
     if remaining > 0 then begin
       let want = min (Cstruct.length buf) remaining in
-      let n = Eio.File.pread file ~file_offset:offset [ Cstruct.sub buf 0 want ] in
+      let n =
+        Eio.File.pread file ~file_offset:offset [ Cstruct.sub buf 0 want ]
+      in
       Write.cstruct oc (Cstruct.sub buf 0 n);
-      go ~offset:(Optint.Int63.add offset (Optint.Int63.of_int n))
+      go
+        ~offset:(Optint.Int63.add offset (Optint.Int63.of_int n))
         ~remaining:(remaining - n)
     end
   in
@@ -591,7 +599,7 @@ let serve_file cfg ~sw ~what ~root ~segments ~meth ~range_header ~if_none_match
     match opened with
     | None -> None
     | Some file -> (
-        match (try Some (Eio.File.stat file) with Eio.Io _ -> None) with
+        match try Some (Eio.File.stat file) with Eio.Io _ -> None with
         | Some stat when stat.Eio.File.Stat.kind = `Regular_file ->
             Some (file, stat)
         | _ ->
@@ -627,8 +635,7 @@ let serve_file cfg ~sw ~what ~root ~segments ~meth ~range_header ~if_none_match
         ("content-type", Url_path.content_type name)
         :: ("accept-ranges", "bytes")
         :: ("cache-control", cache_control)
-        :: ("etag", etag)
-        :: security_headers cfg
+        :: ("etag", etag) :: security_headers cfg
       in
       (* Before the range: If-None-Match is evaluated before Range (RFC 9110
          13.2.2), so a client holding the current bytes gets a 304 whether it
@@ -638,36 +645,40 @@ let serve_file cfg ~sw ~what ~root ~segments ~meth ~range_header ~if_none_match
         not_modified cfg ~etag ~cache_control ~vary:[]
       end
       else
-      let status, offset, length, extra =
-        match range with
-        | Http_range.Whole -> (`OK, 0, size, [])
-        | Http_range.Partial span ->
-            ( `Partial_content,
-              span.first,
-              Http_range.length_of span,
-              [ ("content-range", Http_range.content_range span ~length:size) ] )
-        | Http_range.Unsatisfiable ->
-            ( `Requested_range_not_satisfiable,
-              0,
-              0,
-              [ ("content-range", Http_range.unsatisfiable_content_range ~length:size) ]
-            )
-      in
-      let headers =
-        Http.Header.of_list
-          (("content-length", string_of_int length) :: (base @ extra))
-      in
-      let response = Http.Response.make ~status ~headers () in
-      let body _ic oc =
-        Fun.protect
-          ~finally:(fun () -> Eio.Resource.close file)
-          (fun () ->
-            (* HEAD is the same response with the body withheld, so the
+        let status, offset, length, extra =
+          match range with
+          | Http_range.Whole -> (`OK, 0, size, [])
+          | Http_range.Partial span ->
+              ( `Partial_content,
+                span.first,
+                Http_range.length_of span,
+                [
+                  ("content-range", Http_range.content_range span ~length:size);
+                ] )
+          | Http_range.Unsatisfiable ->
+              ( `Requested_range_not_satisfiable,
+                0,
+                0,
+                [
+                  ( "content-range",
+                    Http_range.unsatisfiable_content_range ~length:size );
+                ] )
+        in
+        let headers =
+          Http.Header.of_list
+            (("content-length", string_of_int length) :: (base @ extra))
+        in
+        let response = Http.Response.make ~status ~headers () in
+        let body _ic oc =
+          Fun.protect
+            ~finally:(fun () -> Eio.Resource.close file)
+            (fun () ->
+              (* HEAD is the same response with the body withheld, so the
                Content-Length still describes what a GET would return. *)
-            if meth <> `HEAD && length > 0 then
-              stream_region file ~offset ~length oc)
-      in
-      (`Expert (response, body), (status :> Http.Status.t), length, range)
+              if meth <> `HEAD && length > 0 then
+                stream_region file ~offset ~length oc)
+        in
+        (`Expert (response, body), (status :> Http.Status.t), length, range)
   | None ->
       let response, status, bytes = error cfg ~status:`Not_found "not found" in
       (response, status, bytes, Http_range.Whole)
@@ -700,8 +711,15 @@ module Sessions = struct
      one TTL window. Oldest goes first. *)
   let max_sessions = 1024
 
-  type entry = { key : string; created : float }
-  type t = { mutex : Eio.Mutex.t; table : (string, entry) Hashtbl.t }
+  type entry = {
+    key : string;
+    created : float;
+  }
+
+  type t = {
+    mutex : Eio.Mutex.t;
+    table : (string, entry) Hashtbl.t;
+  }
 
   let create () = { mutex = Eio.Mutex.create (); table = Hashtbl.create 8 }
 
@@ -717,14 +735,18 @@ module Sessions = struct
      nothing is happening, and an idle server should not wake up to tidy. *)
   let sweep t ~now =
     let dead =
-      Hashtbl.fold (fun id e acc -> if expired ~now e then id :: acc else acc) t.table []
+      Hashtbl.fold
+        (fun id e acc -> if expired ~now e then id :: acc else acc)
+        t.table []
     in
     List.iter (Hashtbl.remove t.table) dead;
     if Hashtbl.length t.table >= max_sessions then begin
       let oldest =
         Hashtbl.fold
           (fun id e acc ->
-            match acc with Some (_, c) when c <= e.created -> acc | _ -> Some (id, e.created))
+            match acc with
+            | Some (_, c) when c <= e.created -> acc
+            | _ -> Some (id, e.created))
           t.table None
       in
       match oldest with Some (id, _) -> Hashtbl.remove t.table id | None -> ()
@@ -755,7 +777,8 @@ let string_field name json =
 (* Nanodegrees arrive as strings for the same reason they leave as strings:
    JSON numbers are IEEE-754 doubles, and 1.8e11 nanodegrees is past where
    every integer survives a round trip through one. *)
-let z_of_string_opt s = try Some (Z.of_string s) with Invalid_argument _ -> None
+let z_of_string_opt s =
+  try Some (Z.of_string s) with Invalid_argument _ -> None
 
 let z_field name json =
   match json_field name json with
@@ -813,14 +836,17 @@ let handle_api cfg sessions limiter random ~endpoint ~request ~now =
       | "session" -> (
           limited @@ fun () ->
           match string_field "mnemonic" json with
-            | None -> bad "missing mnemonic"
-            | Some mnemonic -> (
-                match Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic with
-                | exception Tessarium.Bad_mnemonic e -> bad e.Tessarium.message
-                | key ->
-                    let id = Sessions.new_id random in
-                    Sessions.put sessions ~now id key;
-                    respond_json cfg ~status:`OK (`Assoc [ ("session", `String id) ])))
+          | None -> bad "missing mnemonic"
+          | Some mnemonic -> (
+              match
+                Tessarium.derive_key ~kdf:Tessarium_argon2.kdf ~mnemonic
+              with
+              | exception Tessarium.Bad_mnemonic e -> bad e.Tessarium.message
+              | key ->
+                  let id = Sessions.new_id random in
+                  Sessions.put sessions ~now id key;
+                  respond_json cfg ~status:`OK
+                    (`Assoc [ ("session", `String id) ])))
       | "logout" -> (
           match string_field "session" json with
           | None -> bad "missing session"
@@ -845,7 +871,8 @@ let handle_api cfg sessions limiter random ~endpoint ~request ~now =
               | None -> bad "missing address"
               | Some address -> (
                   match Tessarium.decode ~core ~key address with
-                  | exception Tessarium.Invalid_address e -> bad e.Tessarium.message
+                  | exception Tessarium.Invalid_address e ->
+                      bad e.Tessarium.message
                   (* The C core refuses arguments outside its proved domain
                      rather than computing over them. address_of_string
                      cannot produce such a tuple, so this is unreachable
@@ -929,8 +956,8 @@ let parse_region json =
              validator bounds the string. *)
           match json_field "label" json with
           | None | Some `Null ->
-              Basemap_job.validate ?polygon ~min_lon ~min_lat ~max_lon
-                ~max_lat ~max_zoom ()
+              Basemap_job.validate ?polygon ~min_lon ~min_lat ~max_lon ~max_lat
+                ~max_zoom ()
           | Some (`String label) ->
               Basemap_job.validate ?polygon ~label ~min_lon ~min_lat ~max_lon
                 ~max_lat ~max_zoom ()
@@ -963,7 +990,8 @@ let parse_regions json =
 let parse_id json =
   match json_field "id" json with
   | Some (`String s)
-    when String.length s > 0 && String.length s <= 64
+    when String.length s > 0
+         && String.length s <= 64
          && String.for_all
               (function 'a' .. 'f' | '0' .. '9' -> true | _ -> false)
               s ->
@@ -982,8 +1010,8 @@ let coverage_status = function
 let coverage_message = function
   | Basemap_download.Too_large e | Basemap_download.Unreadable e -> e
 
-let handle_basemap cfg (ops : Basemap_download.ops)
-    (settings : Settings.ops) ~endpoint ~request =
+let handle_basemap cfg (ops : Basemap_download.ops) (settings : Settings.ops)
+    ~endpoint ~request =
   let body = Api_guard.body request in
   let bad = error cfg ~status:`Bad_request in
   (* A ledger or settings failure is this server's own data gone wrong, not
@@ -1038,7 +1066,8 @@ let handle_basemap cfg (ops : Basemap_download.ops)
           match json_field "file" json with
           | Some (`String file) -> (
               match ops.delete_export ~file with
-              | Ok () -> respond_json cfg ~status:`OK (`Assoc [ ("ok", `Bool true) ])
+              | Ok () ->
+                  respond_json cfg ~status:`OK (`Assoc [ ("ok", `Bool true) ])
               | Error e -> bad e)
           | _ -> bad "file must be the name of an export")
   | "basemap-browse" ->
@@ -1061,23 +1090,15 @@ let handle_basemap cfg (ops : Basemap_download.ops)
             let zoom =
               match json_field "zoom" json with
               | Some (`Int z) -> Some z
-              | Some (`Float f)
-                when Float.is_integer f && Float.abs f <= 32768. ->
+              | Some (`Float f) when Float.is_integer f && Float.abs f <= 32768.
+                ->
                   Some (int_of_float f)
               | _ -> None
             in
             match
-              ( num "min_lon",
-                num "min_lat",
-                num "max_lon",
-                num "max_lat",
-                zoom )
+              (num "min_lon", num "min_lat", num "max_lon", num "max_lat", zoom)
             with
-            | ( Some min_lon,
-                Some min_lat,
-                Some max_lon,
-                Some max_lat,
-                Some zoom )
+            | Some min_lon, Some min_lat, Some max_lon, Some max_lat, Some zoom
               when zoom >= 0 && zoom <= 15 -> (
                 match
                   Basemap_job.validate ~min_lon ~min_lat ~max_lon ~max_lat
@@ -1123,7 +1144,8 @@ let handle_basemap cfg (ops : Basemap_download.ops)
                 Some (int_of_float f)
             | _ -> None
           in
-          match (num "min_lon", num "min_lat", num "max_lon", num "max_lat", zoom)
+          match
+            (num "min_lon", num "min_lat", num "max_lon", num "max_lat", zoom)
           with
           | Some min_lon, Some min_lat, Some max_lon, Some max_lat, Some zoom
             -> (
@@ -1136,8 +1158,8 @@ let handle_basemap cfg (ops : Basemap_download.ops)
                   match ops.coverage req with
                   | Ok payload -> respond_json cfg ~status:`OK payload
                   | Error e ->
-                      error cfg ~status:(coverage_status e)
-                        (coverage_message e)))
+                      error cfg ~status:(coverage_status e) (coverage_message e)
+                  ))
           | _ ->
               bad "expected min_lon, min_lat, max_lon, max_lat and zoom 0..15")
   | "basemap-search" ->
@@ -1146,14 +1168,14 @@ let handle_basemap cfg (ops : Basemap_download.ops)
          geocoder is the leak this whole product is arranged to avoid. *)
       with_json body (fun json ->
           match json_field "q" json with
-          | Some (`String q)
-            when String.trim q <> "" && String.length q <= 120 ->
+          | Some (`String q) when String.trim q <> "" && String.length q <= 120
+            -> (
               let limit =
                 match json_field "limit" json with
                 | Some (`Int n) when n > 0 && n <= 50 -> n
                 | _ -> 10
               in
-              (match ops.search ~query:q ~limit with
+              match ops.search ~query:q ~limit with
               | Ok payload -> respond_json cfg ~status:`OK payload
               | Error e -> broken e)
           | _ -> bad "expected q, a non-empty string of at most 120 bytes")
@@ -1168,9 +1190,9 @@ let handle_basemap cfg (ops : Basemap_download.ops)
               match settings.get () with
               | Ok payload -> respond_json cfg ~status:`OK payload
               | Error e -> broken e)
-          | Some j, _ when (match j with `Int _ -> false | _ -> true) ->
+          | Some j, _ when match j with `Int _ -> false | _ -> true ->
               bad "update_reminder_days must be an integer"
-          | _, Some j when (match j with `Bool _ -> false | _ -> true) ->
+          | _, Some j when match j with `Bool _ -> false | _ -> true ->
               bad "browse_cache must be a boolean"
           | days, browse -> (
               let days =
@@ -1196,7 +1218,7 @@ let handle_basemap cfg (ops : Basemap_download.ops)
       | json -> (
           match parse_regions json with
           | Error e -> bad e
-          | Ok reqs ->
+          | Ok reqs -> (
               (* Which archive this download would join. An estimate must be
                  quoted against the same one, or the number the user sees is
                  not the number they will pay. *)
@@ -1217,7 +1239,7 @@ let handle_basemap cfg (ops : Basemap_download.ops)
                 | Some (`String s) when Ledger.valid_name s ->
                     started (ops.start ~name:(Some s) ~world reqs)
                 | Some _ -> bad "name must be 1-120 bytes of printable UTF-8"
-                | None -> started (ops.start ~name:None ~world reqs)))
+                | None -> started (ops.start ~name:None ~world reqs))))
   | _ -> error cfg ~status:`Not_found "no such endpoint"
 
 (* Whether a request declared a body. Both mistakes here are real and both
@@ -1260,14 +1282,16 @@ let refused cfg (r : Api_guard.refusal) (d : Api_guard.disposal) =
 
 let status_code s = Http.Status.to_int s
 
-let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock
-    ~random ~basemap_ops ~settings_ops =
+let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
+    ~basemap_ops ~settings_ops =
   (* The status the log records travels WITH the response. It used to be a
      literal beside each call, and both /api/ branches passed `OK for every
      answer their handler could give: a 500 from an unreadable ledger, a 403
      from the browse gate, a 429 from the limiter, all recorded as 200, so
      Access_log's `status >= 500 -> Error` never fired once. *)
-  let simple (result, status, bytes) = (result, status, bytes, Http_range.Whole) in
+  let simple (result, status, bytes) =
+    (result, status, bytes, Http_range.Whole)
+  in
   fun _conn (request : Http.Request.t) body ->
     let meth = Http.Request.meth request in
     let header = Http.Header.get (Http.Request.headers request) in
@@ -1308,7 +1332,8 @@ let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock
               else if not cfg.api_enabled then
                 simple
                   (error cfg ~status:`Not_found
-                     "the encode/decode API is disabled; start with --api to enable it")
+                     "the encode/decode API is disabled; start with --api to \
+                      enable it")
               else
                 let now = Eio.Time.now clock in
                 simple
@@ -1327,13 +1352,11 @@ let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock
           | Error r -> simple (refused cfg r Api_guard.Connection_must_close)
           | Ok stream -> (
               match
-                basemap_ops.receive
-                  ~expected:(Api_guard.declared_length stream)
+                basemap_ops.receive ~expected:(Api_guard.declared_length stream)
                   ~read:(fun buf -> Eio.Flow.single_read body buf)
               with
               | Ok () ->
-                  simple
-                    (respond_json cfg ~status:`OK (basemap_ops.staged ()))
+                  simple (respond_json cfg ~status:`OK (basemap_ops.staged ()))
               (* A taken seat is a conflict: another upload or a running job
                  holds it, and the same request will work in a moment. A body
                  that is not a map archive never will. *)
@@ -1343,8 +1366,9 @@ let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock
                   simple (error cfg ~status:`Bad_request e)))
       | Route.Tile { z; x; y } ->
           serve_tile cfg ~basemap_root ~meth
-            ~client_headers:(Http.Request.headers request) ~z ~x ~y
-      | Route.Tile_json { floor } ->
+            ~client_headers:(Http.Request.headers request)
+            ~z ~x ~y
+      | Route.Tile_json { floor } -> (
           (* Only the style's own ?v= cache-buster is reflected into the tile
              URLs. Anything else is dropped, not echoed. *)
           let query =
@@ -1368,8 +1392,10 @@ let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock
               when String.length h <= 260
                    && String.for_all
                         (function
-                          | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '.' | '-'
-                          | ':' | '[' | ']' ->
+                          | 'a' .. 'z'
+                          | 'A' .. 'Z'
+                          | '0' .. '9'
+                          | '.' | '-' | ':' | '[' | ']' ->
                               true
                           | _ -> false)
                         h ->
@@ -1377,16 +1403,15 @@ let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock
             | _ -> "127.0.0.1"
           in
           let which = if floor then `Floor else `Detail in
-          (match
-             serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which
-           with
+          match
+            serve_tilejson cfg ~basemap_root ~host ~query ~if_none_match ~which
+          with
           | `Not_modified etag ->
               not_modified cfg ~etag ~cache_control:"no-cache" ~vary:[]
           | `Body body -> simple body)
       | Route.Basemap segments ->
           serve_file cfg ~sw ~what:"basemap" ~root:basemap_root ~segments ~meth
-            ~range_header
-            ~if_none_match ~if_range ~immutable:false
+            ~range_header ~if_none_match ~if_range ~immutable:false
       | Route.Asset segments -> (
           let headers = Http.Request.headers request in
           (* Embedded first, then the directory: when the binary carries a
@@ -1397,8 +1422,7 @@ let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock
           let from_disk () =
             let served =
               serve_file cfg ~sw ~what:"asset" ~root:ui_root ~segments ~meth
-                ~range_header
-                ~if_none_match ~if_range ~immutable:true
+                ~range_header ~if_none_match ~if_range ~immutable:true
             in
             let _, status, _, _ = served in
             (* A single-page app owns its own routes: /somewhere returns the
@@ -1418,11 +1442,9 @@ let handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock
           match serve_embedded cfg ~segments ~meth ~headers with
           | Some served -> served
           | None -> from_disk ())
-      | Route.Not_found ->
-          simple (error cfg ~status:`Not_found "not found")
+      | Route.Not_found -> simple (error cfg ~status:`Not_found "not found")
       | Route.Method_not_allowed ->
-          simple
-            (error cfg ~status:`Method_not_allowed "method not allowed")
+          simple (error cfg ~status:`Method_not_allowed "method not allowed")
     in
     Access_log.emit
       {
@@ -1442,19 +1464,18 @@ let run env ~sw ~port cfg =
   let clock = Eio.Stdenv.clock env in
   let random = Eio.Stdenv.secure_random env in
   let basemap_ops =
-    Basemap_download.ops
-      (Basemap_download.create ())
+    Basemap_download.ops (Basemap_download.create ())
       ~sw ~fs ~net:(Eio.Stdenv.net env) ~source:cfg.basemap_source
       ~assets:cfg.basemap_assets ~basemap_dir:cfg.basemap_dir
       ~budget:cfg.tile_budget
-      (* Epoch seconds for the ledger. The float is Eio's, and truncating it
+        (* Epoch seconds for the ledger. The float is Eio's, and truncating it
          is deliberate: sub-second precision on a download date is noise. *)
       ~now:(fun () -> int_of_float (Eio.Time.now clock))
   in
   let settings_ops = Settings.ops ~fs ~basemap_dir:cfg.basemap_dir in
   let callback =
-    handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock
-      ~random ~basemap_ops ~settings_ops
+    handler cfg ~sw ~ui_root ~basemap_root ~sessions ~limiter ~clock ~random
+      ~basemap_ops ~settings_ops
   in
   let server = Cohttp_eio.Server.make_response_action ~callback () in
   (* Loopback only. This binary is the desktop app as well as the self-hosted

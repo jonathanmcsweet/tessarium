@@ -55,7 +55,8 @@ let resolve target =
 let extension name =
   match String.rindex_opt name '.' with
   | None -> ""
-  | Some i -> String.lowercase_ascii (String.sub name i (String.length name - i))
+  | Some i ->
+      String.lowercase_ascii (String.sub name i (String.length name - i))
 
 (* Only what this app actually serves. An unknown type is deliberately
    octet-stream rather than a guess: a wrong Content-Type on a script is a
@@ -100,5 +101,4 @@ let cache_control segments =
                | _ -> false)
              tag
   in
-  if hashed then "public, max-age=31536000, immutable"
-  else "no-cache"
+  if hashed then "public, max-age=31536000, immutable" else "no-cache"

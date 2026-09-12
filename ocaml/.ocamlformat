@@ -1,0 +1,6 @@
+profile = default
+version = 0.29.0
+
+# Keeps a record one field per line, which is how every doc-commented record
+# here already reads; the default inlines them and the comments with them.
+type-decl = sparse

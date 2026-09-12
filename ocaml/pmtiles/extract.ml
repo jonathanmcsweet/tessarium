@@ -40,11 +40,10 @@ let plan ?(on_tile = fun () -> ()) ?clip archive ~min_zoom ~max_zoom ~min_lon
   let ids =
     match clip with
     | None ->
-        Tile_id.covering ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
-          ~max_lat
+        Tile_id.covering ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon ~max_lat
     | Some clip ->
-        Tile_id.covering_clipped ~on_node:on_tile ~min_zoom ~max_zoom
-          ~min_lon ~min_lat ~max_lon ~max_lat ~clip ()
+        Tile_id.covering_clipped ~on_node:on_tile ~min_zoom ~max_zoom ~min_lon
+          ~min_lat ~max_lon ~max_lat ~clip ()
   in
   let blob_index = Hashtbl.create 1024 in
   let blobs = ref [] in
@@ -116,7 +115,10 @@ let build_directories entries =
       let n = Array.length entries in
       let leaf_count = (n + leaf_size - 1) / leaf_size in
       let leaves = Buffer.create (n * 8) in
-      let pointers = Array.make leaf_count { Directory.tile_id = 0; offset = 0; length = 0; run_length = 0 } in
+      let pointers =
+        Array.make leaf_count
+          { Directory.tile_id = 0; offset = 0; length = 0; run_length = 0 }
+      in
       for i = 0 to leaf_count - 1 do
         let from = i * leaf_size in
         let len = min leaf_size (n - from) in
@@ -210,9 +212,7 @@ let write_tiles ?(metadata = "{}") ~(source : Header.t) ~min_zoom ~max_zoom
 let write ?metadata plan (source : Header.t) ~min_zoom ~max_zoom ~min_lon
     ~min_lat ~max_lon ~max_lat ~append ~copy =
   write_tiles ?metadata ~source ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
-    ~max_lat ~tiles:plan.tiles
-    ~blob_lengths:(Array.map snd plan.blobs)
-    ~append
+    ~max_lat ~tiles:plan.tiles ~blob_lengths:(Array.map snd plan.blobs) ~append
     ~copy_blob:(fun i ->
       let offset, length = plan.blobs.(i) in
       copy ~offset ~length)

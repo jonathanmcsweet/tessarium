@@ -33,7 +33,9 @@ let deserialize s =
      downloaded, so this is a boundary, not an internal invariant. *)
   if n > (String.length s - pos) / 4 then
     invalid_arg "pmtiles: directory claims more entries than it holds";
-  let entries = Array.make n { tile_id = 0; offset = 0; length = 0; run_length = 0 } in
+  let entries =
+    Array.make n { tile_id = 0; offset = 0; length = 0; run_length = 0 }
+  in
   let pos = ref pos in
 
   let last = ref 0 in
@@ -81,8 +83,8 @@ let serialize entries =
   Array.iter (fun e -> Varint.encode b e.length) entries;
   Array.iteri
     (fun i e ->
-      if i > 0 && e.offset = entries.(i - 1).offset + entries.(i - 1).length then
-        Varint.encode b 0
+      if i > 0 && e.offset = entries.(i - 1).offset + entries.(i - 1).length
+      then Varint.encode b 0
       else Varint.encode b (e.offset + 1))
     entries;
   Buffer.contents b
