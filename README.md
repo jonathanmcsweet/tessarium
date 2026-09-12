@@ -30,8 +30,7 @@ Most of the address math here isn't just tested. It's mathematically
 proven, using a formal verification programming language that checks every step of the logic rather than trusting that a programmer got it right. That buys three guarantees:
 
 1. Every point on Earth maps to exactly one square and no other
-2. Converting an address back always lands in the square it came from, at that
-square's centre, which is the point the address names
+2. Converting an address back always lands in the square it originally came from
 3. The scrambling step that makes your map private never gives two different squares the same address, and never leaves a square with no address at all.
 
 ## What's not proven?
@@ -51,29 +50,52 @@ proven one on millions of test points, and they agree exactly, every time.
 The exact numbers and the reasoning behind them are in
 [docs/fe1-security.md](docs/fe1-security.md).
 
+# Building Tessarium
+
+## Prerequisites
+
+**opam** — the OCaml package manager.
+
+→ https://opam.ocaml.org/doc/Install.html
+
+## Everything else
+
+A more detailed install guide will be coming soon
+
+```bash
+tools/setup.sh          # installs what's missing if you're running debian
+tools/setup.sh --check  # report only, change nothing
+eval "$(make env)"      # put it all on PATH
+```
+## Then build
+
+```bash
+tools/bootstrap.sh      # node modules, basemap tiles, first compile
+make build              # native binaries and the browser bundle
+make ui                 # the web UI
+make run                # serve on 127.0.0.1:7373
+```
+
+## Test dependencies
+```bash
+cd ui && pnpm exec playwright install chromium
+make test-ui
+```
+
+## Verify
+
+```bash
+make verify    # prove every F* module (zero admits enforced)
+make test      # all five test suites
+```
+
 ## Run it
 
+### Quick start
 ```bash
 pnpm run dev                 # the whole app at http://localhost:7380
 ```
 
-That is the only command a fresh clone needs. It installs whatever is missing
--- the compilers, into your home folder rather than system-wide, then the
-packages, then the world map every release ships, about 43 MB -- compiles, and
-serves. The first run is slow and says what it is doing; later runs take a
-couple of seconds, because every step asks whether it has already been done.
-`TESSARIUM_NO_BASEMAP=1` skips the map for a checkout that only needs to
-build. `pnpm run check` reports what
-is missing and changes nothing.
-
-On a machine with no Node yet, `tools/bootstrap.sh` is the same thing spelled
-without it: it installs Node too, and `pnpm run dev` works from then on. The
-one thing neither will install is [opam](https://opam.ocaml.org/doc/Install.html),
-the OCaml package manager -- how that reaches a machine is a decision about
-the machine.
-
-This is the development shape: the web app served by Vite, so edits reload.
-The shape that ships is one program with the app built into it.
 
 ```bash
 eval "$(make env)"           # puts the toolchain on this terminal's PATH, which `make` needs
