@@ -68,11 +68,19 @@ check(
 );
 
 /* A drag delivers a move a frame, and the root's children are deliberately
-   not memoised. Paint the properties; tell the store once, at the end. */
+   not memoised. Paint the property; tell the store once, at the end.
+
+   One property, not two. What each edge of the map has under it is derived
+   from the panel's width in styles.css, where the breakpoint is -- a second
+   hand painting the derived answer here is how the answer came to disagree
+   with the layout on a phone. */
 check(
-  "a drag paints the widths rather than routing every frame through the store",
-  /setProperty\("--panel-w"/.test(resizer)
-    && /setProperty\("--panel-offset"/.test(resizer),
+  "a drag paints the width rather than routing every frame through the store",
+  /setProperty\("--panel-w"/.test(resizer),
+);
+check(
+  "and paints only the width, leaving the covered edges to be derived",
+  !/setProperty\("--panel-offset"/.test(resizer),
 );
 check(
   "and commits the final width so the announced value follows",
@@ -104,7 +112,7 @@ check(
 check(
   "MapView reads the same token rather than keeping its own list",
   /--map-light-ground/.test(mapView)
-    && !/scheme === "cyber-light"/.test(mapView),
+    && !/scheme === "edge-light"/.test(mapView),
 );
 /* Six: the @theme default, the four palettes, and plain dark's second copy
    for a dark device on "match my device". */

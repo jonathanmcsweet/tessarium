@@ -8,9 +8,12 @@
 # about.
 #
 #   tools/fetch-basemap.sh                        # central London, zoom 15
+#                                                 # into the map store, not
+#                                                 # into the checkout
 #   tools/fetch-basemap.sh -b -74.05,40.68,-73.90,40.80 -z 15
-#   tools/fetch-basemap.sh -W 5                   # a deeper world overview
+#   tools/fetch-basemap.sh -W 5                   # a shallower world overview
 #   tools/fetch-basemap.sh -W ""                  # region only, no overview
+#   tools/fetch-basemap.sh --print-world-zoom     # the depth packages ship
 #   tools/fetch-basemap.sh -z ""                  # overview and assets only,
 #                                                 # which is what packaging needs
 #
@@ -27,21 +30,37 @@ set -euo pipefail
 
 BBOX="-0.25,51.45,0.0,51.55"
 MAX_ZOOM=15
-OUT_DIR="basemap"
+# Not into the checkout: tools/basemap-dir.sh says where maps live, and a
+# second spelling of that is how a hand fetch lands somewhere the app does
+# not read. -o still wins, which is what packaging and CI pass.
+OUT_DIR=""
 SOURCE="latest"
-# Zoom 4 is about 6 MB and shows countries, coastlines and capitals; 5 is
-# about 14 MB and 6 about 43 MB, measured against a Protomaps planet build.
-# Past 6 is pointless: the server never stands the map deeper than that.
-# A shallower overview is not wasted -- the map floors on whatever level the
-# file covers the WHOLE planet at -- and an interrupted fetch leaves a .part
-# rather than a short file, so re-running this picks it up again.
-WORLD_ZOOM=4
+# Zoom 6 is about 43 MB and is as deep as the map ever stands: the server
+# never draws the overview past that. It is what every package ships, and
+# what this fetches, so a checkout opens on the same planet an installed copy
+# does -- towns and roads everywhere, not just countries and coastlines.
+# Shallower is a real choice for a slow connection (4 is about 6 MB, 5 about
+# 14 MB) and is not wasted, because the map floors on whatever level the file
+# covers the WHOLE planet at. An interrupted fetch leaves a .part rather than
+# a short file, so re-running this picks it up again.
+#
+# This number has one home. The Makefile asks for it with --print-world-zoom
+# rather than repeating it, so the fetch and the stamp that records it cannot
+# come to disagree about which depth is on disk.
+WORLD_ZOOM=6
 ASSETS="https://codeload.github.com/protomaps/basemaps-assets/tar.gz/refs/heads/main"
 
 usage() {
-  sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
+
+# Asked by the Makefile, which names the stamp after the depth on disk. Answered
+# before anything is built or fetched.
+if [ "${1:-}" = "--print-world-zoom" ]; then
+  printf '%s\n' "$WORLD_ZOOM"
+  exit 0
+fi
 
 while getopts "b:z:o:s:W:h" opt; do
   case "$opt" in
@@ -57,6 +76,8 @@ done
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
+
+OUT_DIR="${OUT_DIR:-$(tools/basemap-dir.sh)}"
 
 fetcher="_build/default/ocaml/pmtiles/bin/main.exe"
 if [ ! -x "$fetcher" ]; then
@@ -78,12 +99,33 @@ else
 fi
 
 # The world overview, fetched second so a failure here leaves a usable region
-# behind. Skipped when one is already present: it does not change with the
-# region, and it is the slowest part of a small fetch.
+# behind. Kept when one is already present and deep enough: it does not change
+# with the region, and it is the slowest part of a small fetch.
+#
+# Deep ENOUGH, not merely present. A store filled before the shipped depth
+# changed holds a shallower planet, and presence alone would keep it there
+# forever -- the app would draw countries where an installed copy draws towns,
+# and nothing would say why. Refetched rather than deepened in place: an
+# extract cannot add levels to an archive, and the download is the same
+# bytes either way.
+have_zoom=""
+if [ -f "$OUT_DIR/world.pmtiles" ]; then
+  have_zoom="$(tools/archive-max-zoom.sh "$OUT_DIR/world.pmtiles" || true)"
+fi
 if [ -z "$WORLD_ZOOM" ]; then
   echo "==> world overview skipped"
-elif [ -f "$OUT_DIR/world.pmtiles" ]; then
-  echo "==> world overview already present"
+elif [ -n "$have_zoom" ] && [ "$have_zoom" -ge "$WORLD_ZOOM" ]; then
+  echo "==> world overview already present (zooms 0-$have_zoom)"
+elif [ -n "$have_zoom" ]; then
+  echo "==> world overview goes to zoom $have_zoom, refetching to" \
+    "$WORLD_ZOOM"
+  # Beside the old one, never into it: an --out that already exists is MERGED
+  # into, which would fold the shallow archive into its own replacement. The
+  # old file stays readable until the new one is whole.
+  rm -f "$OUT_DIR/world.pmtiles.new" "$OUT_DIR/world.pmtiles.new.part"
+  "$fetcher" "$SOURCE" --bbox="-180,-85,180,85" --max-zoom "$WORLD_ZOOM" \
+    --out "$OUT_DIR/world.pmtiles.new"
+  mv "$OUT_DIR/world.pmtiles.new" "$OUT_DIR/world.pmtiles"
 else
   echo "==> world overview (zooms 0-$WORLD_ZOOM)"
   "$fetcher" "$SOURCE" --bbox="-180,-85,180,85" --max-zoom "$WORLD_ZOOM" \

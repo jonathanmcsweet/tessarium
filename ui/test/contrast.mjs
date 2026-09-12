@@ -24,7 +24,7 @@ const check = (name, ok) => ({ name, ok });
 
 /* Five palettes, audited against the same thresholds.
 
-   Cyberpunk dark is the @theme block: it is the default, and the default
+   Edgerunner dark is the @theme block: it is the default, and the default
    paints before any attribute is set. The rest are [data-theme] blocks. Plain
    dark is written twice -- under [data-theme="dark"] and under
    prefers-color-scheme, for whoever chose "match my device" -- because CSS
@@ -40,6 +40,7 @@ const block = (start) => {
   const open = css.indexOf("{", from + start.length - 1);
   const body = css.slice(open, blockEnd(css, open));
   return {
+    body,
     colors: Object.fromEntries(
       [...body.matchAll(/--color-([a-z-]+):\s*(#[0-9a-fA-F]{6});/g)]
         .map((m) => [m[1], m[2]]),
@@ -51,22 +52,22 @@ const block = (start) => {
   };
 };
 
-const cyberDark = block("@theme {");
+const edgeDark = block("@theme {");
 const plainLight = block(':root[data-theme="system"],');
 const plainDark = block(':root[data-theme="dark"] {');
 const plainDarkDevice = block("@media (prefers-color-scheme: dark) {");
-const cyberLight = block(':root[data-theme="cyber-light"] {');
+const edgeLight = block(':root[data-theme="edge-light"] {');
 const night = block(':root[data-theme="night"] {');
 
 const presence = [
-  check("the default palette is the @theme block", cyberDark !== null),
+  check("the default palette is the @theme block", edgeDark !== null),
   check(
     "plain light exists, for the choice and for the device",
     plainLight !== null,
   ),
   check("plain dark exists for whoever chose it", plainDark !== null),
   check("and for a dark device on 'match my device'", plainDarkDevice !== null),
-  check("cyberpunk light exists for whoever chose it", cyberLight !== null),
+  check("edgerunner light exists for whoever chose it", edgeLight !== null),
   check("the low-light palette exists for whoever chose it", night !== null),
 ];
 
@@ -94,15 +95,48 @@ const agreement = [
 const palettes = [
   ["plain light", plainLight],
   ["plain dark", plainDark],
-  ["cyberpunk light", cyberLight],
+  ["edgerunner light", edgeLight],
   ["low light", night],
 ];
 const completeness = palettes.map(([label, palette]) =>
   check(
     `${label} defines every token the default does`,
-    names(cyberDark) === names(palette),
+    names(edgeDark) === names(palette),
   )
 );
+
+/* The cut corner: the shape half of the edgerunner look, a chamfer off the
+   top-right and bottom-left of every button. It is a palette token rather
+   than a constant so that a palette can put it down, and the plain three do
+   -- a bevelled button is not a plain button.
+
+   Read as text, not resolved. "At rest" here means the block SAYS none: a
+   palette that says nothing about the cut inherits the default's chamfer,
+   which is exactly the bug this catches. Edgerunner light is the one palette
+   that should stay silent, because it is meant to keep it. */
+const cutAtRest = (p) =>
+  /--cut:\s*none;/.test(p?.body ?? "")
+  && /--cut-icon:\s*none;/.test(p?.body ?? "");
+
+const corners = [
+  check(
+    "the default palette cuts its corners",
+    /--cut:\s*polygon\(/.test(edgeDark?.body ?? "")
+      && /--cut-icon:\s*polygon\(/.test(edgeDark?.body ?? ""),
+  ),
+  ...[
+    ["plain light", plainLight],
+    ["plain dark", plainDark],
+    ["plain dark on a dark device", plainDarkDevice],
+    ["low light", night],
+  ].map(([label, palette]) =>
+    check(`${label} squares them instead`, cutAtRest(palette))
+  ),
+  check(
+    "edgerunner light says nothing, and so keeps the default's",
+    edgeLight !== null && !/--cut/.test(edgeLight.body),
+  ),
+];
 
 /* Low light protects night vision, which no contrast ratio can see: it fails
    the moment a token brings green or blue to the screen. Red-dominant,
@@ -119,7 +153,7 @@ const nightVision = Object.entries(night?.colors ?? {}).map(([name, hex]) =>
 /* The overlay wash's opacity travels with the palette. A value the CSS parses
    and MapLibre cannot spend -- empty, negative, past one -- paints the
    coverage veil solid or not at all. */
-const opacity = [["cyberpunk dark", cyberDark], ...palettes].map((
+const opacity = [["edgerunner dark", edgeDark], ...palettes].map((
   [label, palette],
 ) =>
   check(
@@ -162,8 +196,8 @@ const PAIRS = [
   ["banner text", "warn", "notice", 4.5],
   ["banner action labels", "on-ink", "warn", 4.5],
   ["map warning note", "warn", "notice-soft", 4.5],
-  /* The unlock screen's provenance warning -- its most prominent block, and
-     the one a user most needs to read. */
+  /* The unlock screen's write-it-down notice -- its most prominent block,
+     and the one a user most needs to read. */
   ["gate warning text", "ink", "alert", 4.5],
   ["gate warning rule (non-text)", "accent", "alert", 3.0],
   ["hover rows", "ink", "hover", 4.5],
@@ -183,7 +217,10 @@ const PAIRS = [
      dialogue. It wore a literal `text-white`, which belongs to no palette and
      so was audited in none: 3.95:1 light, 3.03:1 dark, 3.19:1 low light, all
      under AA and none visible here until this pair was written down. */
-  ["the label on a destructive button", "on-accent", "accent", 4.5],
+  /* The mark on the selected square, which MapView reads off the token and
+     hands to MapLibre. It was the label on the destructive button too, until
+     that button took the primary action's gradient. */
+  ["the mark on the selected square", "on-accent", "accent", 4.5],
 ];
 
 /* Each pair is three checks: both tokens exist, and the ratio holds. A
@@ -205,7 +242,7 @@ const audit = (label, palette) =>
     ];
   });
 
-const audits = [["cyberpunk dark", cyberDark], ...palettes]
+const audits = [["edgerunner dark", edgeDark], ...palettes]
   .flatMap(([label, palette]) => audit(label, palette));
 
 /* Every audited colour is a token, which is what made a second palette
@@ -218,7 +255,7 @@ const spentSomewhere = (token) =>
     f.includes(`var(--color-${token})`)
     || new RegExp(`[-:\\[]${token}\\b`).test(f)
   );
-const spent = Object.keys(tokens(cyberDark)).map((token) =>
+const spent = Object.keys(tokens(edgeDark)).map((token) =>
   check(
     `--${
       token.startsWith("map-") ? "" : "color-"
@@ -231,6 +268,7 @@ const results = [
   ...presence,
   ...agreement,
   ...completeness,
+  ...corners,
   ...nightVision,
   ...opacity,
   ...audits,

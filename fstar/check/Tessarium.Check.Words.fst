@@ -23,6 +23,7 @@ module Tessarium.Check.Words
 /// on the other side, in ocaml/test/test_words.ml, which runs the same
 /// function over every word and every partial spelling of every word.
 
+module L = FStar.List.Tot
 module W = Tessarium.Words
 module E = Tessarium.Check.Expected
 
@@ -73,5 +74,16 @@ let rec answers_ok (typed: list (list int)) (expected: list int)
   | [], [] -> true
   | t :: ts, e :: es -> answer_for t words = e && answers_ok ts es words
   | _, _ -> false
+
+(* Counts pinned for the reason Check.Grid and Check.Cipher pin theirs, and
+   this module did not: `answers_ok [] [] ws` is TRUE, so an Expected whose
+   corpus came out empty passes this leg while checking nothing. The diff CI
+   runs over a regenerated Expected catches a corpus that shrinks under a
+   committed one; it cannot catch one committed empty. Only gen_check.ml's
+   hand-written fixture and corpus can say how many there are supposed to be:
+   sixteen words and thirty-eight spellings. *)
+let _ = assert_norm (L.length E.words_fixture = 16)
+let _ = assert_norm (L.length E.words_typed = 38)
+let _ = assert_norm (L.length E.words_answer = 38)
 
 let _ = assert_norm (answers_ok E.words_typed E.words_answer E.words_fixture)

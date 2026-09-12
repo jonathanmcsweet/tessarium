@@ -53,6 +53,24 @@ export const PANEL_DEFAULT = 340;
 export const clampPanelWidth = (width: number): number =>
   Math.min(PANEL_MAX, Math.max(PANEL_MIN, Math.round(width)));
 
+/* `belowGrid` rather than the camera's zoom: the zoom at which squares start
+   being drawn is the map's own number, and the panel has no business holding
+   a threshold to compare against. */
+export type ViewNotes = {
+  blank: boolean;
+  belowGrid: boolean;
+  truncated: boolean;
+};
+
+/* Said once. The map has not reported yet at start, and after a lock it has
+   been unmounted -- both are "nothing known", and writing that out twice is
+   how the two come to disagree. */
+const NOTHING_TO_SAY: ViewNotes = {
+  blank: false,
+  belowGrid: false,
+  truncated: false,
+};
+
 type AppState = {
   unlocked: boolean;
   selection: Selection | null;
@@ -66,6 +84,14 @@ type AppState = {
      someone is, so they start hidden and stay as the user set them. */
   coordsConcealed: boolean;
   basemapFailed: boolean;
+  /* What the map has to say about the view it is drawing. Three independent
+     facts, not alternatives -- a view can be all three at once.
+
+     Here rather than in MapView because the PANEL says them: they are read
+     where the application talks to the reader, not drawn over the ground
+     they are about. MapView is what knows them, and writing them is all it
+     does with them. */
+  view: ViewNotes;
   /* Frozen when the downloader opens, cleared when it closes: panning while
      it is open changes the NEXT download, not the one being confirmed. It
      lives here rather than in MapView because the panel draws the card and
@@ -109,6 +135,7 @@ type AppState = {
   setPanelWidth: (width: number) => void;
   togglePanel: () => void;
   setBasemapFailed: () => void;
+  noteView: (notes: Partial<ViewNotes>) => void;
   clearBasemapFailed: () => void;
   openDownload: () => void;
   closeDownload: () => void;
@@ -123,6 +150,7 @@ export const useAppStore = create<AppState>()((set) => ({
   concealed: true,
   coordsConcealed: true,
   basemapFailed: false,
+  view: NOTHING_TO_SAY,
   downloadOpen: false,
   importing: false,
   downloadRegion: null,
@@ -150,6 +178,7 @@ export const useAppStore = create<AppState>()((set) => ({
       downloadOpen: false,
       importing: false,
       downloadRegion: null,
+      view: NOTHING_TO_SAY,
     }),
   select: (selection) => set({ selection }),
   /* A counter, not a timestamp: looking up the same address twice has to fly
@@ -177,6 +206,7 @@ export const useAppStore = create<AppState>()((set) => ({
   togglePanel: () =>
     set((state) => ({ panelCollapsed: !state.panelCollapsed })),
   setBasemapFailed: () => set({ basemapFailed: true }),
+  noteView: (notes) => set((state) => ({ view: { ...state.view, ...notes } })),
   clearBasemapFailed: () => set({ basemapFailed: false }),
   /* Opening the card has to open the DRAWER too. The card is drawn inside
      it, and a shut drawer is `invisible translate-x-full`, so this used to

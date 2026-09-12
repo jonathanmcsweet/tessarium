@@ -9,7 +9,6 @@
 # The environment this needs is not on PATH by default; see `make env`.
 
 FSTAR_BIN := $(HOME)/toolchain/fstar/bin
-SWITCH    := tessarium
 PORT      ?= 7373
 # The app under test. Its own port, NOT $(PORT): the e2e used to reuse 7373, so
 # leaving `make dev` running killed the browser suite with "Address already in
@@ -27,7 +26,7 @@ CANCEL_PORT ?= 7377
 # The delaying proxy itself, run by the e2e script.
 PROXY_PORT ?= 7378
 
-.PHONY: all env dev verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run basemap package package-deb package-rpm package-appimage test-install clean
+.PHONY: all env setup dev verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run basemap print-basemap-stamp print-basemap-dir package package-deb package-rpm package-appimage test-install clean
 
 # The stages share files (gen_check outputs, .checked caches, the 737x port
 # range). Cheap to run in order, wrong to interleave.
@@ -35,11 +34,18 @@ PROXY_PORT ?= 7378
 
 all: build ui
 
+# tools/env.sh holds where the toolchain is; this prints the line that applies
+# it. Two spellings of that is how a shell that had sourced one still lacked
+# what the other knew about.
 env:
-	@echo 'export PATH=$(FSTAR_BIN):$$PATH'
-	@echo 'eval "$$(opam env --switch=$(SWITCH))"'
-	@echo 'export NVM_DIR="$$HOME/.nvm"; . "$$NVM_DIR/nvm.sh"'
+	@echo '. $(CURDIR)/tools/env.sh'
 	@echo '# eval "$$(make env)" to apply'
+
+# Toolchain, node modules, basemap, compile -- everything a bare checkout needs
+# before `make run` or `make dev` can work. tools/bootstrap.sh --check reports
+# without changing anything.
+setup:
+	tools/bootstrap.sh
 
 verify:
 	$(MAKE) -C fstar verify
@@ -202,6 +208,12 @@ test: test-core test-static test-extraction test-lowstar test-ui
 # half finished. Both are properties of a recipe rather than of code, so it
 # runs that recipe against a stubbed fetcher, compiler and server.
 #
+# check-dev-setup.sh is the same shape one step out: `pnpm run dev` has to work
+# on a machine that has just cloned this, and the three things it used to
+# assume -- ui/node_modules, the vendored F* support library, the wasm the
+# browser's worker loads -- are properties of two shell scripts. They run
+# against stubs that record how they were called.
+#
 # CI runs THIS target rather than the list, so a check added here is a check CI
 # runs.
 test-core:
@@ -209,6 +221,7 @@ test-core:
 	node tools/check-doc-constants.mjs
 	tools/check-deps.sh
 	tools/check-basemap-target.sh
+	tools/check-dev-setup.sh
 
 # Lint, types, message catalogues and the browser payload budgets. Fast, needs
 # no server, and catches what the browser test cannot see: a message a locale
@@ -223,6 +236,14 @@ test-static:
 # about to drive rather than assuming one is up. No --ui: this exercises the UI
 # compiled into the binary, which is what ships.
 #
+# Every one of them is pinned at a loopback upstream, the fixture server
+# included. Unpinned, --basemap-source defaults to the newest Protomaps daily
+# build and --basemap-assets to a GitHub tarball, so one estimate or download
+# posted to the wrong port would put this suite at the mercy of two services
+# nobody here runs. The fixture server is never asked for either, and is
+# pinned anyway: the default it was carrying was a trap set for whoever next
+# adds a check against port $(FIXTURE_PORT). ui/test/harness.mjs holds it.
+#
 # Several instances. The one under test starts with an EMPTY basemap directory
 # and downloads its tiles, in-app, from the fixture server, which serves a
 # generated archive -- so the e2e drives the whole region downloader against
@@ -236,7 +257,13 @@ test-static:
 # Depends on `ui`: the servers below serve the EMBEDDED bundle, so without the
 # refresh they would exercise whatever UI was last built into the binary, and a
 # UI regression would pass against the previous good bundle.
+#
+# The browser is installed here rather than by the person running this. It is
+# pinned by ui/package.json like any other dependency, and it is the one
+# resource `tools/bootstrap.sh` leaves out -- 150 MB nobody who only wants the
+# app running should pay for. Warm, the check costs a second.
 test-ui: ui
+	@cd ui && pnpm exec playwright install chromium
 	@dune build ocaml/server/bin/main.exe ocaml/tools/gen_basemap_fixture.exe
 	@rm -rf _build/e2e-fixture _build/e2e-basemap _build/e2e-multipart \
 	  _build/e2e-mismatch _build/e2e-cancel \
@@ -245,7 +272,9 @@ test-ui: ui
 	@./_build/default/ocaml/tools/gen_basemap_fixture.exe _build/e2e-fixture
 	@cp _build/e2e-fixture/map-shallow.pmtiles _build/e2e-mismatch/map.pmtiles
 	@./_build/default/ocaml/server/bin/main.exe \
-	  --port $(FIXTURE_PORT) --basemap _build/e2e-fixture --no-open & \
+	  --port $(FIXTURE_PORT) --basemap _build/e2e-fixture --no-open \
+	  --basemap-source http://127.0.0.1:$(FIXTURE_PORT)/basemap/map.pmtiles \
+	  --basemap-assets http://127.0.0.1:$(FIXTURE_PORT)/basemap/assets.tar.gz & \
 	  echo $$! > .fixture.pid; \
 	  ./_build/default/ocaml/server/bin/main.exe \
 	  --port $(E2E_PORT) --basemap _build/e2e-basemap --no-open \
@@ -315,36 +344,84 @@ dev:
 # purpose. This is offline-first software: a machine with no network gets the
 # documented empty map and its download banner, not a build failure. That rule
 # lives here, and tools/dev.sh calls this target rather than restating it.
-BASEMAP_STAMP := basemap/.fetched
+# Outside the checkout, at the path tools/basemap-dir.sh decides and the
+# installed launchers already use. Downloaded maps are user data: a gitignored
+# directory inside the tree is deleted by anything that cleans build output,
+# and a re-clone took a 666 MB region that way with nothing said about it.
+# BASEMAP_DIR=... overrides it for one command, TESSARIUM_BASEMAP for a shell.
+BASEMAP_DIR ?= $(shell tools/basemap-dir.sh)
+# The depth the packages ship, asked of the script that fetches it. The stamp
+# is named after it, so raising the shipped depth retires every stamp written
+# at the old one and the deeper planet is fetched once, everywhere, without
+# anyone having to know to delete a file.
+WORLD_ZOOM := $(shell tools/fetch-basemap.sh --print-world-zoom)
+BASEMAP_STAMP := $(BASEMAP_DIR)/.fetched-z$(WORLD_ZOOM)
 # What "a complete map" means, written once and used twice: to decide whether
 # there is anything to fetch, and whether the fetch may be recorded. Two
 # spellings of that condition is how the two could ever disagree.
-BASEMAP_HAVE := [ -f basemap/world.pmtiles ] && [ -d basemap/fonts ] \
-  && [ -d basemap/sprites ]
+#
+# Deep enough, not merely present: a store filled before the shipped depth
+# rose holds a flatter planet than an installed copy draws, and presence alone
+# would keep it. The helper says nothing and fails when there is no archive to
+# read, which is why the default is a zoom no archive can have.
+BASEMAP_HAVE := [ -d "$(BASEMAP_DIR)/fonts" ] && [ -d "$(BASEMAP_DIR)/sprites" ] \
+  && [ "$$(tools/archive-max-zoom.sh "$(BASEMAP_DIR)/world.pmtiles" \
+       2>/dev/null || echo -1)" -ge "$(WORLD_ZOOM)" ]
 $(BASEMAP_STAMP):
-	@mkdir -p basemap
+	@mkdir -p "$(BASEMAP_DIR)"
+	@# A checkout that predates the move keeps its maps in the tree. Moved
+	@# rather than copied or ignored: copying doubles gigabytes, and leaving
+	@# them puts real downloads back in the path of the next `git clean`.
+	@# Only while the store has no complete map of its own, so a real store
+	@# is never merged into by this.
+	@# Parenthesised: BASEMAP_HAVE is an && chain, and a bare `!` in front of
+	@# one negates its FIRST test only -- which read as "no world overview
+	@# yet" and was true of a complete store, so nothing ever moved.
+	@if [ -f basemap/world.pmtiles ] && ! ( $(BASEMAP_HAVE) ); then \
+	  echo "basemap: moving your maps out of the checkout into $(BASEMAP_DIR)"; \
+	  (cd basemap && tar cf - .) | (cd "$(BASEMAP_DIR)" && tar xf -) \
+	    && rm -rf basemap \
+	    && echo "basemap: moved; the checkout no longer holds map data"; \
+	fi
 	@if $(BASEMAP_HAVE); then \
-	  echo "basemap: already here"; \
+	  echo "basemap: already here ($(BASEMAP_DIR))"; \
 	elif [ "$${TESSARIUM_NO_BASEMAP:-}" = "1" ]; then \
 	  echo "basemap: TESSARIUM_NO_BASEMAP=1 -- starting with an empty map"; \
 	else \
-	  echo "basemap: fetching the overview the packages ship (~6 MB)"; \
-	  tools/fetch-basemap.sh -z "" \
+	  echo "basemap: fetching the overview the packages ship (~43 MB)"; \
+	  tools/fetch-basemap.sh -z "" -o "$(BASEMAP_DIR)" \
 	    || echo "basemap: fetch failed -- carrying on without one" >&2; \
 	fi
+	@# `.fetched` is the stamp from before stamps carried a depth. It is
+	@# removed once its successor is written, so a store does not collect one
+	@# file per depth it has ever held.
 	@if $(BASEMAP_HAVE); then \
-	  touch $@; \
+	  touch "$@" && rm -f "$(BASEMAP_DIR)/.fetched"; \
 	else \
 	  echo "basemap: no complete map yet -- this will try again next time" >&2; \
 	fi
 
 # The name to ask for it by. Phony, in front of the stamp, so `make basemap`
-# reads as an instruction rather than a path, and tools/dev.sh has one thing to
-# call.
+# reads as an instruction rather than a path, and tools/bootstrap.sh has one
+# thing to call.
 basemap: $(BASEMAP_STAMP)
 
+# Where the stamp is, for `tools/bootstrap.sh --check` to report on it without
+# spelling the path a second time. The rule above is deliberate about what a
+# half-finished fetch means; a hand-written copy of "basemap/.fetched"
+# elsewhere is the start of disagreeing with it.
+print-basemap-stamp:
+	@echo $(BASEMAP_STAMP)
+
+# The same, for the directory itself: tools/dev.sh has to hand it to the
+# server, and a second spelling of the path is how the two start disagreeing
+# about where a download went.
+print-basemap-dir:
+	@echo $(BASEMAP_DIR)
+
 run: build $(BASEMAP_STAMP)
-	./_build/default/ocaml/server/bin/main.exe --port $(PORT) --basemap basemap
+	./_build/default/ocaml/server/bin/main.exe --port $(PORT) \
+	  --basemap "$(BASEMAP_DIR)"
 
 package: build
 	tools/package.sh

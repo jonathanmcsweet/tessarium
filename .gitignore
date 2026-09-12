@@ -12,7 +12,10 @@ obj/
 _build/
 ocaml/fstarlib/*.ml
 
-# Basemap tiles: large binaries fetched by tools/fetch-basemap.sh
+# Basemap tiles. They belong in the map store outside the checkout -- see
+# tools/basemap-dir.sh -- and a run moves an old in-tree directory there. This
+# stays so that a checkout mid-move, or one pointed back in here on purpose,
+# cannot commit hundreds of megabytes of map.
 basemap/
 .server.pid
 ocaml/lib/wordlist.ml

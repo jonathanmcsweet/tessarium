@@ -34,7 +34,6 @@ const said: Record<string, (arg: string) => string> = {
   mnemonic_word_count: (count) => m.err_mnemonic_word_count({ count }),
   mnemonic_not_a_word: (word) => m.err_mnemonic_not_a_word({ word }),
   mnemonic_checksum: () => m.err_mnemonic_checksum(),
-  passphrase_too_long: (bytes) => m.err_passphrase_too_long({ bytes }),
   address_not_four_digits: (text) => m.err_address_not_four_digits({ text }),
   address_not_a_word: (word) => m.err_address_not_a_word({ word }),
   address_part_count: (count) => m.err_address_part_count({ count }),

@@ -33,7 +33,7 @@
    governs, and it is here to catch someone pasting a library into it. Raise
    either only with a measurement saying why. */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 
 let checks = 0;
@@ -48,6 +48,7 @@ const check = (name, ok) => {
 
 const kb = (n) => `${(n / 1000).toFixed(1)} KB`;
 const at = (p) => new URL(p, import.meta.url);
+const css = readFileSync(at("../src/styles.css"), "utf8");
 
 /* file, what it is, gzipped budget in bytes. */
 const budgets = [
@@ -106,6 +107,49 @@ try {
 check(
   "the bundle ships no source map",
   bundle !== "" && !bundle.includes("sourceMappingURL"),
+);
+
+/* ------------------------------------------------------------ the font
+
+   One typeface ships: the face the edgerunner palettes draw the wordmark in. Three things have to hold about it, and none of them is visible on
+   screen when it breaks.
+
+   Self-hosted, because a face fetched from a CDN is a face that does not
+   arrive on a train -- and it is the whole reason this app carries its own
+   glyphs for the map. A src that names another origin fails here.
+
+   Present, because a @font-face whose file is missing resolves to the
+   fallback with nothing said: no error, no warning, just the wrong wordmark.
+
+   Licensed in writing beside it. The OFL requires the notice to travel with
+   the font, and public/ is copied into dist/ verbatim, so a file there is a
+   file that ships. This is the same rule tools/stage-bundle.sh applies to the
+   map's glyphs and sprites. */
+const fontsDir = at("../public/fonts/");
+const faces = [...css.matchAll(/@font-face\s*\{([^}]*)\}/g)].map((m) => m[1]);
+check(`the wordmark's face is declared (${faces.length})`, faces.length === 1);
+const src = /url\("([^"]+)"\)/.exec(faces[0] ?? "")?.[1] ?? "";
+check(
+  `it is served from this origin (${src || "no src"})`,
+  src.startsWith("/") && !/^https?:|^\/\//.test(src),
+);
+const fontFile = at(`../public${src}`);
+check(
+  `and the file is really there (${src.split("/").pop()})`,
+  existsSync(fontFile),
+);
+const fontBytes = existsSync(fontFile) ? statSync(fontFile).size : 0;
+check(
+  `the face is a face, not an error page (${kb(fontBytes)})`,
+  fontBytes > 2_000 && fontBytes < 60_000,
+);
+const shipped = existsSync(fontsDir)
+  ? readdirSync(fontsDir).filter((f) => f.endsWith(".woff2"))
+  : [];
+check(
+  `every shipped face has its licence beside it (${shipped.length} face(s))`,
+  shipped.length > 0 && existsSync(at("../public/fonts/OFL.txt"))
+    && statSync(at("../public/fonts/OFL.txt")).size > 1000,
 );
 
 /* An empty budget list would otherwise pass in silence, which is the failure

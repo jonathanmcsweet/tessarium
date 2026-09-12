@@ -15,10 +15,10 @@
    import from the crt stack guard, callers run _initialize first.
 
    Fixed input buffers rather than an allocator: a 24-word phrase is under
-   300 bytes and the salt is the 17-byte version prefix plus a passphrase.
-   1024 covers both with a wide margin; the core's max_passphrase_bytes
-   keeps real inputs well inside it, and the worker re-checks before it
-   writes -- the range checks below are the last line, not the first. */
+   300 bytes and the salt is the version string, which is fixed. 1024 covers
+   both with a wide margin, and nothing a user types reaches either buffer
+   unbounded -- the worker re-checks before it writes, so the range checks
+   below are the last line, not the first. */
 
 #include <stdint.h>
 #include <string.h>

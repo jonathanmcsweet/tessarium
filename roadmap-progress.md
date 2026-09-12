@@ -21,6 +21,1009 @@ than a git log.
 
 ---
 
+### 2026-09-12 — One handle, in two orientations
+
+**Phase:** 7
+
+**What:** What you take hold of to move the panel was two different marks: a
+rounded pill across the top of the sheet on a phone, and a square-ended 4x32
+bar down the drawer's edge on a desktop, built out of Tailwind `before:`
+utilities on the separator. In the edgerunner palettes that made the sheet's
+the only round end on screen and the drawer's the only unchamfered bar.
+
+Both wear `grab-pill` now. The shape is written once, cut to the same six-sided
+mitre as every button when the palette cuts, and the drawer's is the same
+element turned a quarter turn, so one polygon serves both. It also needed
+`flex: none`: on the edge it is a flex item in a 24px target twice as narrow as
+the mark is long, and it was being shrunk to the target and read as a stub.
+
+The pill's cut sizes moved from `.sheet-grab` up to `.app`, which is what lets
+the edge see them.
+
+**Rationale:** Two marks for one affordance is two things to keep in step, and
+they were already out of step. Three checks read the rendered page: the
+drawer's handle matches the sheet's in width, height, radius, clip path and
+colour and differs only by 90 degrees; it is longer than the target holding it;
+and it lights under the pointer, which is the only thing saying the edge is a
+control at all.
+
+Shown to fail first, all three. The test had to blur the separator and poll the
+colour until it stops moving before reading the resting state: the separator is
+driven from the keyboard earlier in the suite, so `:focus-visible` still held it
+lit, and `getAnimations()` comes back empty at the moment the pointer leaves
+because the transition does not exist yet.
+
+### 2026-09-12 — A region of the panel is a component, and a role is worn rather than aliased
+
+**Phase:** 7
+
+**What:** `region-group` was `@apply panel-title` under a second name. Five
+headings rendered as the panel's section label while nothing in their markup
+said so, and the one word devtools could tell you about such an element
+appeared nowhere else in the stylesheet. The three roles are still the only
+things that set face, size and colour, but nothing aliases one now: an element
+that reads as a note says `panel-note hint`, a name says `panel-label
+ledger-name`, and a title says `panel-title` -- written by `PanelSection` and
+by nothing else.
+
+Which is the other half. The panel had five regions built five ways: two
+`<section>`s ruled underneath and two ruled on top, so a running download put
+two lines between the address and its progress and the last region on screen
+trailed a line into empty space; three `<p>`s standing in for a heading, which
+is why the download card's groups were unreachable by heading navigation; the
+title-and-control row built twice; `p-4.5` beside `px-4.5 py-3.5`. They are
+one component now -- heading, optional tip, optional control, children -- and
+a section inside a section is a GROUP: `h3` instead of `h2`, no rule and no
+padding of its own. The depth is counted by context rather than passed in,
+because a caller that has to say what level it sits at is a caller that can
+say the wrong one, and three components that do not know each other render
+these.
+
+The states and cities inside a country row went from a `<p>` above a list to a
+section around it, so what a heading labels is what contains it.
+
+**Rationale:** Styling you can see and cannot name is the failure. Naming the
+three roles stopped a fourth from appearing; wearing them stops a fifth from
+appearing under an alias, which is the same bug one level up.
+
+Two audits hold it, and both were shown to fail first: no `@utility` may
+`@apply` a role (re-adding `region-group` fails it), and exactly one file may
+write `panel-title` (putting it on `MapProgress`'s section fails it). Four
+more read the rendered page -- every element that reads as a section label
+wears the class, every region is a named `<section>` with one head row, `h2`
+steps to `h3` inside one, and the rule is on top and never underneath.
+
+**Follow-on:** `warning` and the toast and banner text still carry `text-sm
+leading-normal` of their own, outside the panel and outside these roles.
+
+### 2026-09-10 — The zero-admit gate had a hole the shape of `assume val`
+
+**Phase:** 7
+
+**What:** `--report_assumes error` was the whole of "no proof holes", and on
+F* 2026.08.09 it covers only the hatches reached through a term: `admit()`,
+`assume (p)`, `magic`, `admitP`. Measured, not assumed -- `assume val ax :
+squash (1 == 2)` in `Tessarium.Codec` proved
+`from_address (to_address i) == i + 1` and `make verify` exited 0 saying all
+verification conditions discharged. So did deleting
+`Tessarium.Table.Data.fst`: F* checks the lone interface, the band table's
+three lemmas become axioms, and every grid theorem downstream still
+"verifies". `tools/check-fstar-assumes.sh` covers exactly that remainder --
+declaration-position `assume`, `assume type`, and an interface with no
+implementation -- and `fstar/Makefile`'s `verify` runs it first.
+
+Three smaller holes on the same path. `--warn_error @247` makes it fatal when
+F* declines to write a `.checked` because a dependency's cache was stale:
+the recipe's `touch -c` was stamping that stale artifact fresh, and every
+later `make verify` then reported nothing to be done for a module it had
+never rechecked. `extract` now clears `$(OUT)/*.ml` first, the way
+`low-extract` clears `low/out`, so a module that stops coming out cannot
+leave its last output behind for CI's `git diff` to read as unchanged.
+`Tessarium.Check.Words` pins its corpus lengths (16 fixture words, 38
+spellings) the way Check.Grid and Check.Cipher pin theirs.
+
+**Rationale:** The grep this project rejected once was rejected for the right
+reason -- it fires on "assume" in prose -- and the flag that replaced it was
+taken to cover more than it does. The check runs beside the flag rather than
+instead of it, over only what the flag misses, and strips comments before
+matching: on a file where a naive grep fires five times it fires zero.
+
+Shown to fail first, all four: the axiom and the deleted implementation pass
+`make verify` and are refused by the new check; an emptied `words_typed`
+passes Check.Words without the pins and is refused with them; a stale
+`.checked` touched ahead of its source makes `make verify` report "Nothing to
+be done" without `@247`.
+
+Three labels corrected with it. `CLAUDE.md`'s "Say exactly what is proved"
+said zero admits was "enforced by `--report_assumes error`" -- one clause
+short, and the clause that was missing is the one this entry is about; it now
+names both gates and what each covers. It also said the theorems are listed in
+`README.md`, which they are not: the theorems are the `theorem_*` declarations
+in `fstar/` and the README summarises them for a reader who wants no F*.
+`README.md`'s second guarantee said an address converts back to "exactly where
+it started", where `theorem_end_to_end` says the same SQUARE -- decode returns
+that square's centre, not the point that was clicked.
+
+### 2026-09-11 — The seed phrase can be copied, because the worker now keeps it
+
+**Phase:** 7
+
+**What:** The worker holds the mnemonic beside the key and forgets both on
+`lock`. Two controls copy it: one in the panel's footer, where a standing
+warning used to say it could never be shown, and one in the lock dialog, whose
+warning now says this is the last chance to take it. `panel_phrase_note` left
+all six catalogues; three keys arrived. `CopyButton` learned an asynchronous
+source, handing the clipboard a promise through `ClipboardItem` rather than
+awaiting first -- awaiting spends the user gesture, which Safari refuses.
+
+**Rationale:** Requested, and it reverses the design's starting position: the
+phrase used to be wiped the instant the key existed, and the panel said so.
+The trade is bounded deliberately -- the words live in the worker, never on
+this thread, never in a query cache, never in storage, and a reload is a fresh
+worker with nothing in it. The lock dialog's warning changed with the fact:
+"they were never stored here" was no longer true, and a warning that is no
+longer true is worse than none.
+
+The half that matters most cannot be tested from the page: a locked tab
+holding the words looks identical from outside to one that forgot them. So
+`test/secrets.mjs` reads it off the worker's source -- one binding, two
+assignments, set only after the derivation, cleared in `lock` -- beside the
+end-to-end checks that the clipboard really receives the right 24 words.
+
+**Follow-on:** None.
+
+### 2026-09-11 — The mobile sheet gets a handle, and the drawer's controls stand down
+
+**Phase:** 7
+
+**What:** Below `--breakpoint-drawer` the panel's "close" icon and the tab that
+floated at the map's right edge to reopen it are both hidden, and a pill
+handle runs along the sheet's top edge instead. It rides `--sheet-offset`, so
+it sits on the sheet while the sheet is open and on the map's bottom edge when
+it is shut, and MapLibre's bottom controls clear `--sheet-offset + --grab-h`.
+
+**Rationale:** Requested: both of those controls describe a layout a phone
+does not have -- an icon meaning "close the panel on the right", and a tab at
+a right edge nothing is covering. A sheet is pulled, and the pill is the
+gesture a phone reader knows before reading anything. Riding the offset rather
+than carrying a position of its own is what keeps the two states in step with
+one transition.
+
+Also removed the 3.5rem the right edge reserved for that tab below the
+breakpoint: nothing stands there any more.
+
+### 2026-09-11 — The chamfer reaches the things you type into
+
+**Phase:** 7
+
+**What:** `.field` and the dropdown's closed trigger take the same bevel the
+buttons take, at the same size. The field's inline padding went from `px-3` to
+`px-4`, so a caret at the start of the line clears the corner rather than
+sitting in it.
+
+**Rationale:** Reverses an earlier call to keep the shape off the inputs --
+requested, on seeing it: with the buttons chamfered and the fields square, the
+row they share stopped agreeing with itself. The dropdown's trigger came along
+for that reason and not by instruction: it sits in that row and was the last
+square thing in it. Its POPOVER did not, and neither did the tooltip -- those
+are surfaces rather than controls, and they stay rectangles.
+
+Neither gets the `clip-path` fallback the buttons keep, because clipping a
+field takes its focus outline exactly the way it took the buttons'. A browser
+without `corner-shape` gets them square, which is what three of the five
+palettes look like anyway.
+
+### 2026-09-11 — The panel's text has three roles, and they are named
+
+**Phase:** 7
+
+**What:** The drawer drew the same two or three things seven different ways,
+most of them written out in a class list. There are three roles now, defined
+once in `styles.css` with the table in the comment above them:
+
+| `panel-title` | what a section IS | mono, 12, uppercase, ink |
+| `panel-label` | a thing inside that section | sans, 14, medium, ink |
+| `panel-note` | what is true about it | sans, 14, regular, ink-soft |
+
+`hint` is `panel-note` with the room a standing paragraph needs. `region-group`
+is `panel-title` with its own margins. `region-sub` -- the states and cities
+under one country -- is that said quietly, because a white uppercase heading
+repeated down a list of two hundred countries is a texture, not a hierarchy.
+`ledger-name` is `panel-label`. `view-note` is `hint`.
+
+What moved: section labels are the panel's full ink rather than soft, being
+the most important thing in their section; a checkbox's own text had no class
+at all and inherited the document's 16px, two points larger than every other
+line in the card AND in full ink beside notes in soft; the region picker's
+label was a section heading and is now what it is, a thing inside "Offline
+maps"; the lock button carried a `text-ink-soft` override on top of
+`btn-quiet`'s ink, so one quiet button in the panel was a different colour
+from the rest.
+
+The accent border on hover lived on `LINK_BUTTON` -- the two quiet buttons
+that are an `<a>` and a `<label>` rather than a `<button>` -- so "Save a copy"
+and "Choose a file" lit up and "Update" and "Remove" beside them did not. It
+is on `btn-quiet`, where it belongs to the button rather than to the element
+it happens to be made of.
+
+**Rationale:** Naming three roles is what makes a fourth obviously wrong. The
+inventory that found these was taken by walking every text node in the open
+panel and collapsing them by rendered style -- not by reading the source,
+which is how seven of them survived a dozen reviews. The checks read the page
+back for the same reason: a shared class name is not the claim, a shared
+rendering is.
+
+Six mutations were run before the checks were trusted, and two of them had to
+be run alone: mutating `panel-title` to soft AND `region-sub` to inherit it
+made the pair agree again, so the combined run passed a check that a single
+mutation fails. A mutation test that changes two things can prove less than
+one that changes one.
+
+### 2026-09-11 — One label, one body text, and a bar that belongs to a palette
+
+**Phase:** 7
+
+**What:** The panel had four ways of writing the same two things.
+
+Labels: `region-group` -- "DOWNLOADED MAPS", "ADD MAPS FROM A FILE", "OR PICK
+COUNTRIES, STATES, OR CITIES" -- sat three steps from the "OFFLINE MAPS"
+directly above it: the body face instead of the mono one, 11px instead of 12,
+and indented 10px past the rows it labelled, so a label started further right
+than its own children. It is `panel-title` now, margins aside. The region
+picker's label was a fourth thing again (`text-sm font-semibold`) and is the
+same label as the rest. `MapProgress` titled itself in body text at a padding
+2px off its neighbours; both match the download card now.
+
+Body text: the view note carried `m-0 text-sm leading-normal` in its class
+list -- two thirds of `hint` and none of its colour -- so "This view" sat in
+plain ink directly above "This square" in soft, with nothing saying they were
+meant to differ. The note IS `hint` now. Its one marked row keeps its box as a
+two-class rule rather than a utility, because a utility would have to beat the
+colour `hint` brings in, and two utilities setting one property are settled by
+the order Tailwind emits them in.
+
+The download bar was a `<progress>` with an `accent-color` on it, which Chrome
+ignores for that element: it drew its own green -- measured at
+`rgb(0, 128, 0)`, the one colour in the application belonging to no palette.
+Painted from the accent, with the track from the line.
+
+The browse setting -- the only one here that reaches the network without a
+press -- says what it does in an info icon rather than four lines of small
+print, the move the gate's provenance note made. The icon is outside the
+checkbox: React Aria's Checkbox is the label, and an info icon that toggles
+the thing it explains is worse than no icon.
+
+**Rationale:** Every one of these was found by looking at the rendered panel,
+not the source, and every check written for them reads the page back rather
+than the class name -- a shared class is not the claim, a shared rendering is.
+All five were run against the un-fixed code first: the green, the 11px
+sans label, the un-aligned label, the missing icon and the brighter ink each
+failed with the defect named in the message.
+
+**Follow-on:** `ledger-name` dropped to medium weight so a row does not
+outweigh the label above it. The three remaining copies of
+`text-sm leading-normal` outside the panel -- Banner, Toasts -- were left
+alone: they are different surfaces with their own colours, and folding them in
+would be a claim about them that nobody has checked.
+
+### 2026-09-11 — A floor at 320px, and a header that stacks in the middle
+
+**Phase:** 7
+
+**What:** `#root` and `.app` take `min-width: 320px`. Below that the page
+scrolls rather than the map giving up more of itself -- the sheet's header
+cannot hold the brand and three controls on one row under 356px whatever the
+layout does, and 320 is the narrowest phone still shipping.
+
+Between those two numbers the header stacks, and stacked it put the brand hard
+left and the buttons hard left under it: two half-empty rows. Both lines
+centre now, below a threshold that also forces the stack rather than waiting
+for it -- CSS has no signal for "this line wrapped", so a threshold that only
+changes the alignment has to agree with the layout's own answer to the pixel,
+and it will not: the brand's width is a rendered string.
+
+**Rationale:** The wrap point was measured by stepping the viewport 420px down
+to 300 with the centring rule switched off, not guessed. 22.5rem sits just
+above where it gives out, so there is no width at which the layout has stacked
+and the rule has not yet decided it should have.
+
+### 2026-09-11 — An icon set of its own, worn only by the palettes that earn it
+
+**Phase:** 7
+
+**What:** Sixteen glyphs in `ui/src/components/icons.tsx`, drawn to a spec in
+that file's header: 24-unit box, 2-unit stroke, square caps, mitred joins,
+every segment horizontal, vertical or on the 45-degree lattice, and the
+button's own 4-unit chamfer on any shape that encloses. They render in the two
+edgerunner palettes only; the plain three keep lucide, which is still a
+dependency and is imported by exactly one file.
+
+MapLibre's five controls -- zoom in, zoom out, compass, geolocate and the
+compact attribution toggle -- are painted rather than inverted, in every
+palette. Their glyphs ship as CSS masks so the colour comes off the button and
+is a token like everything else. The geolocate and attribution rings, the only
+two shapes there that enclose, take the chamfer in the edgerunner pair and
+stay square elsewhere.
+
+`test/icons.mjs` was an allowlist of files permitted to draw an `<svg>`. It now
+parses every path -- in the component AND in the stylesheet -- and holds each
+to the spec: commands, lattice, box, chamfer width, solid squares, stroke,
+cap, join. Four mutations were run against it before it was trusted: an
+off-lattice segment, a round cap, a 5-unit chamfer and a 3-unit pip, each
+caught.
+
+**Rationale:** The one-set-everywhere option was built first and reversed on
+sight -- a lattice glyph on a square button is the same mismatch as a round one
+in a chamfered field, pointing the other way. Which palettes are chamfered is
+therefore a classification, and it is written once, as `CHAMFERED` in
+`theme.ts`. `applyTheme` turns it into a `data-icons` attribute from the
+RESOLVED theme, because "match my device" is answered by a media query and a
+stylesheet cannot see one; React reads the same answer through one context
+rather than one media-query subscription per glyph.
+
+Two glyphs were redrawn after being read at the size they actually ship at.
+lucide's `Languages` mark is four strokes stacked down nine units, and square
+caps close every gap between them at 16 pixels -- it came out a blot. Its
+`Palette` is a blob with a thumb hole, which has no curve-free translation, so
+the swatches became the glyph: the thing the control picks rather than the
+object that holds it. Neither was visible on the 24-unit grid the set was
+designed on, which is the argument for looking at the rendered size.
+
+MapLibre's compass needle and its attribution `i` are triangles and rings, not
+chamfered boxes, so the audit's chamfer rule had to learn what a box is: six
+segments, four on the axes and two diagonal. Anything else is exempt, and the
+eye -- four diagonals, no corners -- is exempt for the same reason.
+
+**Follow-on:** `CLAUDE.md` says to use a shared icon set and not to hand-roll
+glyphs. That rule now describes three palettes out of five and needs an
+amendment naming the exception and the audit that replaces it. Not written:
+the file says to consult first.
+
+### 2026-09-11 — The phrase copy moves to the header, and the low-light map stops being grey
+
+**Phase:** 7
+
+**What:** The seed-phrase copy was a labelled row in the panel's footer. It is
+an icon button in the header now, beside the lock that forgets the phrase --
+the last press that can still answer, next to the press that ends the asking --
+and the sentence that stood beside the glyph is its tooltip, which
+`IconButton` also makes the accessible name.
+
+The bottom sheet's handle no longer sits in a band above the sheet with a rule
+between them. It dips into the sheet's own header padding by less than that
+padding, so it covers no control, and the rule is gone: the handle and the
+drawer have the same ground, and the rule was the only thing claiming they
+were two things.
+
+The whole handle is inside the sheet now -- the map's bottom edge meets the
+sheet's top edge with nothing between them. Moving the pill down twice did not
+fix it, because what read as a separate strip was the band of card standing
+ABOVE the sheet, not where the pill sat in it. The header answers with
+`max-drawer:pt-8`, so the sheet carries its own room for its handle rather
+than borrowing the controls'. The pill's centre sits 16px below the sheet's
+edge -- 12px of clear space above it and 12px below it to the title row --
+chosen off a rendered mockup rather than argued about in numbers.
+
+That padding is the whole lever, and the target is exactly it: full width, so
+it takes the press, so a taller one swallows the top of the download button.
+32px against a 44px guideline is the cost, and it is the whole sheet's width.
+
+The pill is pinned by its CENTRE, not its top, because the two palettes draw
+it at different thicknesses -- a round 4px bar, a mitred 8px one -- and a
+shared top would put them at different heights for the same number.
+
+The target's height stopped being a utility class in the same change. Three
+rules measure from `--grab-h` -- the dip, and where the scale bar and the
+attribution stop -- and `h-9` beside a variable saying 28px is two answers to
+one question: the map believed the variable and the handle hung 8px over the
+sheet's top edge.
+
+The pill is a pill in the plain palettes and a six-sided bar in the edgerunner
+pair -- both ends mitred at the same 45 degrees as the buttons, symmetrical
+across both axes. It was a parallelogram first: the same angle, but it leans,
+and a handle grabbed from either side should not look like it prefers one.
+
+The theme is renamed: `cyber-dark` and `cyber-light` are `edge-dark` and
+`edge-light`, labelled Edgerunner dark and Edgerunner light in all six
+catalogues. Nothing persists a theme, so there was nothing to migrate.
+
+Version bumped to 0.2.0 in `ui/package.json` and in both command-line
+binaries.
+
+**Rationale:** MapLibre's controls were inverted rather than painted, which
+lands on grey whatever the palette says -- white buttons on a red map in low
+light, which is what prompted this. The invert also turned the geolocate
+control's blue "following" into orange and its red error into cyan: worse than
+plain, because it said something and the thing it said was wrong. Those states
+are tokens now.
+
+**Follow-on:** `roadmap.md` gains Japanese, Chinese and German -- deferred as
+layout work rather than translation work, with the three reasons written out.
+
+### 2026-09-11 — The chamfer moves into the box, and brings the border and the focus ring with it
+
+**Phase:** 7
+
+**What:** The cut corner was `clip-path`, which cuts the shape out of the
+finished button: the border came away along the diagonal, so the two corners
+rendered as gaps in the outline rather than as angled edges, and an outline at
+`outline-offset: 2px` fell outside the polygon entirely. It is now
+`corner-shape: bevel` with a bevelled `border-radius`, behind
+`@supports (corner-shape: bevel)`, with the clip kept as the fallback. The
+chamfer SIZE is now the token -- `--cut-size`, `--cut-size-icon` -- and the
+polygons are derived from it, so the number is written once per palette
+instead of four times.
+
+**Rationale:** Closes most of the cyberpunk focus-ring item, which is reduced
+in the roadmap to the fallback branch. Measured both ways on a focused button
+in cyberpunk dark: 1066 accent-coloured pixels with the chamfer in the box,
+zero with the clip. The suite counts them the same way -- Playwright
+screenshots the region, the page decodes it on a canvas -- because computed
+style reports the outline identically whether or not it is painted, so nothing
+short of the pixels can tell the two apart.
+
+**Follow-on:** A browser without `corner-shape` still loses the ring; the
+reduced roadmap item says why the fallback is not written.
+
+### 2026-09-11 — The tooltip joins the theme, and the control that cannot be pressed can still say what it is
+
+**Phase:** 7
+
+**What:** Two fixes to the shared tooltip. It was painted `bg-ink` on
+`text-on-ink` -- the inverted pair -- which in the four dark palettes is a pale
+box with black text: a system tooltip sitting on top of the theme rather than
+in it. It now wears `sheet`, the same floating surface the dropdown's list is
+made of, and its arrow is two paths so the surface's border can follow the
+shape instead of drawing a line across its mouth. Separately, `IconButton`
+marks unavailable with `aria-disabled` and refuses the press itself, rather
+than handing the browser a `disabled` attribute.
+
+**Rationale:** A disabled button receives no hover and takes no focus, so the
+gate's copy button -- dark until the 24th word -- was the one control on the
+screen that could not say what it was. Measured before the change and after:
+warmed up, the eye beside it opened a tooltip and the copy button opened
+nothing. Playwright still reports it disabled, so the checks that hold it
+unpressable did not move. Also removed `cursor-help`, which was the last thing
+making the icon read as a 90s system affordance.
+
+**Follow-on:** None.
+
+### 2026-09-11 — The gear goes; the theme sits beside the language
+
+**Phase:** 7
+
+**What:** `SettingsMenu` is deleted. The panel's header had a gear that opened
+a popover holding exactly one control, the theme; it now sits at the foot of
+the panel next to the language, which is the row the gate has always had.
+`a11y_settings` left all six catalogues with it. `ThemePicker` is unchanged --
+both placements pass `labelHidden`, so the two are now identical but for where
+they are.
+
+**Rationale:** A category named in the header, a press to find out what was
+under it, and an overlay to hold a single dropdown. The two choices about the
+application rather than about the map belong in one row, and the gate already
+knew where that row goes.
+
+### 2026-09-11 — The provenance warning moves into the icon beside the button
+
+**Phase:** 7
+
+**What:** The unlock screen's standing warning about where a phrase comes from
+was a filled block under "Generate one for me". It is now the `InfoTip` beside
+that button -- the same component the import section's hint wears, so there is
+one tooltip in the app, not two. Its two message keys
+(`gate_phrase_warning_title`, `_body`) merged into one `gate_phrase_warning`
+across all six catalogues: the title/body split existed only to bold the first
+sentence, and a tooltip has no bold.
+
+**Rationale:** A tooltip hides a sentence from anyone who does not reach for
+it, and this is the highest-value security decision the screen asks for. Two
+things make that trade honest rather than a quiet demotion: the sentence is
+the icon's `aria-label` at all times, not only while the overlay is open, so a
+screen reader announces it on the way past the button; and the icon is
+permanent -- never dismissed, never conditional -- which is what the block it
+replaced was for. The gate had become a column of stacked boxes and the
+warning was reading as the form's furniture.
+
+**Follow-on:** None. `--color-alert` stays in use -- the write-it-down notice
+and the dialogs still wear `.warning`.
+
+### 2026-09-11 — Where a card's buttons sit is one decision, not five
+
+**Phase:** 6
+
+**What:** `download-actions` was a class NAME with its flex layout pasted at
+each of four call sites, so where a row's buttons sat was four independent
+decisions. It is one `@utility` now, and the file chooser -- a bare `<label>`
+in flow, with no row at all -- got one. They still run from the left.
+
+**Rationale:** Right alignment was tried and put down. The rows looked
+settled before only by accident: the ledger's line is `justify-between`, so
+the text beside its buttons pushed them to the right edge, while the file
+chooser had no such neighbour and sat alone on the left. One rule makes that
+an actual decision rather than an emergent one, and declaring no alignment in
+it is deliberate -- a row wanting a different one has to change the place
+every row can see.
+
+The gate is untouched. Its generate button is left-aligned with a comment
+saying it must read as an offer rather than as fine print, and its submit is
+a block button in a centred form -- a different screen with a different
+layout language.
+
+**Shown to fail first:** all three checks fail against the pasted class
+lists.
+
+**Tests:** 3 in `test/downloader.mjs` -- the utility exists, every row in the
+card is one, and no row re-declares the layout it owns. The count is exact
+because a sixth row added with its own flex classes is invisible in a diff.
+Nothing asserts which edge: that is the part that changed its mind once
+already, and what the checks hold is that the rows cannot come to disagree
+about it.
+
+### 2026-09-11 — A second loading mark, made of tiles
+
+**Phase:** 6
+
+**What:** The estimate is real planning work on the server and takes as long
+as the area is large, so the download card sat on one sentence -- "Checking
+how much there is to fetch" -- with nothing moving and, until now, nothing
+announced either. `LoadingTiles` is four squares in a 2x2 filling clockwise,
+sized in `em` so it matches the text it stands beside, and the estimating
+hint gained `role="status"`.
+
+It is the application's second loading indicator and deliberately not the
+first: `.map-loading` is a bar across the top of the map about the whole
+view, and says nothing about one section of a card waiting on its own while
+everything around it is already there.
+
+**Rationale:** Tiles rather than a spinner. The shape is the application's
+own -- the grid draws empty squares, the reticle is one, the buttons are cut
+from the same corner -- so a wait looks like the thing being waited for. A
+spinner would have been the one mark on screen with no relation to anything
+else.
+
+A component rather than four elements copied into each caller: the mark is
+its markup AND its stylesheet rule, and a second copy is how one of them
+comes to have three squares.
+
+Reduced motion needed a rule of its own beside `.map-loading`'s. The global
+block freezes animation, which would leave the four squares stopped at four
+different opacities -- that reads as a rendering fault, not a mark. They even
+out to a still block of tiles.
+
+**Shown to fail first:** all seven checks fail against a build without it --
+the mark is absent, so every reading comes back undefined.
+
+**Tests:** 7 e2e checks, holding the wait open by delaying the estimate.
+Computed style rather than the class alone: a rule that did not reach the
+element is four invisible spans, which looks exactly like the state it
+replaces. The delays are asserted as 0s, 0.15s, 0.45s, 0.3s -- clockwise for
+a 2x2 laid out 1 2 / 3 4 -- because filling in turn is what makes it read as
+tiles arriving rather than flashing.
+
+Two harness lessons, both earned: the estimate is cached against the region
+asked for and kept fresh for five minutes, so the check has to price a region
+nothing else in the file prices or there is no wait to catch; and a route
+handler that sleeps must continue inside a try, because `unroute` can beat it
+to its route and the throw comes from a promise nothing awaits -- which takes
+the suite down rather than failing a check. The tile-delay route above it
+already carried that catch and the comment explaining it.
+
+### 2026-09-11 — The map stops talking over itself; the panel says it instead
+
+**Phase:** 6
+
+**What:** At a phone's width the strip above the sheet held four boxes at four
+widths -- the coverage note at 312, the zoom note at 198, the attribution at
+194, the scale bar at 67 -- each with its own border and ground, none aligned
+to another. The map draws none of the notes now.
+
+All three -- no detail here, too far out for the grid, too many squares to
+draw -- are rows of a `THIS VIEW` section at the top of the panel, above `THIS
+SQUARE`. The three facts moved from `useState` in MapView to one `view` slice
+in the store (`blank`, `belowGrid`, `truncated`), written by the map and read
+by the panel. MapView lost three pieces of state, a ref, a layout effect and
+two class-list constants with them.
+
+The coverage row carries no button. It names the download control already in
+the panel's header one row above it, and stands down while that control's card
+is open. The truncated row keeps `--color-notice-soft` and
+`--color-notice-soft-line` as a ground and a left rule -- without it both were
+orphaned in six palettes.
+
+Separately, the attribution asks for no `compact` either way, which lets
+MapLibre decide from the map's own width whether the credit needs a toggle;
+`shutCredit` then closes it on the maps it called narrow. A phone gets a 24px
+button, a desktop map keeps the whole 168px line.
+
+**Rationale:** The note is a standing condition of the view, not an event: on
+a fresh install it is true nearly everywhere and for a long time. Four ragged
+rectangles competing for the one band the scale bar and the credit already
+occupy is the wrong home for something permanent, and shrinking it only moved
+the collision. The panel is where the application already explains itself.
+
+A card over the map was built first -- the three notes as rows of one box --
+and is not what shipped: it solved the ragged widths and left the thing
+sitting on the scale bar and the credit.
+
+`shutCredit` clears the class as well as the attribute. MapLibre syncs
+`maplibregl-compact-show` from the summary's click, not from the `toggle`
+event, so clearing `open` alone leaves it set and the first tap CLOSES an
+already-shut panel -- measured, not guessed: a probe that cleared only the
+attribute left the control at 36px and the next tap took it to 24px instead of
+opening it.
+
+**Shown to fail first:** against the old markup the credit opened at 194px, a
+tap on it CLOSED rather than opened, and the desktop map was compact. The
+notes' move is held by checks that fail the moment either place says any of
+it twice -- the map drawing a note of its own, or the section growing a
+control beside the header's.
+
+**Tests:** the phone-sized e2e block asserts the map draws nothing of the
+sort, that the panel says both facts under its own heading, that the section
+sits above the square, and that it carries no control of its own. Ten checks
+that named `.map-note` were repointed rather than deleted; three changed
+meaning instead: the theme-colour check now asserts the row has NO ground of
+its own (a row that grows one can carry a literal again) plus the panel's
+lightness under both themes, the download path is exercised through the header
+button the note names, and the focus check asserts the keyboard is left
+undisturbed -- with no control in the section there is nothing to drop.
+
+### 2026-09-11 — The map's overlays keep clear of the panel, not of a guess
+
+**Phase:** 6
+
+**What:** Below `--breakpoint-drawer` the panel is a sheet across the bottom,
+and every overlay drawn on the map -- MapLibre's zoom column, its scale bar,
+its attribution, the map's own notes, the search field -- was positioned
+against a right edge the sheet does not touch. On a 390px screen the zoom
+column landed 340px in from the right, which is the top-LEFT corner, under the
+search field; the attribution sat 91px off the left of the screen; the scale
+bar and the notes were under the sheet.
+
+`App.tsx` now sets the two facts it has -- `--panel-w` and `--panel-open` (1 or
+0) -- and `styles.css` derives what each EDGE of the map is carrying:
+`--panel-offset` for the right, `--sheet-offset` for the bottom, and
+`--right-clear` for the right edge including the reopen tab while the panel is
+shut. `AddressPanel` reports its own height through a ResizeObserver so the
+bottom offset is the sheet's real height rather than the 45vh cap it only
+reaches when its content is scrolling. `PanelResizer` paints one property
+instead of two.
+
+**Rationale:** The answer depends on the breakpoint and a stylesheet is the
+only thing that knows where the breakpoint is, so App was answering a question
+it could not see. Deriving in CSS is what makes the sheet case exist at all:
+before, no consumer could tell a covered edge from an uncovered one.
+
+`--right-clear` is added rather than floored. The old rule was
+`max(--panel-offset, 3.5rem)`, whose floor reads as "leave room for the reopen
+tab" but also holds the controls 3.5rem clear of a sheet that covers no side at
+all. The search field spends the same number instead of its own 5.5rem of fixed
+reserve, which on a phone with the sheet shut ran the field over the zoom
+buttons with the field drawn on top.
+
+The bottom offset is measured, not the cap: offsetting by 45vh left the scale
+bar and the attribution floating a hundred pixels above a tablet's sheet with
+bare map under them.
+
+**Shown to fail first:** all seven of the sheet-open checks failed against the
+old rule (zoom column 340px in from the right and overlapping the search field,
+attribution at left −91, scale bar and notes under the sheet), and the
+shut-sheet search overlap failed after the first fix -- buttons from 295, field
+to 312 -- which is what sent the field's width to the same lever. The four
+checks the old rule already passed (tab clearance, notes centred, scale on the
+map's floor with the sheet shut) are in the same block, so the fix had to keep
+them.
+
+**Tests:** 12 new e2e checks on a phone-sized page of its own, geometry rather
+than class lists for the reason the reopen tab is geometry -- these numbers
+reach MapLibre through a stylesheet that has to outrank MapLibre's own, so a
+rule can look right in the source and do nothing. `test/shell.mjs` now requires
+the resizer to paint the width and NOT the derived offset: a second hand
+writing the answer is how the answer came to disagree with the layout.
+
+### 2026-09-10 — A serif wordmark, and a way to save the phrase
+
+**Phase:** 6
+
+**What:** The wordmark's split shadow is gone. The cyberpunk palettes draw
+TESSARIUM in Bodoni Moda -- 15 KB of latin cut at 700, served from
+`ui/public/fonts` with its OFL notice beside it -- and the plain three keep the
+mono stack. `--brand-font` replaces `--glitch-a`/`--glitch-b` as the wordmark's
+lever, so the count of levers the plain palettes hold at rest is unchanged.
+
+The gate gained a copy button beside the phrase, the same `CopyButton` the
+address uses, disabled until the phrase is 24 words. The write-it-down warning
+now names a password vault as the first option, which is what the copy button
+is for.
+
+**Rationale:** Requested: the two-colour offset read as blurred rather than as
+misregistered, and there is no offset that is both legible and still the
+effect. A second FACE says the same thing about the palette and says it in the
+glyphs, where nothing has to be read through a fringe.
+
+Pixel faces were tried first and put down -- four of them, then four pixel
+slabs when a serif was asked for. The pixel route trades one kind of visual
+noise for another: the striped faces (Workbench, Sixtyfour) read as busy at
+the size the wordmark is set. A Didone earns the same distance from the mono
+body without any texture at all: hairlines against thick stems is contrast in
+the drawing rather than in the rendering.
+
+Declared `font-weight: 100 900` from a file cut at 700, so nothing synthesises
+a bold -- a synthesised bold thickens a Didone's hairlines into its stems, and
+the contrast IS the face. Self-hosted rather than fetched, which is the same
+rule the map's glyphs follow: a font from a CDN is a font that does not arrive
+on a train.
+
+Disabled rather than hidden on a partial phrase: half a secret on the
+clipboard is worse than none, and a button that appears on the last word typed
+moves the row under the pointer.
+
+Shown to fail first: pointing the lever at the mono stack fails the face
+check AND the loaded check (a @font-face whose file 404s resolves to the
+fallback silently, so the name alone proves nothing); removing the licence,
+or pointing the src at a CDN, fails the new payload checks; and copying the
+wrong text fails the clipboard read-back.
+
+### 2026-09-10 — What the import section is for, in an info icon
+
+**Phase:** 6
+
+**What:** "Add maps from a file" carries its explanation in an info icon on
+the heading rather than a paragraph under it, and the sentence is new: maps
+downloaded from another Tessarium instance can be loaded here for offline
+usage. The tooltip itself -- the overlay, its arrow, the long press that
+stands in for hover on a touch screen -- moved out of `IconButton` into
+`components/Tip.tsx`, which both the icon buttons and the new `InfoTip` wear.
+
+**Rationale:** Requested. Extracting the shell rather than copying it is the
+same rule the theme picker settled last night: two tooltips drawn by two files
+is how one of them ends up dismissing differently. Moving a sentence into a
+tooltip hides it, so the icon's accessible name IS the sentence -- React Aria
+describes a trigger with its tooltip only while the tooltip is open, and a
+name that exists only on hover is no name at all. Shown to fail first: the
+icon audit catches the arrow moving files in both directions at once, and
+rebuilding the overlay by hand fails the new shared-controls checks.
+
+### 2026-09-10 — The world ships whole, and is no longer offered
+
+**Phase:** 6
+
+**What:** Packages carry the world overview at zoom 6 -- about 43 MB, the
+depth the map ever draws it -- instead of zoom 4 with an in-app offer to
+deepen it. Both world offers are gone from the download card, along with the
+estimate behind them, the `WORLD` region, the `world` flag through the client,
+and three messages in six catalogues. The card now offers the current view and
+the picker, and nothing else. The server still knows how to write
+world.pmtiles; no path in the app sends it.
+
+The depth has one home, `tools/fetch-basemap.sh`, which answers
+`--print-world-zoom`. The Makefile names the basemap stamp after it
+(`.fetched-z6`), so raising the depth retires every stamp written at the old
+one -- a store filled before this lands is refetched once, without anyone
+having to know to delete a file. `tools/archive-max-zoom.sh` reads an
+archive's real depth through a new `--describe` on the pmtiles CLI, and both
+the fetch and the packaging ask it: the fetch to decide whether the overview
+on disk is deep enough to keep, packaging to REFUSE a source shallower than
+the shipped depth.
+
+**Rationale:** Requested, after a correction: the premise was that the world
+already ships, and it did -- at zoom 4, countries and coastlines, while the
+offer on screen was for the zoom 6 that shows towns and roads. So the offer
+was not redundant, it was badly named ("Add the whole world at country level"
+described the shipped map). Given the choice between fixing the words and
+shipping the deeper map, shipping it won: a package that carries a map should
+carry the map, not an errand. The cost is a 43 MB first fetch for a checkout
+and a bigger release; the gain is that flying anywhere shows something
+everywhere, offline, from the first launch.
+
+An extract cannot be deeper than its source -- asking for zoom 6 of a zoom 4
+archive yields zoom 4, silently -- so the packaging check is the load-bearing
+part of this. Without it the failure is invisible until someone installs the
+result and finds a flatter planet than the release notes promise. Shown to
+fail first: four checks in the basemap-target audit fail against a
+presence-only rule, and its stub archives now carry their own depth so a
+shallow store is a fixture rather than a 43 MB download.
+
+**Follow-on:** The end-to-end suite used to fill its empty store by pressing
+the world offer. It now stages the overview through the server -- the one
+place the suite reaches past the UI -- and reloads, because a download the app
+did not start is one it does not watch. The reactive checks that hung off that
+first download (the toast and its styling, the card closing itself, the grid
+surviving the style swap) moved to the view download, which is the first one
+the app performs.
+
+### 2026-09-10 — The cut corner becomes a palette lever
+
+**Phase:** 6
+
+**What:** Plain light, plain dark and low light now square their buttons. The
+chamfer off every button's top-right and bottom-left corner moved out of the
+`btn` and `icon-cut` utilities into two palette tokens, `--cut` and
+`--cut-icon`, holding the clip-path shapes; the utilities spend them. The
+cyberpunk pair keeps them, and cyberpunk light does so by saying nothing.
+
+**Rationale:** Requested: the chamfer is the shape half of the cyberpunk look,
+and a plain theme wearing it is not plain. It joins the four levers the plain
+palettes already hold at rest, so plainness stays one idea in one place
+instead of a shape rule that disagrees with the colours. The resting value is
+`none` rather than a zero-width cut, which is not cosmetic -- see below.
+Shown to fail first: five palette checks fail with the tokens absent, and the
+end-to-end suite reads the resolved clip-path off a real button and a real
+icon button, so a token nothing spends cannot pass.
+
+**Follow-on:** `clip-path` clips the focus ring along with the corner, so
+every `.btn` and `.icon-button` in BOTH cyberpunk palettes has no visible
+keyboard focus indicator at all -- confirmed by screenshot, ring fully present
+in plain dark and entirely absent in cyberpunk dark. The plain palettes got
+theirs back here for free; the cyberpunk pair needs an inset ring
+(`outline-offset` negative, or a border inside the clip) and does not have one
+yet. Nothing tests the focus ring today. Belongs in roadmap.md.
+
+### 2026-09-09 — A theme control on the gate
+
+**Phase:** 6
+
+**What:** The unlock screen carries the appearance menu beside the language
+menu. `components/ThemePicker.tsx` is that menu, and the settings popover
+behind the panel's gear now renders THE SAME component rather than a second
+dropdown wired to the same store -- the option names, the icon, the ordering
+and the store wiring have one home. The two uses differ by `labelHidden`,
+the Dropdown's own prop, and by a placement class.
+
+**Rationale:** Requested. The settings gear is in the panel header, which does
+not exist until a map is open -- so the one screen a person can be stuck on
+was the one screen with no way to change how it looks, and someone reading 24
+words off paper in a bright room had no recourse. The language menu was
+already at the foot of the gate for the same class of reason, and this sits
+beside it. The end-to-end suite drives the control and reads the root
+attribute and the painted card, then puts the default back, because the theme
+section further down is entitled to assert that nothing has been chosen yet.
+Shown to fail first: with the picker gone, the gate check fails and the drive
+times out.
+
+`ui/test/shared-controls.mjs` is new and holds the rule that made this worth
+doing: a control offered in two places is one component. It reads the source
+for who writes `setTheme` and `setLocale`, where the theme and locale names
+are spelled, and which files render each picker. Rebuilding the popover's
+dropdown by hand fails three of its checks.
+
+### 2026-09-09 — Downloaded maps moved out of the checkout
+
+**Phase:** 6
+
+**What:** `basemap/` in the working tree is no longer where maps live.
+`tools/basemap-dir.sh` names the store -- `$XDG_DATA_HOME/tessarium/basemap`,
+overridable with `TESSARIUM_BASEMAP` or `make BASEMAP_DIR=...` -- and the
+Makefile, `tools/dev.sh`, `tools/fetch-basemap.sh` and `tools/stage-bundle.sh`
+all ask it rather than spelling a path. A checkout that still holds maps in
+the tree has them MOVED there on the next run, not re-fetched. The Makefile
+exports `print-basemap-dir` beside `print-basemap-stamp`, so the shell side
+asks rather than guesses.
+
+**Rationale:** Reported, and expensive. A 666 MB Georgia region, a 44.8 MB
+world overview, a search index and an export directory were lost when the
+repository was re-cloned on 2026-09-08: they lived in a gitignored directory
+inside the tree, so `git status` was silent before and after, and nothing
+announced the loss. Downloaded maps are user data -- hundreds of megabytes a
+person chose to fetch, that nothing regenerates -- and they were sitting in
+the one place every tool that cleans build output is entitled to delete. The
+path chosen is the one packaging already uses (see
+`packaging/tessarium-launcher` and the flatpak and snap wrappers), so a
+development run and an installed run now read one store instead of two.
+
+Two bugs found by testing the move rather than describing it: a bare `!` in
+front of `BASEMAP_HAVE` negated only its first test, so the migration never
+fired and a first run re-fetched instead of moving; and the fetch stub in
+`check-basemap-target.sh` wrote to `./basemap` regardless of `-o`, which
+would have passed whether or not the recipe named the store. The suite now
+covers where the fetcher is told to write, where the app is started, that an
+in-tree map is moved with its region files intact, and that a store which
+already holds a map is never merged into. Every one was shown to fail first.
+
+### 2026-09-09 — A country's regions are drawn inside it
+
+**Phase:** 6
+
+**What:** The download picker indents everything a country discloses -- its
+"whole country" box, its states or provinces, its cities -- and draws a guide
+line down the group. One `region-children` utility on the disclosure panel, so
+a row type added later is covered without being remembered.
+
+**Rationale:** Reported from use. Flush against the country's own row, the
+states of the United States read as peers of it rather than as parts of it:
+the tree said something untrue about the data and nothing failed. The indent
+belongs to the panel and not to the rows for the same reason the group label
+became a utility -- five hand-pasted spellings of one decision is how they
+drift. The end-to-end suite measures it in the browser, beside the checkbox
+geometry check written after the same class of silent breakage; it was shown
+to fail first, at exactly 0 px.
+
+### 2026-09-09 — The passphrase, removed from the derivation
+
+**Phase:** 6
+
+**What:** The BIP-39 passphrase is gone from every layer that carried it: the
+KDF salt (`ocaml/lib/tessarium.ml`), the js_of_ocaml `kdfInputs` export, the
+browser worker, the `/api/session` endpoint, the differential oracle and its
+corpus header, the `--passphrase` flag on the sweep tool, six passphrase
+vectors and the `nfkd_addresses` set, and the `passphrase_too_long` refusal
+with its message in six catalogues. `derive_key` takes a mnemonic. The salt is
+`kdf_salt = derivation_version`, a constant.
+
+**Rationale:** Requested: nothing is using the product, and a second secret
+nothing in the UI could supply was carrying its own failure mode, its own
+refusal, its own vectors and its own end-to-end test. **No key moved.** The
+salt was `tessarium-kdf-4` ++ NFKD passphrase, and the empty passphrase
+concatenated to nothing, so removing the component leaves the same bytes:
+regenerating the vectors changed only what was deleted, and the committed
+keys for `zero`, `ones` and `hash`, all twenty addresses and the four invalid
+ones came back identical. No version bump, for the same reason -- there is no
+old derivation to distinguish from.
+
+What stays: NFKD on the phrase. It is the identity on a validated English
+BIP-39 phrase, so it changes nothing today; it is kept because the derivation
+is BIP-39-shaped and a non-English wordlist would need it. Said plainly in
+`ocaml/lib/normalize.ml` rather than left looking load-bearing.
+
+The browser suite lost the check that typed a precomposed passphrase in. What
+replaced it is a property that phrase alone can carry, and that the gate
+promises in as many words: the same address under a second phrase resolves
+somewhere else. Shown to fail before it was kept.
+
+### 2026-09-08 — The gate, shortened
+
+**Phase:** 6
+
+**What:** The unlock screen's copy is cut to what a first-time reader needs:
+a lede that says what the app does, and one warning about choosing your own
+phrase. Gone: the generate-button hint, the wordlist note, the entropy
+fine print, and the optional-passphrase disclosure with its input. Five
+message keys removed across six catalogues; the two rewritten ones are
+translated in all six.
+
+**Rationale:** Requested. The gate was carrying five blocks of security prose
+in front of a form with one field, which is a wall rather than an
+explanation. The passphrase came out with them as redundant at this stage --
+the derivation still takes one and the vectors still cover it, so this is a
+UI removal, not a format change. Its two consequences are recorded rather
+than absorbed: a map derived under a passphrase is now reachable only through
+the scripting API (roadmap, Open questions), and the browser's NFKD check --
+which used to type a precomposed passphrase into the gate -- moved to
+`js/worker-differential.mjs`, which drives the same worker and the same wasm
+and still has a passphrase to pass. It was shown to fail there before it was
+kept: unlocking with an empty passphrase produces different addresses. What
+the browser suite keeps from that block is what only a browser can ask --
+locking prompts before forgetting the key, a second phrase replaces the
+first, and concealment resets on every unlock.
+
+### 2026-09-08 — One command brings a fresh clone up
+
+**Phase:** 6
+
+**What:** `pnpm run dev` now installs, compiles and serves. `tools/bootstrap.sh`
+is the step in front of it -- toolchain (asked of `tools/setup.sh`, not
+restated), both packages' node modules, the basemap, `dune build` -- and every
+step asks whether it has already been done, so warm it costs about a second.
+`tools/env.sh` is now the one place that says where the toolchain is; `make
+env` prints the line that sources it, and dev.sh's second copy is gone.
+`tools/setup.sh` installs pnpm through corepack from the version package.json
+already pins. The dev server is started with `--ui wasm --no-open`, and
+`make test-ui` installs its own browser. `tools/check-dev-setup.sh` exercises
+both scripts against stubs; it is in `make test-core`, and every check in it
+was shown to fail against the behaviour it describes.
+
+**Rationale:** A clone could not run. Three things were assumed: ui/node_modules,
+which only `make ui` installed; the vendored F* support library, without which
+`dune build` stops at "Unbound module Prims"; and core.wasm, which the server
+serves out of the directory `make ui` writes -- so the KDF module 404'd and a
+good phrase was refused with nothing on screen saying why. The third is why the
+dev server now points at `wasm/`, where those two modules are committed: in
+development Vite serves the UI, and the only files wanted from the OCaml half
+are those. `--no-open` because the server was opening a browser on its own port
+rather than Vite's, which after this change is a page serving two wasm modules
+and nothing else.
+
 ### 2026-09-05 — Adversarial review of the branch, thirty-two fixes
 
 **Phase:** 6

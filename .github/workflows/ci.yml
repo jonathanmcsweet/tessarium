@@ -210,27 +210,29 @@ jobs:
 
       # Through the Makefile: the suite needs FIVE servers and their URLs, and
       # starting one leaves the resume, mismatch and cancel checks failing on
-      # refused connections. The recipe owns the teardown, and passes no --ui,
-      # so this drives the UI compiled into the binary.
+      # refused connections. The recipe owns the teardown, installs the pinned
+      # browser, and passes no --ui, so this drives the UI compiled into the
+      # binary.
       - name: Browser end-to-end
-        run: |
-          cd ui && pnpm exec playwright install chromium
-          cd ..
-          opam exec -- make test-ui
+        run: opam exec -- make test-ui
 
       # Packaging needs a map to cut an overview and glyphs out of. Cached
-      # under a fixed key: 21 MB of somebody else's bandwidth that changes
-      # upstream daily, and a different day's planet is a different package.
+      # under a fixed key: tens of megabytes of somebody else's bandwidth that
+      # change upstream daily, and a different day's planet is a different
+      # package. The depth is the fetcher's own default -- the one number that
+      # says what a package ships -- so this cache follows it rather than
+      # pinning a second opinion. The key carries the depth, so raising it
+      # fetches once instead of restoring a shallower planet forever.
       - name: Cache the map packages ship
         id: mapsrc-cache
         uses: actions/cache@v4
         with:
           path: ~/mapsrc
-          key: mapsrc-world4-v1
+          key: mapsrc-world6-v1
 
       - name: Fetch the map packages ship
         if: steps.mapsrc-cache.outputs.cache-hit != 'true'
-        run: opam exec -- tools/fetch-basemap.sh -o "$HOME/mapsrc" -z "" -W 4
+        run: opam exec -- tools/fetch-basemap.sh -o "$HOME/mapsrc" -z ""
 
       - name: Package
         run: |
@@ -299,11 +301,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/mapsrc
-          key: mapsrc-world4-v1
+          key: mapsrc-world6-v1
 
       - name: Fetch the map packages ship
         if: steps.mapsrc-cache.outputs.cache-hit != 'true'
-        run: opam exec -- tools/fetch-basemap.sh -o "$HOME/mapsrc" -z "" -W 4
+        run: opam exec -- tools/fetch-basemap.sh -o "$HOME/mapsrc" -z ""
 
       - name: Build and package twice from clean, compare
         run: |

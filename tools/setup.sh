@@ -125,6 +125,25 @@ if need "node $node_want" "[ \"\$(. \$HOME/.nvm/nvm.sh >/dev/null 2>&1; nvm vers
   fi
 fi
 
+# pnpm is not installed as itself: node ships corepack, and corepack reads the
+# version out of package.json's `packageManager` field, which is where this
+# project already pins it. Only run when pnpm is absent, so a pnpm installed
+# some other way is left alone -- and with the prompt off, because a script
+# cannot answer it.
+say "pnpm (from package.json's packageManager)"
+node_env=". \"\$HOME/.nvm/nvm.sh\" >/dev/null 2>&1; nvm use $node_want >/dev/null 2>&1"
+if need "pnpm" "$node_env; command -v pnpm"; then
+  if ! $check_only; then
+    # shellcheck disable=SC1091
+    . "$HOME/.nvm/nvm.sh"
+    nvm use "$node_want" >/dev/null
+    export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+    corepack enable pnpm
+    corepack install
+    ok "pnpm $(pnpm --version)"
+  fi
+fi
+
 # F* ships its OCaml support library as precompiled objects. OCaml 5.3
 # compresses .cmi with zstd when the compiler has it, and F*'s build did, so
 # those objects are unreadable to a compiler without it. Building them from the

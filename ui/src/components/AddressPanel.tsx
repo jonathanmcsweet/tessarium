@@ -1,37 +1,31 @@
-/* The side panel: the address of the selected square.
-
-   Looking an address UP happens in the map's search box, which takes both a
-   place name and an address -- see PlaceSearch.
-
-   This is the only place an address is ever displayed. The map draws bare
-   squares, so a screenshot or a shared screen gives away one address at
-   most, and the eye toggle here takes that to none. */
-
-import { Download, Eye, EyeOff, PanelRightClose } from "lucide-react";
-import { lazy, Suspense } from "react";
-import { useCoreVersions, useLock } from "../core/queries";
+import { lazy, type RefObject, Suspense, useEffect, useRef } from "react";
+import { core, useCoreVersions, useLock } from "../core/queries";
 import { formatCoord } from "../i18n";
 import { m } from "../paraglide/messages";
 import { useAppStore } from "../store";
 import { CopyButton } from "./CopyButton";
 import { loadDownloadCard } from "./downloadChunk";
 import { IconButton } from "./IconButton";
+import { Download, Eye, EyeOff, PanelRightClose } from "./icons";
 import { LanguagePicker } from "./LanguagePicker";
 import { LockDialog } from "./LockDialog";
 import { MapProgress } from "./MapProgress";
-import { SettingsMenu } from "./SettingsMenu";
+import { PanelSection } from "./PanelSection";
+import { ThemePicker } from "./ThemePicker";
 
-/* Same shape as an address, so the panel does not change width when it is
-   concealed and the layout does not jump on every toggle. */
+type ViewNote = {
+  key: string;
+  text: string;
+  warn?: boolean;
+};
+
 const MASK = "••••••.••••••.••••••.••••";
-/* And the same idea for a coordinate. */
 const COORD_MASK = "••.•••••••";
 
 /* The drawer sits OVER the map, not beside it. As a grid column it took
    width from the map, so every drag re-laid out MapLibre, re-rendered tiles
    and moved the view under you. Overlaid, the map is the full width of the
-   shell and stays put. The shadow is what makes it read as a panel over the
-   map rather than a pale stripe beside it.
+   shell and stays put.
 
    Below the drawer breakpoint it is a sheet across the bottom instead: no
    vertical edge to drag, so PanelResizer hides itself and the width is the
@@ -50,8 +44,7 @@ const DRAWER =
 /* Shut, not zero-width: sliding it out keeps its contents laid out at their
    real width, so reopening does not reflow a squashed column back into shape.
    `invisible` is what takes it out of the tab order and off the screen
-   reader's map -- a drawer someone can still tab into is worse than one that
-   never closed. */
+   reader's map */
 const SHUT = "collapsed invisible translate-x-full "
   + "max-drawer:translate-x-0 max-drawer:translate-y-full";
 
@@ -59,11 +52,19 @@ const SHUT = "collapsed invisible translate-x-full "
    default export and DownloadCard is a named one, so the promise is
    reshaped here rather than the card growing a default it has no other
    use for -- the same shape App uses for MapView. */
+/* A row of the view section. Text, and whether it carries a consequence --
+   nothing here is pressable: the one thing to do about any of it is the
+   download button in the header above, which the coverage row names. */
+
 const DownloadCard = lazy(() =>
   loadDownloadCard().then((mod) => ({ default: mod.DownloadCard }))
 );
 
-export function AddressPanel() {
+export function AddressPanel(
+  {
+    surface,
+  }: { surface: RefObject<HTMLDivElement | null>; },
+) {
   const selection = useAppStore((s) => s.selection);
   const concealed = useAppStore((s) => s.concealed);
   const toggleConcealed = useAppStore((s) => s.toggleConcealed);
@@ -75,65 +76,68 @@ export function AddressPanel() {
 
   const lock = useLock();
   const versions = useCoreVersions();
-
-  /* The offline-maps card is drawn here rather than over the map, where it
-     covered the tiles it was about and had nowhere to grow. */
   const downloadOpen = useAppStore((s) => s.downloadOpen);
   const openDownload = useAppStore((s) => s.openDownload);
   const closeDownload = useAppStore((s) => s.closeDownload);
   const togglePanel = useAppStore((s) => s.togglePanel);
   const panelCollapsed = useAppStore((s) => s.panelCollapsed);
   const downloadRegion = useAppStore((s) => s.downloadRegion);
+  const view = useAppStore((s) => s.view);
+  const notes: ViewNote[] = [
+    view.truncated
+      ? { key: "truncated", text: m.map_too_many_squares(), warn: true }
+      : null,
+    view.belowGrid
+      ? { key: "below-grid", text: m.map_zoom_for_grid() }
+      : null,
+    view.blank && !downloadOpen
+      ? { key: "blank", text: m.map_coverage_gap() }
+      : null,
+  ].filter((note) => note !== null);
+
   /* The download job's status is deliberately NOT subscribed to here. It
      polls once a second for the life of a job, and holding it here
      re-rendered the address, the coordinates and the footer every second of
      an hour-long download. The card asks for itself now; the map and the
      progress section keep the poll alive meanwhile. */
-
-  /* Same treatment as the address above, scaled to the smaller type: the
-     bullets are not worth selecting, and a selection highlight through a
-     blur reads as a rendering fault. */
   const coordClass = `m-0 font-mono tabular-nums${
     coordsConcealed ? " text-ink-soft blur-[2.5px] select-none" : ""
   }`;
 
+  const sheet = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const node = sheet.current;
+    if (!node) return;
+    /* The border box, not contentRect: the sheet has a top border and the
+       map has to clear that too. */
+    const observer = new ResizeObserver(() => {
+      surface.current?.style.setProperty("--panel-h", `${node.offsetHeight}px`);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [surface]);
+
   return (
-    <aside className={`panel ${DRAWER} ${panelCollapsed ? SHUT : ""}`}>
-      {
-        /* Wraps, because it has to. With a square selected the row is five
-          controls -- reveal, downloads, settings, lock, hide -- and at the
-          drawer's default 340px there is not room. The alternative was
-          clipping one off the right edge. The brand gives way first. */
-      }
-      <header className="panel-head flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-line px-4.5 py-3.5">
+    <aside
+      ref={sheet}
+      id="panel"
+      className={`panel ${DRAWER} ${panelCollapsed ? SHUT : ""}`}
+    >
+      <header className="panel-head flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-4.5 py-3.5 max-drawer:pt-8">
         <span className="brand min-w-0 shrink truncate">
           {m.app_name()}
         </span>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          {
-            /* One press for everything hidden in this panel. Only shown with
-              a selection, because with nothing selected there is nothing
-              hidden and a control that does nothing is worse than no
-              control. */
-          }
           {selection && (
             <IconButton
               label={anyConcealed ? m.panel_reveal_all() : m.panel_hide_all()}
               pressed={anyConcealed}
               onClick={toggleAllConcealed}
-              /* Crossed-out means hidden, matching the two eyes below it --
-                 they show state, not the action the press would take, and
-                 one control reading the other way round in the same panel
-                 is worse than either convention. */
               icon={anyConcealed
                 ? <EyeOff size={18} aria-hidden />
                 : <Eye size={18} aria-hidden />}
             />
           )}
-          {
-            /* The way in to the offline maps. It belongs beside the thing
-              it opens, which is this panel. */
-          }
           <IconButton
             className="panel-download"
             label={m.map_download_open()}
@@ -141,7 +145,13 @@ export function AddressPanel() {
             pressed={downloadOpen}
             onClick={() => (downloadOpen ? closeDownload() : openDownload())}
           />
-          <SettingsMenu />
+          <CopyButton
+            className="panel-phrase-copy"
+            label={m.panel_phrase_copy()}
+            copiedLabel={m.panel_phrase_copied()}
+            text={() => core().heldPhrase().then((held) => held.mnemonic)}
+            onFailure={m.panel_phrase_copy_failed()}
+          />
           <LockDialog
             onConfirm={() => {
               lock.mutate();
@@ -149,7 +159,7 @@ export function AddressPanel() {
             }}
           />
           <IconButton
-            className="panel-hide"
+            className="panel-hide max-drawer:hidden"
             label={m.panel_hide()}
             icon={<PanelRightClose size={18} aria-hidden />}
             onClick={togglePanel}
@@ -157,8 +167,25 @@ export function AddressPanel() {
         </div>
       </header>
 
-      <section className="selected border-b border-line p-4.5">
-        <h2 className="panel-title mb-2.5">{m.panel_this_square()}</h2>
+      {notes.length > 0 && (
+        <PanelSection className="view-notes" title={m.panel_this_view()}>
+          <div className="flex flex-col gap-3">
+            {notes.map((note) => (
+              <div key={note.key} role="status">
+                <p
+                  className={`panel-note hint view-note view-note-${note.key}${
+                    note.warn ? " warn" : ""
+                  }`}
+                >
+                  {note.text}
+                </p>
+              </div>
+            ))}
+          </div>
+        </PanelSection>
+      )}
+
+      <PanelSection className="selected" title={m.panel_this_square()}>
         {selection
           ? (
             <>
@@ -282,20 +309,15 @@ export function AddressPanel() {
               </div>
             </>
           )
-          : <p className="hint">{m.panel_no_selection()}</p>}
-      </section>
-
-      {
-        /* Below the address, above the footer: a download is background work
-          and must not push the thing the user came here for off the top. */
-      }
+          : <p className="panel-note hint">{m.panel_no_selection()}</p>}
+      </PanelSection>
       <MapProgress />
 
       {downloadOpen && downloadRegion && (
         <Suspense
           fallback={
             <p
-              className="download-pending border-t border-line p-4.5 text-sm text-ink-soft"
+              className="download-pending panel-section panel-note"
               role="status"
             >
               {m.map_download_loading()}
@@ -307,32 +329,11 @@ export function AddressPanel() {
       )}
 
       <footer className="panel-foot px-4.5 py-4 text-xs leading-normal text-ink-soft">
-        <LanguagePicker className="mb-2.5" />
-        {
-          /* Standing, not a toast, and not only in the lock dialog: a reload
-            forgets the key exactly as locking does, and a browser will not
-            let a page say anything useful before one. So the one place this
-            can be said in time is before it happens. */
-        }
-        {
-          /* Quieter than the gate's warning -- this one is permanent, and a
-            permanent alarm stops being one. */
-        }
-        <p className="warning phrase-note mb-2.5 text-xs">
-          {m.panel_phrase_note()}
-        </p>
+        <div className="mb-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <LanguagePicker />
+          <ThemePicker labelHidden />
+        </div>
         <p className="panel-explainer">{m.panel_footer()}</p>
-        {
-          /* Names and numbers: nothing to translate, so no message key.
-
-            The grid and derivation versions ARE shown. An address is three
-            words and four digits with no room for a version, so a code
-            issued under an older grid is not refused -- it decodes to a
-            different, entirely plausible square, and nothing says why.
-            Naming the epoch cannot make an old code work, but it lets
-            someone label the codes they keep with the grid they belong
-            to. */
-        }
         <p className="versions mt-2.5 flex flex-wrap gap-x-2 gap-y-1 text-xs">
           <code className="text-xs select-all">
             Tessarium v{__APP_VERSION__}

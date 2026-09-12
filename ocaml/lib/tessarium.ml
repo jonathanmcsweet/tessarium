@@ -25,7 +25,6 @@ type refusal = { code : string; arg : string; message : string }
 
 exception Invalid_address of refusal
 exception Bad_mnemonic of refusal
-exception Bad_passphrase of refusal
 
 let grid_version = Table.grid_version
 (* Left as Zarith. Both exceed 2^31, and this module is also compiled to
@@ -97,13 +96,8 @@ let nfkd = Normalize.nfkd
    a new one. *)
 let derivation_version = "tessarium-kdf-4"
 
-(* For the mnemonic only. BIP-39's English words are lowercase, so folding case
-   and trimming here is safe and forgiving of how a phrase was pasted.
-
-   It must NOT be applied to the passphrase. BIP-39 uses the passphrase
-   verbatim: it is case-sensitive, and whitespace in it is significant. Folding
-   it would make "MySecret" and "mysecret" the same map and silently throw away
-   one bit per letter. *)
+(* BIP-39's English words are lowercase, so folding case and trimming here is
+   safe and forgiving of how a phrase was pasted. *)
 let normalize_mnemonic s = String.trim (String.lowercase_ascii s)
 
 let split_words s =
@@ -185,43 +179,20 @@ let mnemonic_of_entropy entropy =
 
 (* The KDF's two inputs, built HERE and only here: native callers and the
    browser worker (through the js_of_ocaml export) both take them from this
-   code, so the NFKD and joining rules cannot drift between targets. The
-   salt carries the version, so a future parameter change cannot silently
-   collide with keys derived today; the passphrase rides in the salt with
-   case and whitespace verbatim, per the BIP-39 convention this follows --
-   but NFKD-normalised, which is a different thing (see normalize_mnemonic
-   for why the mnemonic alone is case-folded). The 17-byte version prefix
-   keeps the salt above Argon2's 8-byte floor for any passphrase. *)
+   code, so the NFKD and joining rules cannot drift between targets.
+
+   The salt is the version string and nothing else. It carried a
+   user-supplied passphrase until that came out of the app; the empty
+   passphrase concatenated to nothing, so every key derived before the
+   removal is the key derived after it, and no address moved. Putting one
+   back means putting it back HERE, and bumping the version, because a salt
+   that gains a component derives different keys from the same words.
+
+   Comfortably above Argon2's 8-byte salt floor. *)
 let kdf_password ~mnemonic =
   Normalize.nfkd (String.concat " " (split_words (normalize_mnemonic mnemonic)))
 
-(* The KDF's input buffers are sized for phrases and passphrases, not for
-   pasted documents: the wasm glue carries 1024-byte buffers, and the limit
-   is enforced HERE -- before any host-specific code -- so the server and
-   the browser refuse the same inputs with the same words. 1000 bytes of
-   NFKD passphrase plus the 17-byte version prefix stays inside the wasm
-   buffer with margin.
-
-   The password needs no such check: [derive_key] and [kdfInputs] both
-   validate first, and 24 BIP-39 words cannot exceed 215 bytes (the longest
-   word is eight letters). The worker re-checks both lengths anyway, since
-   an unchecked write into wasm memory is worse than a redundant compare. *)
-let max_passphrase_bytes = 1000
-
-let kdf_salt ~passphrase =
-  let p = Normalize.nfkd passphrase in
-  if String.length p > max_passphrase_bytes then
-    raise
-      (Bad_passphrase
-         {
-           code = "passphrase_too_long";
-           arg = string_of_int (String.length p);
-           message =
-             Printf.sprintf
-               "passphrase too long: %d bytes NFKD-normalised, the limit is %d"
-               (String.length p) max_passphrase_bytes;
-         });
-  derivation_version ^ p
+let kdf_salt = derivation_version
 
 (* Key derivation is deliberately expensive. Derive once per session and
    cache the result; it must never sit in the per-request path.
@@ -229,11 +200,10 @@ let kdf_salt ~passphrase =
    [kdf] is injected (Tessarium_argon2.kdf natively; the browser derives
    with the same C as wasm and never calls this function): this library
    also compiles under js_of_ocaml, where C stubs cannot follow. *)
-let derive_key ~kdf ~mnemonic ~passphrase =
+let derive_key ~kdf ~mnemonic =
   match validate_mnemonic mnemonic with
   | Error e -> raise (Bad_mnemonic e)
-  | Ok () ->
-      kdf ~password:(kdf_password ~mnemonic) ~salt:(kdf_salt ~passphrase)
+  | Ok () -> kdf ~password:(kdf_password ~mnemonic) ~salt:kdf_salt
 
 (* ------------------------------------------------------------- addresses *)
 

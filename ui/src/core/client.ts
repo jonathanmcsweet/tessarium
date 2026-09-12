@@ -1,18 +1,3 @@
-/* Typed promise wrapper over the core worker.
-
-   The worker holds the key; this is the only way to reach it, and it is
-   deliberately narrow. Note what is absent: there is no `getKey`. The key
-   cannot be read back out, so no amount of misuse from a component can put it
-   somewhere it should not be.
-
-   Everything crossing back from the worker is parsed rather than asserted.
-   `postMessage` delivers whatever the other side sent, and TypeScript has no
-   opinion about it at runtime -- a cast would only be a promise we made to
-   ourselves. Zod checks it. The costly bug this guards against is real and has
-   happened here before: the worker once returned failures nested inside a
-   success value, and the main thread, having cast rather than checked, flew
-   the map to NaN. */
-
 import { z } from "zod";
 
 export type Cell = {
@@ -55,10 +40,7 @@ const Status = z.object({
 const Address = z.object({ address: z.string() });
 const Point = z.object({ lat: z.number(), lon: z.number() });
 const Mnemonic = z.object({ mnemonic: z.string() });
-/* "complete" -- decode it; "partial" -- someone is mid-address, say and send
-   nothing; "no" -- a place name, search for it. The enum is checked here so
-   an unrecognised fourth answer fails loudly rather than silently falling
-   through to the search branch, which is the branch that transmits. */
+const HeldPhrase = z.object({ mnemonic: z.string().nullable() });
 const AddressShape = z.object({
   shape: z.enum(["complete", "partial", "no"]),
 });
@@ -154,14 +136,25 @@ export class Core {
   /* Slow by design: Argon2id at 64 MiB in the worker's wasm module.
      Expect ~150 ms plus a cold start, and show it in the UI rather than
      appearing to hang. */
-  unlock(mnemonic: string, passphrase: string) {
-    return this.#call(OkOrError, "unlock", { mnemonic, passphrase });
+  unlock(mnemonic: string) {
+    return this.#call(OkOrError, "unlock", { mnemonic });
   }
 
   /* A fresh 24-word phrase from the platform CSPRNG. The bytes are drawn in
      the worker and never reach this thread; only the words come back. */
   generate() {
     return this.#call(Mnemonic, "generate");
+  }
+
+  /* The words the key was derived from, for the two controls that copy them.
+     Null once the map is locked, and after a reload, because the worker holds
+     them and nothing else does.
+
+     Deliberately NOT a React Query hook: a cached phrase is a phrase living
+     in this thread, which is the one thing the worker boundary exists to
+     avoid. Callers ask at the moment of the press and keep nothing. */
+  heldPhrase() {
+    return this.#call(HeldPhrase, "heldPhrase");
   }
 
   lock() {

@@ -8,56 +8,17 @@
     {
       "name": "zero",
       "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
-      "passphrase": "",
       "key": "e66ad5193e47e575424089cac0362b6d2e245262044b623cddfb5d7cc15eb8d4"
     },
     {
       "name": "ones",
       "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
-      "passphrase": "",
       "key": "1b29d70d948b2a1ee8970e621db5f152532353dd7ec29287d64d4e05293760e3"
     },
     {
       "name": "hash",
       "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
-      "passphrase": "",
       "key": "c9e41f4a3030eba2e59cb3e3a264f39ff9b94064590753c51ee7b9c0479f48e8"
-    },
-    {
-      "name": "pass-mixed",
-      "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
-      "passphrase": "MySecret",
-      "key": "e49b935e5a944656768a64920ef94a4abd3385e02d849a516c8bc511f56d22c0"
-    },
-    {
-      "name": "pass-lower",
-      "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
-      "passphrase": "mysecret",
-      "key": "c1a123ee516e59db9550bd1d0de095b94a8876263a6b2d24c228c8973da33c87"
-    },
-    {
-      "name": "pass-spaced",
-      "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
-      "passphrase": " mysecret ",
-      "key": "59c2f4cf7b76efa166e8ea2a407d2011759897e1d5035bfbaa585de5841e9586"
-    },
-    {
-      "name": "pass-nfc",
-      "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
-      "passphrase": "café",
-      "key": "2addf9ca0296b7db307557d54616405f0cec195844fdc2e766ff79ca39ca3d5b"
-    },
-    {
-      "name": "pass-nfd",
-      "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
-      "passphrase": "café",
-      "key": "2addf9ca0296b7db307557d54616405f0cec195844fdc2e766ff79ca39ca3d5b"
-    },
-    {
-      "name": "pass-cjk",
-      "mnemonic": "marine cigar tenant acoustic above leave tool visit clock rack upgrade oil ice air tourist once sound muscle road safe custom illegal issue icon",
-      "passphrase": "ﾊﾟ",
-      "key": "da3e9da01b38df1f1280bf0be7ea4d9ee13df72f4758e8448eba23a0957afa0e"
     }
   ],
   "feistel_vectors": [
@@ -519,20 +480,6 @@
       "lat_ns": 49251889241,
       "lon_ns": -74041844406,
       "address": "twist.swap.real.9530"
-    }
-  ],
-  "nfkd_addresses": [
-    {
-      "mnemonic": "pass-nfc",
-      "lat_ns": 65195912693,
-      "lon_ns": -142359874620,
-      "address": "company.reflect.width.6520"
-    },
-    {
-      "mnemonic": "pass-nfc",
-      "lat_ns": -58839715780,
-      "lon_ns": 79628587171,
-      "address": "movie.bless.labor.1988"
     }
   ],
   "invalid_addresses": [

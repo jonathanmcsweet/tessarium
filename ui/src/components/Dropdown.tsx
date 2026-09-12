@@ -1,18 +1,3 @@
-/* The shared dropdown.
-
-   This was two native `<select>` elements. The old argument for them was
-   that the platform primitive beats a HAND-ROLLED listbox, which is true and
-   stopped applying once the project took a vetted library for exactly this
-   (React Aria, arriving with the search box). What is left is the reason to
-   change: a native select is drawn by the operating system, and it was the
-   one control that did not look like the application.
-
-   What is given up: on a phone a native select opens the platform's own
-   picker, which some people know better than any custom popover. If that
-   turns out to matter, restore the native element on coarse pointers rather
-   than adding a second listbox. */
-
-import { ChevronDown } from "lucide-react";
 import {
   Button,
   Label,
@@ -22,6 +7,7 @@ import {
   Select,
   SelectValue,
 } from "react-aria-components";
+import { ChevronDown } from "./icons";
 
 /* The closed control. 44px, a comfortable touch target, against the 22px
    system control it replaced. */
@@ -62,7 +48,7 @@ export function Dropdown<T extends string>({
       onSelectionChange={(key) => onChange(key as T)}
       isDisabled={disabled ?? false}
     >
-      <Label className={labelHidden ? "sr-only" : "text-sm text-ink-soft"}>
+      <Label className={labelHidden ? "sr-only" : "panel-note"}>
         {label}
       </Label>
       <Button className={TRIGGER}>
@@ -73,19 +59,12 @@ export function Dropdown<T extends string>({
           className="flex-none text-ink-soft"
         />
       </Button>
-      {
-        /* Sized to the control it hangs from, through the variable React
-          Aria sets on a popover for exactly this. */
-      }
       <Popover className="dropdown-popover sheet w-(--trigger-width) min-w-fit">
         <ListBox className="block max-h-72 overflow-y-auto p-1 outline-none">
           {options.map((option) => (
             <ListBoxItem
               key={option.value}
               id={option.value}
-              /* Written out rather than relying on the library's own key
-                 attribute: the end-to-end suite picks options by this, and a
-                 selector should not depend on a library internal. */
               data-value={option.value}
               className="dropdown-option sheet-option selected:font-semibold"
             >
