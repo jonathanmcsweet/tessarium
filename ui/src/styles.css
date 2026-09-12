@@ -1,59 +1,12 @@
-/* The palette, the scale, and the looks worn by more than one element.
-
-   The layout was rough because there was no scale: the stylesheet this
-   replaces held twenty-two spacing values, twelve font sizes and nine border
-   radii, each decided one rule at a time. Tailwind supplies one ramp of
-   each, spent in the components' own class lists. What is left here is what
-   a class list cannot hold -- the palette, the few looks several different
-   elements share, and at the bottom the rules that must outrank a stylesheet
-   this project does not own.
-
-   Nothing here is fetched. Tailwind runs at build time and emits a plain
-   stylesheet; the type stack is whatever the device already has. The
-   application still opens with the network unplugged. */
 
 @import "tailwindcss";
-
-/* React Aria Components publish their state as data attributes. This turns
-   those into variants, so a focused, selected or dragged state is written
-   the same way a hover is, next to the thing it restyles -- rather than in a
-   `[data-focused]` rule somewhere else in the file. */
 @plugin "tailwindcss-react-aria-components";
-
-/* Scanned for class names explicitly, rather than by Tailwind's automatic
-   detection: the end-to-end suite names classes too, and a utility that
-   exists only because a test asked for it is not a class the app ships.
-   Paraglide's generated messages are excluded for the opposite reason: they
-   carry no markup and are by some way the largest thing under src/. */
 @source "./";
 @source not "./paraglide";
 
-/* The wordmark's face, in the cyberpunk palettes.
-
-   A Didone: hairlines against thick stems, cut flat. In tracked-out caps it
-   is the one thing on screen that is not machine type, which is what a
-   wordmark is for -- everything around it is the mono stack, and a name set
-   in the same face as the interface is a label rather than a mark.
-
-   Self-hosted from public/, not fetched: this application asks the network
-   for nothing it did not ship with, and a font that arrives from a CDN is a
-   font that does not arrive on a train. 15 KB for the latin range.
-
-   `block` rather than `swap`: a wordmark that arrives late and shoves the
-   layout is worse than one that arrives a moment after the card. The fallback
-   is the same mono stack the plain palettes wear, so nothing is unreadable
-   while it loads.
-
-   SIL Open Font License 1.1, and the licence text ships beside the file --
-   public/fonts/OFL.txt, which is a redistribution obligation, not a
-   courtesy. */
 @font-face {
   font-family: "Bodoni Moda";
   src: url("/fonts/bodoni-moda-700-latin.woff2") format("woff2");
-  /* Declared across the range from a file cut at 700. A browser told the
-     face has only one weight synthesises the rest, and a synthesised bold
-     thickens a Didone's hairlines into the stems -- the contrast IS the
-     face. */
   font-weight: 100 900;
   font-style: normal;
   font-display: block;
@@ -64,99 +17,32 @@
     "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     monospace;
-
-  /* ------------------------------------------------- cyberpunk dark, and
-     the palette the application opens in.
-
-     Tailwind compiles `@theme` to `:root`, so whatever is written here
-     paints before anyone has chosen anything, and it is also what every
-     `[data-theme]` block below overrides token by token. The default theme
-     therefore has to be the one written here, or the first frame is a theme
-     nobody picked.
-
-     Cyberpunk dark is that default: purple-black ground, magenta accent,
-     cyan focus and address, acid-green ok. Wearing no attribute, it is the
-     one palette with no `[data-theme]` block of its own, so there is nothing
-     to keep in step.
-
-     Every pair is audited by test/contrast.mjs against the same thresholds
-     as the other four. */
   --color-ink: #ede7fa;
   --color-ink-soft: #b9a8d8;
   --color-line: #2b1d42;
-  /* Borders that identify a control (inputs, selects) rather than decorate,
-     past the 3:1 non-text minimum. Decorative hairlines stay
-     --color-line. */
+
   --color-line-strong: #7a63a3;
   --color-bg: #0a0614;
   --color-card: #140d22;
-  /* Fields are a shade off the card so an input reads as somewhere to type
-     before it is focused. Every foreground the contrast test pairs with a
-     field is checked against this, not against the card. */
+
   --color-field: #100a1c;
   --color-accent: #ff4fa8;
-  /* The accent as TEXT, which is a lower bar to clear on a dark ground than
-     on a white one -- the 19px large-text exemption died the day a mobile
-     media query set it to 17px, so this holds 4.5:1 at any size. Non-text
-     accent uses (the selection overlay, borders) keep --color-accent. */
   --color-accent-text: #ff86c2;
   --color-ok: #b7ff5c;
-  /* The tick after a copy lands on a button rather than in a sentence, and
-     has to hold 3:1 as a border as well as 4.5:1 as a glyph. On this ground
-     the check-passed colour already does both. */
   --color-ok-strong: #b7ff5c;
   --color-warn: #e8c15c;
   --color-danger: #ff6e8e;
-
-  /* Text on a filled primary button. Not white -- white is only right while
-     --color-ink is dark, and in this palette it is not. */
   --color-on-ink: #0a0614;
-  /* And on a filled ACCENT, which is a different question with a different
-     answer: a bright accent needs the ground back, a dark one takes white.
-     It was a literal `text-white` for both, and under AA in every theme. */
   --color-on-accent: #0a0614;
-
-  /* Inactive controls are exempt from WCAG contrast, but 1.6:1 was
-     illegible rather than merely muted. This pair is audited like any
-     other. */
   --color-disabled: #241736;
   --color-on-disabled: #a693c7;
-
-  /* The wash under a pointer: hovered buttons, and the row the arrow keys
-     are on in a listbox. One value, where there used to be two a shade
-     apart that nobody could have told from each other. */
   --color-hover: #1d1330;
-
-  /* Something the reader has to take in before acting: the gate's
-     write-it-down notice, and the warnings a dialog raises before it acts. */
   --color-alert: #2b1226;
-
-  /* Site-wide notices, and the quieter version of the same thing that sits
-     over the map. Both carry --color-warn as their text. Amber stays amber
-     in all five palettes: it is hazard tape, and it is the one colour on
-     screen that should not be restyled into the theme. */
   --color-notice: #251d0d;
   --color-notice-line: #4a3d1e;
   --color-notice-soft: #201a10;
   --color-notice-soft-line: #443a20;
-  /* The focus ring. One colour for every control in the app, because a
-     focus ring that changes appearance between controls is a focus ring
-     people stop reading. */
   --color-focus: #53f1ff;
-
-  /* The five levers the plain themes hold at rest: the address's own
-     colour, the primary action's gradient, the wordmark's face, the ground's
-     corner glow and the cut corner. Plain light, plain dark and low light put
-     all five down -- one colour repeated three times is a solid button, the
-     mono stack is no second typeface, an absent clip is a rectangle -- so
-     they stay plain with no rule anywhere else in the application.
-
-     The wordmark's lever was a split shadow: the same word in magenta and
-     cyan, two pixels either side of it. It read as blurred rather than as
-     misregistered, at every size the wordmark is drawn, and there is no
-     offset that is legible AND still the effect. A second FACE says the same
-     thing about the palette and says it in the glyphs, where nothing has to
-     be read through a fringe. */
   --color-accent-alt: #53f1ff;
   --color-cta-from: #ff4fa8;
   --color-cta-mid: #a54fff;
@@ -166,23 +52,6 @@
   --bg-image:
     radial-gradient(ellipse at 12% -10%, rgb(255 79 168 / 0.16), transparent 46%),
     radial-gradient(ellipse at 95% 110%, rgb(83 241 255 / 0.13), transparent 46%);
-
-  /* The cut corner: a chamfer off the top-right and bottom-left of every
-     button, and the shape half of this look. A lever rather than a constant
-     because a plain theme with a bevelled button is not a plain theme.
-
-     The SIZE is the fact; the polygons are derived from it, because two
-     mechanisms draw this shape. Where the browser has `corner-shape`, a
-     bevelled `border-radius` draws it -- and then the border follows the
-     chamfer and the focus ring follows the border, which is what a clipped
-     button cannot do: `clip-path` cuts the border away along the diagonal
-     and takes the ring with it. The polygons are the fallback for a browser
-     without it, and `none` rather than a zero-width cut, since a rectangular
-     clip still eats the ring.
-
-     Two sizes because the icon buttons are 44px squares, where the text
-     button's 10px chamfer reads as a chip missing rather than as a shape.
-     All four move together: a palette sets them or none of them. */
   --cut-size: 10px;
   --cut-size-icon: 7px;
   --cut: polygon(
@@ -201,74 +70,18 @@
     var(--cut-size-icon) 100%,
     0 calc(100% - var(--cut-size-icon))
   );
-
-  /* The map overlay: the coverage veil (blank), its boundary (edge), the
-     address grid, at the opacity the veil is laid on with. Read by
-     MapView through getComputedStyle at style-build time -- the browser
-     is the parser -- so the palette here is the only home these colours
-     have. The selected square is not listed: it is --color-accent. */
   --color-map-blank: #a89ac9;
   --map-blank-opacity: 0.24;
   --color-map-edge: #c3b3e0;
   --color-map-grid: #6ee9ff;
-  /* The keyboard reticle: the small square at the centre of the view
-     marking which cell Enter will take. It is the only thing on screen
-     saying so, so it has to be legible on THIS palette's cartography. It was
-     a literal rgba(18,33,47,0.55) -- the old light theme's ink, near-black
-     on a near-black map -- and belonging to no palette, no completeness
-     check could see it was missing from four of the five. */
   --color-map-reticle: #c9b6ef;
-
-  /* Whether the map sits on a pale ground. One classification, two readers:
-     the MapLibre control-icon rule at the bottom of this file spends it as
-     `invert(calc(1 - ...))`, and MapView reads it through getComputedStyle
-     to choose the Protomaps flavour and the sprite sheet. It used to be a
-     list of theme names in TypeScript AND a list of selectors here, and a
-     palette added to one but not the other ships light control icons on a
-     dark map with nothing failing. Beside the colours, it is policed by the
-     same completeness checks they are. */
   --map-light-ground: 0;
-
-  /* A shadow is a shape cut out of the light behind it. On a dark ground
-     there is no light behind it, so a tinted rgba reads as nothing at all;
-     it has to be darker than the surface it falls on. */
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 8px 24px rgb(0 0 0 / 0.35);
-
-  /* Below this the side panel becomes a sheet across the bottom: there is
-     not enough width for a column beside the map. Named rather than left as
-     a number, because it is the width at which a drawer stops being one. */
   --breakpoint-drawer: 52rem;
 }
-
-/* ------------------------------------------------------- the chosen sets
-
-   Five palettes, six menu entries. Cyberpunk dark is the default and lives
-   in @theme above, wearing no attribute; the other four are here, each
-   overriding the default token by token.
-
-   "Match my device" is the sixth entry and not a palette: it borrows the two
-   PLAIN sets, because an operating system says light or dark, not cyberpunk.
-   So plain light is written under two selectors at once and plain dark is
-   written out twice -- CSS cannot say "the device prefers dark OR the user
-   chose dark" in one selector, one half being a media query and the other an
-   attribute. test/contrast.mjs fails if the two dark blocks stop agreeing,
-   token for token.
-
-   Order is load-bearing: the media block below and the plain-light rule
-   above it are the same specificity and both match a device-dark viewer on
-   "system", so the later one wins. */
-
 :root {
   color-scheme: dark;
 }
-
-/* ------------------------------------------------------------ plain light
-
-   The theme this application had before it had a look: navy ink, vermilion
-   accent, white card. All five levers are at rest -- one colour across the
-   gradient's three stops is a solid button, the mono stack is no second
-   typeface, `none` is no wash and no cut -- so nothing else needs a rule to
-   keep it plain. */
 :root[data-theme="system"],
 :root[data-theme="light"] {
   color-scheme: light;
@@ -280,10 +93,6 @@
   --color-bg: #f4f6f8;
   --color-card: #ffffff;
   --color-field: #fbfcfd;
-  /* One shade darker than the vermilion this theme shipped with (#e8452c),
-     which could carry neither white nor its own ink at AA on the one control
-     that fills with it. This shade was already sitting beside it as
-     --color-accent-text; at arm's length the two are the same red. */
   --color-accent: #d13a22;
   --color-accent-text: #d13a22;
   --color-ok: #0f7b4f;
@@ -326,11 +135,6 @@
     0 8px 24px rgba(18, 33, 47, 0.08);
 }
 
-/* ------------------------------------------------------------- plain dark
-
-   Slate rather than purple, and the same five levers at rest. Written twice
-   for the reason at the top of this section; the two blocks are required to
-   agree. */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
@@ -435,21 +239,7 @@
   }
 }
 
-/* -------------------------------------------------------- cyberpunk light
-
-   The same city as the default, in daylight, reached a different way. Neon
-   is seen BECAUSE it is dark; on paper there is no glow to have, and a pale
-   magenta on white is just pink. So this takes the print half of the look --
-   saturated ink, hard edges, the misregistered colour separation of a cheap
-   two-pass press -- and keeps the default's magenta/violet/cyan family, each
-   colour pushed down to the lightness white demands.
-
-   One of the five levers moves and four do not. The corner glow needs
-   darkness and is kept faint. The gradient only ever needed stops dark enough
-   to hold a white label, and the wordmark's face and the cut corner are
-   carried over untouched -- both are shape rather than light, which is the
-   half of this look that survives daylight. */
-:root[data-theme="cyber-light"] {
+:root[data-theme="edge-light"] {
   color-scheme: light;
 
   /* Violet-black rather than navy: the default's ground (#0a0614), brought
@@ -490,8 +280,6 @@
   --color-cta-mid: #6d28d9;
   --color-cta-to: #00646f;
   --color-on-cta: #ffffff;
-  /* The default runs this wash at 0.16; on paper the same figure is a
-     stain, and this is a press running slightly out of ink. */
   --bg-image:
     radial-gradient(ellipse at 12% -10%, rgb(209 12 129 / 0.07), transparent 46%),
     radial-gradient(ellipse at 95% 110%, rgb(0 150 176 / 0.07), transparent 46%);
@@ -508,14 +296,6 @@
     0 8px 24px rgba(26, 16, 48, 0.10);
 }
 
-/* Low light: for keeping night vision. Every colour is red or amber because
-   rod cells barely respond to long wavelengths, so a red screen can be read
-   while the dark outside it stays visible. It exists only as a choice; no
-   media query selects it, because no device knows its user is standing in
-   the dark. Green and blue do not appear even for "ok" and focus -- one
-   stray cyan tick would undo what the rest of the screen is protecting.
-   Contrast is carried by lightness alone, audited against the same AA
-   thresholds as the other four. */
 :root[data-theme="night"] {
   color-scheme: dark;
 
@@ -571,12 +351,14 @@ body,
 #root {
   height: 100%;
 }
+#root,
+.app {
+  min-width: 320px;
+}
 
 body {
   font-family: var(--font-sans);
   color: var(--color-ink);
-  /* The image is Direction C's corner glow, defined per palette and `none`
-     outside the dark theme. */
   background: var(--bg-image, none) var(--color-bg);
   -webkit-font-smoothing: antialiased;
 }
@@ -586,34 +368,16 @@ code {
   font-size: 0.92em;
 }
 
-/* Browser-default placeholder grey is marginal against the tinted field
-   fill and varies by engine; pin it to the audited hint colour. */
 ::placeholder {
   color: var(--color-ink-soft);
   opacity: 1;
 }
 
-/* -------------------------------------------------------- shared looks
-
-   Each said once. Everything else is spent as utilities on the element
-   itself; what is here is here because SEVERAL DIFFERENT ELEMENTS wear it
-   and must not drift apart. The button is the clearest case: the save
-   control is an <a> because the browser fetches the file, the import control
-   is a <label> because a file input needs one, and all three still have to
-   read as the same button. */
-
-/* The focus ring. One ring for every control in the application: a ring
-   that changes appearance between controls is a ring people stop reading.
-   The React Aria plugin resolves this to the library's own
-   `data-focus-visible` on its components and to `:focus-visible` on plain
-   elements, so both spellings land on the same pixels. */
 @utility focus-ring {
   @apply focus-visible:outline-2 focus-visible:outline-offset-2
     focus-visible:outline-accent-text;
 }
 
-/* The button box: shape and metrics, no colour. 44px minimum, which is the
-   smallest target most touch guidance accepts. */
 @utility btn {
   @apply focus-ring inline-flex min-h-11 cursor-pointer items-center
     justify-center gap-2 border border-transparent px-4 text-sm
@@ -621,7 +385,6 @@ code {
   clip-path: var(--cut);
 }
 
-/* The one action a screen is asking for. */
 @utility btn-primary {
   @apply text-on-cta
     disabled:cursor-not-allowed disabled:bg-none disabled:bg-disabled
@@ -634,121 +397,97 @@ code {
   );
 }
 
-/* An offer rather than an instruction: still a real button, not fine
-   print. Every secondary control in the application is this one. */
 @utility btn-quiet {
-  @apply border-line bg-card text-ink hover:not-disabled:bg-hover
-    disabled:cursor-not-allowed disabled:text-ink-soft;
+  @apply border-line bg-card text-ink hover:not-disabled:border-accent
+    hover:not-disabled:bg-hover disabled:cursor-not-allowed
+    disabled:text-ink-soft;
 }
 
-/* Somewhere to type. A shade off the card so it reads as a field before it
-   is focused, and a border strong enough to be the thing that says so --
-   3.44:1, past the non-text minimum, where the decorative hairline would
-   not be. */
 @utility field {
   @apply w-full border border-line-strong bg-field px-4 py-2.5
     text-sm leading-relaxed text-ink
     focus:outline-2 focus:outline-offset-1 focus:outline-focus;
 }
 
-/* The offers inside the download card, in order of usefulness. Each is
-   separated from the one above rather than boxed, so the card reads as one
-   list of choices -- and that is a rule BETWEEN siblings, which is a
-   relationship no utility on a single element can express. */
 @utility download-option {
   & + & {
     @apply mt-3 border-t border-line pt-3;
   }
 }
 
-/* Everything a country discloses -- its "whole country" box, its states, its
-   cities -- is a SUBSET of that country, and flush against the country's own
-   row it reads as a sibling of it instead. The indent belongs to the panel
-   rather than to the rows, so every kind of row inside it is covered,
-   including kinds added later. The rule sits beside the line it draws: the
-   border is the containment made visible, and `ms`/`ps` rather than left and
-   right so both flip with the writing direction. */
 @utility region-children {
   @apply ms-4 border-s border-line ps-3;
 }
 
-/* The small-caps label over a group inside the download card: the picker's
-   states and cities, the exported files, the downloaded maps, the import
-   control. Five elements wore the same twenty-eight characters of Tailwind
-   pasted five times, so a spacing tweak was five synchronised edits. */
-@utility region-group {
-  @apply mx-2.5 mt-1 mb-0.5 text-[11px] tracking-wider text-ink-soft
-    uppercase;
+@utility panel-section {
+  @apply border-t border-line px-4.5 py-3.5;
 }
 
-/* One row of a list of files: a downloaded region, or an export waiting to
-   be carried away. Two different renderers draw these and must not drift --
-   the wrapping below is a fix, and it had been applied to only one of them.
+@utility panel-group {
+  @apply min-w-0;
+}
 
-   Unwrapped, three buttons took the full width and left the name column a
-   few pixels, which the name's own wrapping honoured by breaking "Map view"
-   one letter per line. */
+/* The heading's line, which may also carry a tip and a control. */
+@utility panel-section-head {
+  @apply mb-2.5 flex items-center gap-2;
+}
+
+.panel-group > .panel-section-head {
+  @apply mt-1 mb-1.5;
+}
+
+@utility panel-section-action {
+  @apply ms-auto;
+}
+
+.region-sub > .panel-section-head > .panel-title {
+  color: var(--color-ink-soft);
+}
+
 @utility ledger-row {
   @apply flex flex-wrap items-center justify-between gap-2 py-2;
 }
 
-/* The text side of such a row. `basis-40` is what keeps a real basis under
-   the name so the buttons drop to their own line rather than crushing it. */
 @utility ledger-row-text {
   @apply flex min-w-0 flex-1 basis-40 flex-col gap-0.5;
 }
 
-/* And the name itself. break-words, not anywhere: this only has to rescue a
-   single unbroken name too long for the column, and `anywhere` shredded
-   normal names the moment the column got tight. */
 @utility ledger-name {
-  @apply text-sm font-semibold break-words;
+  @apply break-words;
 }
 
-/* Secondary text: the sentence under a control that says what it will do.
-   One size and one colour for all of them, because they are all the same
-   thing. */
+@utility panel-title {
+  @apply m-0 font-mono text-xs font-semibold tracking-widest text-ink uppercase;
+}
+
+@utility panel-label {
+  @apply text-sm font-medium text-ink;
+}
+
+@utility panel-note {
+  @apply text-sm leading-normal text-ink-soft;
+}
+
 @utility hint {
-  @apply my-1.5 text-sm leading-normal text-ink-soft;
+  @apply my-1.5;
 }
 
-/* Something the reader has to take in before acting. A rule down the left
-   in the accent rather than a filled panel: it has to be noticed without
-   competing with the address, which is the one thing allowed to be loud. */
 @utility warning {
   @apply border-l-4 border-accent bg-alert px-4 py-3
     text-sm leading-normal;
 }
 
-/* A section heading inside the panel. Small caps rather than a larger
-   size: these label regions of a column that is already narrow, and a
-   heading that competes with its own content is not a heading. */
-@utility panel-title {
-  @apply m-0 font-mono text-xs font-semibold tracking-widest text-ink-soft
-    uppercase;
+.view-note.warn {
+  border-inline-start: 4px solid var(--color-notice-soft-line);
+  background: var(--color-notice-soft);
+  padding: 0.5rem 0.75rem;
+  color: var(--color-warn);
 }
 
-/* The icon buttons take the same cut as the text buttons, in the size the
-   palette keeps for a 44px square. Both shapes are theme tokens, so a
-   palette that squares the text buttons squares these in the same breath. */
 @utility icon-cut {
   clip-path: var(--cut-icon);
 }
 
-/* The chamfer, drawn properly where the browser can.
-
-   `clip-path` cuts the shape out of the finished button, which takes the
-   border away along the diagonal -- the two corners came out as gaps in the
-   outline rather than as angled edges -- and takes the focus ring with it,
-   since an outline at `outline-offset: 2px` lies outside the polygon
-   entirely. `corner-shape: bevel` makes the chamfer part of the box instead:
-   the border follows it, the outline follows the border, and the ring is
-   back in both cyberpunk palettes.
-
-   Unlayered on purpose, so it beats the utilities above without a selector
-   fight. The clip stays as the fallback, and a palette that puts the shape
-   down sets its size to zero, which leaves `border-radius: 0` and a bevel of
-   nothing to draw. */
 @supports (corner-shape: bevel) {
   .btn,
   .icon-cut {
@@ -764,26 +503,6 @@ code {
     border-radius: 0 var(--cut-size-icon) 0 var(--cut-size-icon);
   }
 
-  /* The things you type into and choose from take the shape too, at the
-     buttons' size, and only here: neither has a clipped fallback, because
-     clipping one would take its focus outline the way it took the buttons'.
-     A browser without `corner-shape` gets them square, which is what the
-     plain palettes look like anyway. The field's inline padding above is a
-     step wider than a square one needs, so a caret at the start of the line
-     clears the corner.
-
-     The dropdown's trigger is here and its popover is not: the trigger is a
-     control sitting in a row with the fields and the buttons, and a square
-     one in that row is the only square thing left in it. The list it opens is
-     a surface, like the tooltip and the dropdown's own sheet, and those stay
-     rectangles.
-
-     `place-search-field` is the map's search box, which is a wrapper around
-     an input rather than the input itself -- the magnifier shares its border
-     -- and so carries its own copy of the field's border, fill and focus
-     ring instead of the utility. It is named here for the same reason it is
-     drawn there: square, on a map whose every other control is cut, it reads
-     as the one thing that was missed. */
   .field,
   .dropdown-button,
   .place-search-field {
@@ -792,87 +511,35 @@ code {
   }
 }
 
-/* The application's name, wherever it stands alone: tracked-out bold caps in
-   whichever face the palette holds. The cyberpunk pair spends the serif, the
-   plain three the same mono stack the rest of the application already loads,
-   so light and low light keep a plain wordmark with no second rule
-   anywhere.
-
-   Tracking is not part of the lever. One number for both faces, so the two
-   palettes cannot come to disagree about how wide the word stands. */
 @utility brand {
   @apply font-bold tracking-[0.18em] uppercase;
   font-family: var(--brand-font);
 }
 
-/* A card that hangs off a control: the dropdown's list, the search results.
-   The same card in both places, because they are the same gesture and looked
-   like two applications when one was drawn by the operating system. */
 @utility sheet {
   @apply z-40 border border-line-strong bg-card
     shadow-[0_2px_8px_rgb(0_0_0/0.2)];
 }
 
-/* A row of buttons closing a section. They run from the left, which is where
-   they have always run; what is new is that they run from the SAME place.
-
-   One rule rather than the class list pasted at each row: where these sit
-   used to be five separate decisions, and the ledger's rows only looked
-   settled because the line they sit in is `justify-between` and the text
-   beside them pushed them over. Declaring no alignment here is deliberate --
-   a row that wants a different one has to change this, where every row can
-   see it. */
 @utility download-actions {
   @apply flex flex-wrap items-center gap-2;
 }
 
-/* A row inside one. `focus:` here is React Aria's own focused state, set on
-   whichever row the arrow keys or the pointer are on, so hovering does not
-   have to write to the keyboard's cursor to look right. Separate from
-   `focus-visible:`, which is the keyboard ring. */
 @utility sheet-option {
   @apply flex min-h-11 cursor-pointer items-center px-2.5 py-2
     text-sm focus:bg-hover focus-visible:outline-2
     focus-visible:-outline-offset-2 focus-visible:outline-accent-text;
 }
 
-/* --------------------------------------------------- the two covered edges
-
-   How much of the map the panel is sitting on, one number per edge. Every
-   overlay the application draws -- MapLibre's own controls, the map's notes,
-   the resize handle -- keeps clear of these rather than of the panel, which
-   none of them can see.
-
-   Derived here rather than written by App.tsx, because the answer turns on
-   the breakpoint and a stylesheet is the only thing that knows where the
-   breakpoint is. App sets the two facts it has: how wide the panel is, and
-   whether it is open. Setting the ANSWER there is what shipped -- below
-   --breakpoint-drawer the panel is a sheet across the BOTTOM, and a
-   --panel-offset of 340px then sent MapLibre's zoom column 340px in from a
-   right edge nothing was covering. On a phone that is the top-LEFT corner,
-   on top of the search field, with the attribution pushed off the left of
-   the screen and the scale bar under the sheet.
-
-   --panel-open is 1 or 0 rather than a length, so one multiplication says
-   both "how much" and "any at all".
-
-   --panel-h is the sheet's real height rather than the cap it is allowed to
-   grow to: the cap is a max-height, and on a tablet the panel's content
-   stops well short of it. Offsetting by the cap left the scale bar and the
-   attribution floating a hundred pixels above the sheet with bare map under
-   them. */
 .app {
   --panel-offset: calc(var(--panel-open, 1) * var(--panel-w, 340px));
   --sheet-offset: 0px;
-
-  /* The sheet's handle, which exists only below the breakpoint. Zero here so
-     every rule that has to clear it can add it unconditionally. */
   --grab-h: 0px;
-
-  /* What is already standing on the map's right edge. The panel while it is
-     open; the tab that brings it back while it is shut -- one or the other,
-     never neither, so the controls that hug that edge and the search field
-     that must stop short of them both measure from here. */
+  --grab-dip: 0px;
+  --grab-clear: 0px;
+  --pill-w: 2.25rem;
+  --pill-h: 0.25rem;
+  --pill-mid: 1rem;
   --right-clear: calc(
     var(--panel-offset) + (1 - var(--panel-open, 1)) * 3.5rem
   );
@@ -887,72 +554,76 @@ code {
   .app {
     --panel-offset: 0px;
     --sheet-offset: calc(var(--panel-open, 1) * var(--panel-h, 0px));
-    --grab-h: 2.25rem;
-
-    /* Nothing stands on the right edge here. The 3.5rem above is the reopen
-       tab's width, and the tab is drawer-width only: what brings the sheet
-       back on a phone is its handle, along the bottom. */
+    --grab-h: 2rem;
+    --grab-dip: 2rem;
+    --grab-clear: calc(
+      var(--grab-h) - var(--panel-open, 1) * var(--grab-dip)
+    );
     --right-clear: 0px;
   }
 }
 
-/* The sheet's handle. It rides --sheet-offset, so it sits on the sheet's top
-   edge while the sheet is open and on the map's bottom edge while it is shut,
-   with one transition rather than two positions kept in step. The bar itself
-   is the one rounded thing in the application: a pill at the top of a sheet
-   is a gesture people already know, and a chamfered one is a shape nobody has
-   seen. */
 .sheet-grab {
-  bottom: var(--sheet-offset, 0px);
+  bottom: calc(
+    var(--sheet-offset, 0px) - var(--panel-open, 1) * var(--grab-dip, 0px)
+  );
   transition: bottom 180ms ease;
 }
 
+@media (width < 23rem) {
+  .panel-head {
+    justify-content: center;
+    text-align: center;
+  }
+
+  .panel-head > div {
+    margin-left: 0;
+  }
+}
+
+.sheet-grab-button {
+  height: var(--grab-h);
+  padding-top: calc(var(--pill-mid) - var(--pill-h) / 2);
+}
+
+/* A pill at the top of a sheet is a gesture people already know, so the plain
+   palettes get the pill. */
 .sheet-grab-bar {
-  width: 2.25rem;
-  height: 0.25rem;
+  width: var(--pill-w);
+  height: var(--pill-h);
   border-radius: 999px;
   background: var(--color-line-strong);
 }
 
-/* ------------------------------------------------------- against MapLibre
+:root[data-icons="cut"] .sheet-grab {
+  --pill-w: 3rem;
+  --pill-h: 0.5rem;
+}
 
-   What is left in this file after the components took their own appearance
-   into class lists. All of it is here for a reason a utility cannot carry:
-   it either has to outrank a stylesheet this project does not own, or it is
-   a keyframe. */
+:root[data-icons="cut"] .sheet-grab-bar {
+  border-radius: 0;
+  clip-path: polygon(
+    0.25rem 0,
+    calc(100% - 0.25rem) 0,
+    100% 50%,
+    calc(100% - 0.25rem) 100%,
+    0.25rem 100%,
+    0 50%
+  );
+}
 
 .map-wrap {
   position: absolute;
   inset: 0;
 }
 
-/* Two classes on purpose, and it must stay. MapLibre puts its own
-   `maplibregl-map` class on this same element and sets `position: relative`
-   with no height. Both selectors would be one class, so the winner is
-   whichever stylesheet came last -- and since the map became a separate
-   chunk (components/mapChunk.ts) its CSS arrives in a file loaded AFTER this
-   one. As a bare `.map` this rule lost, the map computed to height 0, and
-   every click passed through a map that was not there.
-
-   Also why it is not a utility on the element: a Tailwind class is one
-   class, and would lose the same race. ui/test/e2e.mjs checks the rendered
-   height. */
 .map-wrap > .map {
   position: absolute;
   inset: 0;
 }
 
 /* MapLibre's controls -- zoom, compass, geolocate, the scale bar, the
-   attribution -- ship a light-only stylesheet and were the last things on
-   screen still white in a dark room. Painted with the same tokens as
-   everything else, so every palette gets them for free.
-
-   Every rule in this section leads with `.map-wrap`, the container this
-   application owns, so it is two classes against MapLibre's one. Its
-   stylesheet loads AFTER this file, for the reason above, so a single-class
-   rule here loses the tie and does nothing. It did nothing for a while: the
-   controls sat under the drawer, and when the drawer was shut they sat under
-   the one button that brings it back. */
+   attribution */
 .map-wrap .maplibregl-ctrl-group {
   background: var(--color-card);
   box-shadow: 0 0 0 1px var(--color-line);
@@ -968,9 +639,6 @@ code {
   border-color: var(--color-line-strong);
 }
 
-/* Both class names, matching the specificity MapLibre itself uses for this
-   one -- its own rule is .maplibregl-ctrl.maplibregl-ctrl-attrib and ties
-   are settled by load order, which this file loses. */
 .map-wrap .maplibregl-ctrl.maplibregl-ctrl-attrib {
   background: var(--color-card);
 }
@@ -980,45 +648,130 @@ code {
   color: var(--color-ink-soft);
 }
 
-/* MapLibre's control icons are background-image SVGs with #333 baked in,
-   which no token can reach, so they are inverted instead and land near #ccc.
-
-   Which palettes need that is not a list of theme names here: it is
-   --map-light-ground, defined beside the colours in every palette block
-   above, and `invert(0)` is the identity -- so ONE declaration covers both
-   cases and there is nothing for a sixth palette to fall off. It used to be
-   three hand-written selectors plus a prefers-color-scheme re-invert,
-   encoding a classification MapView also encoded in TypeScript. Add a light
-   palette to the palette blocks and not to that list, and light control
-   icons ship on a dark map with nothing failing -- which is how these
-   controls stayed light through the dark theme's whole first release. */
 .map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
   filter: invert(calc(1 - var(--map-light-ground)));
 }
 
-/* The theme squares every corner, and the map's own controls -- zoom,
-   compass, attribution -- arrive with MapLibre's own 4px radius. */
+.map-wrap
+  .maplibregl-ctrl
+  button:is(
+    .maplibregl-ctrl-zoom-in,
+    .maplibregl-ctrl-zoom-out,
+    .maplibregl-ctrl-compass,
+    .maplibregl-ctrl-geolocate
+  )
+  .maplibregl-ctrl-icon,
+.map-wrap
+  .maplibregl-ctrl
+  button.maplibregl-ctrl-geolocate:is(
+    .maplibregl-ctrl-geolocate-active,
+    .maplibregl-ctrl-geolocate-active-error,
+    .maplibregl-ctrl-geolocate-background,
+    .maplibregl-ctrl-geolocate-background-error,
+    :disabled
+  )
+  .maplibregl-ctrl-icon {
+  background-image: none;
+  background-color: currentColor;
+  filter: none;
+  mask: var(--ctrl-glyph) center / 20px 20px no-repeat;
+}
+
+.map-wrap .maplibregl-ctrl button.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon {
+  --ctrl-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='square' stroke-linejoin='miter'%3E%3Cpath d='M12 5V19'/%3E%3Cpath d='M5 12H19'/%3E%3C/svg%3E");
+}
+
+.map-wrap .maplibregl-ctrl button.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
+  --ctrl-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='square' stroke-linejoin='miter'%3E%3Cpath d='M5 12H19'/%3E%3C/svg%3E");
+}
+
+/* A diamond with its north half solid. MapLibre rotates this element by the
+   bearing, so the needle turns with the map. */
+.map-wrap .maplibregl-ctrl button.maplibregl-ctrl-compass .maplibregl-ctrl-icon {
+  --ctrl-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='square' stroke-linejoin='miter'%3E%3Cpath d='M12 4 4 12 12 20 20 12Z'/%3E%3Cpath d='M12 4 4 12H20Z' fill='%23000' stroke='none'/%3E%3C/svg%3E");
+}
+
+.map-wrap .maplibregl-ctrl button.maplibregl-ctrl-geolocate .maplibregl-ctrl-icon {
+  --ctrl-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='square' stroke-linejoin='miter'%3E%3Cpath d='M7 7H17V17H7Z'/%3E%3Cpath d='M12 2V6'/%3E%3Cpath d='M12 18V22'/%3E%3Cpath d='M2 12H6'/%3E%3Cpath d='M18 12H22'/%3E%3Cpath d='M11 11H13V13H11Z' fill='%23000' stroke='none'/%3E%3C/svg%3E");
+}
+
+/* The one shape here that encloses, and so the one that can carry the
+   signature. `data-icons` is written by applyTheme from the RESOLVED theme,
+   which is the only thing a stylesheet cannot work out for itself -- "match
+   my device" is answered by a media query. */
+:root[data-icons="cut"]
+  .map-wrap
+  .maplibregl-ctrl
+  button.maplibregl-ctrl-geolocate
+  .maplibregl-ctrl-icon {
+  --ctrl-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='square' stroke-linejoin='miter'%3E%3Cpath d='M7 7H13L17 11V17H11L7 13Z'/%3E%3Cpath d='M12 2V6'/%3E%3Cpath d='M12 18V22'/%3E%3Cpath d='M2 12H6'/%3E%3Cpath d='M18 12H22'/%3E%3Cpath d='M11 11H13V13H11Z' fill='%23000' stroke='none'/%3E%3C/svg%3E");
+}
+
+.map-wrap .maplibregl-ctrl-attrib-button {
+  background-image: none;
+  background-color: var(--color-card);
+  border-radius: 0;
+  box-shadow: 0 0 0 1px var(--color-line);
+  --ctrl-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='square' stroke-linejoin='miter'%3E%3Cpath d='M3 3H21V21H3Z'/%3E%3Cpath d='M12 11V17'/%3E%3Cpath d='M11 6H13V8H11Z' fill='%23000' stroke='none'/%3E%3C/svg%3E");
+}
+
+:root[data-icons="cut"] .map-wrap .maplibregl-ctrl-attrib-button {
+  --ctrl-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='square' stroke-linejoin='miter'%3E%3Cpath d='M3 3H17L21 7V21H7L3 17Z'/%3E%3Cpath d='M12 11V17'/%3E%3Cpath d='M11 6H13V8H11Z' fill='%23000' stroke='none'/%3E%3C/svg%3E");
+}
+
+.map-wrap .maplibregl-ctrl-attrib-button::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  background-color: var(--color-ink);
+  mask: var(--ctrl-glyph) center / contain no-repeat;
+}
+
+.map-wrap .maplibregl-ctrl button .maplibregl-ctrl-icon {
+  color: var(--color-ink);
+}
+
+.map-wrap
+  .maplibregl-ctrl
+  button.maplibregl-ctrl-geolocate:is(
+    .maplibregl-ctrl-geolocate-active,
+    .maplibregl-ctrl-geolocate-background
+  )
+  .maplibregl-ctrl-icon {
+  color: var(--color-accent);
+}
+
+.map-wrap
+  .maplibregl-ctrl
+  button.maplibregl-ctrl-geolocate:is(
+    .maplibregl-ctrl-geolocate-active-error,
+    .maplibregl-ctrl-geolocate-background-error
+  )
+  .maplibregl-ctrl-icon {
+  color: var(--color-danger);
+}
+
+.map-wrap
+  .maplibregl-ctrl
+  button.maplibregl-ctrl-geolocate:disabled
+  .maplibregl-ctrl-icon {
+  color: var(--color-on-disabled);
+}
+
 .map-wrap .maplibregl-ctrl-group,
 .map-wrap .maplibregl-ctrl-group button,
 .map-wrap .maplibregl-ctrl-attrib {
   border-radius: 0;
 }
 
-/* MapLibre positions its controls and attribution against the map's own
-   edges, and the map is the full width of the shell -- so without this they
-   sit UNDER the panel. They track the covered edges instead, and slide with
-   them. */
 .map-wrap .maplibregl-ctrl-top-right,
 .map-wrap .maplibregl-ctrl-bottom-right {
   right: var(--right-clear, 3.5rem);
 }
 
-/* The bottom edge is only ever covered by the sheet, and the scale bar sits
-   in the opposite corner from everything else -- so this pair is not the
-   pair above. */
 .map-wrap .maplibregl-ctrl-bottom-left,
 .map-wrap .maplibregl-ctrl-bottom-right {
-  bottom: calc(var(--sheet-offset, 0px) + var(--grab-h, 0px));
+  bottom: calc(var(--sheet-offset, 0px) + var(--grab-clear, 0px));
 }
 
 .map-wrap .maplibregl-ctrl-top-right,
@@ -1027,11 +780,24 @@ code {
   transition: right 180ms ease, bottom 180ms ease;
 }
 
-/* ------------------------------------------------------------ keyframes */
+progress {
+  appearance: none;
+  border: 0;
+  background: var(--color-line);
+}
 
-/* Indeterminate shimmer across the top of the map while tile arrival lags.
-   Sits above the canvas but below the search overlay; a gradient over the
-   accent, so the palette carries it. */
+progress::-webkit-progress-bar {
+  background: var(--color-line);
+}
+
+progress::-webkit-progress-value {
+  background: var(--color-accent);
+}
+
+progress::-moz-progress-bar {
+  background: var(--color-accent);
+}
+
 .map-loading {
   position: absolute;
   inset-inline: 0;
@@ -1061,17 +827,6 @@ code {
   }
 }
 
-/* The other wait, and the smaller one. The bar above crosses the whole
-   screen and is about the whole view; this stands in one section of a card,
-   beside the sentence saying what is being waited for.
-
-   Four squares filling in turn. The shape is this application's own -- the
-   grid draws empty squares, the reticle is one, the buttons are cut from the
-   same corner -- so a wait looks like the thing being waited for rather than
-   like a spinner borrowed from somewhere else.
-
-   Sized in em, so it matches whatever text it stands beside rather than
-   carrying a pixel size that only suits one caller. */
 .loading-tiles {
   display: inline-grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1110,10 +865,6 @@ code {
   }
 }
 
-/* Respect a stated preference for less motion. This block covers CSS
-   animation only. The map's camera is not CSS: MapLibre reads the same media
-   query itself and turns any non-essential movement into a jump, which is
-   why ui/src/core/camera.ts does not mark its fly-to essential. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1135,10 +886,6 @@ code {
     opacity: 0.5;
   }
 
-  /* Frozen mid-cycle the four squares sit at four different opacities, which
-     reads as a rendering fault rather than as a mark. Evened out, it is a
-     small block of tiles standing still beside a sentence that says what is
-     happening -- which is what the sentence is for. */
   .loading-tiles i {
     animation: none;
     opacity: 0.55;

@@ -1,8 +1,8 @@
-import { PanelRightOpen } from "lucide-react";
 import { type CSSProperties, lazy, Suspense, useRef } from "react";
 import { AddressPanel } from "./components/AddressPanel";
 import { Banner } from "./components/Banner";
 import { IconButton } from "./components/IconButton";
+import { PanelRightOpen } from "./components/icons";
 import { loadMapView } from "./components/mapChunk";
 import { PanelResizer } from "./components/PanelResizer";
 import { PhraseEntry } from "./components/PhraseEntry";

@@ -27,7 +27,7 @@ export default defineConfig({
     // Tailwind compiles at build time and emits a plain stylesheet, so the
     // shipped app reaches no third party: no CDN, no runtime, no font off
     // somebody else's origin. The one typeface it does not find on the
-    // machine -- the pixel face the cyberpunk wordmark wears -- ships in
+    // machine -- the pixel face the edgerunner wordmark wears -- ships in
     // public/fonts and is served from here like everything else. Only the
     // utilities the source actually mentions survive into that file, which is
     // why the design scale can be large without the download being.

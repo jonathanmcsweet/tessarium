@@ -111,7 +111,7 @@ check(
 
 /* ------------------------------------------------------------ the font
 
-   One typeface ships: the face the cyberpunk palettes draw the wordmark in. Three things have to hold about it, and none of them is visible on
+   One typeface ships: the face the edgerunner palettes draw the wordmark in. Three things have to hold about it, and none of them is visible on
    screen when it breaks.
 
    Self-hosted, because a face fetched from a CDN is a face that does not

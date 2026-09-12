@@ -1,17 +1,3 @@
-/* What the map downloads are doing, in the side panel.
-
-   Separate from the download card. The card is where a download is CHOSEN
-   and is closed as soon as the choosing is done; the progress of six
-   countries fetched over an hour belongs somewhere that stays put. So the
-   card starts the work, this reports it, and closing the card costs nothing.
-
-   The rows are per REGION: "downloading, 40%" over six countries says
-   nothing about whether the one you need has arrived. Bytes per row are what
-   the network delivered for that region -- the server charges a tile wanted
-   by two picks to the first only, so the rows never sum past what was
-   fetched. */
-
-import { X } from "lucide-react";
 import {
   isRunning,
   type Job,
@@ -22,46 +8,28 @@ import { formatBytes } from "../i18n";
 import { m } from "../paraglide/messages";
 import { toastError } from "../toast";
 import { IconButton } from "./IconButton";
+import { X } from "./icons";
+import { PanelSection } from "./PanelSection";
 
 const loudly = {
   onError: (e: unknown) =>
     toastError(e instanceof Error ? e.message : String(e)),
 };
 
-/* A bar plus its numbers, said once so every row says it the same way.
-   `<progress>` carries the value to assistive technology by itself, so the
-   visible text is `aria-hidden` and the pair is not read twice. */
 function Bar(
   { label, done, total, hint }: {
     label: string;
     done: number;
     total: number;
-    /* Explicitly `| undefined`: exactOptionalPropertyTypes is on, so an
-       optional property and one that may be undefined are different types.
-       The caller passes undefined to mean "just show the numbers". */
     hint?: string | undefined;
   },
 ) {
-  /* A row with nothing left to fetch is a full bar, whatever its numbers.
-     Drawn from `done >= total` because a region resumed with every tile
-     already on disk has a total of zero, and `value={0} max={1}` drew it at
-     0% -- reading as a region that never started. */
+
   const ceiling = Math.max(total, 1);
   return (
     <li className="download-row">
       <div className="flex items-baseline justify-between gap-2">
-        {
-          /* The name may be long in any of six languages. It takes the
-            slack; the numbers keep their size, so a row never reflows as
-            they tick. */
-        }
-        <span className="min-w-0 text-sm break-words">{label}</span>
-        {
-          /* Through the catalogue, like the label beside it. This was a
-            hardcoded `${done} / ${total}` while the bar's own aria-label
-            spent a message on the same fact: two spellings, and the one on
-            screen unreachable by a translator. */
-        }
+        <span className="panel-label ledger-name min-w-0">{label}</span>
         <span
           className="flex-none text-xs tabular-nums text-ink-soft"
           aria-hidden="true"
@@ -86,18 +54,15 @@ function Bar(
   );
 }
 
-/* The states that are one job with one number. Region rows exist only while
-   tiles are being fetched; everything else is a whole-archive operation with
-   nothing to break down. */
 function Simple({ job }: { job: Job; }) {
   switch (job.state) {
     case "planning":
-      return <p className="hint">{m.map_download_planning()}</p>;
+      return <p className="panel-note hint">{m.map_download_planning()}</p>;
     case "assets":
-      return <p className="hint">{m.map_download_assets()}</p>;
+      return <p className="panel-note hint">{m.map_download_assets()}</p>;
     case "indexing":
       return (
-        <p className="hint">
+        <p className="panel-note hint">
           {m.map_indexing_progress({
             done: job.done_tiles,
             total: job.total_tiles,
@@ -106,7 +71,7 @@ function Simple({ job }: { job: Job; }) {
       );
     case "removing":
       return (
-        <p className="hint">
+        <p className="panel-note hint">
           {m.map_removing_progress({
             done: formatBytes(job.done_bytes),
             total: formatBytes(job.total_bytes),
@@ -115,7 +80,7 @@ function Simple({ job }: { job: Job; }) {
       );
     case "compacting":
       return (
-        <p className="hint">
+        <p className="panel-note hint">
           {m.map_compacting_progress({
             done: formatBytes(job.done_bytes),
             total: formatBytes(job.total_bytes),
@@ -142,52 +107,29 @@ export function MapProgress() {
   const cancel = useBasemapCancel();
   const job = status.data?.job;
 
-  /* Quiet unless there is something happening. A panel that always carried a
-     "no downloads" line would spend its life saying nothing. */
   if (!job || !isRunning(job)) return null;
 
   const rows = job.state === "fetching" ? job.regions : [];
 
   return (
-    <section
-      className="downloads border-t border-line px-4 py-3"
-      aria-labelledby="downloads-title"
-    >
-      <div className="flex items-center justify-between gap-2">
-        {
-          /* An export is not a download, and this section said "Map
-            downloads" over "Writing the file" while one ran. */
-        }
-        <h2 id="downloads-title" className="m-0 text-sm font-semibold">
-          {job.state === "exporting"
-            ? m.map_progress_export_title()
-            : m.map_progress_title()}
-        </h2>
+    <PanelSection
+      className="downloads"
+      title={job.state === "exporting"
+        ? m.map_progress_export_title()
+        : m.map_progress_title()}
+      action={
         <IconButton
           label={m.map_download_cancel()}
           icon={<X size={16} aria-hidden />}
           onClick={() => cancel.mutate(undefined, loudly)}
           disabled={cancel.isPending}
         />
-      </div>
-
-      {
-        /* Polite, not assertive: this updates every second, and an assertive
-          region would talk over everything else the user is doing. */
       }
+    >
       <div role="status" aria-live="polite" aria-atomic="false">
         {rows.length > 0
           ? (
             <ul className="download-rows mt-2 space-y-2.5">
-              {
-                /* Measured first, then finished, then in flight. Finished is
-                  `done >= total` with no floor under the total: a region
-                  whose tiles were all already on disk accrues no fresh
-                  bytes, so zero of zero IS the whole of it. Requiring
-                  `total_bytes > 0` left such a region reading "0 MB / 0 MB"
-                  at 0% for the life of the job -- exactly what a resumed
-                  download looks like, and it reads as never started. */
-              }
               {rows.map((r, i) => (
                 <Bar
                   // biome-ignore lint/suspicious/noArrayIndexKey: the server returns one row per requested region in request order, and that list is fixed for the life of the download -- position IS the identity here. Labels cannot serve as one: two cities can share a name.
@@ -207,7 +149,7 @@ export function MapProgress() {
           : <Simple job={job} />}
 
         {job.state === "fetching" && (
-          <p className="hint download-overall mt-2.5 tabular-nums">
+          <p className="panel-note hint download-overall mt-2.5 tabular-nums">
             {job.parts > 1
               ? m.map_progress_overall_part({
                 done: formatBytes(job.done_bytes),
@@ -222,6 +164,6 @@ export function MapProgress() {
           </p>
         )}
       </div>
-    </section>
+    </PanelSection>
   );
 }

@@ -1,21 +1,3 @@
-/* Where a search result would take the map, said before the click.
-
-   The search index (ocaml/server/place_index.ml) carries a name, a kind and
-   a point -- no administrative context, because tile labels do not know
-   their country. Names repeat: the United States alone has several
-   localities called Atlanta, so a bare "Atlanta — locality" row is a coin
-   flip. This module derives the context offline, from data already
-   shipped -- which catalogue country contains the point, which subdivision
-   box where the catalogue has them (nine large countries), and how far and
-   which way the map would fly. No query leaves the machine.
-
-   Floats throughout: this is display at the UI boundary, never the encode
-   path. The borders are simplified, so near one the attribution can be
-   wrong in either direction -- a coastal point can resolve to no country, a
-   border town to the neighbour whose polygon overreaches. The tiebreaks
-   below get the shipped city list right; they are context for a dropdown,
-   not a boundary authority. */
-
 type Box = [number, number, number, number];
 
 export type CountryShape = {
@@ -172,29 +154,12 @@ export function overlappingSubdivisions<S extends SubdivisionShape>(
   return subdivisions.filter((s) => s.boxes.some((b) => inBox(b, lon, lat)));
 }
 
-/* ------------------------------------------- the context someone typed
-
-   "Jasper, GA" is how a person names a place, and the part after the comma
-   used to do nothing. The server cannot help: its index is built from tile
-   labels, and a tile label does not know its country, so no entry for
-   Jasper contains "GA" anywhere (ocaml/server/place_index.ml says as much).
-   The context this file already derives for DISPLAY is the same context the
-   query asks about, so the ranking happens here, on data already shipped.
-
-   Ranking, never filtering, for the same reason the display is hedged: the
-   boxes overlap and the borders are simplified, so a context that DECIDED
-   would hide the right answer whenever the catalogue disagreed with the
-   atlas. */
-
 /* Lower case with the accents taken off, so "Québec" answers "quebec". The
    server folds its own index the same way; this folds only what was typed
    and the catalogue's own labels. */
 export const foldLabel = (s: string) =>
   s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
-/* Everything after the first comma, in words, folded. Mirrors the
-   server's own split (place_index.ml, [parse_query]) including its cap:
-   two words is a region and a country, and more than that is noise. */
 export function contextTerms(query: string): string[] {
   const comma = query.indexOf(",");
   if (comma < 0) return [];
@@ -204,9 +169,7 @@ export function contextTerms(query: string): string[] {
     .slice(0, 2);
 }
 
-/* Whether one label answers one term.
-
-   A short term is an abbreviation and must match a whole label: read as a
+/* A short term is an abbreviation and must match a whole label: read as a
    prefix, "GA" would be Gabon, Galicia and Gauteng as well as Georgia. Four
    characters or more may start a word instead, so "carolina" finds North
    Carolina and "united" finds the United States. */
@@ -232,7 +195,7 @@ export function contextDepth(
 /* The order results are offered in, lower first on both keys.
 
    How well the row answered the NAME comes first, straight from the index:
-   "Jasper, GA" must not answer with Jasper County Landfill just because the
+   "Atlanta, GA" must not answer with the County Landfill just because the
    landfill is in Georgia. The context decides only among rows the index
    calls equally good.
 
@@ -267,9 +230,7 @@ export function placeLabels(
 /* Which subdivision to NAME. Subdivisions are boxes only, and boxes
    overlap: New York City sits in both New York's and New Jersey's. One box
    holding the point is the answer; several is silence rather than a
-   confident wrong one, and the country still shows. Unless the typed
-   context named one of them, which is the same evidence answering the
-   question actually put. */
+   confident wrong one, and the country still shows.*/
 export function namedSubdivision(
   subdivisions: readonly SubdivisionShape[],
   terms: readonly string[] = [],
@@ -281,8 +242,7 @@ export function namedSubdivision(
   return asked.length === 1 ? asked[0]?.name ?? null : null;
 }
 
-/* The no-context case, kept as its own name because most callers have no
-   query to hand: which subdivision holds this point, or nothing. */
+
 export function containingSubdivision(
   subdivisions: readonly SubdivisionShape[],
   lon: number,

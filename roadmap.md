@@ -461,7 +461,7 @@ not cover.
       which puts the cut inside the box: the border follows it and the outline
       follows the border. `clip-path` is still the fallback, and it still
       clips an outline drawn at `outline-offset: 2px` out of existence, so on
-      such a browser both cyberpunk palettes are back to no visible ring.
+      such a browser both edgerunner palettes are back to no visible ring.
 
       The fix for that branch has to live inside the clip -- an inset ring, a
       negative `outline-offset` applied in the `@supports not` block. It is
@@ -718,6 +718,35 @@ not cover.
       review cannot supply: whether the copy sounds like a person. `fr-CA` now
       differs from `fr-FR` in terminology, punctuation spacing and dash
       convention, but a Quebec reader should still confirm it.
+- [ ] **Japanese, Chinese and German are not offered.** The six locales
+      shipped are English, French and Spanish variants, which are three
+      Latin-script languages picked because the first translator pass could
+      be reviewed adversarially in all of them. `ja`, `zh` and `de` are the
+      next three, and they are not the same amount of work as a fourth
+      Romance locale:
+
+      - **Japanese and Chinese need the wordmark and the mono stack to have
+        an answer.** The brand face is a subsetted Bodoni with Latin glyphs
+        only, and the address itself is drawn in a monospace stack that has
+        no CJK coverage — an address is English words either way, but the
+        labels around it are not, and a fallback chosen by the browser is a
+        different face on every machine.
+      - **Neither language breaks on spaces.** The address row, the coverage
+        notes and the toasts all assume a wrap opportunity between words;
+        `word-break` and `line-break` have to be decided per script rather
+        than globally, and the panel is 340px wide.
+      - **German is the longest-string test this UI has never had.** Several
+        controls are sized by their English label — the dropdowns in both
+        footers, the lock button, the download card's action row — and
+        German routinely runs half again as long.
+
+      The message catalogues themselves are the easy half: the keys exist,
+      `test/messages.mjs` already holds every locale to the same key set, and
+      adding one is a file plus an entry in `project.inlang/settings.json`.
+      Deferred because the three points above are layout work, not
+      translation work, and shipping a locale that overflows its own buttons
+      is worse than not offering it. A native speaker is needed for each, on
+      the same terms as the item above.
 - [ ] **Tiles fetched outside the app leave no record, so they cannot be
       managed by it.** The download ledger lives inside the archive and is
       written by the in-app downloader; the command-line extractor writes

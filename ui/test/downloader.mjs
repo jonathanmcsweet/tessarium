@@ -220,9 +220,20 @@ check(
 
 /* The section label was twenty-eight characters of Tailwind pasted five
    times, and the ledger row's shell was duplicated between the two renderers
-   that draw it -- so the wrap fix on one would not apply to the other. */
+   that draw it -- so the wrap fix on one would not apply to the other.
+
+   The label is no longer a class the card writes at all: a section of the
+   panel is `PanelSection`, which draws the heading. What the card must not do
+   is build one by hand again, which `test/shared-controls.mjs` holds by
+   letting exactly one file write `panel-title`. */
 const css = read("styles.css");
-const shared = ["region-group", "ledger-row", "ledger-row-text", "ledger-name"];
+const shared = [
+  "panel-section",
+  "panel-section-head",
+  "ledger-row",
+  "ledger-row-text",
+  "ledger-name",
+];
 for (const name of shared) {
   check(
     `.${name} is one rule in the stylesheet`,

@@ -39,23 +39,18 @@ declare global {
     __tessarium_map?: maplibregl.Map;
   }
 }
+type Scheme = ResolvedTheme;
 
-/* Below this the squares are smaller than a fingertip and the overlay is
-   noise. A 3 m cell is about 5 px at z18 and 20 px at z20. */
+/* Below this the squares are smaller than a fingertip. A 3 m cell is about 5 px at z18 and 20 px at z20. */
 const GRID_MIN_ZOOM = 18;
 
-/* The deepest tile the basemap is cut to, and the deepest zoom the server
-   answers a coverage query about. Past it the map overzooms what it has
-   rather than asking for more. */
+/* Past this the map overzooms */
 const MAX_TILE_ZOOM = 15;
 
-/* The map under the map. Its depth comes from the server -- see
-   /world.json -- because it is a fact about which archives are on disk. */
+/* The map under the map. Its depth comes from the server -- see /world.json*/
 const FLOOR_SOURCE = "protomaps-floor";
 
-/* How long a pan is left to settle before the browse cache fetches what is
-   missing. The coverage note has to outwait it: saying "not downloaded"
-   about tiles already on their way is worse than a moment's silence. */
+/* How long a pan is left to settle before the browse cache fetches what is missing*/
 const BROWSE_SETTLE_MS = 1200;
 
 /* A ceiling on cells per viewport. Reached only when the viewport is unusually
@@ -93,36 +88,9 @@ const cssToken = (name: string): string => {
   return value;
 };
 
-/* Whether a palette puts the map on a pale ground. The flavour, the sprite
-   sheet and the overlay all turn on this, so a sixth palette answers one
-   question instead of being added to three lists.
-
-   The answer comes from the palette itself (--map-light-ground in
-   styles.css), not from a list of scheme names here: the stylesheet needs
-   the same classification for MapLibre's control icons. Two lists for one
-   fact is one list a new palette silently falls off, which is how those
-   controls stayed light through the dark theme's first release. */
 const isLight = () => cssToken("--map-light-ground") === "1";
-
-/* Which pre-drawn sprite sheet the style asks for.
-
-   Map icons -- route-number shields most visibly -- are baked images, not
-   flavour colours, so no palette token reaches them. Protomaps ships a
-   sheet per flavour and we carry all five. Naming `light` for every scheme
-   put white motorway shields on a black map.
-
-   Low light takes `dark`, not `black`: their shields are the same near-black
-   badge, but `black` is a reduced sheet -- points of interest are drawn for
-   light and dark only -- so it would trade white shields for 35 missing
-   icons. A red sheet is a basemap build step, on the roadmap. */
 const spriteSheet = () => (isLight() ? "light" : "dark");
 
-/* The style, rebuilt whenever the archive on disk is replaced. Tiles come
-   through the server's /tiles endpoint rather than from the archive file:
-   the server knows about BOTH archives, the browse cache and the main one,
-   and a missing tile is a quiet 204 rather than a logged error. The version
-   goes into the tile URL so MapLibre's per-URL cache cannot keep old tiles
-   over new bytes. */
 const buildStyle = (
   version: number,
   scheme: Scheme,
@@ -139,10 +107,7 @@ const buildStyle = (
     protomaps: {
       type: "vector",
       /* TileJSON from the server, never hardcoded numbers: the zoom range
-         and bounds come from the archive headers, and the maxzoom is
-         load-bearing -- overzoom starts from the source's stated depth, so
-         a wrong 15 over a world-at-z6 archive renders blank at street
-         zoom over data the archive holds. */
+         and bounds come from the archive headers*/
       url: `/tiles.json?v=${version}`,
       attribution:
         '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
@@ -179,35 +144,6 @@ const buildStyle = (
   layers: basemapLayers(scheme),
 });
 
-/* The floor's layers, then the detail's, then the app's own on top.
-
-   The floor's layers are re-ided: the generator names layers after what
-   they draw, so all 71 would collide, and a style with two layers of one
-   name is rejected. The background is dropped from the floor set because
-   the detail set already carries it.
-
-   The floor's symbol layers are KEPT, even though labels are what would
-   double. Where nothing is downloaded, the city name is the most useful
-   thing on screen.
-
-   They do not double where detail exists, and the reason is ORDER rather
-   than collision: the detail set opens with `earth`, an opaque fill, which
-   paints over the whole floor stack wherever the detail tile has data.
-   Checked on screen at London z11 and z16. So the ordering is
-   load-bearing -- move a floor layer above the detail's ground and the
-   duplication becomes real. */
-/* The low-light map: "black" with warmth added, key by key.
-
-   Two moves. The ROADS -- black's near-neutral #14/#1f/#29 greys -- take a
-   small red lift, so a motorway is a warm line rather than a grey one. The
-   LABELS, the brightest marks on the map, move from grey to a soft red:
-   black's #999 city name would glow white-blue in a dark room, which is
-   what this theme exists to prevent. Halos and the ground are already
-   dark.
-
-   Route-number shields are sprite images and cannot be reached from here;
-   `spriteSheet` above asks for the dark sheet instead. Drawing a RED sheet
-   is a basemap build step, on the roadmap. */
 const NIGHT_ROADS = {
   tunnel_minor: "#2b2020",
   tunnel_link: "#2b2020",
@@ -246,44 +182,20 @@ const basemapLayers = (
   scheme: Scheme,
 ): maplibregl.LayerSpecification[] => {
   const lang = getLocale().split("-")[0] ?? "en";
-  /* Protomaps ships a flavour per scheme, so a dark application need not
-     sit beside a white map. Same generator and same layer ids either way,
-     which is why swapping is a style rebuild and not a special case
-     anywhere else. There is no red flavour, so low light starts from
-     "black" -- the darkest, least chromatic set -- and is tinted above. */
   const flavor = scheme === "night"
     ? nightFlavor(namedFlavor("black"))
     : namedFlavor(isLight() ? "light" : "dark");
+
   const floor = layers(FLOOR_SOURCE, flavor, { lang })
     .filter((layer) => layer.type !== "background")
     .map((layer) => ({ ...layer, id: `${FLOOR_SOURCE}-${layer.id}` }));
+
   const detail = layers("protomaps", flavor, { lang });
-  /* The ground goes under BOTH, so it is pulled out of the detail set. Left
-     where the generator put it, it sat above the floor's layers and painted
-     over every one of them: the screen stayed as blank as before while the
-     floor's tiles loaded underneath. */
   const ground = detail.filter((layer) => layer.type === "background");
   const over = detail.filter((layer) => layer.type !== "background");
   return [...ground, ...floor, ...over];
 };
 
-/* Which palette is on screen. The grid and the coverage wash are drawn by
-   this application rather than by the basemap, so they do not come with the
-   flavour and have to be told which ground they land on: dark values are
-   lighter than the map, light ones darker. Both exist to be read against
-   the cartography, not to be a particular colour. */
-type Scheme = ResolvedTheme;
-
-/* The overlay's colours, read from the palette the document is wearing.
-
-   styles.css is their only home (--color-map-* per palette). They used to
-   be a Record over the five schemes here as well, and the selection colour
-   really was a copy: it is the accent, and the two had to be edited in
-   step. MapLibre needs literal colour strings rather than var() references,
-   which is why this is a read and not a stylesheet rule.
-
-   Called at layer-add time, never cached: applyTheme sets the attribute
-   synchronously, so a style rebuild always reads the palette on screen. */
 const overlayColors = () => ({
   blank: cssToken("--color-map-blank"),
   blankOpacity: Number(cssToken("--map-blank-opacity")),

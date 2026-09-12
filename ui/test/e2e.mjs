@@ -397,7 +397,7 @@ await gateCopy.click({ force: true });
 check(
   "and pressing it anyway copies nothing",
   (await gateCopy.getAttribute("aria-disabled")) === "true"
-    && (await gateCopy.innerHTML()).includes("lucide-copy"),
+    && (await gateCopy.innerHTML()).includes('data-glyph="copy"'),
 );
 await page.mouse.move(0, 0);
 await page.waitForFunction(
@@ -419,7 +419,7 @@ await page.waitForFunction(
 /* The keyboard focus ring, counted in painted pixels rather than in declared
    properties -- which is the only way to see this one. The ring was declared
    all along: `outline-offset: 2px` on every button, in every palette. It was
-   never drawn in either cyberpunk palette, because `clip-path` cut the button
+   never drawn in either edgerunner palette, because `clip-path` cut the button
    out of its own box and an outline two pixels outside that polygon is
    outside the clip. Computed style reports the outline either way, so nothing
    short of reading the pixels can tell the two apart.
@@ -649,7 +649,7 @@ check(
 );
 /* Back to the default, which is the one theme that wears no attribute -- so
    this also says the control can return to it rather than only leave it. */
-await chooseFrom(".gate-card .theme", "cyber-dark");
+await chooseFrom(".gate-card .theme", "edge-dark");
 await page.waitForFunction(
   () => document.documentElement.getAttribute("data-theme") === null,
   null,
@@ -972,6 +972,278 @@ check("the download card opens from the banner", true);
 check(
   "and offers no download of the planet",
   (await page.locator(".download-world").count()) === 0,
+);
+
+/* The download bar took whatever the browser drew. `<progress>` carried an
+   `accent-color`, which Chrome ignores for this element, so it painted its
+   own green -- the one colour in the application that belonged to no palette,
+   sitting under a card whose every other pixel is a token.
+
+   Read off the pixels, because a computed style cannot answer it: Chrome
+   exposes nothing useful for `::-webkit-progress-value`, and the probe that
+   asked returned the track's colour for both halves. A bar of this file's own
+   making, at a size worth sampling, rather than waiting for a real download
+   to be a known fraction done. */
+const barPaint = async () => {
+  await page.evaluate(() => {
+    const bar = document.createElement("progress");
+    bar.id = "paint-probe";
+    bar.max = 100;
+    bar.value = 40;
+    bar.style.cssText =
+      "position:fixed;left:20px;top:20px;width:200px;height:20px;z-index:99";
+    document.body.append(bar);
+  });
+  const png = (await page.locator("#paint-probe").screenshot())
+    .toString("base64");
+  const paint = await page.evaluate(async (data) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${data}`;
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d");
+    if (ctx === null) return null;
+    ctx.drawImage(img, 0, 0);
+    const at = (fraction) => {
+      const d = ctx.getImageData(
+        Math.round(img.width * fraction),
+        Math.round(img.height / 2),
+        1,
+        1,
+      ).data;
+      return `rgb(${d[0]}, ${d[1]}, ${d[2]})`;
+    };
+    /* The tokens are hex and the canvas speaks rgb, so the browser converts
+       them rather than this file carrying a parser for colours it does not
+       own. */
+    const token = (name) => {
+      const probe = document.createElement("span");
+      probe.style.color = getComputedStyle(document.documentElement)
+        .getPropertyValue(name).trim();
+      document.body.append(probe);
+      const value = getComputedStyle(probe).color;
+      probe.remove();
+      return value;
+    };
+    return {
+      filled: at(0.2),
+      empty: at(0.8),
+      accent: token("--color-accent"),
+      line: token("--color-line"),
+    };
+  }, png);
+  await page.evaluate(() => document.getElementById("paint-probe")?.remove());
+  return paint;
+};
+
+const bar = await barPaint();
+check(
+  `the download bar fills with the palette's accent (${bar?.filled})`,
+  bar !== null && bar.filled === bar.accent,
+);
+check(
+  `and its track is the palette's line (${bar?.empty})`,
+  bar !== null && bar.empty === bar.line,
+);
+
+/* The panel's text has three roles and nothing else:
+
+     panel-title   what a section IS             mono, 12, uppercase, ink
+     panel-label   a thing inside that section   sans, 14, medium,    ink
+     panel-note    what is true about it         sans, 14, regular,   ink-soft
+
+   It had been seven, most written out in a class list. "DOWNLOADED MAPS" was
+   the body face at 11px, indented 10px past the rows it labelled, beside an
+   "OFFLINE MAPS" in mono at 12; a checkbox's own text carried no class at all
+   and inherited 16px from the document; and a row's name was brighter than
+   the heading above it.
+
+   Read off the page rather than off the class names: a shared class is not
+   the claim, a shared rendering is. The other direction -- that an element
+   rendering as a role also WEARS it -- is checked below, because a role
+   reached by `@apply` under another name is a rendering you cannot find from
+   the element. */
+const roles = await page.evaluate(() => {
+  const face = (selector) => {
+    const el = document.querySelector(selector);
+    if (el === null) return null;
+    const style = getComputedStyle(el);
+    return {
+      family: style.fontFamily,
+      transform: style.textTransform,
+      size: style.fontSize,
+      weight: style.fontWeight,
+      color: style.color,
+    };
+  };
+  const ink = (name) => {
+    const probe = document.createElement("span");
+    probe.style.color = getComputedStyle(document.documentElement)
+      .getPropertyValue(name).trim();
+    document.body.append(probe);
+    const value = getComputedStyle(probe).color;
+    probe.remove();
+    return value;
+  };
+  return {
+    section: face(".download-card > .panel-section-head > .panel-title"),
+    group: face(".download-import .panel-title"),
+    quiet: face(".region-sub .panel-title"),
+    picker: face('label[for="region-filter"]'),
+    note: face(".download-card .hint"),
+    check: face(".download-browse .panel-note"),
+    ink: ink("--color-ink"),
+    soft: ink("--color-ink-soft"),
+  };
+});
+
+const sameRole = (a, b) =>
+  a !== null && b !== null
+  && JSON.stringify(a) === JSON.stringify(b);
+
+check(
+  `a section's label is one label (${
+    roles.group?.family?.split(",")[0]
+  } ${roles.group?.size})`,
+  sameRole(roles.section, roles.group),
+);
+check(
+  "and it is the panel's ink, being the most important thing in its section",
+  roles.section?.color === roles.ink,
+);
+/* The same label said quietly, for a group inside a ROW: a white uppercase
+   heading repeated down a list of two hundred countries is a texture, not a
+   hierarchy. Everything but the colour matches. */
+check(
+  "a group inside a row wears the same label, in soft",
+  roles.quiet !== null && roles.section !== null
+    && roles.quiet.family === roles.section.family
+    && roles.quiet.size === roles.section.size
+    && roles.quiet.transform === roles.section.transform
+    && roles.quiet.color === roles.soft,
+);
+/* The third role, and its own: a thing inside a section is neither the
+   section's label nor a note about it. The row names in the ledger are
+   checked against this one further down, where a downloaded region exists to
+   have a name. */
+check(
+  `a thing in a section is its own role (${roles.picker?.size} ${roles.picker?.weight})`,
+  roles.picker !== null && roles.picker.color === roles.ink
+    && roles.picker.transform === "none"
+    && !sameRole(roles.picker, roles.section)
+    && !sameRole(roles.picker, roles.note),
+);
+/* A checkbox's text is a note about a setting. It had no class at all, so it
+   inherited the document's 16px -- two points larger than every other line in
+   the card, and in the panel's full ink beside notes in soft. */
+check(
+  `and a note is one note (${roles.check?.size} ${roles.check?.color})`,
+  roles.check !== null && roles.note !== null
+    && roles.check.size === roles.note.size
+    && roles.check.color === roles.note.color
+    && roles.check.color === roles.soft,
+);
+check(
+  "with nothing in the card smaller than the label above it",
+  Number.parseFloat(roles.picker?.size ?? "0")
+    >= Number.parseFloat(roles.section?.size ?? "99"),
+);
+
+/* And a role is WORN, not aliased.
+
+   `region-group` used to be `@apply panel-title` under another name: five
+   headings rendered as the panel's section label while nothing in their
+   markup said so, and the one word devtools could tell you about such an
+   element appeared nowhere else in the stylesheet. This asks the other
+   question -- of everything on screen that READS as a section label, does it
+   say `panel-title`? -- which no check on the class names can.
+
+   The signature is the mono face at the title's size in uppercase, which
+   nothing else in the panel is. */
+const unworn = await page.evaluate(() => {
+  const title = document.querySelector(".panel-title");
+  if (title === null) return null;
+  const want = getComputedStyle(title);
+  const signature = (style) =>
+    style.fontFamily === want.fontFamily && style.fontSize === want.fontSize
+    && style.textTransform === want.textTransform
+    && style.fontWeight === want.fontWeight;
+  return [...document.querySelectorAll(".app *")]
+    .filter((el) =>
+      el.textContent.trim().length > 0 && el.children.length === 0
+      && signature(getComputedStyle(el))
+      && !el.classList.contains("panel-title")
+    )
+    .map((el) => `${el.tagName.toLowerCase()}.${[...el.classList].join(".")}`);
+});
+check(
+  `everything that reads as a section label wears panel-title (${
+    unworn?.join(" ")
+  })`,
+  unworn !== null && unworn.length === 0,
+);
+
+/* One component draws them all, so they have one shape: a `<section>`, named
+   by its own heading, and a heading that steps down when the section is
+   inside another. The panel had two sections ruled underneath and two ruled
+   on top, three `<p>`s standing in for a heading -- unreachable by heading
+   navigation -- and the title-and-control row built twice. */
+const sections = await page.evaluate(() =>
+  [...document.querySelectorAll(".panel-section, .panel-group")].map((el) => {
+    const head = el.firstElementChild;
+    const heading = head?.querySelector(".panel-title") ?? null;
+    return {
+      tag: el.tagName.toLowerCase(),
+      head: head?.className ?? null,
+      level: heading?.tagName.toLowerCase() ?? null,
+      named: heading !== null
+        && el.getAttribute("aria-labelledby") === heading.id,
+      group: el.classList.contains("panel-group"),
+      /* The rule that separates one region from the next is drawn once, by
+         the lower one. On some and underneath others, a running download put
+         two lines between the address and its progress. */
+      ruled: getComputedStyle(el).borderTopWidth !== "0px",
+      under: getComputedStyle(el).borderBottomWidth !== "0px",
+    };
+  })
+);
+check(
+  `every region of the panel is one (${sections.length})`,
+  sections.length >= 4,
+);
+check(
+  "each is a section, headed, and named by its own heading",
+  sections.every((sec) =>
+    sec.tag === "section" && sec.head === "panel-section-head" && sec.named
+  ),
+);
+check(
+  "a region is an h2 and a region inside one is an h3",
+  sections.every((sec) => sec.level === (sec.group ? "h3" : "h2")),
+);
+check(
+  "the panel's own regions are ruled on top, and nothing underneath",
+  sections.every((sec) => (sec.group || sec.ruled) && !sec.under),
+);
+
+/* The one setting here that reaches the network without a press says what it
+   does in an icon rather than in four lines of small print under a one-line
+   control -- the same move the gate's provenance note made.
+
+   The icon is OUTSIDE the checkbox: React Aria's Checkbox is the label, so a
+   press anywhere inside it toggles the setting, and an info icon that flips
+   the thing it explains is worse than no icon. */
+check(
+  "the browse setting explains itself in an icon",
+  (await page.locator(".download-browse .info-tip").count()) === 1
+    && (await page.locator(".download-browse .hint").count()) === 0,
+);
+check(
+  "which does not sit inside the control it explains",
+  (await page.locator(".download-browse .region-check .info-tip").count())
+    === 0,
 );
 /* So the overview is put on disk the way a package puts it there, before
    anything below can rely on it. Through the server, which still knows how to
@@ -1386,13 +1658,46 @@ check(
 );
 check("and the section sits above the square", said.beforeSelected);
 
+/* And it is written in the same voice as the section under it. "This view"
+   carried `m-0 text-sm leading-normal` in its class list -- two thirds of
+   `hint` and none of its colour -- so it sat in plain ink directly above a
+   sentence in soft, with nothing anywhere saying the two were meant to
+   differ. They are one utility now; this reads them back off the page
+   because a shared class name is not the claim, a shared rendering is. */
+const voices = await page.evaluate(() => {
+  const read = (selector) => {
+    const el = document.querySelector(selector);
+    if (el === null) return null;
+    const style = getComputedStyle(el);
+    return {
+      color: style.color,
+      size: style.fontSize,
+      leading: style.lineHeight,
+      margin: style.margin,
+    };
+  };
+  return { note: read(".view-note"), hint: read(".selected .hint") };
+});
+check(
+  `the view note is set like the square's hint (${voices.note?.color})`,
+  voices.note !== null && voices.hint !== null
+    && JSON.stringify(voices.note) === JSON.stringify(voices.hint),
+);
+
 /* A sheet is closed by its handle. The drawer's pair -- an icon in the panel
    header that means "close the panel on the right", and a tab floating at
    that right edge to bring it back -- are describing a layout this width does
    not have, and both stand down here. */
+/* Inside the sheet, all of it. Nothing of the handle stands above the panel's
+   top edge, so the map meets the sheet directly: a band of the sheet's own
+   colour above the sheet is what read as a separate strip, and no amount of
+   moving the pill down fixes a band that is still there. */
 check(
-  "the sheet wears a handle on its top edge",
-  sheet.grab !== null && Math.abs(sheet.grab.bottom - sheet.panel.top) <= 2,
+  `the sheet wears a handle, wholly inside its own top edge (top ${
+    Math.round(sheet.grab.top - sheet.panel.top)
+  }px, bottom ${Math.round(sheet.grab.bottom - sheet.panel.top)}px)`,
+  sheet.grab !== null && sheet.grab.top >= sheet.panel.top - 1
+    && sheet.grab.bottom > sheet.panel.top,
 );
 check(
   "and the drawer's own hide button is not on a phone",
@@ -1445,10 +1750,118 @@ await phone.waitForFunction(
 );
 await phone.waitForTimeout(300);
 const pulledBack = await overlays();
+/* Into the sheet, not onto it: the handle used to rest on the panel's top
+   edge with a rule between them, which read as a separate strip. It overlaps
+   now -- by less than the header's own padding, so it covers no control --
+   and the rule is gone. */
 check(
-  "and pulling the handle again brings the sheet back",
-  Math.abs(pulledBack.grab.bottom - pulledBack.panel.top) <= 2
+  `and pulling the handle again brings the sheet back (${
+    Math.round(pulledBack.grab.bottom - pulledBack.panel.top)
+  }px into it)`,
+  pulledBack.grab.top >= pulledBack.panel.top - 1
+    && pulledBack.grab.bottom > pulledBack.panel.top
     && pulledBack.panel.top < pulledBack.wrap.bottom - 1,
+);
+/* And in a palette that cuts, the pill is not a pill: six sides, both ends
+   mitred at the same 45 degrees as every button around it, symmetrical so it
+   does not look like it prefers one side to grab from. This page is in the
+   default palette, which is an edgerunner one. */
+check(
+  "the handle is angular where the palette is",
+  await phone.locator(".sheet-grab-bar").evaluate((el) => {
+    const style = getComputedStyle(el);
+    if (Number.parseFloat(style.borderTopLeftRadius) !== 0) return false;
+    /* Counted by vertex rather than matched by shape: the computed value
+       mixes units -- `4px 0px` beside `calc(100% - 4px) 100%` -- and neither
+       `calc` nor the percentage is a thing to pin. Six is the claim. */
+    const body = style.clipPath.match(/^polygon\((.*)\)$/)?.[1];
+    return body !== undefined && body.split(",").length === 6;
+  }),
+);
+check(
+  "with no rule along its top to say it is a separate thing",
+  await phone.locator(".sheet-grab-button").evaluate((el) =>
+    getComputedStyle(el).borderTopWidth === "0px"
+  ),
+);
+/* And it clears the header's controls, which sit under it. A handle that
+   swallows the top of the download button is worse than a visible seam --
+   which is what `max-drawer:pt-8` on the header is for: the sheet carries
+   its own room for its handle rather than borrowing the controls'. */
+check(
+  "and stopping short of the controls it now sits over",
+  pulledBack.grab.bottom
+    < (await phone.locator(".panel-download").boundingBox()).y,
+);
+await phone.locator(".sheet-grab-button").click();
+await phone.waitForFunction(
+  () => document.querySelector(".panel")?.classList.contains("collapsed"),
+  null,
+  { timeout: 10_000 },
+);
+await phone.waitForTimeout(300);
+
+/* ------------------------------- the floor ---------------------------------
+
+   320px, the narrowest phone anyone still ships, and the width this
+   application stops laying out below: narrower than that and the page scrolls
+   rather than the map giving up any more of itself.
+
+   The sheet's header cannot hold the brand and three controls on one row down
+   here -- measured, it gives out at 356 -- so it stacks. Left to itself it
+   stacked hard left twice over, which reads as two half-empty rows; both
+   lines centre instead. Read as an offset from the header's own centre, so
+   the claim is "centred" rather than "at some x I wrote down". */
+await phone.locator(".sheet-grab-button").click();
+await phone.waitForFunction(
+  () => !document.querySelector(".panel")?.classList.contains("collapsed"),
+  null,
+  { timeout: 10_000 },
+);
+const headLayout = () =>
+  phone.evaluate(() => {
+    const head = document.querySelector(".panel-head");
+    if (head === null) return null;
+    const box = head.getBoundingClientRect();
+    const brand = head.querySelector(".brand").getBoundingClientRect();
+    const controls = head.querySelector("div").getBoundingClientRect();
+    const offCentre = (r) =>
+      Math.round((r.left - box.left) - (box.right - r.right));
+    return {
+      stacked: Math.abs(brand.top - controls.top) > 20,
+      brand: offCentre(brand),
+      controls: offCentre(controls),
+      overflows: document.documentElement.scrollWidth
+        > document.documentElement.clientWidth,
+    };
+  });
+
+await phone.setViewportSize({ width: 320, height: 844 });
+await phone.waitForTimeout(400);
+const floor = await headLayout();
+check(
+  `at the 320px floor the header stacks (${floor?.stacked})`,
+  floor?.stacked === true,
+);
+check(
+  `and both of its rows centre (brand ${floor?.brand}, controls ${floor?.controls})`,
+  Math.abs(floor?.brand ?? 99) <= 1 && Math.abs(floor?.controls ?? 99) <= 1,
+);
+/* And nothing is pushed off the side getting there. The floor is a
+   `min-width`, so a NARROWER window scrolls -- but at the floor itself
+   nothing should. */
+check("with nothing hanging off the side", floor?.overflows === false);
+
+/* Above the stack, the row is a row again: brand left, controls right. A
+   rule that centred at every width would leave these two huddled in the
+   middle of a 390px header with a gap at each end. */
+await phone.setViewportSize({ width: 390, height: 844 });
+await phone.waitForTimeout(400);
+const roomy = await headLayout();
+check(
+  `at a phone's own width it is one row again (${roomy?.stacked})`,
+  roomy?.stacked === false && (roomy?.brand ?? 0) < -20
+    && (roomy?.controls ?? 0) > 20,
 );
 await phone.locator(".sheet-grab-button").click();
 await phone.waitForFunction(
@@ -1575,7 +1988,7 @@ const pickTheme = async (value) => {
   await page.locator(`.dropdown-option[data-value="${value}"]`).click();
   await page.waitForFunction(
     (want) =>
-      (document.documentElement.getAttribute("data-theme") ?? "cyber-dark")
+      (document.documentElement.getAttribute("data-theme") ?? "edge-dark")
         === want,
     value,
     { timeout: 10_000 },
@@ -1603,8 +2016,8 @@ for (
   const [name, wantLight] of [
     ["light", true],
     ["dark", false],
-    ["cyber-light", true],
-    ["cyber-dark", false],
+    ["edge-light", true],
+    ["edge-dark", false],
     ["night", false],
   ]
 ) {
@@ -1656,7 +2069,7 @@ check(
 /* The default wears NO attribute, so choosing it has to remove one rather than
    set it. Otherwise the stylesheet has a rule nothing matches, and the first
    frame after a reload is a different theme from the one the menu shows. */
-await pickTheme("cyber-dark");
+await pickTheme("edge-dark");
 check(
   "choosing the default clears the attribute rather than setting it",
   (await chosen()) === null,
@@ -1673,7 +2086,7 @@ check(
    have to be true and only the control can say both: that the utility spends
    the token at all, and that Tailwind emitted a variable nothing in the
    markup mentions by name. Low light joins the plain pair here -- it is a
-   palette for keeping night vision, not a second cyberpunk. */
+   palette for keeping night vision, not a second edgerunner. */
 const levers = () =>
   page.evaluate(async () => {
     /* A face still loading reports as absent, and `block` means the wordmark
@@ -1750,54 +2163,153 @@ for (const plain of ["light", "dark", "night"]) {
   );
 }
 
-/* And the cyberpunk pair actually moves them, so the check above says
+/* And the edgerunner pair actually moves them, so the check above says
    something about the plain themes rather than about all of them. */
-await pickTheme("cyber-dark");
-const cyber = await levers();
+await pickTheme("edge-dark");
+const edge = await levers();
 check(
-  "cyberpunk dark runs a real three-stop gradient",
-  new Set(cyber.stops).size === 3,
+  "edgerunner dark runs a real three-stop gradient",
+  new Set(edge.stops).size === 3,
 );
 check(
-  `and draws its wordmark in the shipped face (${cyber.brand})`,
-  /Bodoni/.test(cyber.brand),
+  `and draws its wordmark in the shipped face (${edge.brand})`,
+  /Bodoni/.test(edge.brand),
 );
 /* And the face is really there. A @font-face whose file 404s resolves to the
    fallback with nothing said, and the check above would pass on the name
    alone -- the browser reports what the cascade asked for, not what it got. */
-check("which is loaded, not merely named", cyber.faceLoaded === true);
-check("and a wash on the ground", cyber.wash !== "none");
+check("which is loaded, not merely named", edge.faceLoaded === true);
+check("and a wash on the ground", edge.wash !== "none");
 check(
-  `and cuts the corner off its buttons (${cyber.cut?.radius}px)`,
-  chamfered(cyber.cut) && chamfered(cyber.iconCut),
+  `and cuts the corner off its buttons (${edge.cut?.radius}px)`,
+  chamfered(edge.cut) && chamfered(edge.iconCut),
 );
 /* The same corner off the things that are not buttons. */
 check(
-  `and off the search box and the dropdown too (${cyber.field?.radius}px)`,
-  chamfered(cyber.field) && chamfered(cyber.trigger),
+  `and off the search box and the dropdown too (${edge.field?.radius}px)`,
+  chamfered(edge.field) && chamfered(edge.trigger),
 );
 
-/* The other half of the pair. Cyberpunk light INHERITS the shape rather than
+/* The other half of the pair. Edgerunner light INHERITS the shape rather than
    setting it, which is exactly the arrangement that breaks quietly when a
    palette starts overriding one of the four tokens and not the rest. */
-await pickTheme("cyber-light");
-const cyberLight = await levers();
+await pickTheme("edge-light");
+const edgeLight = await levers();
 check(
-  `and so does cyberpunk light (${cyberLight.cut?.radius}px)`,
-  chamfered(cyberLight.cut) && chamfered(cyberLight.iconCut)
-    && chamfered(cyberLight.field) && chamfered(cyberLight.trigger),
+  `and so does edgerunner light (${edgeLight.cut?.radius}px)`,
+  chamfered(edgeLight.cut) && chamfered(edgeLight.iconCut)
+    && chamfered(edgeLight.field) && chamfered(edgeLight.trigger),
 );
 
 /* "Match my device" is the one entry that is not a palette. It sets an
    attribute like any other choice, and resolves to the PLAIN pair, because an
-   operating system says light or dark and never says cyberpunk. This browser
+   operating system says light or dark and never says edgerunner. This browser
    reports a light preference, so it must land on plain light exactly. */
 await pickTheme("system");
 check("matching the device says so on the root", (await chosen()) === "system");
 check(
-  "and on a light device that is plain light, not a cyberpunk one",
+  "and on a light device that is plain light, not a edgerunner one",
   (await paletteId()) === painted.light,
 );
+
+/* MapLibre's own controls -- zoom, compass, geolocate. They ship a light-only
+   stylesheet with #333 baked into the glyph, which no token can reach, so
+   they were inverted: grey whatever the palette said, and white buttons on a
+   red map in low light. They are masks now, and the colour comes off the
+   button, so the question is answerable rather than approximate -- the paint
+   must BE the palette's ink, not merely close to it.
+
+   Read from the zoom-in control, the one MapLibre always draws. The probe is
+   how a custom property becomes the same string the computed style reports:
+   --color-ink is a hex literal and backgroundColor is an rgb() triple, and
+   comparing those two as text compares nothing. */
+const ctrlPaint = async (theme) => {
+  await pickTheme(theme);
+  return page.evaluate(() => {
+    const icon = document.querySelector(
+      ".maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon",
+    );
+    if (icon === null) return null;
+    const style = getComputedStyle(icon);
+    const probe = document.createElement("div");
+    probe.style.color = getComputedStyle(document.documentElement)
+      .getPropertyValue("--color-ink").trim();
+    document.body.append(probe);
+    const ink = getComputedStyle(probe).color;
+    probe.remove();
+    return {
+      paint: style.backgroundColor,
+      image: style.backgroundImage,
+      filter: style.filter,
+      masked: style.maskImage !== "none",
+      ink,
+    };
+  });
+};
+
+const nightCtrl = await ctrlPaint("night");
+check(
+  "the map's own controls are painted from a mask, not inverted",
+  nightCtrl?.masked === true && nightCtrl?.image === "none"
+    && nightCtrl?.filter === "none",
+);
+check(
+  `in the palette's own ink (${nightCtrl?.paint})`,
+  nightCtrl?.paint !== undefined && nightCtrl.paint === nightCtrl.ink,
+);
+/* The complaint that started this: in a palette with no neutral in it, a
+   neutral control is the one thing on screen still wearing no theme. */
+const nightRGB = nightCtrl?.paint.match(/\d+/g)?.map(Number) ?? [];
+check(
+  "which in low light is warm, not the grey an inversion lands on",
+  nightRGB.length >= 3 && nightRGB[0] > nightRGB[2],
+);
+const edgeCtrl = await ctrlPaint("edge-dark");
+check(
+  `and it moves with the palette (${edgeCtrl?.paint})`,
+  edgeCtrl?.paint !== undefined && edgeCtrl.paint === edgeCtrl.ink
+    && edgeCtrl.paint !== nightCtrl?.paint,
+);
+
+/* The application's OWN icons are the other way round: the lattice set is
+   worn by the two palettes that cut their corners, and the plain three keep
+   the shared one. A glyph drawn at 45 degrees on a square button is the same
+   mismatch as a round one in a chamfered field, just pointing the other way.
+
+   Read off the panel header, which holds four of them in every palette.
+   `data-glyph` is on the local set and nothing else, so counting it against
+   the number of glyphs present answers "which set" without naming a file. */
+const iconSet = async (theme) => {
+  await pickTheme(theme);
+  return page.evaluate(() => ({
+    attr: document.documentElement.getAttribute("data-icons"),
+    local: document.querySelectorAll(".panel-head [data-glyph]").length,
+    all: document.querySelectorAll(".panel-head svg").length,
+  }));
+};
+
+const cutIcons = await iconSet("edge-dark");
+check(
+  `the edgerunner palettes draw the app's own icons (${cutIcons.local}/${cutIcons.all})`,
+  cutIcons.attr === "cut" && cutIcons.all > 0
+    && cutIcons.local === cutIcons.all,
+);
+for (const plain of ["light", "dark", "night"]) {
+  const drawn = await iconSet(plain);
+  check(
+    `and ${plain} keeps the shared set (${drawn.local}/${drawn.all})`,
+    drawn.attr === "plain" && drawn.all === cutIcons.all && drawn.local === 0,
+  );
+}
+/* "Match my device" resolves to a plain palette, so it resolves to the plain
+   set -- the attribute is written from the RESOLVED theme, not the chosen
+   one. This browser reports a light preference. */
+const deviceIcons = await iconSet("system");
+check(
+  "and matching the device follows what it resolves to, not what was picked",
+  deviceIcons.attr === "plain" && deviceIcons.local === 0,
+);
+await pickTheme("edge-dark");
 
 /* An overview and no region is the state every fresh install starts in, and
    two things have to be true of it at once. */
@@ -1889,7 +2401,7 @@ check(
    behind, and the toast checks after the download are about what the DEFAULT
    paints -- a toast read under a light palette says nothing about the white
    the library used to inject. */
-await pickTheme("cyber-dark");
+await pickTheme("edge-dark");
 
 /* Second download: detail for the current view, over the world map. The card
    must no longer offer the world, and afterwards every tile from both
@@ -3223,6 +3735,65 @@ check(
   "Remove is on every download and on nothing else",
   (await page.locator(".ledger-row .ledger-remove").count()) === 3,
 );
+
+/* A row's name is the same `panel-label` the region picker's own label wears
+   -- one role, two places. Read here rather than up with the others because
+   this is the first point in the run where a downloaded region exists to have
+   a name. */
+const namedRole = await page.evaluate(() => {
+  const face = (selector) => {
+    const el = document.querySelector(selector);
+    if (el === null) return null;
+    const style = getComputedStyle(el);
+    return {
+      family: style.fontFamily,
+      transform: style.textTransform,
+      size: style.fontSize,
+      weight: style.fontWeight,
+      color: style.color,
+    };
+  };
+  return {
+    name: face(".ledger-row .ledger-name"),
+    picker: face('label[for="region-filter"]'),
+  };
+});
+check(
+  `a row's name is the panel's one label for a thing (${namedRole.name?.size} ${namedRole.name?.weight})`,
+  sameRole(namedRole.name, namedRole.picker),
+);
+
+/* And the quiet buttons light the same way. The accent border on hover lived
+   on the two that are an <a> and a <label> rather than a <button>, so "Save a
+   copy" and "Choose a file" lit up and "Update" and "Remove" beside them did
+   not. It belongs to the button, not to the element it is made of. */
+const hoverBorder = async (selector) => {
+  await page.locator(selector).hover();
+  await page.waitForTimeout(120);
+  return page.locator(selector).evaluate((el) =>
+    getComputedStyle(el).borderTopColor
+  );
+};
+const litUp = await hoverBorder(".ledger-update >> nth=0");
+const litLink = await hoverBorder(".ledger-export >> nth=0");
+check(
+  `every quiet button lights the same on hover (${litUp})`,
+  litUp === litLink,
+);
+check(
+  "in the accent, not in the line it rests at",
+  litUp
+    === await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.color = getComputedStyle(document.documentElement)
+        .getPropertyValue("--color-accent").trim();
+      document.body.append(probe);
+      const value = getComputedStyle(probe).color;
+      probe.remove();
+      return value;
+    }),
+);
+await page.mouse.move(0, 0);
 /* The rule behind that count, checked against the server's own answer rather
    than a number: a row may offer Remove only if its entry has an archive of
    its own to unlink. An empty `file` means the tiles are in map.pmtiles,
@@ -3420,7 +3991,9 @@ check(
    server counts job generations. */
 const basemapDir = new URL("../../_build/e2e-basemap/", import.meta.url);
 const reopenCard = async () => {
-  const close = page.locator(".download-card header button");
+  const close = page.locator(
+    ".download-card > .panel-section-head .panel-section-action button",
+  );
   if (await close.count()) await close.click();
   await openButton.click();
   await page.waitForSelector(".download-ledger", { timeout: 10_000 });
@@ -4279,13 +4852,49 @@ check(
   otherMnemonic !== sampleMnemonic,
 );
 
-/* The words are held now rather than wiped, so the footer can hand them back.
+/* The words are held now rather than wiped, so the panel can hand them back.
    Read off the real clipboard and compared to the phrase this session
    actually unlocked with: a control that says it copied and copied nothing --
    or copied the wrong thing -- is the failure worth catching, and the value
-   never passes through this thread on its way there. */
+   never passes through this thread on its way there.
+
+   In the header, beside the lock that forgets them. It was a labelled row in
+   the footer; the sentence that stood beside the glyph is its tooltip now, so
+   the words it copies are still named -- checked below. */
+check(
+  "the phrase copy sits in the header, with the download and the lock",
+  (await page.locator(".panel-head .panel-phrase-copy").count()) === 1
+    && (await page.locator(".panel-foot .panel-phrase-copy").count()) === 0,
+);
+/* Nothing left open from an earlier press: `[role="tooltip"]` finds whatever
+   is on screen, and a stale one answers this check with the wrong button's
+   words. */
+await page.mouse.move(0, 0);
+await page.waitForFunction(
+  () => document.querySelector('[role="tooltip"]') === null,
+  null,
+  { timeout: 5_000 },
+);
+await page.locator(".panel-head .panel-phrase-copy").hover();
+const phraseTip = await page
+  .waitForFunction(
+    () => document.querySelector('[role="tooltip"]')?.textContent || null,
+    null,
+    { timeout: 10_000 },
+  )
+  .then((handle) => handle.jsonValue(), () => null);
+check(
+  `and says what it copies, which a bare copy glyph does not (${phraseTip})`,
+  /seed phrase/i.test(phraseTip ?? ""),
+);
+await page.mouse.move(0, 0);
+await page.waitForFunction(
+  () => document.querySelector('[role="tooltip"]') === null,
+  null,
+  { timeout: 5_000 },
+);
 await page.evaluate(() => navigator.clipboard.writeText("not the phrase"));
-await page.locator(".panel-foot .panel-phrase-copy").click();
+await page.locator(".panel-head .panel-phrase-copy").click();
 await page.waitForFunction(
   (want) => navigator.clipboard.readText().then((t) => t === want),
   sampleMnemonic,
@@ -4344,7 +4953,7 @@ await page.waitForSelector(".map-wrap", { timeout: 60_000 });
    exactly like one that forgot them, which is the point of the boundary and
    why test/secrets.mjs reads that half off the source. */
 await page.evaluate(() => navigator.clipboard.writeText("not the phrase"));
-await page.locator(".panel-foot .panel-phrase-copy").click();
+await page.locator(".panel-head .panel-phrase-copy").click();
 await page.waitForFunction(
   (want) => navigator.clipboard.readText().then((t) => t === want),
   otherMnemonic,
@@ -5101,11 +5710,11 @@ console.log(
    interaction library rather than two, and is recorded here rather than
    absorbed silently.
 
-   Raised again, from 200 to 215, when the cyberpunk wordmark got its own
+   Raised again, from 200 to 215, when the edgerunner wordmark got its own
    face. Measured: the gate went from 190 KB over four requests to 205 over
    five, and the fifth is the 15 KB woff2 -- already compressed, so gzip takes
    nothing further off it. It is fetched on the gate because the gate is where
-   the wordmark is, and the palette the app opens in is a cyberpunk one. A
+   the wordmark is, and the palette the app opens in is a edgerunner one. A
    subset cut to the letters of the name would be about 2 KB and was not
    taken: it turns a rename into a wordmark that falls back mid-word, with
    nothing saying so.

@@ -12,6 +12,7 @@
    arranged, and a running app cannot be asked whether the two dropdowns it
    drew came from one function. */
 
+import { readFileSync } from "node:fs";
 import { sourceFiles } from "./source.mjs";
 
 let checks = 0;
@@ -50,9 +51,9 @@ for (
 }
 
 /* And the option lists. The theme names are the case that bit: two spellings
-   of "Cyberpunk dark", or a sixth theme added to the popover's list and not
+   of "Edgerunner dark", or a sixth theme added to the popover's list and not
    to the gate's. */
-const themeNames = holding(/theme_cyber_dark/);
+const themeNames = holding(/theme_edge_dark/);
 check(
   `the theme option names are written down once (${
     themeNames.join(", ") || "none"
@@ -141,6 +142,52 @@ check(
     tipSurface || "no className"
   })`,
   /\bsheet\b/.test(tipSurface) && !/bg-ink|text-on-ink/.test(tipSurface),
+);
+
+/* A region of the panel is one component too, and the panel's three text
+   roles are WORN rather than aliased.
+
+   `region-group` was `@apply panel-title` under a second name. Both audits
+   below are about the same failure: the styling on screen named something you
+   could not find from the element, and five headings that were the same thing
+   were five different pieces of markup -- two `<section>`s ruled underneath,
+   two ruled on top, three `<p>`s standing in for a heading, and the
+   title-and-control row built twice. The e2e checks the rendering; these
+   check that there is one place to change it. */
+const sheet = readFileSync(
+  new URL("../src/styles.css", import.meta.url),
+  "utf8",
+);
+const ROLES = ["panel-title", "panel-label", "panel-note"];
+
+/* An `@apply` of a role inside another utility is the alias. A utility may
+   still be worn NEXT to one -- that is the point -- so what is forbidden is
+   reaching for it from inside a rule, not the name appearing in the file. */
+for (const role of ROLES) {
+  const aliases = [...sheet.matchAll(/@utility ([\w-]+) \{([^}]*)\}/g)]
+    .filter(([, name, body]) =>
+      name !== role
+      && new RegExp(`@apply[^;]*\\b${role}\\b`).test(body)
+    )
+    .map(([, name]) => name);
+  check(
+    `no utility wears ${role} under another name (${
+      aliases.join(", ") || "none"
+    })`,
+    aliases.length === 0,
+  );
+}
+
+/* And a section's label is written by the section component and nowhere else.
+   The other two roles are worn on paragraphs, spans and labels all over the
+   panel and are meant to be; a TITLE always comes with a section around it,
+   so an `h2` carrying `panel-title` by hand is a region built by hand. */
+const titles = files
+  .filter((f) => f.text.includes("panel-title"))
+  .map((f) => f.path);
+check(
+  `only the section component writes panel-title (${titles.join(", ")})`,
+  titles.length === 1 && titles[0] === "components/PanelSection.tsx",
 );
 
 console.log(`\nshared controls: ${checks} checks, ${failures} failures`);

@@ -21,6 +21,49 @@ than a git log.
 
 ---
 
+### 2026-09-12 — A region of the panel is a component, and a role is worn rather than aliased
+
+**Phase:** 7
+
+**What:** `region-group` was `@apply panel-title` under a second name. Five
+headings rendered as the panel's section label while nothing in their markup
+said so, and the one word devtools could tell you about such an element
+appeared nowhere else in the stylesheet. The three roles are still the only
+things that set face, size and colour, but nothing aliases one now: an element
+that reads as a note says `panel-note hint`, a name says `panel-label
+ledger-name`, and a title says `panel-title` -- written by `PanelSection` and
+by nothing else.
+
+Which is the other half. The panel had five regions built five ways: two
+`<section>`s ruled underneath and two ruled on top, so a running download put
+two lines between the address and its progress and the last region on screen
+trailed a line into empty space; three `<p>`s standing in for a heading, which
+is why the download card's groups were unreachable by heading navigation; the
+title-and-control row built twice; `p-4.5` beside `px-4.5 py-3.5`. They are
+one component now -- heading, optional tip, optional control, children -- and
+a section inside a section is a GROUP: `h3` instead of `h2`, no rule and no
+padding of its own. The depth is counted by context rather than passed in,
+because a caller that has to say what level it sits at is a caller that can
+say the wrong one, and three components that do not know each other render
+these.
+
+The states and cities inside a country row went from a `<p>` above a list to a
+section around it, so what a heading labels is what contains it.
+
+**Rationale:** Styling you can see and cannot name is the failure. Naming the
+three roles stopped a fourth from appearing; wearing them stops a fifth from
+appearing under an alias, which is the same bug one level up.
+
+Two audits hold it, and both were shown to fail first: no `@utility` may
+`@apply` a role (re-adding `region-group` fails it), and exactly one file may
+write `panel-title` (putting it on `MapProgress`'s section fails it). Four
+more read the rendered page -- every element that reads as a section label
+wears the class, every region is a named `<section>` with one head row, `h2`
+steps to `h3` inside one, and the rule is on top and never underneath.
+
+**Follow-on:** `warning` and the toast and banner text still carry `text-sm
+leading-normal` of their own, outside the panel and outside these roles.
+
 ### 2026-09-10 — The zero-admit gate had a hole the shape of `assume val`
 
 **Phase:** 7
@@ -137,6 +180,233 @@ Neither gets the `clip-path` fallback the buttons keep, because clipping a
 field takes its focus outline exactly the way it took the buttons'. A browser
 without `corner-shape` gets them square, which is what three of the five
 palettes look like anyway.
+
+### 2026-09-11 — The panel's text has three roles, and they are named
+
+**Phase:** 7
+
+**What:** The drawer drew the same two or three things seven different ways,
+most of them written out in a class list. There are three roles now, defined
+once in `styles.css` with the table in the comment above them:
+
+| `panel-title` | what a section IS | mono, 12, uppercase, ink |
+| `panel-label` | a thing inside that section | sans, 14, medium, ink |
+| `panel-note` | what is true about it | sans, 14, regular, ink-soft |
+
+`hint` is `panel-note` with the room a standing paragraph needs. `region-group`
+is `panel-title` with its own margins. `region-sub` -- the states and cities
+under one country -- is that said quietly, because a white uppercase heading
+repeated down a list of two hundred countries is a texture, not a hierarchy.
+`ledger-name` is `panel-label`. `view-note` is `hint`.
+
+What moved: section labels are the panel's full ink rather than soft, being
+the most important thing in their section; a checkbox's own text had no class
+at all and inherited the document's 16px, two points larger than every other
+line in the card AND in full ink beside notes in soft; the region picker's
+label was a section heading and is now what it is, a thing inside "Offline
+maps"; the lock button carried a `text-ink-soft` override on top of
+`btn-quiet`'s ink, so one quiet button in the panel was a different colour
+from the rest.
+
+The accent border on hover lived on `LINK_BUTTON` -- the two quiet buttons
+that are an `<a>` and a `<label>` rather than a `<button>` -- so "Save a copy"
+and "Choose a file" lit up and "Update" and "Remove" beside them did not. It
+is on `btn-quiet`, where it belongs to the button rather than to the element
+it happens to be made of.
+
+**Rationale:** Naming three roles is what makes a fourth obviously wrong. The
+inventory that found these was taken by walking every text node in the open
+panel and collapsing them by rendered style -- not by reading the source,
+which is how seven of them survived a dozen reviews. The checks read the page
+back for the same reason: a shared class name is not the claim, a shared
+rendering is.
+
+Six mutations were run before the checks were trusted, and two of them had to
+be run alone: mutating `panel-title` to soft AND `region-sub` to inherit it
+made the pair agree again, so the combined run passed a check that a single
+mutation fails. A mutation test that changes two things can prove less than
+one that changes one.
+
+### 2026-09-11 — One label, one body text, and a bar that belongs to a palette
+
+**Phase:** 7
+
+**What:** The panel had four ways of writing the same two things.
+
+Labels: `region-group` -- "DOWNLOADED MAPS", "ADD MAPS FROM A FILE", "OR PICK
+COUNTRIES, STATES, OR CITIES" -- sat three steps from the "OFFLINE MAPS"
+directly above it: the body face instead of the mono one, 11px instead of 12,
+and indented 10px past the rows it labelled, so a label started further right
+than its own children. It is `panel-title` now, margins aside. The region
+picker's label was a fourth thing again (`text-sm font-semibold`) and is the
+same label as the rest. `MapProgress` titled itself in body text at a padding
+2px off its neighbours; both match the download card now.
+
+Body text: the view note carried `m-0 text-sm leading-normal` in its class
+list -- two thirds of `hint` and none of its colour -- so "This view" sat in
+plain ink directly above "This square" in soft, with nothing saying they were
+meant to differ. The note IS `hint` now. Its one marked row keeps its box as a
+two-class rule rather than a utility, because a utility would have to beat the
+colour `hint` brings in, and two utilities setting one property are settled by
+the order Tailwind emits them in.
+
+The download bar was a `<progress>` with an `accent-color` on it, which Chrome
+ignores for that element: it drew its own green -- measured at
+`rgb(0, 128, 0)`, the one colour in the application belonging to no palette.
+Painted from the accent, with the track from the line.
+
+The browse setting -- the only one here that reaches the network without a
+press -- says what it does in an info icon rather than four lines of small
+print, the move the gate's provenance note made. The icon is outside the
+checkbox: React Aria's Checkbox is the label, and an info icon that toggles
+the thing it explains is worse than no icon.
+
+**Rationale:** Every one of these was found by looking at the rendered panel,
+not the source, and every check written for them reads the page back rather
+than the class name -- a shared class is not the claim, a shared rendering is.
+All five were run against the un-fixed code first: the green, the 11px
+sans label, the un-aligned label, the missing icon and the brighter ink each
+failed with the defect named in the message.
+
+**Follow-on:** `ledger-name` dropped to medium weight so a row does not
+outweigh the label above it. The three remaining copies of
+`text-sm leading-normal` outside the panel -- Banner, Toasts -- were left
+alone: they are different surfaces with their own colours, and folding them in
+would be a claim about them that nobody has checked.
+
+### 2026-09-11 — A floor at 320px, and a header that stacks in the middle
+
+**Phase:** 7
+
+**What:** `#root` and `.app` take `min-width: 320px`. Below that the page
+scrolls rather than the map giving up more of itself -- the sheet's header
+cannot hold the brand and three controls on one row under 356px whatever the
+layout does, and 320 is the narrowest phone still shipping.
+
+Between those two numbers the header stacks, and stacked it put the brand hard
+left and the buttons hard left under it: two half-empty rows. Both lines
+centre now, below a threshold that also forces the stack rather than waiting
+for it -- CSS has no signal for "this line wrapped", so a threshold that only
+changes the alignment has to agree with the layout's own answer to the pixel,
+and it will not: the brand's width is a rendered string.
+
+**Rationale:** The wrap point was measured by stepping the viewport 420px down
+to 300 with the centring rule switched off, not guessed. 22.5rem sits just
+above where it gives out, so there is no width at which the layout has stacked
+and the rule has not yet decided it should have.
+
+### 2026-09-11 — An icon set of its own, worn only by the palettes that earn it
+
+**Phase:** 7
+
+**What:** Sixteen glyphs in `ui/src/components/icons.tsx`, drawn to a spec in
+that file's header: 24-unit box, 2-unit stroke, square caps, mitred joins,
+every segment horizontal, vertical or on the 45-degree lattice, and the
+button's own 4-unit chamfer on any shape that encloses. They render in the two
+edgerunner palettes only; the plain three keep lucide, which is still a
+dependency and is imported by exactly one file.
+
+MapLibre's five controls -- zoom in, zoom out, compass, geolocate and the
+compact attribution toggle -- are painted rather than inverted, in every
+palette. Their glyphs ship as CSS masks so the colour comes off the button and
+is a token like everything else. The geolocate and attribution rings, the only
+two shapes there that enclose, take the chamfer in the edgerunner pair and
+stay square elsewhere.
+
+`test/icons.mjs` was an allowlist of files permitted to draw an `<svg>`. It now
+parses every path -- in the component AND in the stylesheet -- and holds each
+to the spec: commands, lattice, box, chamfer width, solid squares, stroke,
+cap, join. Four mutations were run against it before it was trusted: an
+off-lattice segment, a round cap, a 5-unit chamfer and a 3-unit pip, each
+caught.
+
+**Rationale:** The one-set-everywhere option was built first and reversed on
+sight -- a lattice glyph on a square button is the same mismatch as a round one
+in a chamfered field, pointing the other way. Which palettes are chamfered is
+therefore a classification, and it is written once, as `CHAMFERED` in
+`theme.ts`. `applyTheme` turns it into a `data-icons` attribute from the
+RESOLVED theme, because "match my device" is answered by a media query and a
+stylesheet cannot see one; React reads the same answer through one context
+rather than one media-query subscription per glyph.
+
+Two glyphs were redrawn after being read at the size they actually ship at.
+lucide's `Languages` mark is four strokes stacked down nine units, and square
+caps close every gap between them at 16 pixels -- it came out a blot. Its
+`Palette` is a blob with a thumb hole, which has no curve-free translation, so
+the swatches became the glyph: the thing the control picks rather than the
+object that holds it. Neither was visible on the 24-unit grid the set was
+designed on, which is the argument for looking at the rendered size.
+
+MapLibre's compass needle and its attribution `i` are triangles and rings, not
+chamfered boxes, so the audit's chamfer rule had to learn what a box is: six
+segments, four on the axes and two diagonal. Anything else is exempt, and the
+eye -- four diagonals, no corners -- is exempt for the same reason.
+
+**Follow-on:** `CLAUDE.md` says to use a shared icon set and not to hand-roll
+glyphs. That rule now describes three palettes out of five and needs an
+amendment naming the exception and the audit that replaces it. Not written:
+the file says to consult first.
+
+### 2026-09-11 — The phrase copy moves to the header, and the low-light map stops being grey
+
+**Phase:** 7
+
+**What:** The seed-phrase copy was a labelled row in the panel's footer. It is
+an icon button in the header now, beside the lock that forgets the phrase --
+the last press that can still answer, next to the press that ends the asking --
+and the sentence that stood beside the glyph is its tooltip, which
+`IconButton` also makes the accessible name.
+
+The bottom sheet's handle no longer sits in a band above the sheet with a rule
+between them. It dips into the sheet's own header padding by less than that
+padding, so it covers no control, and the rule is gone: the handle and the
+drawer have the same ground, and the rule was the only thing claiming they
+were two things.
+
+The whole handle is inside the sheet now -- the map's bottom edge meets the
+sheet's top edge with nothing between them. Moving the pill down twice did not
+fix it, because what read as a separate strip was the band of card standing
+ABOVE the sheet, not where the pill sat in it. The header answers with
+`max-drawer:pt-8`, so the sheet carries its own room for its handle rather
+than borrowing the controls'. The pill's centre sits 16px below the sheet's
+edge -- 12px of clear space above it and 12px below it to the title row --
+chosen off a rendered mockup rather than argued about in numbers.
+
+That padding is the whole lever, and the target is exactly it: full width, so
+it takes the press, so a taller one swallows the top of the download button.
+32px against a 44px guideline is the cost, and it is the whole sheet's width.
+
+The pill is pinned by its CENTRE, not its top, because the two palettes draw
+it at different thicknesses -- a round 4px bar, a mitred 8px one -- and a
+shared top would put them at different heights for the same number.
+
+The target's height stopped being a utility class in the same change. Three
+rules measure from `--grab-h` -- the dip, and where the scale bar and the
+attribution stop -- and `h-9` beside a variable saying 28px is two answers to
+one question: the map believed the variable and the handle hung 8px over the
+sheet's top edge.
+
+The pill is a pill in the plain palettes and a six-sided bar in the edgerunner
+pair -- both ends mitred at the same 45 degrees as the buttons, symmetrical
+across both axes. It was a parallelogram first: the same angle, but it leans,
+and a handle grabbed from either side should not look like it prefers one.
+
+The theme is renamed: `cyber-dark` and `cyber-light` are `edge-dark` and
+`edge-light`, labelled Edgerunner dark and Edgerunner light in all six
+catalogues. Nothing persists a theme, so there was nothing to migrate.
+
+Version bumped to 0.2.0 in `ui/package.json` and in both command-line
+binaries.
+
+**Rationale:** MapLibre's controls were inverted rather than painted, which
+lands on grey whatever the palette says -- white buttons on a red map in low
+light, which is what prompted this. The invert also turned the geolocate
+control's blue "following" into orange and its red error into cyan: worse than
+plain, because it said something and the thing it said was wrong. Those states
+are tokens now.
+
+**Follow-on:** `roadmap.md` gains Japanese, Chinese and German -- deferred as
+layout work rather than translation work, with the three reasons written out.
 
 ### 2026-09-11 — The chamfer moves into the box, and brings the border and the focus ring with it
 

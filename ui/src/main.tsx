@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { IconSet } from "./components/icons";
 import { Toasts } from "./components/Toasts";
 import "./i18n";
 import "./styles.css";
@@ -29,13 +30,20 @@ createRoot(root).render(
           TooltipTrigger, so the delay lives next to the component that uses
           it -- see components/IconButton.tsx. */
       }
-      <App />
       {
-        /* Top centre so it sits over neither the address panel on desktop
-          nor a thumb on mobile. Its two timings are not defaults and are
-          asserted end to end -- see ../toast.ts. */
+        /* Around everything that draws a glyph, which is the gate, the map
+          and the toasts alike: the icon set follows the palette, and one
+          provider is one subscription rather than one per icon. */
       }
-      <Toasts />
+      <IconSet>
+        <App />
+        {
+          /* Top centre so it sits over neither the address panel on desktop
+            nor a thumb on mobile. Its two timings are not defaults and are
+            asserted end to end -- see ../toast.ts. */
+        }
+        <Toasts />
+      </IconSet>
     </QueryClientProvider>
   </StrictMode>,
 );

@@ -112,7 +112,7 @@ check(
 check(
   "MapView reads the same token rather than keeping its own list",
   /--map-light-ground/.test(mapView)
-    && !/scheme === "cyber-light"/.test(mapView),
+    && !/scheme === "edge-light"/.test(mapView),
 );
 /* Six: the @theme default, the four palettes, and plain dark's second copy
    for a dark device on "match my device". */

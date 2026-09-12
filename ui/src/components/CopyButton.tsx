@@ -1,20 +1,7 @@
-/* Copy, with the answer on the button.
-
-   A toast said "copied" from the top of the screen, a long way from the
-   thing that was copied. A tick in place of the icon appears where the press
-   happened, and says the clipboard actually took it.
-
-   The label changes with the icon, so a screen reader hears the confirmation
-   too. Failure keeps the toast: it has to say what to do instead, which is
-   more than a button can hold.
-
-   The timer is cleared on unmount, because locking the map removes this
-   button while the tick is up. */
-
-import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toastError } from "../toast";
 import { IconButton } from "./IconButton";
+import { Check, Copy } from "./icons";
 
 const SHOWN_MS = 2000;
 
@@ -26,24 +13,12 @@ const isPending = (
 export function CopyButton(
   { label, copiedLabel, text, onFailure, disabled, className }: {
     label: string;
-    /* A hook for the end-to-end suite, which cannot name this button by its
-       label without pinning one locale. */
     className?: string;
-    /* For a caller whose value is not ready yet -- the gate's phrase before
-       it is 24 words. Disabled rather than absent, so the row does not change
-       width under the pointer on the last word typed. */
     disabled?: boolean;
-    /* Named per caller rather than one generic "Copied": the address and the
-       coordinates are different things and a screen reader should hear which
-       one landed. */
     copiedLabel: string;
     /* Read at press time, not at render time: the value can be concealed,
        and a concealed value is absent from the DOM rather than merely
-       invisible, so there is nothing on screen to select instead.
-
-       May answer with a promise, for the source that is not on this thread
-       at all -- the seed phrase, which lives in the worker and is fetched by
-       the press rather than held here waiting for one. */
+       invisible, so there is nothing on screen to select instead. */
     text: () => string | null | Promise<string | null>;
     onFailure: string;
   },

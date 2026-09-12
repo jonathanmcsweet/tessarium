@@ -19,7 +19,6 @@
    The phrase goes straight to the worker, which keeps the derived key and
    returns only whether it worked. */
 
-import { Dices, Eye, EyeOff } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useBackendDown } from "../core/health";
 import {
@@ -33,6 +32,7 @@ import { useAppStore } from "../store";
 import { toastError } from "../toast";
 import { CopyButton } from "./CopyButton";
 import { IconButton } from "./IconButton";
+import { Dices, Eye, EyeOff } from "./icons";
 import { LanguagePicker } from "./LanguagePicker";
 import { loadMapView } from "./mapChunk";
 import { ThemePicker } from "./ThemePicker";
@@ -42,25 +42,13 @@ const wordsIn = (phrase: string) => phrase.trim().split(/\s+/).filter(Boolean);
 
 export function PhraseEntry() {
   const [phrase, setPhrase] = useState("");
-  /* Held so the "write this down" notice disappears once the user edits the
-     words, rather than lingering over a phrase we did not generate. */
   const [generated, setGenerated] = useState<string | null>(null);
-  /* Masked by default: this is the highest-value secret the application
-     handles, typed on whatever screen the user is in front of. Revealed on
-     demand, because 24 words cannot be proofread through bullets, and
-     revealed automatically for a GENERATED phrase, because the next thing
-     the screen asks is that you write it down. */
   const [shown, setShown] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
   const setUnlocked = useAppStore((s) => s.setUnlocked);
   const generate = useGeneratePhrase();
   const unlock = useUnlock();
-
-  /* Feedback as you type: wordlist and checksum only, so it is instant. The
-     expensive derivation happens on submit. A phrase that fails its checksum
-     is almost always one mistyped word, and saying so before a 400 ms
-     derivation is worth the round trip. */
   const validation = useValidatePhrase(phrase);
   const validationError = validation.data?.error ?? null;
 
@@ -72,26 +60,10 @@ export function PhraseEntry() {
   const ready = wordCount === 24 && validationError === null
     && validation.isSuccess;
 
-  /* Start the map download here rather than on submit. A checksum-valid
-     phrase is the last thing before an unlock, and the unlock is Argon2id
-     over 64 MB -- far longer than this fetch -- so the chunk is normally in
-     the browser before the map is asked for. On submit would start later; on
-     mount would charge every visitor who reads this screen and leaves.
-
-     No cleanup and no cancellation: a download in flight is what this wants,
-     and an unmount here means the gate opened. The rejection is swallowed
-     because nothing is waiting on it, and `lazy` asks again -- and surfaces
-     the failure properly -- when the map mounts. */
   useEffect(() => {
     if (ready) void loadMapView().catch(() => {});
   }, [ready]);
 
-  /* The bytes are drawn in the worker by the platform CSPRNG; only the
-     words come back. Offered prominently because the alternative -- a phrase
-     a person composed, or one already used elsewhere -- costs a tiny
-     fraction of the guessing effort and looks identical once it satisfies
-     the checksum. It is the one weakness no amount of work elsewhere
-     repairs. */
   function onGenerate() {
     generate.mutate(undefined, {
       onSuccess: ({ mnemonic }) => {
@@ -106,9 +78,6 @@ export function PhraseEntry() {
     });
   }
 
-  /* Unlocking derives the key in a worker against argon2.wasm, which the
-     SERVER supplies -- so with no server it fails, and "Could not open the
-     map" blames a phrase that is perfectly good. */
   const serverDown = useBackendDown();
   const unlockFailed = () =>
     serverDown ? m.banner_backend_down() : m.gate_unlock_failed();
@@ -128,9 +97,6 @@ export function PhraseEntry() {
             );
             return;
           }
-          /* Drop the phrase from component state the moment it is no longer
-             needed. React state is reachable from the page; the worker's copy
-             is not. */
           setPhrase("");
           setGenerated(null);
           setUnlocked();
@@ -154,22 +120,6 @@ export function PhraseEntry() {
         <label htmlFor="phrase" className="text-sm font-semibold">
           {m.gate_phrase_label()}
         </label>
-        {
-          /* A real password field, in a real form, with a real
-            `autocomplete` -- which is what a password manager needs before
-            it offers to save anything. It was a textarea with autocomplete
-            off, and the browser did as it was told: nothing ever offered to
-            remember the one string that cannot be recovered if lost.
-
-            The cost is that 24 words no longer wrap. The reveal toggle and
-            the word count replace reading them back, and a generated phrase
-            reveals itself so it can be written down.
-
-            This does NOT change where the phrase goes: straight to the
-            worker, with this application storing nothing. What is new is
-            that the BROWSER may be asked to keep it, by the person using
-            it. */
-        }
         <div className="flex items-start gap-2">
           <input
             id="phrase"
@@ -181,11 +131,6 @@ export function PhraseEntry() {
             spellCheck={false}
             autoCorrect="off"
             autoCapitalize="off"
-            /* A generated phrase arrives a moment after the click and
-               replaces whatever is in this field. Read-only for that moment,
-               so it can never replace something the user typed in the
-               meantime. Read-only rather than disabled: focus and selection
-               survive. */
             readOnly={generate.isPending}
             aria-invalid={wordCount > 0 && validationError !== null}
             aria-describedby="phrase-status"
@@ -198,22 +143,10 @@ export function PhraseEntry() {
             label={shown ? m.gate_phrase_hide() : m.gate_phrase_show()}
             pressed={shown}
             onClick={() => setShown((v) => !v)}
-            /* Crossed-out means hidden, matching the panel's own eyes:
-               these show the state, not the action the press would take. */
             icon={shown
               ? <Eye size={18} aria-hidden />
               : <EyeOff size={18} aria-hidden />}
           />
-          {
-            /* For the password vault the warning below asks for. The same
-              button the address uses, so the tick that confirms the clipboard
-              took it appears in the same place, in the same green, in both.
-
-              Disabled until the phrase is whole: copying six words saves
-              nothing, and a clipboard holding half a secret is worse than an
-              empty one. Disabled rather than hidden, so the row does not
-              change width on the last word typed. */
-          }
           <CopyButton
             className="gate-phrase-copy"
             label={m.gate_phrase_copy()}
@@ -223,12 +156,6 @@ export function PhraseEntry() {
             disabled={wordCount !== 24}
           />
         </div>
-
-        {
-          /* Inline and beside the field, not a toast: this is live validation
-            of what is being typed, and it has to stay on screen while the user
-            fixes it. Toasts are for the submit. */
-        }
         <div
           className="phrase-status flex min-h-5 flex-wrap items-baseline gap-3 text-sm"
           id="phrase-status"
@@ -252,13 +179,6 @@ export function PhraseEntry() {
             </span>
           )}
         </div>
-
-        {
-          /* Secondary weight: this sits above "Open my map", which is the
-            primary action, but it must still read as an offer rather than as
-            fine print. On a phone it takes the row less the info icon, where
-            a button that does not is just a small target. */
-        }
         <div className="generate flex items-center">
           <button
             type="button"
@@ -269,15 +189,6 @@ export function PhraseEntry() {
             <Dices size={17} aria-hidden />
             {m.gate_generate()}
           </button>
-          {
-            /* Beside the control it is guidance for, not at the foot of the
-              form where it was read after the decision if at all. A tooltip
-              hides a sentence from anyone who does not reach for it, which
-              is the cost paid here for the row of boxes this screen had
-              become; what keeps it honest is that the sentence is the
-              icon's accessible name at all times, so it is announced
-              whether or not the tooltip is ever opened. */
-          }
           <InfoTip label={m.gate_phrase_warning()} />
         </div>
 
@@ -295,15 +206,9 @@ export function PhraseEntry() {
         >
           {unlock.isPending ? m.gate_submit_busy() : m.gate_submit()}
         </button>
-        {unlock.isPending && <p className="hint">{m.gate_deriving_hint()}</p>}
-
-        {
-          /* The two choices someone stuck on this screen may need: the
-             language, for a reader who cannot read this one, and the theme,
-             for a room the device's own guess is wrong about. Wrapping,
-             because on a narrow phone in a language with long names they do
-             not fit on one line. */
-        }
+        {unlock.isPending && (
+          <p className="panel-note hint">{m.gate_deriving_hint()}</p>
+        )}
         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
           <LanguagePicker />
           <ThemePicker labelHidden />

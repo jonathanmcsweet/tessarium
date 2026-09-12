@@ -1,17 +1,3 @@
-/* The lock button, and the question it asks first.
-
-   Locking forgets the derived key AND the words it came from, so getting
-   back in means typing the 24 words again. The worker holds them until this
-   press and nothing else does, which makes this dialog the last moment they
-   can be taken -- so it offers to, rather than only warning that it is too
-   late.
-
-   A refresh forgets them the same way and cannot be intercepted politely:
-   the browser's own "leave site?" prompt takes no wording. This dialog is
-   for the deliberate case; the panel's footer carries the same copy control
-   for the other one. */
-
-import { Lock } from "lucide-react";
 import {
   Button,
   Dialog,
@@ -23,11 +9,12 @@ import {
 import { core } from "../core/queries";
 import { m } from "../paraglide/messages";
 import { CopyButton } from "./CopyButton";
+import { Lock } from "./icons";
 
 export function LockDialog({ onConfirm }: { onConfirm: () => void; }) {
   return (
     <DialogTrigger>
-      <Button className="lock btn btn-quiet gap-1.5 px-3 text-ink-soft">
+      <Button className="lock btn btn-quiet gap-1.5 px-3">
         <Lock size={15} aria-hidden="true" />
         {m.panel_lock()}
       </Button>
@@ -52,12 +39,6 @@ export function LockDialog({ onConfirm }: { onConfirm: () => void; }) {
                   <strong>{m.lock_warning_title()}</strong>{" "}
                   {m.lock_warning_body()}
                 </p>
-                {
-                  /* The offer the warning above is about, next to it rather
-                    than in the row below: that row is the question being
-                    asked -- cancel, or lock -- and a third control in it
-                    reads as a third answer. */
-                }
                 <div className="phrase-copy mb-3 flex items-center gap-2 text-sm">
                   <CopyButton
                     className="lock-phrase-copy"
@@ -69,14 +50,6 @@ export function LockDialog({ onConfirm }: { onConfirm: () => void; }) {
                   />
                   <span>{m.panel_phrase_copy()}</span>
                 </div>
-                {
-                  /* Cancel first in the DOM, so Tab reaches it first and a
-                    screen reader reads it first -- and first on screen too,
-                    with the destructive button last, where a pointer expects
-                    the action it came to take. `flex-row-reverse` does the
-                    opposite: it puts the FIRST child on the right, which put
-                    Cancel under the thumb. */
-                }
                 <div className="modal-actions mt-4 flex justify-end gap-2">
                   <Button
                     className="btn btn-quiet border-line-strong"
