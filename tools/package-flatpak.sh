@@ -20,7 +20,9 @@ cd "$root"
 
 app_id="io.github.tessarium.Tessarium"
 manifest="packaging/flatpak/${app_id}.yml"
-version="$(sed -n 's/.*~version:"\([^"]*\)".*/\1/p' ocaml/server/bin/main.ml | head -1)"
+# The release version, from dune-project. Not the core's own number in
+# ocaml/lib/version.ml, and not the dashboard's: a package carries both.
+version="$(sed -n 's/^(version \([^)]*\))/\1/p' dune-project | head -1)"
 version="${version:-0.0.0}"
 tarball="dist/tessarium-${version}-linux-x86_64.tar.gz"
 

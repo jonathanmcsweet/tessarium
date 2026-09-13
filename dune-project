@@ -1,6 +1,15 @@
 (lang dune 3.17)
 (name tessarium)
 
+; The RELEASE version: what a .deb, .rpm, flatpak or tarball is named, what
+; tessarium-server --version reports, and what tools/check-versions.mjs holds
+; the packaging manifests to. It moves whenever either section does, at the
+; precedence of the larger change.
+;
+; The sections version separately and need no parity: ocaml/lib/version.ml is
+; the core (fstar/ and ocaml/), ui/package.json the dashboard.
+(version 0.2.3)
+
 (generate_opam_files true)
 
 ; OCaml sources only. dune's own formatter puts a blank line between a comment
