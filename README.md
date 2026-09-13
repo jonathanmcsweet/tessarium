@@ -1,5 +1,19 @@
 # Tessarium
 
+| Unlock | A generated phrase | The map | Locking |
+|---|---|---|---|
+| ![](screenshots/laptop/01-unlock.png) | ![](screenshots/laptop/02-generated.png) | ![](screenshots/laptop/03-map.png) | ![](screenshots/laptop/04-lock.png) |
+
+The same four screens on a phone, where the panel becomes a sheet across the
+bottom of the map.
+
+| Unlock | A generated phrase | The map | Locking |
+|---|---|---|---|
+| ![](screenshots/phone/01-unlock.png) | ![](screenshots/phone/02-generated.png) | ![](screenshots/phone/03-map.png) | ![](screenshots/phone/04-lock.png) |
+
+The phrase is masked throughout: generating one does not put 24 words on
+screen, and locking asks before it forgets them.
+
 Generate a BIP-39 24 word seed phrase and get a map with custom location codes private to you and anyone else sharing your seed phrase. 
 
 1. Generate a BIP-39 24 word seed phrase
@@ -16,8 +30,6 @@ Generate a BIP-39 24 word seed phrase and get a map with custom location codes p
 dream.tourist.creek.2703        # this spot, under your seed phrase
 pair.social.april.9605          # the exact same spot, under someone else's
 ```
-
-![The map, with one square selected](screenshots/laptop/03-map.png)
 
 ## Why use this?
 
@@ -193,7 +205,7 @@ being far easier to guess than a properly generated one. And reusing a
 phrase from somewhere else means anyone attacking that other use is also
 attacking your map here.
 
-## What it looks like
+## Theme choices
 
 Five themes, the same square in each. `make screenshots` regenerates every
 image on this page from the running app.
@@ -206,35 +218,6 @@ image on this page from the running app.
 | ![](screenshots/themes/dark.png) | ![](screenshots/themes/light.png) |
 | **Low light** — for reading a phrase off paper in the dark | |
 | ![](screenshots/themes/night.png) | |
-
-Unlocking, and locking again. The phrase is masked throughout: generating one
-does not put 24 words on screen, and locking asks before it forgets them.
-
-| Unlock | A generated phrase | Locking |
-|---|---|---|
-| ![](screenshots/laptop/01-unlock.png) | ![](screenshots/laptop/02-generated.png) | ![](screenshots/laptop/04-lock.png) |
-
-On a phone the panel becomes a sheet across the bottom.
-
-| Unlock | A generated phrase | The map | Locking |
-|---|---|---|---|
-| ![](screenshots/phone/01-unlock.png) | ![](screenshots/phone/02-generated.png) | ![](screenshots/phone/03-map.png) | ![](screenshots/phone/04-lock.png) |
-
-## Layout
-
-```
-design/           the grid's design tool and its output       (permanent)
-wordlist/         the 2,048-word list                          (permanent)
-fstar/            the proven core
-ocaml/            the server, the web app's backend logic, the proof's build output
-wasm/             the same core, compiled to run in the browser
-ui/               the web app itself, in six languages
-tools/            scripts for fetching maps and building packages
-vectors/          test cases and their expected answers
-js/               a second, independently written implementation, kept only to cross-check the first
-roadmap.md            everything still to do
-roadmap-progress.md   everything already done
-```
 
 ## Licence
 
