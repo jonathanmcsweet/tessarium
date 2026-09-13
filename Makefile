@@ -25,8 +25,10 @@ MISMATCH_PORT ?= 7376
 CANCEL_PORT ?= 7377
 # The delaying proxy itself, run by the e2e script.
 PROXY_PORT ?= 7378
+# The server the README's screenshots are taken from.
+SHOT_PORT ?= 7380
 
-.PHONY: all env setup dev verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run basemap print-basemap-stamp print-basemap-dir package package-deb package-rpm package-appimage test-install clean
+.PHONY: all env setup dev verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run screenshots basemap print-basemap-stamp print-basemap-dir package package-deb package-rpm package-appimage test-install clean
 
 # The stages share files (gen_check outputs, .checked caches, the 737x port
 # range). Cheap to run in order, wrong to interleave.
@@ -424,6 +426,28 @@ print-basemap-dir:
 run: build $(BASEMAP_STAMP)
 	./_build/default/ocaml/server/bin/main.exe --port $(PORT) \
 	  --basemap "$(BASEMAP_DIR)"
+
+# README screenshots, from the real app against the basemap `make run` uses.
+# Not part of `make test`: it needs a downloaded region, which a fresh clone
+# and CI do not have, and it writes committed files rather than checking them.
+#
+# PLACE= and ZOOM= pick what the map shows; the region has to be one this
+# basemap actually holds, or the search finds nothing.
+PLACE ?= atlanta, ga
+ZOOM ?= 18.5
+screenshots: build $(BASEMAP_STAMP)
+	@cd ui && pnpm exec playwright install chromium
+	@./_build/default/ocaml/server/bin/main.exe --port $(SHOT_PORT) \
+	  --basemap "$(BASEMAP_DIR)" --no-open & \
+	  echo $$! > .shots.pid; \
+	  trap 'kill $$(cat .shots.pid) 2>/dev/null; rm -f .shots.pid' EXIT; \
+	  for i in $$(seq 40); do \
+	    curl -sf -o /dev/null http://127.0.0.1:$(SHOT_PORT)/healthz && break; \
+	    sleep 0.25; \
+	  done; \
+	  ( cd ui && node tools/screenshots.mjs \
+	      http://127.0.0.1:$(SHOT_PORT) \
+	      "--place=$(PLACE)" "--only=$(ONLY)" "--zoom=$(ZOOM)" )
 
 package: build
 	tools/package.sh

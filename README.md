@@ -17,6 +17,8 @@ dream.tourist.creek.2703        # this spot, under your seed phrase
 pair.social.april.9605          # the exact same spot, under someone else's
 ```
 
+![The map, with one square selected](screenshots/laptop/03-map.png)
+
 ## Why use this?
 
 This adds a layer of privacy for those who
@@ -190,6 +192,33 @@ actually random: a phrase you invented yourself can look valid while still
 being far easier to guess than a properly generated one. And reusing a
 phrase from somewhere else means anyone attacking that other use is also
 attacking your map here.
+
+## What it looks like
+
+Five themes, the same square in each. `make screenshots` regenerates every
+image on this page from the running app.
+
+| | |
+|---|---|
+| **Edgerunner dark** — the default | **Edgerunner light** |
+| ![](screenshots/themes/edge-dark.png) | ![](screenshots/themes/edge-light.png) |
+| **Dark** | **Light** |
+| ![](screenshots/themes/dark.png) | ![](screenshots/themes/light.png) |
+| **Low light** — for reading a phrase off paper in the dark | |
+| ![](screenshots/themes/night.png) | |
+
+Unlocking, and locking again. The phrase is masked throughout: generating one
+does not put 24 words on screen, and locking asks before it forgets them.
+
+| Unlock | A generated phrase | Locking |
+|---|---|---|
+| ![](screenshots/laptop/01-unlock.png) | ![](screenshots/laptop/02-generated.png) | ![](screenshots/laptop/04-lock.png) |
+
+On a phone the panel becomes a sheet across the bottom.
+
+| Unlock | A generated phrase |
+|---|---|
+| ![](screenshots/phone/01-unlock.png) | ![](screenshots/phone/02-generated.png) |
 
 ## Layout
 
