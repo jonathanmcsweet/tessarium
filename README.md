@@ -1,22 +1,5 @@
 # Tessarium
 
-<p>
-  <img src="screenshots/laptop/01-unlock.png" alt="The unlock screen" width="49%">
-  <img src="screenshots/laptop/02-generated.png" alt="A generated phrase, masked" width="49%">
-  <img src="screenshots/laptop/03-map.png" alt="The map, with one square selected" width="49%">
-  <img src="screenshots/laptop/04-lock.png" alt="The lock confirmation" width="49%">
-</p>
-
-The same four screens on a phone, where the panel becomes a sheet across the
-bottom of the map.
-
-<p>
-  <img src="screenshots/phone/01-unlock.png" alt="The unlock screen" width="24%">
-  <img src="screenshots/phone/02-generated.png" alt="A generated phrase, masked" width="24%">
-  <img src="screenshots/phone/03-map.png" alt="The map, with the panel as a sheet below it" width="24%">
-  <img src="screenshots/phone/04-lock.png" alt="The lock confirmation" width="24%">
-</p>
-
 The phrase is masked throughout: generating one does not put 24 words on
 screen, and locking asks before it forgets them.
 
@@ -32,10 +15,12 @@ Generate a BIP-39 24 word seed phrase and get a map with custom location codes p
 
 5. Anyone looking at the location phrase without your private seed phrase will have no idea where that location is
 
-```
-dream.tourist.creek.2703        # this spot, under your seed phrase
-pair.social.april.9605          # the exact same spot, under someone else's
-```
+<p>
+  <img src="screenshots/laptop/01-unlock.png" alt="The unlock screen" width="49%">
+  <img src="screenshots/laptop/02-generated.png" alt="A generated phrase, masked" width="49%">
+  <img src="screenshots/laptop/03-map.png" alt="The map, with one square selected" width="49%">
+  <img src="screenshots/laptop/04-lock.png" alt="The lock confirmation" width="49%">
+</p>
 
 ## Why use this?
 
@@ -211,19 +196,47 @@ being far easier to guess than a properly generated one. And reusing a
 phrase from somewhere else means anyone attacking that other use is also
 attacking your map here.
 
-## Theme choices
+## Themes
 
 Five themes, the same square in each. `make screenshots` regenerates every
 image on this page from the running app.
 
-| | |
-|---|---|
-| **Edgerunner dark** — the default | **Edgerunner light** |
-| ![](screenshots/themes/edge-dark.png) | ![](screenshots/themes/edge-light.png) |
-| **Dark** | **Light** |
-| ![](screenshots/themes/dark.png) | ![](screenshots/themes/light.png) |
-| **Low light** — for reading a phrase off paper in the dark | |
-| ![](screenshots/themes/night.png) | |
+<table>
+  <tr>
+    <td><b>Edgerunner dark, the default</b></td>
+    <td><b>Edgerunner light</b></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/themes/edge-dark.png" alt="Edgerunner dark, the default"></td>
+    <td><img src="screenshots/themes/edge-light.png" alt="Edgerunner light"></td>
+  </tr>
+  <tr>
+    <td><b>Dark</b></td>
+    <td><b>Light</b></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/themes/dark.png" alt="Dark"></td>
+    <td><img src="screenshots/themes/light.png" alt="Light"></td>
+  </tr>
+  <tr>
+    <td><b>Low light, for reading a phrase off paper in the dark</b></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/themes/night.png" alt="Low light, for reading a phrase off paper in the dark"></td>
+  </tr>
+</table>
+
+## Mobile
+
+The same four screens on a phone, where the panel becomes a sheet across the
+bottom of the map.
+
+<p>
+  <img src="screenshots/phone/01-unlock.png" alt="The unlock screen" width="24%">
+  <img src="screenshots/phone/02-generated.png" alt="A generated phrase, masked" width="24%">
+  <img src="screenshots/phone/03-map.png" alt="The map, with the panel as a sheet below it" width="24%">
+  <img src="screenshots/phone/04-lock.png" alt="The lock confirmation" width="24%">
+</p>
 
 ## Licence
 
