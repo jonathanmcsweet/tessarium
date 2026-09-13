@@ -22,6 +22,27 @@ Generate a BIP-39 24 word seed phrase and get a map with custom location codes p
   <img src="screenshots/laptop/04-lock.png" alt="The lock confirmation" width="49%">
 </p>
 
+## Other Themes
+
+<p>
+  <img src="screenshots/themes/edge-light.png" alt="Edgerunner light" width="49%">
+  <img src="screenshots/themes/dark.png" alt="Dark" width="49%">
+  <img src="screenshots/themes/light.png" alt="Light" width="49%">
+  <img src="screenshots/themes/night.png" alt="Low light, for reading a phrase off paper in the dark" width="49%">
+</p>
+
+## Mobile
+
+The same four screens on a phone, where the panel becomes a sheet across the
+bottom of the map.
+
+<p>
+  <img src="screenshots/phone/01-unlock.png" alt="The unlock screen" width="24%">
+  <img src="screenshots/phone/02-generated.png" alt="A generated phrase, masked" width="24%">
+  <img src="screenshots/phone/03-map.png" alt="The map, with the panel as a sheet below it" width="24%">
+  <img src="screenshots/phone/04-lock.png" alt="The lock confirmation" width="24%">
+</p>
+
 ## Why use this?
 
 This adds a layer of privacy for those who
@@ -195,48 +216,6 @@ actually random: a phrase you invented yourself can look valid while still
 being far easier to guess than a properly generated one. And reusing a
 phrase from somewhere else means anyone attacking that other use is also
 attacking your map here.
-
-## Themes
-
-Five themes, the same square in each. `make screenshots` regenerates every
-image on this page from the running app.
-
-<table>
-  <tr>
-    <td><b>Edgerunner dark, the default</b></td>
-    <td><b>Edgerunner light</b></td>
-  </tr>
-  <tr>
-    <td><img src="screenshots/themes/edge-dark.png" alt="Edgerunner dark, the default"></td>
-    <td><img src="screenshots/themes/edge-light.png" alt="Edgerunner light"></td>
-  </tr>
-  <tr>
-    <td><b>Dark</b></td>
-    <td><b>Light</b></td>
-  </tr>
-  <tr>
-    <td><img src="screenshots/themes/dark.png" alt="Dark"></td>
-    <td><img src="screenshots/themes/light.png" alt="Light"></td>
-  </tr>
-  <tr>
-    <td><b>Low light, for reading a phrase off paper in the dark</b></td>
-  </tr>
-  <tr>
-    <td><img src="screenshots/themes/night.png" alt="Low light, for reading a phrase off paper in the dark"></td>
-  </tr>
-</table>
-
-## Mobile
-
-The same four screens on a phone, where the panel becomes a sheet across the
-bottom of the map.
-
-<p>
-  <img src="screenshots/phone/01-unlock.png" alt="The unlock screen" width="24%">
-  <img src="screenshots/phone/02-generated.png" alt="A generated phrase, masked" width="24%">
-  <img src="screenshots/phone/03-map.png" alt="The map, with the panel as a sheet below it" width="24%">
-  <img src="screenshots/phone/04-lock.png" alt="The lock confirmation" width="24%">
-</p>
 
 ## Licence
 
