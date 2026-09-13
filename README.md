@@ -10,9 +10,12 @@
 The same four screens on a phone, where the panel becomes a sheet across the
 bottom of the map.
 
-| Unlock | A generated phrase | The map | Locking |
-|---|---|---|---|
-| ![](screenshots/phone/01-unlock.png) | ![](screenshots/phone/02-generated.png) | ![](screenshots/phone/03-map.png) | ![](screenshots/phone/04-lock.png) |
+<p>
+  <img src="screenshots/phone/01-unlock.png" alt="The unlock screen" width="24%">
+  <img src="screenshots/phone/02-generated.png" alt="A generated phrase, masked" width="24%">
+  <img src="screenshots/phone/03-map.png" alt="The map, with the panel as a sheet below it" width="24%">
+  <img src="screenshots/phone/04-lock.png" alt="The lock confirmation" width="24%">
+</p>
 
 The phrase is masked throughout: generating one does not put 24 words on
 screen, and locking asks before it forgets them.
