@@ -8,7 +8,7 @@
 ;
 ; The sections version separately and need no parity: ocaml/lib/version.ml is
 ; the core (fstar/ and ocaml/), ui/package.json the dashboard.
-(version 0.2.3)
+(version 0.2.4)
 
 (generate_opam_files true)
 

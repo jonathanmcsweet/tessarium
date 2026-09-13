@@ -71,6 +71,11 @@
        none. See roadmap.md, Phase 7. -->
 
   <releases>
+    <release version="0.2.4" date="2026-09-13">
+      <description>
+        <p>The phone layout gives the map more room.</p>
+      </description>
+    </release>
     <release version="0.2.3" date="2026-09-13">
       <description>
         <p>Internal cleanup. Nothing changes on screen.</p>

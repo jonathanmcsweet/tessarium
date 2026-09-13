@@ -14,7 +14,7 @@ base: core24
 # Duplicated from ocaml/server/bin/main.ml, and in the tarball path
 # below, with nothing checking either. package-flatpak.sh has that
 # check; there is no package-snap.sh yet to carry it here.
-version: '0.2.3'
+version: '0.2.4'
 summary: A private address for every 3 m square on Earth
 description: |
   Tessarium gives every ~3 m square on Earth an address made of three
@@ -55,7 +55,7 @@ apps:
 parts:
   tessarium:
     plugin: dump
-    source: ../../dist/tessarium-0.2.3-linux-x86_64.tar.gz
+    source: ../../dist/tessarium-0.2.4-linux-x86_64.tar.gz
     organize:
       tessarium-server: bin/tessarium-server
       tessarium-basemap: bin/tessarium-basemap
