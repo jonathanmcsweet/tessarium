@@ -25,8 +25,10 @@ MISMATCH_PORT ?= 7376
 CANCEL_PORT ?= 7377
 # The delaying proxy itself, run by the e2e script.
 PROXY_PORT ?= 7378
-# The server the README's screenshots are taken from.
+# The server the README's screenshots are taken from, and the display they
+# are taken on.
 SHOT_PORT ?= 7380
+SHOT_DISPLAY ?= :99
 
 .PHONY: all env setup dev verify extract build ui test test-core test-static test-extraction test-lowstar test-ui run screenshots basemap print-basemap-stamp print-basemap-dir package package-deb package-rpm package-appimage test-install clean
 
@@ -431,21 +433,35 @@ run: build $(BASEMAP_STAMP)
 # Not part of `make test`: it needs a downloaded region, which a fresh clone
 # and CI do not have, and it writes committed files rather than checking them.
 #
+# On an X display rather than headless: headless Chromium paints the map
+# canvas blank wherever another element overlaps it, which is every phone
+# shot, because the panel is a sheet across the map there.
+#
 # PLACE= and ZOOM= pick what the map shows; the region has to be one this
 # basemap actually holds, or the search finds nothing.
 PLACE ?= atlanta, ga
 ZOOM ?= 18.5
 screenshots: build $(BASEMAP_STAMP)
 	@cd ui && pnpm exec playwright install chromium
-	@./_build/default/ocaml/server/bin/main.exe --port $(SHOT_PORT) \
+	@command -v Xvfb >/dev/null || { \
+	  echo "Xvfb is not installed; the screenshots need a real display"; \
+	  exit 1; }
+	@Xvfb $(SHOT_DISPLAY) -screen 0 1920x1080x24 > /dev/null 2>&1 & \
+	  echo $$! > .xvfb.pid; \
+	  for i in $$(seq 40); do \
+	    [ -e /tmp/.X11-unix/X$$(echo $(SHOT_DISPLAY) | tr -d ':') ] && break; \
+	    sleep 0.25; \
+	  done; \
+	  ./_build/default/ocaml/server/bin/main.exe --port $(SHOT_PORT) \
 	  --basemap "$(BASEMAP_DIR)" --no-open & \
 	  echo $$! > .shots.pid; \
-	  trap 'kill $$(cat .shots.pid) 2>/dev/null; rm -f .shots.pid' EXIT; \
+	  trap 'kill $$(cat .shots.pid) $$(cat .xvfb.pid) 2>/dev/null; \
+	    rm -f .shots.pid .xvfb.pid' EXIT; \
 	  for i in $$(seq 40); do \
 	    curl -sf -o /dev/null http://127.0.0.1:$(SHOT_PORT)/healthz && break; \
 	    sleep 0.25; \
 	  done; \
-	  ( cd ui && node tools/screenshots.mjs \
+	  ( cd ui && DISPLAY=$(SHOT_DISPLAY) node tools/screenshots.mjs \
 	      http://127.0.0.1:$(SHOT_PORT) \
 	      "--place=$(PLACE)" "--only=$(ONLY)" "--zoom=$(ZOOM)" )
 

@@ -9,7 +9,7 @@
    changing rather than for a timeout. */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { chromium, devices } from "playwright";
+import { chromium } from "playwright";
 
 const arg = (name, fallback) => {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
@@ -35,22 +35,21 @@ const mnemonic = vectors.key_derivation[0].mnemonic;
 /* 16:10, the shape of a laptop screen. The tablet shots this replaced were
    1225x942, which is no device. */
 const LAPTOP = { name: "laptop", zoom: 18.5, viewport: { width: 1440, height: 900 } };
-/* A real handset rather than a round number, so the layout is one someone
-   actually holds. Playwright keeps the descriptor current. */
-/* The handset's own deviceScaleFactor is 3, at which the map canvas comes
-   back blank: headless Chromium renders WebGL at 1x and 2x here and not at
-   3x. 2 is still a retina image, at a quarter of the file size. */
-/* Shallower than the laptop's: a phone shows a fifth of the ground at the
-   same zoom, and the grid still draws at z18. */
-/* A Pixel 10's logical viewport, as a plain window rather than through
-   Playwright's device emulation. Under emulation -- isMobile with a
-   deviceScaleFactor of 2 or 3 -- the map canvas comes back empty from a
-   headless capture while every other pixel arrives, which is the same
-   window size a person can size a real browser to and see the map fine. */
+/* A real handset: 360 CSS px is what a 1080-wide Android panel reports at a
+   device pixel ratio of 3, which is most of them. The zoom is shallower than
+   the laptop's because a phone shows a fifth of the ground at the same one,
+   and the grid still draws at z18. */
 const PHONE = {
   name: "phone",
   zoom: 18,
+  select: false,
+  /* A plain window at the handset's size, not Playwright's device
+     descriptor. Chromium's mobile emulation blanks the map canvas the same
+     way headless does, and the layout here follows width alone. */
   viewport: { width: 360, height: 732 },
+  /* The panel's own ratio is 3, which is 1080x2196 of PNG for a picture read
+     at a third of that; 2 is still retina where these are viewed. */
+  deviceScaleFactor: 2,
 };
 
 const THEMES = ["edge-dark", "edge-light", "dark", "light", "night"];
@@ -71,32 +70,21 @@ const record = (path) => {
 
    Every screenshot goes through this, map or not: on the gate there is no
    map and it does nothing. */
-let nudge = 0;
-const repaint = async (page) => {
-  /* A style change, because that is empirically what brings the canvas back:
-     triggerRepaint, redraw and waiting frames all leave it empty. The rule
-     sets a custom property nothing reads, so it changes no pixel itself. */
-  nudge += 1;
-  await page.addStyleTag({ content: `:root{--shot:${nudge}}` });
+/* Wait for the map to stop working, through its own idle event. An earlier
+   version compared successive screenshots of the canvas, which is worse than
+   slow: reading the canvas that way empties it, and the shot that followed
+   came back blank. */
+const settle = async (page) => {
   await page.evaluate(() =>
     new Promise((done) => {
-      window.__tessarium_map?.triggerRepaint();
-      requestAnimationFrame(() => requestAnimationFrame(done));
+      const map = window.__tessarium_map;
+      if (map === undefined) return done();
+      if (map.isStyleLoaded() && map.areTilesLoaded()) return done();
+      map.once("idle", done);
+      setTimeout(done, 30_000);
     }));
-};
-
-const settle = async (page) => {
-  /* Tiles arrive as they decode, so "loaded" is not a moment the page
-     announces. Two identical frames in a row is one it cannot fake. */
-  let previous = null;
-  for (let i = 0; i < 60; i++) {
-    await repaint(page);
-    const frame = await page.locator(".map-wrap").screenshot();
-    if (previous !== null && frame.equals(previous)) return true;
-    previous = frame;
-    await page.waitForTimeout(500);
-  }
-  return false;
+  await page.waitForTimeout(1_500);
+  return true;
 };
 
 const chooseTheme = async (page, theme) => {
@@ -151,14 +139,26 @@ const goToPlace = async (page, viewport) => {
     m.setPadding({ top: 0, left: 0, right: 0, bottom });
     m.jumpTo({ center: centre, zoom: z });
   }, { z: viewport.zoom ?? zoom, bottom: Math.round(covered) });
-  if (!(await settle(page))) {
-    throw new Error(`the map never stopped moving at "${place}"`);
-  }
-  /* Pick the square under the centre. Without this the panel shows its "tap
-     any square" placeholder, which is the one state a screenshot of an
-     address application should not be in. */
-  const { x, y } = await mapCentre(page);
-  await page.mouse.click(x, y);
+  await settle(page);
+  /* Pick the square under the centre, so the panel shows an address rather
+     than its "tap any square" placeholder.
+
+     Not on a narrow viewport. Selecting there leaves the map canvas blank in
+     every capture that follows, by a mechanism nothing here could pin down:
+     the map reports itself loaded with 531 features rendered, the WebGL
+     context is alive and error-free, the console is clean, and the pixels
+     are simply absent from the image. It survives a resize, a repaint, a
+     later camera move, and a fresh capture, and it happens whether the
+     selection comes from a real press or from the map's own event. The same
+     selection on a laptop-width window renders. Left unselected rather than
+     shipping a blank map. */
+  if (viewport.select === false) return;
+  await page.evaluate(() => {
+    const map = window.__tessarium_map;
+    if (map === undefined) return;
+    const centre = map.getCenter();
+    map.fire("click", { lngLat: centre, point: map.project(centre) });
+  });
   await page.locator(".address").first().waitFor({ timeout: 30_000 });
   /* Reveal it. The panel conceals an address by default, which is the right
      default and a poor advertisement: the masked panel says nothing about
@@ -178,34 +178,25 @@ const goToPlace = async (page, viewport) => {
   await settle(page);
 };
 
-/* Where to click to pick a square. Beside the map the panel takes its own
-   column, but below the drawer breakpoint it is a sheet over the map's lower
-   half, and a click at the map's centre lands on the sheet instead. */
-const mapCentre = async (page) => {
-  const map = await page.locator(".map-wrap").boundingBox();
-  const panel = await page.locator(".panel").boundingBox();
-  const middle = { x: map.x + map.width / 2, y: map.y + map.height / 2 };
-  if (panel === null) return middle;
-  const coversBottom = panel.x <= map.x + 1 && panel.width >= map.width - 1;
-  if (!coversBottom) return middle;
-  return { x: middle.x, y: map.y + (panel.y - map.y) / 2 };
-};
-
 const shoot = async (page, path) => {
   mkdirSync(path.slice(0, path.lastIndexOf("/")), { recursive: true });
-  await repaint(page);
   await page.screenshot({ path });
   record(path);
 };
 
 const session = async (browser, viewport, theme) => {
-  const { name: _name, ...device } = viewport;
   const context = await browser.newContext({
-    ...device,
+    viewport: viewport.viewport,
+    deviceScaleFactor: viewport.deviceScaleFactor ?? 1,
     reducedMotion: "reduce",
   });
   const page = await context.newPage();
   await page.goto(base);
+  /* This is a desktop window at a handset's size, so an overflowing panel
+     draws a scrollbar no phone would. */
+  await page.addStyleTag({
+    content: "*::-webkit-scrollbar{width:0!important;height:0!important}",
+  }).catch(() => {});
   await page.waitForSelector("#phrase", { timeout: 60_000 });
   await chooseTheme(page, theme);
   return { context, page };
@@ -247,7 +238,14 @@ const walkthrough = async (browser, viewport) => {
   await context.close();
 };
 
-const browser = await chromium.launch();
+/* Headed, on the X display `make screenshots` starts for it. Headless
+   Chromium paints the map canvas blank wherever another element overlaps it,
+   which is every phone shot, because the panel is a sheet across the map's
+   lower half there rather than a column beside it. Nothing else moved it:
+   not preserveDrawingBuffer, not --use-angle=gl or swiftshader, not
+   triggerRepaint, redraw or resize, not layer promotion on either element,
+   and not CDP's own capture with fromSurface off. */
+const browser = await chromium.launch({ headless: false });
 try {
   if (only === null || only === "themes") await themeGallery(browser);
   if (only === null || only === "laptop") await walkthrough(browser, LAPTOP);

@@ -216,9 +216,9 @@ does not put 24 words on screen, and locking asks before it forgets them.
 
 On a phone the panel becomes a sheet across the bottom.
 
-| Unlock | A generated phrase |
-|---|---|
-| ![](screenshots/phone/01-unlock.png) | ![](screenshots/phone/02-generated.png) |
+| Unlock | A generated phrase | The map | Locking |
+|---|---|---|---|
+| ![](screenshots/phone/01-unlock.png) | ![](screenshots/phone/02-generated.png) | ![](screenshots/phone/03-map.png) | ![](screenshots/phone/04-lock.png) |
 
 ## Layout
 
