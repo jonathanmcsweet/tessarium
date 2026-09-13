@@ -1,9 +1,11 @@
 # Tessarium
 
-| | |
-|---|---|
-| ![](screenshots/laptop/01-unlock.png) | ![](screenshots/laptop/02-generated.png) |
-| ![](screenshots/laptop/03-map.png) | ![](screenshots/laptop/04-lock.png) |
+<p>
+  <img src="screenshots/laptop/01-unlock.png" alt="The unlock screen" width="49%">
+  <img src="screenshots/laptop/02-generated.png" alt="A generated phrase, masked" width="49%">
+  <img src="screenshots/laptop/03-map.png" alt="The map, with one square selected" width="49%">
+  <img src="screenshots/laptop/04-lock.png" alt="The lock confirmation" width="49%">
+</p>
 
 The same four screens on a phone, where the panel becomes a sheet across the
 bottom of the map.
