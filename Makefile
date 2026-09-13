@@ -223,6 +223,7 @@ test-core:
 	tools/check-deps.sh
 	tools/check-basemap-target.sh
 	tools/check-dev-setup.sh
+	dune build @fmt
 
 # Lint, types, message catalogues and the browser payload budgets. Fast, needs
 # no server, and catches what the browser test cannot see: a message a locale
