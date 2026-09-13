@@ -1,8 +1,12 @@
 # Tessarium
 
-| Unlock | A generated phrase | The map | Locking |
-|---|---|---|---|
-| ![](screenshots/laptop/01-unlock.png) | ![](screenshots/laptop/02-generated.png) | ![](screenshots/laptop/03-map.png) | ![](screenshots/laptop/04-lock.png) |
+![](screenshots/laptop/01-unlock.png)
+
+![](screenshots/laptop/02-generated.png)
+
+![](screenshots/laptop/03-map.png)
+
+![](screenshots/laptop/04-lock.png)
 
 The same four screens on a phone, where the panel becomes a sheet across the
 bottom of the map.
