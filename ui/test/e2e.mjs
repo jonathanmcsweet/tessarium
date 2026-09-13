@@ -1839,6 +1839,18 @@ check(
   !(await phone.locator(".panel-hide").isVisible()),
 );
 
+/* The sheet gets 45vh at most, and on a short handset the explainer alone ate
+   a fifth of it to say something the gate has already said. It stays on the
+   desktop drawer, which has the room. */
+check(
+  "the footer explainer is off the sheet on a phone",
+  !(await phone.locator(".panel-explainer").isVisible()),
+);
+check(
+  "and still on the drawer where there is room for it",
+  await page.locator(".panel-explainer").isVisible(),
+);
+
 /* Shut, the sheet covers nothing and the handle is all that is left of it,
    lying along the map's bottom edge. The search field still measures from the
    right edge: at 5.5rem of fixed reserve it ran under the zoom buttons here,
