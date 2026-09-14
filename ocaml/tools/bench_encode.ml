@@ -19,4 +19,5 @@ let () =
          ~lon:(Z.of_int (-131111111 + i)))
   done;
   let dt = Unix.gettimeofday () -. t0 in
-  Printf.printf "%d encodes in %.3f s = %.1f us each\n" n dt (dt /. float_of_int n *. 1e6)
+  Printf.printf "%d encodes in %.3f s = %.1f us each\n" n dt
+    (dt /. float_of_int n *. 1e6)

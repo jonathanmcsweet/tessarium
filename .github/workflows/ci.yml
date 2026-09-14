@@ -80,6 +80,13 @@ jobs:
       - name: Install the dependency-declaration linter
         run: opam install opam-dune-lint -y
 
+      # Same reasoning: `make test-core` runs `dune build @fmt`, and without
+      # this the formatter is checked only where someone has already installed
+      # it. Pinned from ocaml/.ocamlformat, because a different version
+      # reformats the whole tree and would fail this on untouched files.
+      - name: Install the formatter
+        run: opam install "ocamlformat.$(sed -n 's/^version *= *//p' ocaml/.ocamlformat)" -y
+
       # F*'s precompiled objects need a zstd-enabled compiler to read them.
       # Building from the shipped sources sidesteps the question.
       - name: Vendor F*'s support modules

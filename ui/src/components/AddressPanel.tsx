@@ -333,7 +333,7 @@ export function AddressPanel(
           <LanguagePicker />
           <ThemePicker labelHidden />
         </div>
-        <p className="panel-explainer">{m.panel_footer()}</p>
+        <p className="panel-explainer max-drawer:hidden">{m.panel_footer()}</p>
         <p className="versions mt-2.5 flex flex-wrap gap-x-2 gap-y-1 text-xs">
           <code className="text-xs select-all">
             Tessarium v{__APP_VERSION__}

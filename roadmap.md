@@ -1008,6 +1008,35 @@ not cover.
 
 ## Phase 8 — Later, unscheduled
 
+- [ ] **The map canvas goes blank after a square is selected on a narrow
+      viewport.** Found while automating the README screenshots, and so far
+      only ever seen through a capture: `make screenshots` cannot take a
+      phone-width shot of the map with a square selected, and takes the phone
+      map unselected instead.
+
+      What is known. Below the drawer breakpoint the panel is a sheet over the
+      map rather than a column beside it. Up to the moment a square is
+      selected the map renders. From the selection onward every capture of
+      that page shows an empty canvas, while the map itself reports no
+      trouble: `loaded()` true, 531 features from `queryRenderedFeatures`, the
+      WebGL context alive with `getError` 0, and a clean console. It happens
+      whether the selection comes from a real press or from `map.fire`, and
+      the same selection at laptop width renders.
+
+      What does not recover it: `resize`, `redraw`, `triggerRepaint`, waiting
+      frames, a later camera move, layer promotion on either element,
+      `preserveDrawingBuffer`, `--use-angle=gl`, swiftshader, CDP's own
+      capture with `fromSurface` off, and a fresh capture afterwards. Hiding
+      the panel brings the map back, which is what points at the overlap.
+
+      Why it is deferred rather than fixed: it has not been reproduced on a
+      real handset, and every symptom is consistent with a compositing
+      artifact under capture rather than with something a person would see.
+      **Confirm on a real phone before spending anything on it** -- if the map
+      is blank there after a tap, this is a serious UI bug and not a
+      screenshot problem.
+
+
 - [ ] **RESEARCH: can this ride inside an existing map app rather than being
       one?** Worth asking because the hard part of this project is the proved
       core and the private mapping, not the map. All three candidates already

@@ -24,12 +24,17 @@ let core = Tessarium.extracted_core
 let positional =
   Array.to_list Sys.argv |> List.tl |> List.filter (fun a -> a <> "--check")
 
-let nth_or n default = match List.nth_opt positional n with Some p -> p | None -> default
+let nth_or n default =
+  match List.nth_opt positional n with Some p -> p | None -> default
+
 let inputs_path = nth_or 0 "vectors/inputs.json"
 let vectors_path = nth_or 1 "vectors/vectors.json"
 
 let member k = function
-  | `Assoc l -> ( match List.assoc_opt k l with Some v -> v | None -> failwith ("missing " ^ k))
+  | `Assoc l -> (
+      match List.assoc_opt k l with
+      | Some v -> v
+      | None -> failwith ("missing " ^ k))
   | _ -> failwith "expected an object"
 
 let to_str = function `String s -> s | _ -> failwith "expected a string"
@@ -41,12 +46,14 @@ let to_int = function
   | _ -> failwith "expected an integer"
 
 let unhex h =
-  String.init (String.length h / 2) (fun i ->
-      Char.chr (int_of_string ("0x" ^ String.sub h (2 * i) 2)))
+  String.init
+    (String.length h / 2)
+    (fun i -> Char.chr (int_of_string ("0x" ^ String.sub h (2 * i) 2)))
 
 let hex s =
   String.concat ""
-    (List.init (String.length s) (fun i -> Printf.sprintf "%02x" (Char.code s.[i])))
+    (List.init (String.length s) (fun i ->
+         Printf.sprintf "%02x" (Char.code s.[i])))
 
 let generate inputs =
   let mnemonics =
@@ -116,14 +123,16 @@ let generate inputs =
   let addresses =
     List.filteri (fun i _ -> i < address_points) points
     |> List.map (fun (lat, lon) ->
-           `Assoc
-             [
-               ("mnemonic", `String address_mnemonic);
-               ("lat_ns", `Int lat);
-               ("lon_ns", `Int lon);
-               ( "address",
-                 `String (Tessarium.encode ~core ~key:addr_key ~lat_ns:lat ~lon_ns:lon) );
-             ])
+        `Assoc
+          [
+            ("mnemonic", `String address_mnemonic);
+            ("lat_ns", `Int lat);
+            ("lon_ns", `Int lon);
+            ( "address",
+              `String
+                (Tessarium.encode ~core ~key:addr_key ~lat_ns:lat ~lon_ns:lon)
+            );
+          ])
   in
 
   (* Addresses that name no location. The address space is larger than the
@@ -141,7 +150,8 @@ let generate inputs =
     let rec search i found =
       if List.length found >= wanted then List.rev found
       else if i > 100_000 then
-        failwith "no invalid addresses found -- the address space is suspiciously full"
+        failwith
+          "no invalid addresses found -- the address space is suspiciously full"
       else
         let addr =
           Tessarium.address_to_string
@@ -174,7 +184,8 @@ let generate inputs =
       ("feistel_vectors", `List feistel_vectors);
       ("grid_vectors", `List grid_vectors);
       ("addresses", `List addresses);
-      ("invalid_addresses", `List (List.map (fun a -> `String a) invalid_addresses));
+      ( "invalid_addresses",
+        `List (List.map (fun a -> `String a) invalid_addresses) );
     ]
 
 (* Compared as parsed values rather than as text: the committed file was
@@ -185,7 +196,8 @@ let rec equal a b =
   | `Assoc x, `Assoc y ->
       List.length x = List.length y
       && List.for_all
-           (fun (k, v) -> match List.assoc_opt k y with Some w -> equal v w | None -> false)
+           (fun (k, v) ->
+             match List.assoc_opt k y with Some w -> equal v w | None -> false)
            x
   | `List x, `List y -> List.length x = List.length y && List.for_all2 equal x y
   | (`Int _ | `Intlit _), (`Int _ | `Intlit _) -> to_int a = to_int b
@@ -209,8 +221,7 @@ let () =
   match committed with
   | Some c when equal c generated ->
       print_endline "vectors reproduce exactly from the verified core";
-      if not check_only then
-        write vectors_path generated
+      if not check_only then write vectors_path generated
   | Some _ when check_only ->
       prerr_endline
         "the verified core no longer reproduces vectors/vectors.json.\n\

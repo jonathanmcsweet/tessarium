@@ -22,7 +22,9 @@
    `dune build` without having run the UI build first. *)
 
 let rec walk root prefix acc =
-  let entries = try Sys.readdir (Filename.concat root prefix) with _ -> [||] in
+  let entries =
+    try Sys.readdir (Filename.concat root prefix) with _ -> [||]
+  in
   Array.sort compare entries;
   Array.fold_left
     (fun acc name ->

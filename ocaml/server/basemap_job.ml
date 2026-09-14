@@ -42,22 +42,36 @@ type t =
               belongs to no region, and neither does a compaction. *)
     }
   | Assets  (** tiles written; glyphs and sprites downloading *)
-  | Removing of { done_bytes : int; total_bytes : int }
-      (** the archive is being rewritten without one ledger entry's tiles *)
-  | Compacting of { done_bytes : int; total_bytes : int }
-      (** browsed tiles are being folded into the main archive *)
-  | Indexing of { done_tiles : int; total_tiles : int }
-      (** the archive's own labels are being read into the search index *)
-  | Exporting of { done_bytes : int; total_bytes : int }
-      (** one region is being written out as a file to carry elsewhere *)
-  | Done of { total_bytes : int; parts : int }
+  | Removing of {
+      done_bytes : int;
+      total_bytes : int;
+    }  (** the archive is being rewritten without one ledger entry's tiles *)
+  | Compacting of {
+      done_bytes : int;
+      total_bytes : int;
+    }  (** browsed tiles are being folded into the main archive *)
+  | Indexing of {
+      done_tiles : int;
+      total_tiles : int;
+    }  (** the archive's own labels are being read into the search index *)
+  | Exporting of {
+      done_bytes : int;
+      total_bytes : int;
+    }  (** one region is being written out as a file to carry elsewhere *)
+  | Done of {
+      total_bytes : int;
+      parts : int;
+    }
   | Removed of { freed_bytes : int }
-      (** a removal finished; its own terminal state so the UI can say
-          "removed" rather than pretending a download completed *)
-  | Exported of { file : string; bytes : int }
+      (** a removal finished; its own terminal state so the UI can say "removed"
+          rather than pretending a download completed *)
+  | Exported of {
+      file : string;
+      bytes : int;
+    }
       (** an export finished and is sitting in the export directory. Its own
-          terminal state because the UI has somewhere to send the user --
-          the file -- which "done" alone could not say. *)
+          terminal state because the UI has somewhere to send the user -- the
+          file -- which "done" alone could not say. *)
   | Failed of string
   | Cancelled
 
@@ -184,8 +198,8 @@ let valid_polygon = function
              Array.length ring >= 3
              && Array.for_all
                   (fun (lon, lat) ->
-                    Float.is_finite lon && Float.is_finite lat
-                    && lon >= -180. && lon <= 180. && lat >= -90. && lat <= 90.)
+                    Float.is_finite lon && Float.is_finite lat && lon >= -180.
+                    && lon <= 180. && lat >= -90. && lat <= 90.)
                   ring)
            rings
 
@@ -266,8 +280,7 @@ let to_json = function
           ("total_bytes", `Int total_bytes);
         ]
   | Removed { freed_bytes } ->
-      `Assoc
-        [ ("state", `String "removed"); ("freed_bytes", `Int freed_bytes) ]
+      `Assoc [ ("state", `String "removed"); ("freed_bytes", `Int freed_bytes) ]
   | Exported { file; bytes } ->
       `Assoc
         [

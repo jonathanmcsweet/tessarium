@@ -8,6 +8,7 @@
 module C = Tessarium_server.Http_cache
 module R = Tessarium_server.Http_range
 module U = Tessarium_server.Url_path
+
 (* The proved resolver, so the checks below can test its answers against its
    own statement of what a safe segment is. *)
 module Proved = Tessarium_UrlPath
@@ -82,9 +83,7 @@ let () =
 
   (* ------------------------------------------------------- path safety *)
   let resolves target expected =
-    check
-      (Printf.sprintf "resolve %S" target)
-      (U.resolve target = expected)
+    check (Printf.sprintf "resolve %S" target) (U.resolve target = expected)
   in
   resolves "/" (Some [ "index.html" ]);
   resolves "/index.html" (Some [ "index.html" ]);
@@ -116,8 +115,7 @@ let () =
   check "bytes_of_string round-trips every byte"
     (U.string_of_bytes (U.bytes_of_string all_bytes) = all_bytes);
   check "and the byte list is the code points, in order"
-    (List.map Z.to_int (U.bytes_of_string "A/\000\255")
-     = [ 65; 47; 0; 255 ]);
+    (List.map Z.to_int (U.bytes_of_string "A/\000\255") = [ 65; 47; 0; 255 ]);
 
   (* The theorems, re-checked at runtime.
      `Tessarium.UrlPath.theorem_no_escape` and `theorem_no_dotfile` say every
@@ -137,13 +135,46 @@ let () =
      literals. The check below reports how many distinct segments reached it,
      since that, not the number of targets, is what was covered. *)
   let refused =
-    [ "."; ".."; "%2e"; "%2E%2E"; "%2f"; "%2F"; ".git"; ".env"; "a%00b";
-      "a\\b"; "%"; "%2"; "%zz"; "..%2f.."; "....//"; "%2e%2e%2f" ]
+    [
+      ".";
+      "..";
+      "%2e";
+      "%2E%2E";
+      "%2f";
+      "%2F";
+      ".git";
+      ".env";
+      "a%00b";
+      "a\\b";
+      "%";
+      "%2";
+      "%zz";
+      "..%2f..";
+      "....//";
+      "%2e%2e%2f";
+    ]
   in
   let accepted_ish =
-    [ ""; "a"; "assets"; "index.html"; "a.b"; "a."; "..a"; "a..b"; "a...";
-      "%61%2e%2e"; "a%2eb"; "%252e%252e"; "a%2fb"; "%41"; "a-b_c.d";
-      "index-D4ipvZ4X.js"; "%7e"; "sprite@2x.png" ]
+    [
+      "";
+      "a";
+      "assets";
+      "index.html";
+      "a.b";
+      "a.";
+      "..a";
+      "a..b";
+      "a...";
+      "%61%2e%2e";
+      "a%2eb";
+      "%252e%252e";
+      "a%2fb";
+      "%41";
+      "a-b_c.d";
+      "index-D4ipvZ4X.js";
+      "%7e";
+      "sprite@2x.png";
+    ]
   in
   let fragments = refused @ accepted_ish in
   let hostile =
@@ -212,8 +243,8 @@ let () =
      than printed, because both were once far smaller than the corpus size
      suggested. *)
   check
-    (Printf.sprintf "%d targets were accepted, so the claims had something to \
-                     hold" accepted)
+    (Printf.sprintf
+       "%d targets were accepted, so the claims had something to hold" accepted)
     (accepted > 1000);
   check
     (Printf.sprintf "and they carried %d distinct segments, not a handful"
@@ -222,7 +253,8 @@ let () =
 
   (* ------------------------------------------------------ content types *)
   check "js type" (U.content_type "app.js" = "text/javascript; charset=utf-8");
-  check "pmtiles type" (U.content_type "planet.pmtiles" = "application/octet-stream");
+  check "pmtiles type"
+    (U.content_type "planet.pmtiles" = "application/octet-stream");
   check "unknown type is not guessed"
     (U.content_type "thing.xyzzy" = "application/octet-stream");
 
@@ -250,6 +282,21 @@ let () =
   routes `POST "/assets/app.js" Route.Method_not_allowed;
   routes `GET "/basemap" Route.Not_found;
   routes `GET "/../etc/passwd" Route.Not_found;
+  (* The routing table falls through in one order, and these are the cases
+     that tell one order from another: a prefix matched but not completed, and
+     a prefix matched with too much after it. *)
+  routes `GET "/healthz/extra" Route.Not_found;
+  routes `POST "/healthz" Route.Method_not_allowed;
+  routes `GET "/api" Route.Not_found;
+  routes `POST "/api" Route.Not_found;
+  routes `POST "/api/encode/extra" Route.Not_found;
+  routes `POST "/import" Route.Import;
+  routes `GET "/import" Route.Method_not_allowed;
+  routes `POST "/import/extra" Route.Method_not_allowed;
+  routes `GET "/tiles" Route.Not_found;
+  routes `POST "/tiles" Route.Method_not_allowed;
+  routes `POST "/basemap" Route.Not_found;
+  routes `POST "/basemap/planet.pmtiles" Route.Method_not_allowed;
   routes `HEAD "/basemap/planet.pmtiles" (Route.Basemap [ "planet.pmtiles" ]);
 
   (* The tile endpoint: strict, so every accepted URL names exactly one
@@ -332,23 +379,42 @@ let () =
     (not
        (J.can_start
           (J.Fetching
-             { done_bytes = 0; total_bytes = 9; part = 1; parts = 1; regions = [] })));
+             {
+               done_bytes = 0;
+               total_bytes = 9;
+               part = 1;
+               parts = 1;
+               regions = [];
+             })));
   check "no second download while assets fetch" (not (J.can_start J.Assets));
   check "progress is clamped to the total"
     (J.progress ~done_bytes:120 ~total_bytes:100 ~part:1 ~parts:1 ()
-     = J.Fetching
-         { done_bytes = 100; total_bytes = 100; part = 1; parts = 1; regions = [] });
+    = J.Fetching
+        {
+          done_bytes = 100;
+          total_bytes = 100;
+          part = 1;
+          parts = 1;
+          regions = [];
+        });
   check "progress cannot be negative"
     (J.progress ~done_bytes:(-5) ~total_bytes:100 ~part:1 ~parts:1 ()
-     = J.Fetching
-         { done_bytes = 0; total_bytes = 100; part = 1; parts = 1; regions = [] });
+    = J.Fetching
+        { done_bytes = 0; total_bytes = 100; part = 1; parts = 1; regions = [] }
+    );
   check "part is clamped into 1..parts"
     (J.progress ~done_bytes:0 ~total_bytes:1 ~part:9 ~parts:4 ()
      = J.Fetching
          { done_bytes = 0; total_bytes = 1; part = 4; parts = 4; regions = [] }
     && J.progress ~done_bytes:0 ~total_bytes:1 ~part:0 ~parts:0 ()
        = J.Fetching
-           { done_bytes = 0; total_bytes = 1; part = 1; parts = 1; regions = [] });
+           {
+             done_bytes = 0;
+             total_bytes = 1;
+             part = 1;
+             parts = 1;
+             regions = [];
+           });
   (* Region rows get the same clamping as the aggregate: the download credits
      regions from a raw counter, and a row past its own total is the same bug
      as a bar past 100%. *)
@@ -356,30 +422,60 @@ let () =
     (J.progress ~done_bytes:0 ~total_bytes:100 ~part:1 ~parts:1
        ~regions:
          [
-           { J.label = "France"; done_bytes = 90; total_bytes = 40; planned = true };
-           { J.label = "Tokyo"; done_bytes = -3; total_bytes = 60; planned = false };
+           {
+             J.label = "France";
+             done_bytes = 90;
+             total_bytes = 40;
+             planned = true;
+           };
+           {
+             J.label = "Tokyo";
+             done_bytes = -3;
+             total_bytes = 60;
+             planned = false;
+           };
          ]
        ()
-     = J.Fetching
-         {
-           done_bytes = 0;
-           total_bytes = 100;
-           part = 1;
-           parts = 1;
-           regions =
-             [
-               { J.label = "France"; done_bytes = 40; total_bytes = 40; planned = true };
-               { J.label = "Tokyo"; done_bytes = 0; total_bytes = 60; planned = false };
-             ];
-         });
+    = J.Fetching
+        {
+          done_bytes = 0;
+          total_bytes = 100;
+          part = 1;
+          parts = 1;
+          regions =
+            [
+              {
+                J.label = "France";
+                done_bytes = 40;
+                total_bytes = 40;
+                planned = true;
+              };
+              {
+                J.label = "Tokyo";
+                done_bytes = 0;
+                total_bytes = 60;
+                planned = false;
+              };
+            ];
+        });
   check "region rows survive into the status JSON in request order"
     (match
        J.to_json
          (J.progress ~done_bytes:1 ~total_bytes:2 ~part:1 ~parts:1
             ~regions:
               [
-                { J.label = "France"; done_bytes = 1; total_bytes = 2; planned = true };
-                { J.label = "Tokyo"; done_bytes = 0; total_bytes = 5; planned = false };
+                {
+                  J.label = "France";
+                  done_bytes = 1;
+                  total_bytes = 2;
+                  planned = true;
+                };
+                {
+                  J.label = "Tokyo";
+                  done_bytes = 0;
+                  total_bytes = 5;
+                  planned = false;
+                };
               ]
             ())
      with
@@ -392,15 +488,25 @@ let () =
         | _ -> false)
     | _ -> false);
   check "a reversed box is refused"
-    (Result.is_error (J.validate ~min_lon:1. ~min_lat:0. ~max_lon:0. ~max_lat:1. ~max_zoom:15 ()));
+    (Result.is_error
+       (J.validate ~min_lon:1. ~min_lat:0. ~max_lon:0. ~max_lat:1. ~max_zoom:15
+          ()));
   check "an out-of-range box is refused"
-    (Result.is_error (J.validate ~min_lon:(-181.) ~min_lat:0. ~max_lon:0. ~max_lat:1. ~max_zoom:15 ()));
+    (Result.is_error
+       (J.validate ~min_lon:(-181.) ~min_lat:0. ~max_lon:0. ~max_lat:1.
+          ~max_zoom:15 ()));
   check "a NaN is refused"
-    (Result.is_error (J.validate ~min_lon:Float.nan ~min_lat:0. ~max_lon:1. ~max_lat:1. ~max_zoom:15 ()));
+    (Result.is_error
+       (J.validate ~min_lon:Float.nan ~min_lat:0. ~max_lon:1. ~max_lat:1.
+          ~max_zoom:15 ()));
   check "zoom 16 is refused"
-    (Result.is_error (J.validate ~min_lon:0. ~min_lat:0. ~max_lon:1. ~max_lat:1. ~max_zoom:16 ()));
+    (Result.is_error
+       (J.validate ~min_lon:0. ~min_lat:0. ~max_lon:1. ~max_lat:1. ~max_zoom:16
+          ()));
   check "an honest box is accepted"
-    (Result.is_ok (J.validate ~min_lon:(-0.25) ~min_lat:51.45 ~max_lon:0. ~max_lat:51.55 ~max_zoom:15 ()));
+    (Result.is_ok
+       (J.validate ~min_lon:(-0.25) ~min_lat:51.45 ~max_lon:0. ~max_lat:51.55
+          ~max_zoom:15 ()));
 
   (* ------------------------------------------------------------------ untar *)
   (* A ustar archive built by hand, because the reader must be tested against
@@ -408,13 +514,15 @@ let () =
   let tar_entry ?(typeflag = '0') ?(prefix = "") name content =
     let b = Bytes.make 512 '\000' in
     Bytes.blit_string name 0 b 0 (String.length name);
-    Bytes.blit_string (Printf.sprintf "%011o" (String.length content)) 0 b 124 11;
+    Bytes.blit_string
+      (Printf.sprintf "%011o" (String.length content))
+      0 b 124 11;
     Bytes.set b 156 typeflag;
     Bytes.blit_string "ustar\000" 0 b 257 6;
     Bytes.blit_string prefix 0 b 345 (String.length prefix);
     (* Checksum field is not verified by the reader; fill with spaces. *)
     Bytes.blit_string "        " 0 b 148 8;
-    let pad = (512 - String.length content mod 512) mod 512 in
+    let pad = (512 - (String.length content mod 512)) mod 512 in
     Bytes.to_string b ^ content ^ String.make pad '\000'
   in
   let archive =
@@ -426,8 +534,7 @@ let () =
          Printf.sprintf "%d %s" (String.length r + 3) r)
     ^ tar_entry "ignored-short-name" "renamed-body"
     ^ tar_entry "../escape" "evil"
-    ^ tar_entry "/abs" "evil"
-    ^ String.make 1024 '\000'
+    ^ tar_entry "/abs" "evil" ^ String.make 1024 '\000'
   in
   let files = Tessarium_server.Untar.list archive in
   let find n = List.assoc_opt n files in
@@ -451,8 +558,7 @@ let () =
   in
   let whole = tar_entry "fonts/a.pbf" (String.make 600 'g') in
   check "the archive it is cut from parses" (not (rejects whole));
-  check "an entry cut short is refused"
-    (rejects (String.sub whole 0 700));
+  check "an entry cut short is refused" (rejects (String.sub whole 0 700));
   check "a header cut short is simply the end"
     (not (rejects (String.sub whole 0 300)));
   (* GNU writes sizes over 8 GB in base 256, high bit set. Nothing in a glyph
@@ -462,12 +568,14 @@ let () =
     Bytes.blit_string bytes 0 b at (String.length bytes);
     Bytes.to_string b
   in
-  check "a base-256 size field is refused" (rejects (clobber 124 "\x80\x00\x00\x00"));
-  check "a size field of letters is refused" (rejects (clobber 124 "nonsense    "));
+  check "a base-256 size field is refused"
+    (rejects (clobber 124 "\x80\x00\x00\x00"));
+  check "a size field of letters is refused"
+    (rejects (clobber 124 "nonsense    "));
   (* A pax record whose length covers nothing, which made String.sub negative. *)
   let pax r =
-    tar_entry ~typeflag:'x' "pax" r ^ tar_entry "next" "body"
-    ^ String.make 1024 '\000'
+    tar_entry ~typeflag:'x' "pax" r
+    ^ tar_entry "next" "body" ^ String.make 1024 '\000'
   in
   check "a zero-length pax record is refused, not crashed on"
     (not (rejects (pax "0 path=x\n")));
@@ -476,7 +584,7 @@ let () =
   check "and a well-formed one still renames"
     (List.assoc_opt "renamed"
        (Tessarium_server.Untar.list (pax "16 path=renamed\n"))
-     = Some "body");
+    = Some "body");
 
   (* -------------------------------------------------- basemap endpoints *)
   (* Fake ops, so what is asserted is the decision layer: which closure runs,
@@ -488,7 +596,8 @@ let () =
     (Route.is_basemap_api "basemap-status"
     && Route.is_basemap_api "basemap-download");
   check "the key-material endpoints do not"
-    (not (Route.is_basemap_api "session") && not (Route.is_basemap_api "encode"));
+    ((not (Route.is_basemap_api "session"))
+    && not (Route.is_basemap_api "encode"));
 
   (* Who may call them. The server listens on loopback and asks for no
      credentials, so any page the user has open could otherwise start a
@@ -503,7 +612,8 @@ let () =
     (foreign [ ("sec-fetch-site", "cross-site"); ("host", "127.0.0.1:7373") ]);
   check "so is same-site -- another port is another origin"
     (foreign [ ("sec-fetch-site", "same-site") ]);
-  check "our own page is not" (not (foreign [ ("sec-fetch-site", "same-origin") ]));
+  check "our own page is not"
+    (not (foreign [ ("sec-fetch-site", "same-origin") ]));
   check "nor is an address bar" (not (foreign [ ("sec-fetch-site", "none") ]));
   check "nor curl, which sends neither header" (not (foreign []));
   (* Browsers without Sec-Fetch-Site still send Origin on a cross-origin write. *)
@@ -531,7 +641,7 @@ let () =
   check "and the wildcard" (gz "*");
   check "q=0 means it cannot read gzip" (not (gz "gzip;q=0"));
   check "however many zeroes it writes"
-    (not (gz "gzip;q=0.000") && not (gz "gzip;q=0.0"));
+    ((not (gz "gzip;q=0.000")) && not (gz "gzip;q=0.0"));
   check "a coding that merely contains the word is not gzip"
     (not (gz "identity, notgzip"));
   check "x-gzip is the same coding" (gz "x-gzip");
@@ -540,8 +650,7 @@ let () =
   (* Naming a coding outright is more specific than the wildcard. *)
   check "an explicit refusal beats a permissive wildcard"
     (not (gz "*, gzip;q=0"));
-  check "and an explicit accept beats a refusing wildcard"
-    (gz "*;q=0, gzip");
+  check "and an explicit accept beats a refusing wildcard" (gz "*;q=0, gzip");
 
   check "text/plain is not json" (not (json [ ("content-type", "text/plain") ]));
   check "a form post is not json"
@@ -557,7 +666,8 @@ let () =
      in one place rather than by every caller. *)
   let binary l =
     Result.is_ok
-      (G.check_stream ~header:(hdr (("content-length", "7") :: l))
+      (G.check_stream
+         ~header:(hdr (("content-length", "7") :: l))
          ~declares_body:true)
   in
   check "a media type is read the same way whichever type is wanted"
@@ -573,7 +683,9 @@ let () =
   (* The guard itself, which no handler can be reached without. What matters
      is not that each predicate is right but that nothing gets an
      Api_guard.t unless all of them are. *)
-  let ok = [ ("content-type", "application/json"); ("host", "127.0.0.1:7373") ] in
+  let ok =
+    [ ("content-type", "application/json"); ("host", "127.0.0.1:7373") ]
+  in
   let run ?(declares = true) ?(read = fun () -> Some "{}") l =
     G.check ~header:(hdr l) ~declares_body:declares ~read
   in
@@ -582,19 +694,17 @@ let () =
     match o with G.Refused (r', _) -> r' = r | G.Allowed _ -> false
   in
   let closes o =
-    match o with
-    | G.Refused (_, G.Connection_must_close) -> true
-    | _ -> false
+    match o with G.Refused (_, G.Connection_must_close) -> true | _ -> false
   in
   check "a well-formed same-origin call is allowed" (allowed (run ok));
   check "the body survives the guard"
     (match run ok ~read:(fun () -> Some {|{"a":1}|}) with
-     | G.Allowed t -> String.equal (G.body t) {|{"a":1}|}
-     | G.Refused _ -> false);
+    | G.Allowed t -> String.equal (G.body t) {|{"a":1}|}
+    | G.Refused _ -> false);
   check "a call declaring no body has an empty one, not a missing one"
     (match run ok ~declares:false ~read:(fun () -> assert false) with
-     | G.Allowed t -> String.equal (G.body t) ""
-     | G.Refused _ -> false);
+    | G.Allowed t -> String.equal (G.body t) ""
+    | G.Refused _ -> false);
   check "another site is refused"
     (refused_with G.From_another_site
        (run (("sec-fetch-site", "cross-site") :: ok)));
@@ -607,14 +717,18 @@ let () =
   check "a refusal drains a body it can"
     (not (closes (run (("sec-fetch-site", "cross-site") :: ok))));
   check "and closes the connection when it cannot"
-    (closes (run (("sec-fetch-site", "cross-site") :: ok) ~read:(fun () -> None)));
+    (closes
+       (run (("sec-fetch-site", "cross-site") :: ok) ~read:(fun () -> None)));
   check "the size refusal always closes"
     (closes (run ok ~read:(fun () -> None)));
   (* Read at most once, whatever the answer: reading twice on one flow would
      block on a socket that has nothing more to give. *)
   check "the body is read exactly once"
     (let reads = ref 0 in
-     let read () = incr reads; Some "{}" in
+     let read () =
+       incr reads;
+       Some "{}"
+     in
      ignore (run ok ~read);
      ignore (run [ ("content-type", "text/plain") ] ~read);
      !reads = 2);
@@ -743,8 +857,7 @@ let () =
     match
       G.check
         ~header:(function
-          | "content-type" -> Some "application/json"
-          | _ -> None)
+          | "content-type" -> Some "application/json" | _ -> None)
         ~declares_body:true
         ~read:(fun () -> Some body)
     with
@@ -753,7 +866,8 @@ let () =
   in
   let run ~endpoint ~body =
     calls := [];
-    ignore (S.handle_basemap scfg ops settings ~endpoint ~request:(checked body));
+    ignore
+      (S.handle_basemap scfg ops settings ~endpoint ~request:(checked body));
     !calls
   in
 
@@ -761,7 +875,9 @@ let () =
     (run ~endpoint:"basemap-status" ~body:"" = [ `Status ]);
   check "cancel reaches the job"
     (run ~endpoint:"basemap-cancel" ~body:"" = [ `Cancel ]);
-  let box = {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15}|} in
+  let box =
+    {|{"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15}|}
+  in
   let wrap boxes = {|{"regions":[|} ^ String.concat "," boxes ^ "]}" in
   (match run ~endpoint:"basemap-download" ~body:(wrap [ box ]) with
   | [ `Start (_, _, [ (req : Tessarium_server.Basemap_job.request) ]) ] ->
@@ -791,14 +907,16 @@ let () =
   check "an empty regions list reaches nothing"
     (run ~endpoint:"basemap-download" ~body:{|{"regions":[]}|} = []);
   check "an absurd number of regions reaches nothing"
-    (run ~endpoint:"basemap-download"
-       ~body:(wrap (List.init 65 (fun _ -> box)))
-     = []);
+    (run ~endpoint:"basemap-download" ~body:(wrap (List.init 65 (fun _ -> box)))
+    = []);
   check "a reversed box reaches nothing"
     (run ~endpoint:"basemap-download"
        ~body:
-         (wrap [ {|{"min_lon":1,"min_lat":0,"max_lon":0,"max_lat":1,"max_zoom":15}|} ])
-     = []);
+         (wrap
+            [
+              {|{"min_lon":1,"min_lat":0,"max_lon":0,"max_lat":1,"max_zoom":15}|};
+            ])
+    = []);
   check "one bad box poisons the whole request"
     (run ~endpoint:"basemap-download" ~body:(wrap [ box; "{}" ]) = []);
   let with_polygon =
@@ -818,7 +936,7 @@ let () =
             [
               {|{"min_lon":0,"min_lat":0,"max_lon":1,"max_lat":1,"max_zoom":15,"polygon":[[[0,0],[1]]]}|};
             ])
-     = []);
+    = []);
   check "a two-point ring reaches nothing"
     (run ~endpoint:"basemap-download"
        ~body:
@@ -826,7 +944,7 @@ let () =
             [
               {|{"min_lon":0,"min_lat":0,"max_lon":1,"max_lat":1,"max_zoom":15,"polygon":[[[0,0],[1,1]]]}|};
             ])
-     = []);
+    = []);
   (* Every key-touching endpoint shares one ceiling. Encode was once
      unthrottled, which made the security write-up's oracle arithmetic false.
      Eleven calls against a burst of ten: the last must be refused, and by the
@@ -858,14 +976,16 @@ let () =
         (status_of "decode" {|{"session":"nope","address":"a.b.c.1"}|}
         = `Too_many_requests));
   check "the key api is limited; the tile api is not"
-    (S.rate_limited_endpoint "session" && S.rate_limited_endpoint "encode"
+    (S.rate_limited_endpoint "session"
+    && S.rate_limited_endpoint "encode"
     && S.rate_limited_endpoint "decode"
     && not (S.rate_limited_endpoint "basemap-status"));
 
   check "an oversized polygon reaches nothing"
     (let points =
        List.init 2100 (fun i ->
-           Printf.sprintf "[%f,%f]" (float_of_int (i mod 100) /. 100.)
+           Printf.sprintf "[%f,%f]"
+             (float_of_int (i mod 100) /. 100.)
              (float_of_int (i / 100) /. 100.))
        |> String.concat ","
      in
@@ -880,7 +1000,7 @@ let () =
   check "a missing field reaches nothing"
     (run ~endpoint:"basemap-download"
        ~body:(wrap [ {|{"min_lon":1,"min_lat":0,"max_lon":2,"max_zoom":15}|} ])
-     = []);
+    = []);
 
   (* The ledger endpoints: list, update by id, remove by id, and the name a
      download carries into its ledger row. *)
@@ -911,7 +1031,7 @@ let () =
   check "a name with control characters reaches nothing"
     (run ~endpoint:"basemap-download"
        ~body:({|{"name":"a\nb","regions":[|} ^ box ^ "]}")
-     = []);
+    = []);
   (* Which archive a download joins is the client's to say and the server's
      to check: the overview is a separate file, and asking for one has to be
      distinguishable from asking for a region that happens to be large. *)
@@ -959,9 +1079,11 @@ let () =
     | [ `Start (_, false, [ (r : Tessarium_server.Basemap_job.request) ]) ] ->
         r.label = None
     | _ -> false);
-  check "some labelled and some not is fine, because there is nothing to line up"
+  check
+    "some labelled and some not is fine, because there is nothing to line up"
     (match
-       run ~endpoint:"basemap-download" ~body:(wrap [ labelled "France" box; paris ])
+       run ~endpoint:"basemap-download"
+         ~body:(wrap [ labelled "France" box; paris ])
      with
     | [ `Start (_, false, [ (a : Tessarium_server.Basemap_job.request); b ]) ]
       ->
@@ -969,16 +1091,18 @@ let () =
     | _ -> false);
   check "a label that is not a string reaches nothing"
     (run ~endpoint:"basemap-download"
-       ~body:(wrap [ {|{"label":7,"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15}|} ])
-     = []);
+       ~body:
+         (wrap
+            [
+              {|{"label":7,"min_lon":-0.25,"min_lat":51.45,"max_lon":0,"max_lat":51.55,"max_zoom":15}|};
+            ])
+    = []);
   check "a label with control characters reaches nothing"
-    (run ~endpoint:"basemap-download"
-       ~body:(wrap [ labelled "a\nb" box ])
-     = []);
+    (run ~endpoint:"basemap-download" ~body:(wrap [ labelled "a\nb" box ]) = []);
   check "an over-long label reaches nothing"
     (run ~endpoint:"basemap-download"
        ~body:(wrap [ labelled (String.make 121 'x') box ])
-     = []);
+    = []);
   (* The array that used to carry them is gone, and an old client sending one
      is not an error -- the regions simply carry no labels. *)
   check "a stray top-level labels array is ignored rather than obeyed"
@@ -1002,7 +1126,8 @@ let () =
   check "the export list needs no arguments"
     (run ~endpoint:"basemap-exports" ~body:"{}" = [ `Exports ]);
   check "deleting an export names the file"
-    (run ~endpoint:"basemap-export-delete" ~body:{|{"file":"France-ab12.pmtiles"}|}
+    (run ~endpoint:"basemap-export-delete"
+       ~body:{|{"file":"France-ab12.pmtiles"}|}
     = [ `Delete_export "France-ab12.pmtiles" ]);
   check "deleting an export without a name reaches nothing"
     (run ~endpoint:"basemap-export-delete" ~body:"{}" = []
@@ -1033,13 +1158,16 @@ let () =
     | Ok r -> r
     | Error e -> failwith e
   in
-  let whole = region ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85. in
-  check "the whole planet is a world overview"
-    (D.covers_the_planet [ whole ]);
+  let whole =
+    region ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
+  in
+  check "the whole planet is a world overview" (D.covers_the_planet [ whole ]);
   check "a box short of the edges is not, however large"
     (not
        (D.covers_the_planet
-          [ region ~min_lon:(-179.9) ~min_lat:(-84.) ~max_lon:179.9 ~max_lat:84. ]));
+          [
+            region ~min_lon:(-179.9) ~min_lat:(-84.) ~max_lon:179.9 ~max_lat:84.;
+          ]));
   check "and neither are two halves that between them would cover it"
     (not
        (D.covers_the_planet
@@ -1062,8 +1190,7 @@ let () =
     (run_settings ~body:{|{"update_reminder_days":30}|}
     = [ `Set (Some 30, None) ]);
   check "the browse toggle writes alone, leaving the reminder be"
-    (run_settings ~body:{|{"browse_cache":true}|}
-    = [ `Set (None, Some true) ]);
+    (run_settings ~body:{|{"browse_cache":true}|} = [ `Set (None, Some true) ]);
   check "a non-boolean browse toggle reaches nothing"
     (run_settings ~body:{|{"browse_cache":"yes"}|} = []);
   (* Off means gone: turning the toggle off also clears the browse cache;
@@ -1090,13 +1217,14 @@ let () =
   | _ -> check "a browse request carries its box at its zoom" false);
   check "a browse without a zoom reaches nothing"
     (run ~endpoint:"basemap-browse"
-       ~body:{|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56}|}
-     = []);
+       ~body:
+         {|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56}|}
+    = []);
   check "a browse past the source's depth reaches nothing"
     (run ~endpoint:"basemap-browse"
        ~body:
          {|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56,"zoom":16}|}
-     = []);
+    = []);
   (* JSON has one number type: a serializer spelling 15 as 15.0 is not
      asking for a fractional zoom, and a real fraction still is. *)
   (match
@@ -1112,7 +1240,7 @@ let () =
     (run ~endpoint:"basemap-browse"
        ~body:
          {|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56,"zoom":14.5}|}
-     = []);
+    = []);
   browse_on := false;
   check "browsing off means the endpoint is off, server-side"
     (run ~endpoint:"basemap-browse" ~body:browse_body = []);
@@ -1133,13 +1261,14 @@ let () =
   browse_on := false;
   check "coverage answers with browsing off"
     (match run ~endpoint:"basemap-coverage" ~body:view with
-     | [ `Coverage _ ] -> true
-     | _ -> false);
+    | [ `Coverage _ ] -> true
+    | _ -> false);
   browse_on := true;
   check "a coverage query without a zoom reaches nothing"
     (run ~endpoint:"basemap-coverage"
-       ~body:{|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56}|}
-     = []);
+       ~body:
+         {|{"min_lon":-0.2,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56}|}
+    = []);
   (* The two ways a coverage query fails get two different statuses, and the
      message survives either way. A viewport over the cap is the caller asking
      for too much; an unreadable archive is this server's own data gone wrong,
@@ -1155,7 +1284,7 @@ let () =
     (run ~endpoint:"basemap-coverage"
        ~body:
          {|{"min_lon":0.5,"min_lat":51.46,"max_lon":-0.05,"max_lat":51.56,"zoom":12}|}
-     = []);
+    = []);
 
   (* Compaction obeys the one-writer rule like everything else. *)
   check "nothing starts while a compaction runs"
@@ -1201,8 +1330,7 @@ let () =
     (D.status runner
     = `Assoc
         [
-          ("generation", `Int 0);
-          ("job", `Assoc [ ("state", `String "idle") ]);
+          ("generation", `Int 0); ("job", `Assoc [ ("state", `String "idle") ]);
         ]);
   check "cancel with nothing running cancels nothing" (not (D.cancel runner));
 
@@ -1242,8 +1370,8 @@ let () =
   check "archives without a ledger read as empty" (L.of_metadata "{}" = Ok []);
   check "foreign metadata keys survive a ledger write in place"
     (match L.to_metadata [ e1 ] ~previous:{|{"author":"protomaps"}|} with
-    | Ok s ->
-        (match Yojson.Safe.from_string s with
+    | Ok s -> (
+        match Yojson.Safe.from_string s with
         | `Assoc (("author", `String "protomaps") :: _) ->
             L.of_metadata s = Ok [ e1 ]
         | _ -> false)
@@ -1263,9 +1391,11 @@ let () =
         (entry ~name:"Frankreich" ~completed:1 ~source:"other" ~bytes:9
            [ france ]));
   check "moving a box changes identity"
-    (L.id (entry [ france ]) <> L.id (entry [ reg ~z:15 (-5.1, 41.3, 9.6, 51.2) ]));
+    (L.id (entry [ france ])
+    <> L.id (entry [ reg ~z:15 (-5.1, 41.3, 9.6, 51.2) ]));
   check "a deeper zoom changes identity"
-    (L.id (entry [ france ]) <> L.id (entry [ reg ~z:14 (-5.1, 41.3, 9.6, 51.1) ]));
+    (L.id (entry [ france ])
+    <> L.id (entry [ reg ~z:14 (-5.1, 41.3, 9.6, 51.1) ]));
   check "a polygon changes identity"
     (L.id (entry [ france ]) <> L.id (entry [ france_clipped ]));
   check "a clipped region round-trips with its polygon intact"
@@ -1286,7 +1416,10 @@ let () =
      second copy beside the first. *)
   let labelled = reg ~z:15 ~label:"France" (-5.1, 41.3, 9.6, 51.1) in
   check "a region's label survives the trip through archive metadata"
-    (match L.of_metadata (Result.get_ok (L.to_metadata [ entry [ labelled ] ] ~previous:"{}")) with
+    (match
+       L.of_metadata
+         (Result.get_ok (L.to_metadata [ entry [ labelled ] ] ~previous:"{}"))
+     with
     | Ok [ e ] -> (
         match e.L.regions with
         | [ (r : J.request) ] -> r.J.label = Some "France"
@@ -1294,16 +1427,19 @@ let () =
     | _ -> false);
   check "naming a region does not change what region it is"
     (L.id (entry [ labelled ]) = L.id (entry [ france ]));
-  check "an unlabelled region writes no label key, so old archives are unchanged"
+  check
+    "an unlabelled region writes no label key, so old archives are unchanged"
     (L.to_metadata [ entry [ france ] ] ~previous:"{}"
-    = L.to_metadata [ entry [ france ] ] ~previous:"{}"
-      && not
-           (let m = Result.get_ok (L.to_metadata [ entry [ france ] ] ~previous:"{}") in
-            let rec mentions i =
-              i + 5 <= String.length m
-              && (String.sub m i 5 = "label" || mentions (i + 1))
-            in
-            mentions 0));
+     = L.to_metadata [ entry [ france ] ] ~previous:"{}"
+    && not
+         (let m =
+            Result.get_ok (L.to_metadata [ entry [ france ] ] ~previous:"{}")
+          in
+          let rec mentions i =
+            i + 5 <= String.length m
+            && (String.sub m i 5 = "label" || mentions (i + 1))
+          in
+          mentions 0));
   check "and a ledger written before labels existed still reads, unlabelled"
     (match
        L.of_metadata
@@ -1322,14 +1458,15 @@ let () =
     | Error _ -> true
     | Ok _ -> false);
   check "and a label is bounded and printable, exactly as an entry name is"
-    (Result.is_error (J.validate ~label:"a\nb" ~min_lon:0. ~min_lat:0.
-                        ~max_lon:1. ~max_lat:1. ~max_zoom:5 ())
+    (Result.is_error
+       (J.validate ~label:"a\nb" ~min_lon:0. ~min_lat:0. ~max_lon:1. ~max_lat:1.
+          ~max_zoom:5 ())
     && Result.is_error
          (J.validate ~label:(String.make 121 'x') ~min_lon:0. ~min_lat:0.
             ~max_lon:1. ~max_lat:1. ~max_zoom:5 ())
     && Result.is_ok
-         (J.validate ~label:"Île-de-France" ~min_lon:0. ~min_lat:0.
-            ~max_lon:1. ~max_lat:1. ~max_zoom:5 ()));
+         (J.validate ~label:"Île-de-France" ~min_lon:0. ~min_lat:0. ~max_lon:1.
+            ~max_lat:1. ~max_zoom:5 ()));
 
   (* Looking one up is all that is left of editing a ledger: a region is its
      own file, so entries are never added to or taken out of a list. *)
@@ -1340,8 +1477,7 @@ let () =
 
   (* Corruption is loud, never an empty ledger. *)
   let unreadable = function Error _ -> true | Ok _ -> false in
-  check "non-JSON metadata is an error"
-    (unreadable (L.of_metadata "<html>"));
+  check "non-JSON metadata is an error" (unreadable (L.of_metadata "<html>"));
   check "non-object metadata is an error" (unreadable (L.of_metadata "[]"));
   let mentions sub s =
     let n = String.length sub in
@@ -1372,10 +1508,9 @@ let () =
     (L.valid_name "France" && L.valid_name "Besançon, Québec");
   check "the empty name is invalid" (not (L.valid_name ""));
   check "control characters are invalid"
-    (not (L.valid_name "a\nb") && not (L.valid_name "a\x7f"));
+    ((not (L.valid_name "a\nb")) && not (L.valid_name "a\x7f"));
   check "broken UTF-8 is invalid" (not (L.valid_name "\xff\xfe"));
-  check "over-long names are invalid"
-    (not (L.valid_name (String.make 121 'x')));
+  check "over-long names are invalid" (not (L.valid_name (String.make 121 'x')));
   check "names at the limit are valid" (L.valid_name (String.make 120 'x'));
 
   (* Removal geometry, on exact tile boundaries. Remove undoes the download:
@@ -1398,15 +1533,25 @@ let () =
     ((not (protected ~z:3 ~x:4 ~y:3))
     && (not (protected ~z:4 ~x:8 ~y:6))
     && not (protected ~z:2 ~x:2 ~y:1));
-  let shallow = L.drops ~removed ~kept:[ entry [ reg ~z:3 (tl, tb, tr, tt) ] ] in
+  let shallow =
+    L.drops ~removed ~kept:[ entry [ reg ~z:3 (tl, tb, tr, tt) ] ]
+  in
   check "a shallower kept entry protects only the zooms it fetched"
     ((not (shallow ~z:3 ~x:4 ~y:3)) && shallow ~z:4 ~x:8 ~y:6);
   let pad = 0.01 in
   let quad =
-    [| [| (tl -. pad, tb -. pad); (tr +. pad, tb -. pad);
-          (tr +. pad, tt +. pad); (tl -. pad, tt +. pad) |] |]
+    [|
+      [|
+        (tl -. pad, tb -. pad);
+        (tr +. pad, tb -. pad);
+        (tr +. pad, tt +. pad);
+        (tl -. pad, tt +. pad);
+      |];
+    |]
   in
-  let clipped_cell = reg ~polygon:quad ~z:4 (tl -. pad, tb -. pad, tr +. pad, tt +. pad) in
+  let clipped_cell =
+    reg ~polygon:quad ~z:4 (tl -. pad, tb -. pad, tr +. pad, tt +. pad)
+  in
   let pdrops = L.drops ~removed:(entry [ clipped_cell ]) ~kept:[] in
   check "a tile inside the polygon is dropped" (pdrops ~z:3 ~x:4 ~y:3);
   check "a border tile goes too -- the clipped download fetched it"
@@ -1446,20 +1591,22 @@ let () =
             ()
     in
     let drops =
-      L.drops ~removed:(entry [ reg ?polygon ~z:max_zoom (a, b, c, d) ])
+      L.drops
+        ~removed:(entry [ reg ?polygon ~z:max_zoom (a, b, c, d) ])
         ~kept:[]
     in
-    universe (fun ~z ~x ~y ->
-        drops ~z ~x ~y = List.mem (T.of_zxy ~z ~x ~y) ids)
+    universe (fun ~z ~x ~y -> drops ~z ~x ~y = List.mem (T.of_zxy ~z ~x ~y) ids)
   in
-  check "drops = covering, on an ordinary box" (agrees ~z:4 (-5.1, 41.3, 9.6, 51.1));
+  check "drops = covering, on an ordinary box"
+    (agrees ~z:4 (-5.1, 41.3, 9.6, 51.1));
   check "drops = covering, on an exactly tile-aligned box"
     (agrees ~z:4 (tl, tb, tr, tt));
   check "drops = covering, on a sliver crossing a tile boundary"
     (agrees ~z:5 (tl -. 0.001, tb, tl +. 0.001, tt));
   check "drops = covering, clipped to a triangle"
-    (agrees ~polygon:[| [| (-5., 42.); (9., 42.); (2., 51.) |] |] ~z:4
-       (-5.1, 41.3, 9.6, 51.1));
+    (agrees
+       ~polygon:[| [| (-5., 42.); (9., 42.); (2., 51.) |] |]
+       ~z:4 (-5.1, 41.3, 9.6, 51.1));
   check "drops = covering, clipped to the padded quad"
     (agrees ~polygon:quad ~z:4 (tl -. pad, tb -. pad, tr +. pad, tt +. pad));
 
@@ -1485,11 +1632,7 @@ let () =
      save dialog, so it is deliberately narrow -- and the real name is not
      lost by that, it rides inside the file's own ledger. *)
   let module D = Tessarium_server.Basemap_download in
-  let fname ?name id =
-    D.region_filename
-      ~entry:(entry ?name [ france ])
-      ~id
-  in
+  let fname ?name id = D.region_filename ~entry:(entry ?name [ france ]) ~id in
   check "an ordinary name slugs to itself"
     (fname "abcdef0123456789" = "France-2026-08-17-abcdef01.pmtiles");
   check "spaces and punctuation collapse to single dashes"
@@ -1508,7 +1651,8 @@ let () =
      machine says when its tiles came from the planet build, and exporting
      the same map tomorrow does not make a second copy. *)
   check "the file is dated by when the tiles were fetched"
-    (D.region_filename ~entry:(entry ~completed:1_709_164_800 [ france ])
+    (D.region_filename
+       ~entry:(entry ~completed:1_709_164_800 [ france ])
        ~id:"abcdef0123456789"
     = "France-2024-02-29-abcdef01.pmtiles");
 
@@ -1625,8 +1769,9 @@ let () =
     let payload = "not-a-tile" in
     let root =
       D.serialize
-        [| { D.tile_id = tile_id; offset = 0;
-             length = String.length payload; run_length } |]
+        [|
+          { D.tile_id; offset = 0; length = String.length payload; run_length };
+        |]
     in
     let header =
       {
@@ -1682,7 +1827,8 @@ let () =
   let archive = run_archive ~reads ~tile_id:21 ~run_length:4 () in
   let visited = ref 0 in
   reads := 0;
-  ignore (P.build_many ~max_zoom:3 ~on_tile:(fun d _ -> visited := d) [ archive ]);
+  ignore
+    (P.build_many ~max_zoom:3 ~on_tile:(fun d _ -> visited := d) [ archive ]);
   check "the walk visited every id in the run" (!visited = 4);
   check "and read the run's blob once, not once per id" (!reads = 1);
 
@@ -1701,8 +1847,8 @@ let () =
       check "an index line round-trips"
         (back.P.name = e.P.name && back.P.kind = e.P.kind
        && back.P.weight = e.P.weight
-       && Float.abs (back.P.lon -. e.P.lon) < 1e-6
-       && Float.abs (back.P.lat -. e.P.lat) < 1e-6)
+        && Float.abs (back.P.lon -. e.P.lon) < 1e-6
+        && Float.abs (back.P.lat -. e.P.lat) < 1e-6)
   | None -> check "an index line round-trips" false);
   check "a truncated line is skipped, not fatal" (P.of_line "junk" = None);
   check "a line with no name is skipped"
@@ -1842,8 +1988,15 @@ let () =
   let file lon lat =
     let k = key lon lat in
     Hashtbl.replace seen k
-      (12, { P.name = "Jasper"; kind = "town"; layer = "places";
-             weight = 4590.; lon; lat });
+      ( 12,
+        {
+          P.name = "Jasper";
+          kind = "town";
+          layer = "places";
+          weight = 4590.;
+          lon;
+          lat;
+        } );
     k
   in
   (* The real pair, either side of a twentieth-degree line. *)
@@ -1860,8 +2013,15 @@ let () =
   in
   let first2 = key2 (-118.082428) 52.875139 in
   Hashtbl.replace seen2 first2
-    (12, { P.name = "Jasper"; kind = "town"; layer = "places";
-           weight = 4590.; lon = -118.082428; lat = 52.875139 });
+    ( 12,
+      {
+        P.name = "Jasper";
+        kind = "town";
+        layer = "places";
+        weight = 4590.;
+        lon = -118.082428;
+        lat = 52.875139;
+      } );
   check "whichever of the two arrives first"
     (key2 (-118.082428) 52.874932 = first2);
   (* Layer is still part of the identity: a road named after the town it
@@ -1909,8 +2069,9 @@ let () =
     (state_json (Indexing { done_tiles = 3; total_tiles = 9 })
     = [ "state"; "done_tiles"; "total_tiles" ]);
   check "and names itself the way the client matches on"
-    (match Tessarium_server.Basemap_job.to_json
-             (Indexing { done_tiles = 0; total_tiles = 1 })
+    (match
+       Tessarium_server.Basemap_job.to_json
+         (Indexing { done_tiles = 0; total_tiles = 1 })
      with
     | `Assoc fields -> List.assoc_opt "state" fields = Some (`String "indexing")
     | _ -> false);
@@ -1987,12 +2148,12 @@ let () =
   let out_of_domain = (Z.of_int 2048, Z.zero, Z.zero, Z.zero) in
   check "the server's injected core is the C one, not the extracted one"
     (match Tessarium_server.Serve.core.Tessarium.decode ~key out_of_domain with
-     | exception Invalid_argument _ -> true
-     | _ -> false);
+    | exception Invalid_argument _ -> true
+    | _ -> false);
   check "and the extracted core is what it is being distinguished from"
     (match Tessarium.extracted_core.Tessarium.decode ~key out_of_domain with
-     | exception Invalid_argument _ -> false
-     | _ -> true);
+    | exception Invalid_argument _ -> false
+    | _ -> true);
 
   (* ------------------------------------------- addresses vs place names
 
@@ -2097,7 +2258,7 @@ let () =
   in
   check "a four-letter abbreviation resolves to its word"
     (parsed "slic.pena.abando.0001" <> None
-     && parsed "slic.pena.abando.0001" = parsed "slice.penalty.abandon.0001");
+    && parsed "slic.pena.abando.0001" = parsed "slice.penalty.abandon.0001");
   check "a non-word sharing four letters with a word is refused"
     (parsed "cannot.slice.artist.0001" = None);
   check "a word extended past its end is refused"
@@ -2142,14 +2303,17 @@ let () =
      glyph directory is where this happens: a tarball extracted in one go,
      several of them empty. *)
   check "two files with the same size and time still differ"
-    (not (String.equal (stamp ~key:"fonts/a/0-255.pbf" ())
-            (stamp ~key:"fonts/b/0-255.pbf" ())));
+    (not
+       (String.equal
+          (stamp ~key:"fonts/a/0-255.pbf" ())
+          (stamp ~key:"fonts/b/0-255.pbf" ())));
   check "no header, nothing to be fresh against" (not (fresh (tag "x")));
   check "the tag it holds" (fresh ~hdr:(tag "x") (tag "x"));
   check "a tag for something else" (not (fresh ~hdr:(tag "y") (tag "x")));
   check "* matches whatever we have" (fresh ~hdr:"*" (tag "x"));
   check "one of a list"
-    (fresh ~hdr:(Printf.sprintf "%s, %s, %s" (tag "a") (tag "x") (tag "b"))
+    (fresh
+       ~hdr:(Printf.sprintf "%s, %s, %s" (tag "a") (tag "x") (tag "b"))
        (tag "x"));
   check "none of a list"
     (not (fresh ~hdr:(Printf.sprintf "%s, %s" (tag "a") (tag "b")) (tag "x")));
@@ -2174,9 +2338,7 @@ let () =
      strongly -- map.pmtiles is rewritten in place, so a window handed to a
      client holding part of the old archive would splice two archives
      together. *)
-  let current ?hdr etag =
-    C.range_is_current ~if_range:hdr ~etag
-  in
+  let current ?hdr etag = C.range_is_current ~if_range:hdr ~etag in
   check "no If-Range, the range stands" (current (tag "x"));
   check "an If-Range naming what we have" (current ~hdr:(tag "x") (tag "x"));
   check "an If-Range naming something else"

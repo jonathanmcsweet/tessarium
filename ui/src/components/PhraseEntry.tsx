@@ -1,24 +1,3 @@
-/* Seed phrase entry.
-
-   The warnings here are not boilerplate. Where the phrase came from is the
-   highest-value security decision in the application, and the one thing this
-   code cannot check: validation confirms the words were typed correctly, not
-   that they were generated. Casually invented phrases mostly get rejected --
-   the checksum is 8 bits, so 255 of 256 arbitrary selections fail -- but
-   that is typo detection, not an entropy test. Anyone can pick 23 words and
-   search the 2048 for one that completes a valid phrase, and a
-   checksum-valid phrase from a weak source passes untouched. Reuse is the
-   other half: anyone who learns a few (address, true location) pairs is
-   doing cryptanalysis against whatever else that phrase protects. So the
-   provenance warning rides the generate button, in an info icon beside it,
-   where the choice is made -- and it is permanent, in the sense that the
-   icon is: it is never dismissed and never conditional, and the sentence is
-   the icon's accessible name whether or not the tooltip is open.
-
-   Nothing typed here is persisted -- no localStorage, no URL, no request.
-   The phrase goes straight to the worker, which keeps the derived key and
-   returns only whether it worked. */
-
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useBackendDown } from "../core/health";
 import {
@@ -69,9 +48,6 @@ export function PhraseEntry() {
       onSuccess: ({ mnemonic }) => {
         setPhrase(mnemonic);
         setGenerated(mnemonic);
-        /* The screen is about to say "write these down". It has to show
-           them to be able to ask that. */
-        setShown(true);
         input.current?.focus();
       },
       onError: () => toastError(m.gate_generate_failed()),

@@ -23,8 +23,8 @@ let open_browser proc_mgr url =
      xdg-open there opens nothing, or opens it on the wrong machine. *)
   let candidates =
     (match Sys.getenv_opt "BROWSER" with
-    | Some b when String.trim b <> "" -> [ b ]
-    | _ -> [])
+      | Some b when String.trim b <> "" -> [ b ]
+      | _ -> [])
     @ [ "xdg-open"; "gio"; "sensible-browser"; "www-browser" ]
   in
   let args exe =
@@ -38,8 +38,7 @@ let open_browser proc_mgr url =
         match Eio.Process.run proc_mgr (args exe) with
         | () -> Logs.info (fun m -> m "opened via %s" (Filename.basename exe))
         | exception e ->
-            Logs.debug (fun m ->
-                m "%s failed: %s" exe (Printexc.to_string e));
+            Logs.debug (fun m -> m "%s failed: %s" exe (Printexc.to_string e));
             try_each rest)
   in
   try_each candidates
@@ -95,7 +94,9 @@ let serve port ui basemap bundled api connect_src basemap_source basemap_assets
 open Cmdliner
 
 let port =
-  let doc = "Port to listen on. Loopback only; this never binds a public interface." in
+  let doc =
+    "Port to listen on. Loopback only; this never binds a public interface."
+  in
   Arg.(value & opt int default_port & info [ "p"; "port" ] ~docv:"PORT" ~doc)
 
 let ui =
@@ -114,13 +115,11 @@ let bundled =
   let doc =
     "Directory holding the world overview, glyphs and sprites that a package \
      ships, copied into the basemap directory whenever that is missing them. \
-     Defaults to ../share/tessarium/basemap beside this binary. Pass an \
-     empty string to seed nothing."
+     Defaults to ../share/tessarium/basemap beside this binary. Pass an empty \
+     string to seed nothing."
   in
   Arg.(
-    value
-    & opt (some string) None
-    & info [ "bundled-basemap" ] ~docv:"DIR" ~doc)
+    value & opt (some string) None & info [ "bundled-basemap" ] ~docv:"DIR" ~doc)
 
 let api =
   let doc =
@@ -143,9 +142,9 @@ let connect_src =
    cannot point this server at an attacker's archive. *)
 let basemap_source =
   let doc =
-    "Where the in-app downloader reads tiles: a PMTiles URL, a local path, \
-     or 'latest' for the newest Protomaps daily planet build. The browser \
-     never supplies this."
+    "Where the in-app downloader reads tiles: a PMTiles URL, a local path, or \
+     'latest' for the newest Protomaps daily planet build. The browser never \
+     supplies this."
   in
   Arg.(
     value
@@ -161,14 +160,16 @@ let basemap_assets =
     & info [ "basemap-assets" ] ~docv:"URL" ~doc)
 
 let no_open =
-  let doc = "Do not open a browser. Implied for self-hosted and headless use." in
+  let doc =
+    "Do not open a browser. Implied for self-hosted and headless use."
+  in
   Arg.(value & flag & info [ "no-open" ] ~doc)
 
 let tile_budget =
   let doc =
-    "Planning budget as FULL,QUICK,PARTS tile-id counts. Advanced: the \
-     default suits real hardware; tests shrink it to force multi-part \
-     downloads against a small fixture."
+    "Planning budget as FULL,QUICK,PARTS tile-id counts. Advanced: the default \
+     suits real hardware; tests shrink it to force multi-part downloads \
+     against a small fixture."
   in
   (* A converter rather than an in-band parse: bad input earns cmdliner's
      usage diagnostic, not an uncaught exception, and nonpositive values are
@@ -184,8 +185,7 @@ let tile_budget =
       else Error (`Msg "tile budget values must all be positive")
     in
     let parse s =
-      try
-        Scanf.sscanf s "%d,%d,%d,%d%!" (fun f q p c -> build f q p c)
+      try Scanf.sscanf s "%d,%d,%d,%d%!" (fun f q p c -> build f q p c)
       with _ -> (
         try
           Scanf.sscanf s "%d,%d,%d%!" (fun f q p ->
@@ -205,7 +205,7 @@ let tile_budget =
 
 let cmd =
   let doc = "serve the Tessarium map on localhost" in
-  let info = Cmd.info "tessarium-server" ~version:"0.2.0" ~doc in
+  let info = Cmd.info "tessarium-server" ~version:"0.2.4" ~doc in
   Cmd.v info
     Term.(
       const serve $ port $ ui $ basemap $ bundled $ api $ connect_src

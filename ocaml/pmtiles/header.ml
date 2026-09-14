@@ -2,8 +2,20 @@
 
    Spec: https://github.com/protomaps/PMTiles/blob/main/spec/v3/spec.md *)
 
-type compression = Unknown | None_ | Gzip | Brotli | Zstd
-type tile_type = Type_unknown | Mvt | Png | Jpeg | Webp | Avif
+type compression =
+  | Unknown
+  | None_
+  | Gzip
+  | Brotli
+  | Zstd
+
+type tile_type =
+  | Type_unknown
+  | Mvt
+  | Png
+  | Jpeg
+  | Webp
+  | Avif
 
 type t = {
   root_offset : int;

@@ -15,7 +15,9 @@ umask 022
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-version="$(sed -n 's/.*~version:"\([^"]*\)".*/\1/p' ocaml/server/bin/main.ml | head -1)"
+# The release version, from dune-project. Not the core's own number in
+# ocaml/lib/version.ml, and not the dashboard's: a package carries both.
+version="$(sed -n 's/^(version \([^)]*\))/\1/p' dune-project | head -1)"
 version="${version:-0.0.0}"
 appdir="dist/Tessarium.AppDir"
 

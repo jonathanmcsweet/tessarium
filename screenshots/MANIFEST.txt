@@ -1,0 +1,14 @@
+13 screenshots, atlanta, ga, zoom 18.5
+laptop/01-unlock.png
+laptop/02-generated.png
+laptop/03-map.png
+laptop/04-lock.png
+phone/01-unlock.png
+phone/02-generated.png
+phone/03-map.png
+phone/04-lock.png
+themes/dark.png
+themes/edge-dark.png
+themes/edge-light.png
+themes/light.png
+themes/night.png

@@ -27,7 +27,7 @@ let of_zxy ~z ~x ~y =
     else
       let rx = if x land s > 0 then 1 else 0 in
       let ry = if y land s > 0 then 1 else 0 in
-      let d = d + (s * s * ((3 * rx) lxor ry)) in
+      let d = d + (s * s * (3 * rx lxor ry)) in
       (* Rotate the quadrant so the curve stays continuous across it. *)
       let x, y =
         if ry = 0 then
@@ -80,7 +80,9 @@ let tile_y ~z ~lat =
   let lat = clamp (-85.0511287798) 85.0511287798 lat in
   let r = lat *. Float.pi /. 180. in
   int_of_float
-    (Float.floor ((1. -. Float.log (Float.tan r +. (1. /. Float.cos r)) /. Float.pi) /. 2. *. n))
+    (Float.floor
+       ((1. -. (Float.log (Float.tan r +. (1. /. Float.cos r)) /. Float.pi))
+       /. 2. *. n))
 
 (* Every tile id covering a bounding box between two zooms, ascending.
 
@@ -220,8 +222,8 @@ let clip_walk ?(on_node = fun () -> ()) ~min_zoom ~max_zoom ~min_lon ~min_lat
       work := !work + ring_points;
       if !work > max_clip_work then
         failwith
-          "that polygon is too intricate for an area this size; pick a \
-           smaller area";
+          "that polygon is too intricate for an area this size; pick a smaller \
+           area";
       let bx0, by0, bx1, by1 = tile_box ~z ~x ~y in
       match Clip.classify clip ~min_x:bx0 ~min_y:by0 ~max_x:bx1 ~max_y:by1 with
       | Clip.Outside -> ()
@@ -305,9 +307,9 @@ let split ?clip ?on_count ~min_zoom ~max_zoom ~min_lon ~min_lat ~max_lon
   let rec go parts =
     match List.find_opt (fun box -> count box > limit) parts with
     | None -> Some parts
-    | Some worst ->
+    | Some worst -> (
         if List.length parts >= max_parts then None
-        else (
+        else
           match bisect worst with
           | None -> None
           | Some (first, second) ->

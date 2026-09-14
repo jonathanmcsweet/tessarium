@@ -83,8 +83,7 @@ let () =
   (* ----------------------------------------------------------- the table *)
   (* The whole cumulative table, not a sample: it is two thirds of every
      extracted line, and one list equality checks all 4097 entries at once. *)
-  Buffer.add_string b
-    (int_list "cumcols" Tessarium_Table_Data.cumcols_list);
+  Buffer.add_string b (int_list "cumcols" Tessarium_Table_Data.cumcols_list);
   addf "\n";
 
   (* --------------------------------------------------------- word lookup *)
@@ -108,16 +107,66 @@ let () =
      "zoo" under nothing), and a three-letter word that must resolve exactly
      while a three-letter ABBREVIATION must not. *)
   let word_fixture =
-    [ "abandon"; "ability"; "able"; "cannon"; "canoe"; "canvas"; "artist";
-      "artefact"; "zone"; "zoo"; "zebra"; "carbon"; "cargo"; "carpet";
-      "card"; "cart" ]
+    [
+      "abandon";
+      "ability";
+      "able";
+      "cannon";
+      "canoe";
+      "canvas";
+      "artist";
+      "artefact";
+      "zone";
+      "zoo";
+      "zebra";
+      "carbon";
+      "cargo";
+      "carpet";
+      "card";
+      "cart";
+    ]
   in
   let word_corpus =
-    [ ""; "a"; "ab"; "aba"; "aban"; "abandon"; "abandonx"; "abil"; "able";
-      "can"; "cann"; "canno"; "cannon"; "cannot"; "cano"; "canv"; "canvas";
-      "art"; "arti"; "artis"; "artist"; "artistic"; "arte"; "artefact";
-      "z"; "zo"; "zoo"; "zon"; "zone"; "zeb"; "zebra";
-      "car"; "carb"; "carg"; "carp"; "card"; "cart"; "cardboard" ]
+    [
+      "";
+      "a";
+      "ab";
+      "aba";
+      "aban";
+      "abandon";
+      "abandonx";
+      "abil";
+      "able";
+      "can";
+      "cann";
+      "canno";
+      "cannon";
+      "cannot";
+      "cano";
+      "canv";
+      "canvas";
+      "art";
+      "arti";
+      "artis";
+      "artist";
+      "artistic";
+      "arte";
+      "artefact";
+      "z";
+      "zo";
+      "zoo";
+      "zon";
+      "zone";
+      "zeb";
+      "zebra";
+      "car";
+      "carb";
+      "carg";
+      "carp";
+      "card";
+      "cart";
+      "cardboard";
+    ]
   in
   let bytes_of s =
     List.init (String.length s) (fun i -> Z.of_int (Char.code s.[i]))
@@ -135,8 +184,7 @@ let () =
     spf "[@@\"opaque_to_smt\"]\nlet %s : list (list int) = [\n  %s\n]\n" name
       (String.concat ";\n  "
          (List.map
-            (fun w ->
-              spf "[%s]" (String.concat "; " (List.map lit w)))
+            (fun w -> spf "[%s]" (String.concat "; " (List.map lit w)))
             values))
   in
   Buffer.add_string b (byte_lists "words_fixture" fixture_bytes);
@@ -150,12 +198,11 @@ let () =
   let fe_a = Tessarium_Spec.fe_a and fe_b = Tessarium_Spec.fe_b in
   let addr_space = Tessarium_Spec.addr_space in
   let fe_xs =
-    [ Z.zero; Z.one; Z.pred fe_a; fe_a; Z.pred fe_b; fe_b;
-      Z.pred addr_space ]
+    [ Z.zero; Z.one; Z.pred fe_a; fe_a; Z.pred fe_b; fe_b; Z.pred addr_space ]
     @ List.init 9 (fun _ -> next addr_space)
   in
   let fe_ks = List.mapi (fun i _ -> Z.of_int (i * 13)) fe_xs in
-  let fe_ts = List.mapi (fun i _ -> Z.of_int (i * 5 + 2)) fe_xs in
+  let fe_ts = List.mapi (fun i _ -> Z.of_int ((i * 5) + 2)) fe_xs in
   let fe_ys =
     List.map2
       (fun (k, t) x -> Tessarium_Feistel.encrypt rf k t x)
@@ -170,19 +217,24 @@ let () =
   (* --------------------------------------------------------------- codec *)
   let num_max = Tessarium_Spec.num_max and words = Tessarium_Spec.words in
   let ix =
-    [ Z.zero; Z.pred addr_space; Z.pred num_max; num_max;
-      Z.mul words num_max ]
+    [ Z.zero; Z.pred addr_space; Z.pred num_max; num_max; Z.mul words num_max ]
     @ List.init 5 (fun _ -> next addr_space)
   in
   let crows =
-    List.map (fun i ->
+    List.map
+      (fun i ->
         let w1, w2, w3, n = Tessarium_Codec.to_address i in
-        (i, w1, w2, w3, n)) ix
+        (i, w1, w2, w3, n))
+      ix
   in
   let addr_row (i, w1, w2, w3, n) =
     spf "(%s, %s, %s, %s, %s)" (lit i) (lit w1) (lit w2) (lit w3) (lit n)
   in
-  addf "[@@\"opaque_to_smt\"]\nlet codec : list (int & int & int & int & int) = [\n  %s\n]\n\n"
+  addf
+    "[@@\"opaque_to_smt\"]\n\
+     let codec : list (int & int & int & int & int) = [\n\
+    \  %s\n\
+     ]\n\n"
     (String.concat ";\n  " (List.map addr_row crows));
 
   (* ---------------------------------------------------------- end to end *)
@@ -203,7 +255,8 @@ let () =
       lat_min lat_span rows
   in
   let pts =
-    [ (seam, Z.of_int 5_000_000);
+    [
+      (seam, Z.of_int 5_000_000);
       (Z.pred seam, Z.of_int 5_000_000);
       (Z.add lat_min lat_span, Z.zero);
       (* The exact bottom of the domain: band 0's first row, band_search's
@@ -211,8 +264,8 @@ let () =
       (lat_min, Z.of_int 7_000_000);
       (Z.zero, lon_min);
       (Z.zero, Z.zero);
-      ( Z.add lat_min (next lat_span),
-        Z.add lon_min (next lon_span) ) ]
+      (Z.add lat_min (next lat_span), Z.add lon_min (next lon_span));
+    ]
   in
   let erows =
     List.map
@@ -226,11 +279,14 @@ let () =
       pts
   in
   let e2e_row (la, lo, w1, w2, w3, n, cla, clo) =
-    spf "(%s, %s, %s, %s, %s, %s, %s, %s)" (lit la) (lit lo) (lit w1)
-      (lit w2) (lit w3) (lit n) (lit cla) (lit clo)
+    spf "(%s, %s, %s, %s, %s, %s, %s, %s)" (lit la) (lit lo) (lit w1) (lit w2)
+      (lit w3) (lit n) (lit cla) (lit clo)
   in
   addf
-    "[@@\"opaque_to_smt\"]\nlet e2e : list (int & int & int & int & int & int & int & int) = [\n  %s\n]\n\n"
+    "[@@\"opaque_to_smt\"]\n\
+     let e2e : list (int & int & int & int & int & int & int & int) = [\n\
+    \  %s\n\
+     ]\n\n"
     (String.concat ";\n  " (List.map e2e_row erows));
 
   (* ------------------------------------------------- the rejection path *)
@@ -246,7 +302,11 @@ let () =
       | FStar_Pervasives_Native.Some _ -> find_none acc want
   in
   let nones = find_none [] 2 in
-  addf "[@@\"opaque_to_smt\"]\nlet nones : list (int & int & int & int) = [\n  %s\n]\n\n"
+  addf
+    "[@@\"opaque_to_smt\"]\n\
+     let nones : list (int & int & int & int) = [\n\
+    \  %s\n\
+     ]\n\n"
     (String.concat ";\n  "
        (List.map
           (fun (w1, w2, w3, n) ->
@@ -257,9 +317,8 @@ let () =
   let bla, blo = (Z.of_string "48853492000", Z.of_string "2348392000") in
   let s, w, n_, e = Tessarium_Api.bounds_of_point bla blo in
   addf "let bounds_in : int & int = (%s, %s)\n" (lit bla) (lit blo);
-  addf "let bounds_out : int & int & int & int = (%s, %s, %s, %s)\n"
-    (lit s) (lit w) (lit n_) (lit e);
-
+  addf "let bounds_out : int & int & int & int = (%s, %s, %s, %s)\n" (lit s)
+    (lit w) (lit n_) (lit e);
 
   (* ---------------------------------------------- the REAL round function *)
   (* Everything above drives the harness round function; these rows drive
@@ -275,7 +334,8 @@ let () =
      would silently reshuffle their corpus. *)
   let lehmer_real = ref (Z.of_int 20260820) in
   let next_real bound =
-    lehmer_real := Z.rem (Z.mul !lehmer_real (Z.of_string "381471956995469")) m61;
+    lehmer_real :=
+      Z.rem (Z.mul !lehmer_real (Z.of_string "381471956995469")) m61;
     Z.rem !lehmer_real bound
   in
   let real_key v =
@@ -292,7 +352,7 @@ let () =
   let rf_rows =
     List.init 16 (fun v ->
         let key = real_key (v / 4) in
-        let i = ((v * 3) mod 16) + 1 in
+        let i = (v * 3 mod 16) + 1 in
         let x = next_real fe_b in
         (* F.modulus's parity convention, duplicated here; both the C
            harness and Check.RealRound pin it, so a drift rings. *)
@@ -302,10 +362,16 @@ let () =
   in
   let tup8 l = spf "(%s)" (String.concat ", " (List.map lit l)) in
   addf
-    "[@@\"opaque_to_smt\"]\nlet real_rf_keys : list (int & int & int & int & int & int & int & int) = [\n  %s\n]\n"
+    "[@@\"opaque_to_smt\"]\n\
+     let real_rf_keys : list (int & int & int & int & int & int & int & int) = [\n\
+    \  %s\n\
+     ]\n"
     (String.concat ";\n  " (List.map (fun (k, _, _, _, _) -> tup8 k) rf_rows));
   addf
-    "[@@\"opaque_to_smt\"]\nlet real_rf : list (int & int & int & int) = [\n  %s\n]\n\n"
+    "[@@\"opaque_to_smt\"]\n\
+     let real_rf : list (int & int & int & int) = [\n\
+    \  %s\n\
+     ]\n\n"
     (String.concat ";\n  "
        (List.map
           (fun (_, i, x, m, r) ->
@@ -323,17 +389,24 @@ let () =
         List.map
           (fun (la, lo) ->
             let w1, w2, w3, n =
-              Tessarium_Api.encode Tessarium.round_fn key
-                Tessarium.tweak la lo
+              Tessarium_Api.encode Tessarium.round_fn key Tessarium.tweak la lo
             in
             match
-              Tessarium_Api.decode Tessarium.round_fn key
-                Tessarium.tweak (w1, w2, w3, n)
+              Tessarium_Api.decode Tessarium.round_fn key Tessarium.tweak
+                (w1, w2, w3, n)
             with
             | FStar_Pervasives_Native.Some (cla, clo) ->
                 kw key
-                @ [ Z.sub la lat_min; Z.sub lo lon_min; w1; w2; w3; n;
-                    Z.sub cla lat_min; Z.sub clo lon_min ]
+                @ [
+                    Z.sub la lat_min;
+                    Z.sub lo lon_min;
+                    w1;
+                    w2;
+                    w3;
+                    n;
+                    Z.sub cla lat_min;
+                    Z.sub clo lon_min;
+                  ]
             | FStar_Pervasives_Native.None ->
                 failwith
                   "a real-key encode decoded to None: extraction is broken")
@@ -422,8 +495,8 @@ let () =
       pts
       @ [ (Z.zero, Z.add lon_min lon_span) ]
       @ List.init 5 (fun _ ->
-            ( Z.add lat_min (next (Z.succ lat_span)),
-              Z.add lon_min (next (Z.succ lon_span)) ))
+          ( Z.add lat_min (next (Z.succ lat_span)),
+            Z.add lon_min (next (Z.succ lon_span)) ))
     in
     let grows =
       List.map
@@ -435,10 +508,17 @@ let () =
           let blat_lo, blat_hi, blon_lo, blon_hi =
             Tessarium_Grid.cell_bounds cell
           in
-          [ Z.sub la lat_min; Z.sub lo lon_min; cell;
-            Z.sub cla lat_min; Z.sub clo lon_min;
-            Z.sub blat_lo lat_min; Z.sub blat_hi lat_min;
-            Z.sub blon_lo lon_min; Z.sub blon_hi lon_min ])
+          [
+            Z.sub la lat_min;
+            Z.sub lo lon_min;
+            cell;
+            Z.sub cla lat_min;
+            Z.sub clo lon_min;
+            Z.sub blat_lo lat_min;
+            Z.sub blat_hi lat_min;
+            Z.sub blon_lo lon_min;
+            Z.sub blon_hi lon_min;
+          ])
         gpts
     in
     addh "#define GRID_COUNT %d\n\n" (List.length grows);
@@ -449,8 +529,17 @@ let () =
         addh "static const uint64_t %s[GRID_COUNT] = {\n  %s\n};\n\n" name
           (String.concat ",\n  "
              (List.map (fun v -> Z.to_string v ^ "ULL") col)))
-      [ "gvec_dlat"; "gvec_dlon"; "gvec_cell"; "gvec_cdlat"; "gvec_cdlon";
-        "gvec_blatlo"; "gvec_blathi"; "gvec_blonlo"; "gvec_blonhi" ];
+      [
+        "gvec_dlat";
+        "gvec_dlon";
+        "gvec_cell";
+        "gvec_cdlat";
+        "gvec_cdlon";
+        "gvec_blatlo";
+        "gvec_blathi";
+        "gvec_blonlo";
+        "gvec_blonhi";
+      ];
     (* Codec vectors, the e2e compositions (key 7, tweak 9 -- the harness
        hardcodes both, pinning the keys by hand), and the two rejected
        addresses. All reuse the rows Expected.fst was written from. *)
@@ -466,15 +555,25 @@ let () =
         cols
     in
     addh "#define CODEC_COUNT %d\n\n" (List.length crows);
-    zcols "cvec" [ "i"; "w1"; "w2"; "w3"; "n" ]
+    zcols "cvec"
+      [ "i"; "w1"; "w2"; "w3"; "n" ]
       (List.map (fun (i, w1, w2, w3, n) -> [ i; w1; w2; w3; n ]) crows)
       "CODEC_COUNT";
     addh "#define E2E_COUNT %d\n\n" (List.length erows);
-    zcols "evec" [ "dlat"; "dlon"; "w1"; "w2"; "w3"; "n"; "cdlat"; "cdlon" ]
+    zcols "evec"
+      [ "dlat"; "dlon"; "w1"; "w2"; "w3"; "n"; "cdlat"; "cdlon" ]
       (List.map
          (fun (la, lo, w1, w2, w3, n, cla, clo) ->
-           [ Z.sub la lat_min; Z.sub lo lon_min; w1; w2; w3; n;
-             Z.sub cla lat_min; Z.sub clo lon_min ])
+           [
+             Z.sub la lat_min;
+             Z.sub lo lon_min;
+             w1;
+             w2;
+             w3;
+             n;
+             Z.sub cla lat_min;
+             Z.sub clo lon_min;
+           ])
          erows)
       "E2E_COUNT";
     addh "#define NONE_COUNT %d\n\n" (List.length nones);
@@ -488,8 +587,24 @@ let () =
       "REAL_RF_COUNT";
     addh "#define REAL_E2E_COUNT %d\n\n" (List.length real_e2e);
     zcols "revec"
-      [ "k0"; "k1"; "k2"; "k3"; "k4"; "k5"; "k6"; "k7";
-        "dlat"; "dlon"; "w1"; "w2"; "w3"; "n"; "cdlat"; "cdlon" ]
+      [
+        "k0";
+        "k1";
+        "k2";
+        "k3";
+        "k4";
+        "k5";
+        "k6";
+        "k7";
+        "dlat";
+        "dlon";
+        "w1";
+        "w2";
+        "w3";
+        "n";
+        "cdlat";
+        "cdlon";
+      ]
       real_e2e "REAL_E2E_COUNT";
     addh "#define REAL_NONE_COUNT %d\n\n" (List.length real_nones);
     zcols "rnvec"
@@ -509,8 +624,10 @@ let () =
     let re = Str.regexp "\\([0-9]+\\)ULL" in
     let rec scan pos acc =
       match Str.search_forward re written pos with
-      | p -> scan (p + String.length (Str.matched_string written))
-               (Z.of_string (Str.matched_group 1 written) :: acc)
+      | p ->
+          scan
+            (p + String.length (Str.matched_string written))
+            (Z.of_string (Str.matched_group 1 written) :: acc)
       | exception Not_found -> List.rev acc
     in
     let found = scan 0 [] in
@@ -521,8 +638,9 @@ let () =
     List.iteri
       (fun i (a, b) ->
         if Z.compare a b <> 0 then
-          failwith (spf "header self-check: literal %d is %s, expected %s"
-                      i (Z.to_string a) (Z.to_string b)))
+          failwith
+            (spf "header self-check: literal %d is %s, expected %s" i
+               (Z.to_string a) (Z.to_string b)))
       (List.combine found !toks);
     Printf.printf "vectors written to %s (%d literals verified back)\n"
       Sys.argv.(2) (List.length found)

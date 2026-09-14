@@ -22,8 +22,7 @@ let () =
     let length =
       match Http.Header.get (Http.Request.headers request) "range" with
       | Some r -> (
-          try Scanf.sscanf r "bytes=%d-%d" (fun a b -> b - a + 1)
-          with _ -> 16)
+          try Scanf.sscanf r "bytes=%d-%d" (fun a b -> b - a + 1) with _ -> 16)
       | None -> 16
     in
     let body = String.make length 'x' in
@@ -72,8 +71,8 @@ let () =
       let after = fd_count () in
       check
         (Printf.sprintf
-           "80 range requests hold no sockets (%d fds before, %d after)"
-           before after)
+           "80 range requests hold no sockets (%d fds before, %d after)" before
+           after)
         (after - before < 10));
   Printf.printf "\n%s\n"
     (if !failures > 0 then "source leaks connections"

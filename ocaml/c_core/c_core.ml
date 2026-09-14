@@ -35,8 +35,7 @@ let initialised = ref false
    for the tests and tools, which are single-threaded. *)
 let ensure_init () =
   if not !initialised then begin
-    init_
-      (Array.of_list (List.map Z.to_int Tessarium_Table_Data.cumcols_list));
+    init_ (Array.of_list (List.map Z.to_int Tessarium_Table_Data.cumcols_list));
     initialised := true
   end
 
@@ -89,5 +88,4 @@ let bounds_of_point ~lat ~lon =
 
 (* The injected core, as Tessarium.core. The record is what serve.ml
    passes; the functions above are what the side-by-side wall drives. *)
-let core : Tessarium.core =
-  { Tessarium.encode; decode; bounds_of_point }
+let core : Tessarium.core = { Tessarium.encode; decode; bounds_of_point }

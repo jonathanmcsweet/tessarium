@@ -1,12 +1,12 @@
 (** Conditional requests: entity-tags, [If-None-Match] and [If-Range]. Pure.
 
     Everything here is [cache-control: no-cache] apart from the content-hashed
-    bundle Vite emits, and that is deliberate -- a browse-cache download
-    changes tiles under the same URL, and a rebuild changes the UI under the
-    same URL. But [no-cache] on its own does not mean "revalidate cheaply", it
-    means "ask again"; and with no validator attached, "ask again" is answered
-    in full every time. This module supplies the validator, so the same
-    freshness rule costs an empty 304 instead of a megabyte.
+    bundle Vite emits, and that is deliberate -- a browse-cache download changes
+    tiles under the same URL, and a rebuild changes the UI under the same URL.
+    But [no-cache] on its own does not mean "revalidate cheaply", it means "ask
+    again"; and with no validator attached, "ask again" is answered in full
+    every time. This module supplies the validator, so the same freshness rule
+    costs an empty 304 instead of a megabyte.
 
     ETags only, no [Last-Modified]. [If-None-Match] takes precedence over
     [If-Modified-Since] wherever both appear (RFC 9110 13.1.3), so sending a
@@ -15,16 +15,15 @@
 
 val of_bytes : encoding:string option -> string -> string
 (** The tag for a representation we are holding in full: a hash of the bytes,
-    plus the [Content-Encoding] the response will carry. The encoding is part
-    of the tag because gzipped and identity bodies are different
-    representations of one resource and must not share a validator. *)
+    plus the [Content-Encoding] the response will carry. The encoding is part of
+    the tag because gzipped and identity bodies are different representations of
+    one resource and must not share a validator. *)
 
 val of_digest : encoding:string option -> string -> string
 (** The same, from a hash computed elsewhere -- the embedded UI assets, whose
     digests are fixed when the binary is linked. Hashing those bytes on every
-    request to say "unchanged" would be its own kind of waste. Takes the
-    full hex; the truncation lives here, so both paths shorten it the same
-    way. *)
+    request to say "unchanged" would be its own kind of waste. Takes the full
+    hex; the truncation lives here, so both paths shorten it the same way. *)
 
 val of_stamp : key:string -> size:int -> mtime:float -> string
 (** The tag for a representation we are streaming off disk and will not read

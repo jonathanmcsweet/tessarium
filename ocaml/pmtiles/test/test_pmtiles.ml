@@ -45,7 +45,8 @@ let () =
   let c, p2 = V.decode s p1 in
   let d, p3 = V.decode s p2 in
   let e, _ = V.decode s p3 in
-  check "varint sequence decodes in order" (a = 1 && c = 300 && d = 0 && e = 70000);
+  check "varint sequence decodes in order"
+    (a = 1 && c = 300 && d = 0 && e = 70000);
 
   (* --------------------------------------------------------- tile ids *)
   check "zoom 0 is tile 0" (T.of_zxy ~z:0 ~x:0 ~y:0 = 0);
@@ -104,7 +105,11 @@ let () =
     (ids = List.sort_uniq compare ids && ids <> []);
   check "covering includes the zoom 0 tile" (List.mem 0 ids);
   check "covering includes the corner tile at max zoom"
-    (List.mem (T.of_zxy ~z:5 ~x:(T.tile_x ~z:5 ~lon:(-0.2)) ~y:(T.tile_y ~z:5 ~lat:51.6)) ids);
+    (List.mem
+       (T.of_zxy ~z:5
+          ~x:(T.tile_x ~z:5 ~lon:(-0.2))
+          ~y:(T.tile_y ~z:5 ~lat:51.6))
+       ids);
 
   (* --------------------------------------------------------- directories *)
   let entries =
@@ -152,14 +157,13 @@ let () =
      nothing in the compressed bytes bounds what comes out. Two megabytes of
      zeroes is a few kilobytes gzipped. *)
   let bomb = Gzip.compress (String.make (2 * 1024 * 1024) '\000') in
-  check "a small blob can inflate enormously"
-    (String.length bomb < 16 * 1024);
+  check "a small blob can inflate enormously" (String.length bomb < 16 * 1024);
   check "inflating within the limit is fine"
     (String.length (Gzip.decompress bomb) = 2 * 1024 * 1024);
   check "inflating past it stops"
     (match Gzip.decompress ~limit:(1024 * 1024) bomb with
-     | _ -> false
-     | exception Gzip.Bad_gzip _ -> true);
+    | _ -> false
+    | exception Gzip.Bad_gzip _ -> true);
   (* It has to stop while inflating, not after: otherwise the whole bomb was
      already held and the limit bought nothing. *)
   let allocated_by f =
@@ -188,9 +192,14 @@ let () =
   (* ------------------------------------------------- archive round-trip *)
   (* Build a source archive, extract a region from it, and read the extract
      back. Everything in memory, so this runs in CI with no network. *)
-  let tile_bytes id = Printf.sprintf "tile-%d-%s" id (String.make (id mod 37) 'x') in
+  let tile_bytes id =
+    Printf.sprintf "tile-%d-%s" id (String.make (id mod 37) 'x')
+  in
 
-  let source_tiles = T.covering ~min_zoom:0 ~max_zoom:10 ~min_lon:(-1.) ~min_lat:50. ~max_lon:1. ~max_lat:52. in
+  let source_tiles =
+    T.covering ~min_zoom:0 ~max_zoom:10 ~min_lon:(-1.) ~min_lat:50. ~max_lon:1.
+      ~max_lat:52.
+  in
   let data = Buffer.create 4096 in
   let src_entries =
     Array.of_list
@@ -199,7 +208,12 @@ let () =
            let payload = tile_bytes id in
            let offset = Buffer.length data in
            Buffer.add_string data payload;
-           { D.tile_id = id; offset; length = String.length payload; run_length = 1 })
+           {
+             D.tile_id = id;
+             offset;
+             length = String.length payload;
+             run_length = 1;
+           })
          source_tiles)
   in
   let root = D.serialize src_entries in
@@ -236,7 +250,11 @@ let () =
     H.serialize src_header ^ root ^ metadata ^ Buffer.contents data
   in
   let source_of s =
-    { A.read = (fun ~offset ~length -> String.sub s offset (min length (String.length s - offset))) }
+    {
+      A.read =
+        (fun ~offset ~length ->
+          String.sub s offset (min length (String.length s - offset)));
+    }
   in
   let archive = A.open_ (source_of archive_bytes) in
   check "reopened header matches" (archive.A.header = src_header);
@@ -259,11 +277,14 @@ let () =
       ~max_lon:0.5 ~max_lat:51.5
   in
   check "plan found tiles" (Array.length plan.E.tiles > 0);
-  check "plan deduplicates nothing here" (Array.length plan.E.blobs = Array.length plan.E.tiles);
+  check "plan deduplicates nothing here"
+    (Array.length plan.E.blobs = Array.length plan.E.tiles);
 
   let out = Buffer.create 4096 in
   let append s = Buffer.add_string out s in
-  let copy ~offset ~length = Buffer.add_string out (String.sub archive_bytes offset length) in
+  let copy ~offset ~length =
+    Buffer.add_string out (String.sub archive_bytes offset length)
+  in
   let _ =
     E.write plan src_header ~min_zoom:0 ~max_zoom:6 ~min_lon:(-0.5)
       ~min_lat:50.5 ~max_lon:0.5 ~max_lat:51.5 ~append ~copy
@@ -295,8 +316,8 @@ let () =
   | Some id ->
       check "a tile outside the region is absent, not a neighbour"
         (match A.tile extracted id with
-         | None -> true
-         | Some got -> String.equal got (tile_bytes id))
+        | None -> true
+        | Some got -> String.equal got (tile_bytes id))
   | None -> ());
 
   (* Runs: consecutive tiles sharing a blob collapse to one entry. Built
@@ -307,11 +328,17 @@ let () =
   Buffer.add_string run_data shared;
   let run_entries =
     Array.init 8 (fun i ->
-        { D.tile_id = 21 + i; offset = 0; length = String.length shared; run_length = 1 })
+        {
+          D.tile_id = 21 + i;
+          offset = 0;
+          length = String.length shared;
+          run_length = 1;
+        })
   in
   let run_root = D.serialize run_entries in
   let run_header =
-    { src_header with
+    {
+      src_header with
       H.root_offset = H.size;
       root_length = String.length run_root;
       metadata_offset = H.size + String.length run_root;
@@ -320,10 +347,13 @@ let () =
       leaf_length = 0;
       data_offset = H.size + String.length run_root;
       data_length = Buffer.length run_data;
-      min_zoom = 3; max_zoom = 3 }
+      min_zoom = 3;
+      max_zoom = 3;
+    }
   in
   let run_archive =
-    A.open_ (source_of (H.serialize run_header ^ run_root ^ Buffer.contents run_data))
+    A.open_
+      (source_of (H.serialize run_header ^ run_root ^ Buffer.contents run_data))
   in
   let run_plan =
     E.plan run_archive ~min_zoom:3 ~max_zoom:3 ~min_lon:(-180.) ~min_lat:(-85.)
@@ -339,11 +369,11 @@ let () =
   check "a city box affords full depth"
     (T.depth_for ~min_zoom:0 ~max_zoom:15 ~min_lon:(-0.14) ~min_lat:51.49
        ~max_lon:(-0.11) ~max_lat:51.52 ~limit:8192
-     = 15);
+    = 15);
   check "the whole world stops at its overview zoom"
     (T.depth_for ~min_zoom:0 ~max_zoom:15 ~min_lon:(-180.) ~min_lat:(-85.)
        ~max_lon:180. ~max_lat:85. ~limit:8192
-     = 6);
+    = 6);
   check "a continent lands in between"
     (let d =
        T.depth_for ~min_zoom:0 ~max_zoom:15 ~min_lon:(-130.) ~min_lat:20.
@@ -353,7 +383,7 @@ let () =
   check "depth never sinks below min_zoom"
     (T.depth_for ~min_zoom:0 ~max_zoom:15 ~min_lon:(-180.) ~min_lat:(-85.)
        ~max_lon:180. ~max_lat:85. ~limit:1
-     = 0);
+    = 0);
 
   (* ------------------------------------------------------ download_parts *)
   (* An explicit country or state gets the full ask; a giant splits into
@@ -365,7 +395,7 @@ let () =
   in
   check "France gets street level in one piece"
     (dp ~min_lon:(-5.1) ~min_lat:41.3 ~max_lon:9.6 ~max_lat:51.1
-     = ([ (-5.1, 41.3, 9.6, 51.1) ], 15, false));
+    = ([ (-5.1, 41.3, 9.6, 51.1) ], 15, false));
   check "California gets street level in one piece"
     (let parts, depth, clamped =
        dp ~min_lon:(-124.4) ~min_lat:32.5 ~max_lon:(-114.1) ~max_lat:42.0
@@ -399,8 +429,7 @@ let () =
     let buf = Buffer.create 4096 in
     let _ =
       E.write p src_header ~min_zoom:0 ~max_zoom:10 ~min_lon ~min_lat:50.5
-        ~max_lon ~max_lat:51.5
-        ~append:(Buffer.add_string buf)
+        ~max_lon ~max_lat:51.5 ~append:(Buffer.add_string buf)
         ~copy:(fun ~offset ~length ->
           Buffer.add_string buf (String.sub archive_bytes offset length))
     in
@@ -469,8 +498,7 @@ let () =
      && twice.M.fresh_tiles = once.M.fresh_tiles);
   let multi = M.plan ~base:None [ plan_a; plan_b ] in
   check "overlapping regions dedup the zooms they share"
-    (multi.M.fetch_bytes
-     < E.planned_bytes plan_a + E.planned_bytes plan_b
+    (multi.M.fetch_bytes < E.planned_bytes plan_a + E.planned_bytes plan_b
     && multi.M.fresh_tiles = List.length both);
   (* Downloading both boxes in one request must build the same archive as
      downloading one and then merging in the other. *)
@@ -507,7 +535,8 @@ let () =
   in
   let parts, depth, clamped = dp ~full_limit:limit ~max_parts:8 in
   check "a giant box splits rather than clamps"
-    ((not clamped) && depth = 8 && List.length parts > 1
+    ((not clamped) && depth = 8
+    && List.length parts > 1
     && List.length parts <= 8);
   check "every part plans within the limit"
     (List.for_all
@@ -539,10 +568,9 @@ let () =
   let brute ~min_zoom ~max_zoom (a, b, c, d) clip =
     T.covering ~min_zoom ~max_zoom ~min_lon:a ~min_lat:b ~max_lon:c ~max_lat:d
     |> List.filter (fun id ->
-           let z, x, y = T.to_zxy id in
-           let bx0, by0, bx1, by1 = T.tile_box ~z ~x ~y in
-           C.classify clip ~min_x:bx0 ~min_y:by0 ~max_x:bx1 ~max_y:by1
-           <> C.Outside)
+        let z, x, y = T.to_zxy id in
+        let bx0, by0, bx1, by1 = T.tile_box ~z ~x ~y in
+        C.classify clip ~min_x:bx0 ~min_y:by0 ~max_x:bx1 ~max_y:by1 <> C.Outside)
   in
   let clipped ~min_zoom ~max_zoom (a, b, c, d) clip =
     T.covering_clipped ~min_zoom ~max_zoom ~min_lon:a ~min_lat:b ~max_lon:c
@@ -563,18 +591,20 @@ let () =
      T.count_ids_clipped ~min_zoom:0 ~max_zoom:7 ~min_lon:a ~min_lat:b
        ~max_lon:c ~max_lat:d ~clip:triangle ()
      = List.length (clipped ~min_zoom:0 ~max_zoom:7 clip_box triangle));
-  let unit_square = C.of_rings [| [| (0., 0.); (10., 0.); (10., 10.); (0., 10.) |] |] in
+  let unit_square =
+    C.of_rings [| [| (0., 0.); (10., 0.); (10., 10.); (0., 10.) |] |]
+  in
   check "a box wholly inside the ring is Inside"
     (C.classify unit_square ~min_x:4. ~min_y:4. ~max_x:6. ~max_y:6. = C.Inside);
   check "a box wholly outside the ring is Outside"
     (C.classify unit_square ~min_x:14. ~min_y:4. ~max_x:16. ~max_y:6.
-     = C.Outside);
+    = C.Outside);
   check "a box the border passes through is Boundary"
     (C.classify unit_square ~min_x:8. ~min_y:4. ~max_x:12. ~max_y:6.
-     = C.Boundary);
+    = C.Boundary);
   check "a ring wholly inside the box is Boundary, never Outside"
     (C.classify unit_square ~min_x:(-5.) ~min_y:(-5.) ~max_x:15. ~max_y:15.
-     = C.Boundary);
+    = C.Boundary);
   check "a multipolygon is the union of its rings"
     (let two =
        C.of_rings
@@ -620,14 +650,12 @@ let () =
     let _ =
       E.write ~metadata:meta p src_header ~min_zoom:0 ~max_zoom:10
         ~min_lon:(-0.5) ~min_lat:50.5 ~max_lon:0.0 ~max_lat:51.5
-        ~append:(Buffer.add_string buf)
-        ~copy:(fun ~offset ~length ->
+        ~append:(Buffer.add_string buf) ~copy:(fun ~offset ~length ->
           Buffer.add_string buf (String.sub archive_bytes offset length))
     in
     A.open_ (source_of (Buffer.contents buf))
   in
-  check "written metadata reads back byte for byte"
-    (A.metadata with_meta = meta);
+  check "written metadata reads back byte for byte" (A.metadata with_meta = meta);
   check "tiles read exactly around a metadata payload"
     (Array.for_all
        (fun (id, _) ->
@@ -635,8 +663,7 @@ let () =
          | Some got -> String.equal got (tile_bytes id)
          | None -> false)
        plan_a.E.tiles);
-  check "the default metadata stays the empty object"
-    (A.metadata merged = "{}");
+  check "the default metadata stays the empty object" (A.metadata merged = "{}");
 
   (* ------------------------------------------------------- refresh merge *)
   (* An update inverts exactly one tie: every tile of the region is fetched
@@ -685,16 +712,17 @@ let () =
   (* Removal is a filter over the base with blob sharing honoured: a blob
      leaves only when its last referencing tile does. *)
   let b_exclusive =
-    Array.to_list plan_b.E.tiles |> List.map fst
+    Array.to_list plan_b.E.tiles
+    |> List.map fst
     |> List.filter (fun id ->
-           not (Array.exists (fun (t, _) -> t = id) plan_a.E.tiles))
+        not (Array.exists (fun (t, _) -> t = id) plan_a.E.tiles))
   in
   let drop_b ~z ~x ~y = List.mem (T.of_zxy ~z ~x ~y) b_exclusive in
   let pruned, dropped = M.prune ~base:merged ~drop:drop_b () in
   check "prune drops exactly the named tiles"
     (dropped = List.length b_exclusive
-    && Array.length pruned.M.tiles
-       = List.length both - List.length b_exclusive);
+    && Array.length pruned.M.tiles = List.length both - List.length b_exclusive
+    );
   check "prune fetches nothing" (pruned.M.fetch_bytes = 0);
   check "a pruned archive keeps survivors byte for byte and loses the rest"
     (let buf = Buffer.create 4096 in
@@ -711,12 +739,13 @@ let () =
        (fun id ->
          match A.tile a id with
          | Some got ->
-             (not (List.mem id b_exclusive))
-             && String.equal got (tile_bytes id)
+             (not (List.mem id b_exclusive)) && String.equal got (tile_bytes id)
          | None -> List.mem id b_exclusive)
        both);
   check "prune with nothing to drop keeps every tile"
-    (let all, none = M.prune ~base:merged ~drop:(fun ~z:_ ~x:_ ~y:_ -> false) () in
+    (let all, none =
+       M.prune ~base:merged ~drop:(fun ~z:_ ~x:_ ~y:_ -> false) ()
+     in
      none = 0 && Array.length all.M.tiles = List.length both);
 
   (* ------------------------------------------------ newest planet build *)
@@ -848,9 +877,10 @@ let () =
     | _ -> false);
   check "a feature with no name is not a place"
     (Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0
-       (bfield 3 (vfield 15 2 ^ bfield 1 "roads"
-                  ^ bfield 2 (vfield 3 1 ^ bfield 4 geometry)
-                  ^ vfield 5 4096))
+       (bfield 3
+          (vfield 15 2 ^ bfield 1 "roads"
+          ^ bfield 2 (vfield 3 1 ^ bfield 4 geometry)
+          ^ vfield 5 4096))
     = []);
   (* Unknown fields are the normal case against a real basemap, which carries
      more than this reads; skipping them by wire type must not derail it. *)
@@ -858,10 +888,10 @@ let () =
     bfield 3
       (vfield 15 2 ^ vfield 99 7 ^ bfield 1 "places" ^ bfield 2 feature
      ^ bfield 3 "name" ^ bfield 3 "kind" ^ bfield 3 "population"
-     ^ bfield 4 (bfield 1 "Fixtureville")
-     ^ bfield 4 (bfield 1 "locality")
-     ^ bfield 4 (vfield 4 4242)
-     ^ vfield 5 4096)
+      ^ bfield 4 (bfield 1 "Fixtureville")
+      ^ bfield 4 (bfield 1 "locality")
+      ^ bfield 4 (vfield 4 4242)
+      ^ vfield 5 4096)
   in
   check "a field this reader does not know is stepped over"
     (List.length (Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0 with_extra) = 1);
@@ -873,10 +903,7 @@ let () =
   let off_centre =
     bfield 3
       (vfield 15 2 ^ bfield 1 "places"
-      ^ bfield 2
-          (vfield 3 1
-          ^ bfield 2 (varint 0 ^ varint 0)
-          ^ bfield 4 quarter)
+      ^ bfield 2 (vfield 3 1 ^ bfield 2 (varint 0 ^ varint 0) ^ bfield 4 quarter)
       ^ bfield 3 "name"
       ^ bfield 4 (bfield 1 "Corner")
       ^ vfield 5 4096)
@@ -884,9 +911,9 @@ let () =
   (match Pmtiles.Mvt.named ~z:2 ~x:1 ~y:0 off_centre with
   | [ (_, _, _, _, lon, lat) ] ->
       check
-        (Printf.sprintf "a point off the tile's centre projects back (%.3f, %.3f)"
-           lon lat)
-        (Float.abs (lon -. (-67.5)) < 0.01 && Float.abs (lat -. 82.676) < 0.01)
+        (Printf.sprintf
+           "a point off the tile's centre projects back (%.3f, %.3f)" lon lat)
+        (Float.abs (lon -. -67.5) < 0.01 && Float.abs (lat -. 82.676) < 0.01)
   | _ -> check "a point off the tile's centre projects back" false);
   (* A length big enough that offset + length overflows a naive bounds
      check. *)
@@ -905,7 +932,7 @@ let () =
      with
     | _ -> false
     | exception Pmtiles.Mvt.Malformed _ -> true);
-    check "rubbish is refused rather than guessed at"
+  check "rubbish is refused rather than guessed at"
     (match Pmtiles.Mvt.named ~z:0 ~x:0 ~y:0 "\xff\xff\xff" with
     | _ -> false
     | exception Pmtiles.Mvt.Malformed _ -> true);

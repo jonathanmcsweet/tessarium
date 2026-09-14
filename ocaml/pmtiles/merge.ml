@@ -9,7 +9,9 @@
    The trade-off is that a merge never refreshes a stale tile on its own.
    [refresh] flips the tie so a region can be updated on purpose. *)
 
-type origin = Base | Fresh
+type origin =
+  | Base
+  | Fresh
 
 type plan = {
   blobs : (origin * int * int) array;
@@ -19,8 +21,8 @@ type plan = {
   total_bytes : int;  (** distinct bytes the merged archive will copy in *)
   fresh_tiles : int;  (** tiles the base did not already hold *)
   refreshed_tiles : int;
-      (** tiles both held where the fresh copy won -- always 0 unless the
-          plan was made with [refresh:true] *)
+      (** tiles both held where the fresh copy won -- always 0 unless the plan
+          was made with [refresh:true] *)
 }
 
 (* [on_entry] is the cooperative-yield hook [Extract.plan] also takes: a base
@@ -58,7 +60,9 @@ let expand_base ~on_entry (b : Archive.t) =
       (* A run covers consecutive tile ids sharing one blob. *)
       for k = 0 to e.Directory.run_length - 1 do
         arr.(!i) <-
-          (e.Directory.tile_id + k, data + e.Directory.offset, e.Directory.length);
+          ( e.Directory.tile_id + k,
+            data + e.Directory.offset,
+            e.Directory.length );
         incr i
       done)
     entries;
@@ -147,15 +151,15 @@ let plan ?(on_entry = fun () -> ()) ?(refresh = false)
     else begin
       let id, offset, length = fresh_arr.(!fi) in
       emit id (Fresh, offset, length);
-      (if !bi < n_base && id_at base_arr !bi = id then begin
-         (* The base held this id too. Under [refresh] the fresh copy just
+      if !bi < n_base && id_at base_arr !bi = id then begin
+        (* The base held this id too. Under [refresh] the fresh copy just
             replaced it, so skip the base's copies. *)
-         incr refreshed_tiles;
-         while !bi < n_base && id_at base_arr !bi = id do
-           incr bi
-         done
-       end
-       else incr fresh_tiles);
+        incr refreshed_tiles;
+        while !bi < n_base && id_at base_arr !bi = id do
+          incr bi
+        done
+      end
+      else incr fresh_tiles;
       incr fi;
       while !fi < n_fresh && id_at fresh_arr !fi = id do
         incr fi
@@ -233,8 +237,8 @@ let prune ?(on_entry = fun () -> ()) ~(base : Archive.t) ~drop () =
    deduplicated across regions. Blobs happen to be copied in ascending index
    order, but take the index from here rather than counting calls: the order is
    [write_tiles]'s business, not a promise. *)
-let write ?metadata (p : plan) (source : Header.t) ~min_zoom ~max_zoom
-    ~min_lon ~min_lat ~max_lon ~max_lat ~append ~copy =
+let write ?metadata (p : plan) (source : Header.t) ~min_zoom ~max_zoom ~min_lon
+    ~min_lat ~max_lon ~max_lat ~append ~copy =
   Extract.write_tiles ?metadata ~source ~min_zoom ~max_zoom ~min_lon ~min_lat
     ~max_lon ~max_lat ~tiles:p.tiles
     ~blob_lengths:(Array.map (fun (_, _, length) -> length) p.blobs)

@@ -8,25 +8,23 @@ type t =
   | Health
   | Asset of string list  (** under the UI root *)
   | Basemap of string list  (** under the basemap root *)
-  | Tile of { z : int; x : int; y : int }
-      (** one vector tile, looked up across the tile archives *)
+  | Tile of {
+      z : int;
+      x : int;
+      y : int;
+    }  (** one vector tile, looked up across the tile archives *)
   | Tile_json of { floor : bool }
-      (** the source metadata MapLibre needs -- zoom range and bounds, read
-          from the archive headers. Two of them: the detail the user
-          downloaded, and the shallow floor underneath it, cut so it is
-          never asked for a tile it does not have *)
+      (** the source metadata MapLibre needs -- zoom range and bounds, read from
+          the archive headers. Two of them: the detail the user downloaded, and
+          the shallow floor underneath it, cut so it is never asked for a tile
+          it does not have *)
   | Api of string  (** the API sub-path, e.g. "session" *)
   | Import
-      (** a map file uploaded to be merged in. Not an [Api] endpoint: the
-          body is gigabytes of tiles streamed to disk, and every /api/ body
-          is read into memory under a 4 MiB bound *)
+      (** a map file uploaded to be merged in. Not an [Api] endpoint: the body
+          is gigabytes of tiles streamed to disk, and every /api/ body is read
+          into memory under a 4 MiB bound *)
   | Not_found
   | Method_not_allowed
-
-let strip_prefix p segments =
-  match segments with
-  | first :: rest when String.equal first p -> Some rest
-  | _ -> None
 
 (* /tiles/{z}/{x}/{y}.mvt. Strict on purpose: leading zeros, signs and
    coordinates off the grid are Not_found, so an accepted path names exactly
@@ -40,7 +38,9 @@ let tile_route segments =
   in
   match segments with
   | [ zs; xs; ys ] -> (
-      match (plain_int zs, plain_int xs, Filename.chop_suffix_opt ~suffix:".mvt" ys) with
+      match
+        (plain_int zs, plain_int xs, Filename.chop_suffix_opt ~suffix:".mvt" ys)
+      with
       | Some z, Some x, Some ys when z <= Pmtiles.Tile_id.max_zoom -> (
           match plain_int ys with
           | Some y when x < 1 lsl z && y < 1 lsl z -> Some (Tile { z; x; y })
@@ -50,42 +50,25 @@ let tile_route segments =
 
 let of_request ~meth ~target =
   let readable = match meth with `GET | `HEAD -> true | _ -> false in
+  let read t = if readable then t else Method_not_allowed in
   match Url_path.resolve target with
   | None -> Not_found
   | Some segments -> (
-      match strip_prefix "healthz" segments with
-      | Some [] -> if readable then Health else Method_not_allowed
-      | Some _ -> Not_found
-      | None -> (
-          match segments with
-          | [ "import" ] -> if meth = `POST then Import else Method_not_allowed
-          | [ "tiles.json" ] ->
-              if readable then Tile_json { floor = false }
-              else Method_not_allowed
-          | [ "world.json" ] ->
-              if readable then Tile_json { floor = true }
-              else Method_not_allowed
-          | _ -> (
-          match strip_prefix "api" segments with
-          | Some [ endpoint ] ->
-              if meth = `POST then Api endpoint else Method_not_allowed
-          | Some _ -> Not_found
-          | None -> (
-              match strip_prefix "tiles" segments with
-              | Some rest -> (
-                  if not readable then Method_not_allowed
-                  else
-                    match tile_route rest with
-                    | Some t -> t
-                    | None -> Not_found)
-              | None -> (
-                  match strip_prefix "basemap" segments with
-                  | Some [] -> Not_found
-                  | Some rest ->
-                      if readable then Basemap rest else Method_not_allowed
-                  | None ->
-                      if readable then Asset segments
-                      else Method_not_allowed)))))
+      match segments with
+      | [ "healthz" ] -> read Health
+      | "healthz" :: _ -> Not_found
+      | [ "import" ] -> if meth = `POST then Import else Method_not_allowed
+      | [ "tiles.json" ] -> read (Tile_json { floor = false })
+      | [ "world.json" ] -> read (Tile_json { floor = true })
+      | [ "api"; endpoint ] ->
+          if meth = `POST then Api endpoint else Method_not_allowed
+      | "api" :: _ -> Not_found
+      | "tiles" :: rest ->
+          if not readable then Method_not_allowed
+          else Option.value ~default:Not_found (tile_route rest)
+      | [ "basemap" ] -> Not_found
+      | "basemap" :: rest -> read (Basemap rest)
+      | _ -> read (Asset segments))
 
 (* The basemap endpoints belong to the UI, not to the opt-in encode/decode
    API: they carry a bounding box and no key material, so they stay reachable

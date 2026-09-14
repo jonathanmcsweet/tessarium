@@ -9,13 +9,12 @@
 
 type t = {
   update_reminder_days : int;
-      (** how old a downloaded region may grow before the UI suggests
-          updating it; 0 is "never remind" *)
+      (** how old a downloaded region may grow before the UI suggests updating
+          it; 0 is "never remind" *)
   browse_cache : bool;
-      (** whether missing viewport tiles are fetched and kept while
-          browsing online. Off by default, deliberately: a privacy-focused
-          offline tool must not phone home while panning without being
-          asked. *)
+      (** whether missing viewport tiles are fetched and kept while browsing
+          online. Off by default, deliberately: a privacy-focused offline tool
+          must not phone home while panning without being asked. *)
 }
 
 let default = { update_reminder_days = 90; browse_cache = false }
@@ -85,14 +84,15 @@ let save ~fs ~basemap_dir t =
 (* Read-modify-write: the API may set either field alone, and a partial
    update must not reset the other to its default. *)
 let apply t ~days ~browse =
-  let t = match days with Some d -> { t with update_reminder_days = d } | None -> t in
+  let t =
+    match days with Some d -> { t with update_reminder_days = d } | None -> t
+  in
   match browse with Some b -> { t with browse_cache = b } | None -> t
 
 (* The operations the API exposes, bound to a directory. *)
 type ops = {
   get : unit -> (Yojson.Safe.t, string) result;
-  set :
-    days:int option -> browse:bool option -> (Yojson.Safe.t, string) result;
+  set : days:int option -> browse:bool option -> (Yojson.Safe.t, string) result;
   browse_enabled : unit -> bool;
 }
 

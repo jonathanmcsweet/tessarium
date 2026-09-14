@@ -1,5 +1,8 @@
 # Tessarium
 
+The phrase is masked throughout: generating one does not put 24 words on
+screen, and locking asks before it forgets them.
+
 Generate a BIP-39 24 word seed phrase and get a map with custom location codes private to you and anyone else sharing your seed phrase. 
 
 1. Generate a BIP-39 24 word seed phrase
@@ -12,10 +15,30 @@ Generate a BIP-39 24 word seed phrase and get a map with custom location codes p
 
 5. Anyone looking at the location phrase without your private seed phrase will have no idea where that location is
 
-```
-dream.tourist.creek.2703        # this spot, under your seed phrase
-pair.social.april.9605          # the exact same spot, under someone else's
-```
+<p>
+  <img src="screenshots/laptop/01-unlock.png" alt="The unlock screen" width="49%">
+  <img src="screenshots/laptop/02-generated.png" alt="A generated phrase, masked" width="49%">
+  <img src="screenshots/laptop/03-map.png" alt="The map, with one square selected" width="49%">
+  <img src="screenshots/laptop/04-lock.png" alt="The lock confirmation" width="49%">
+</p>
+
+## Other Themes
+
+<p>
+  <img src="screenshots/themes/edge-light.png" alt="Edgerunner light" width="49%">
+  <img src="screenshots/themes/dark.png" alt="Dark" width="49%">
+  <img src="screenshots/themes/light.png" alt="Light" width="49%">
+  <img src="screenshots/themes/night.png" alt="Low light, for reading a phrase off paper in the dark" width="49%">
+</p>
+
+## Mobile
+
+<p>
+  <img src="screenshots/phone/01-unlock.png" alt="The unlock screen" width="24%">
+  <img src="screenshots/phone/02-generated.png" alt="A generated phrase, masked" width="24%">
+  <img src="screenshots/phone/03-map.png" alt="The map, with the panel as a sheet below it" width="24%">
+  <img src="screenshots/phone/04-lock.png" alt="The lock confirmation" width="24%">
+</p>
 
 ## Why use this?
 
@@ -190,22 +213,6 @@ actually random: a phrase you invented yourself can look valid while still
 being far easier to guess than a properly generated one. And reusing a
 phrase from somewhere else means anyone attacking that other use is also
 attacking your map here.
-
-## Layout
-
-```
-design/           the grid's design tool and its output       (permanent)
-wordlist/         the 2,048-word list                          (permanent)
-fstar/            the proven core
-ocaml/            the server, the web app's backend logic, the proof's build output
-wasm/             the same core, compiled to run in the browser
-ui/               the web app itself, in six languages
-tools/            scripts for fetching maps and building packages
-vectors/          test cases and their expected answers
-js/               a second, independently written implementation, kept only to cross-check the first
-roadmap.md            everything still to do
-roadmap-progress.md   everything already done
-```
 
 ## Licence
 

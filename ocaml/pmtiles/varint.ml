@@ -23,7 +23,7 @@ let encode buf n =
   let rec go n =
     if n < 0x80 then Buffer.add_char buf (Char.unsafe_chr n)
     else begin
-      Buffer.add_char buf (Char.unsafe_chr ((n land 0x7f) lor 0x80));
+      Buffer.add_char buf (Char.unsafe_chr (n land 0x7f lor 0x80));
       go (n lsr 7)
     end
   in

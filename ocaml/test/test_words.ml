@@ -32,20 +32,16 @@ let bytes_of_word w =
   List.init (String.length w) (fun i -> Z.of_int (Char.code w.[i]))
 
 let word_bytes =
-  lazy (List.init Tessarium.word_count Tessarium.word_at
-  |> List.map bytes_of_word)
+  lazy
+    (List.init Tessarium.word_count Tessarium.word_at |> List.map bytes_of_word)
 
 (* The proved lookup, with the fast path deliberately not in the way. *)
 let proved w =
-  match
-    Tessarium_Words.resolve (bytes_of_word w) (Lazy.force word_bytes)
-  with
+  match Tessarium_Words.resolve (bytes_of_word w) (Lazy.force word_bytes) with
   | Some i -> Some (Z.to_int i)
   | None -> None
 
-let string_of_answer = function
-  | None -> "none"
-  | Some i -> string_of_int i
+let string_of_answer = function None -> "none" | Some i -> string_of_int i
 
 let () =
   check "the wordlist is the 2048 words the format is built on"
@@ -85,8 +81,8 @@ let () =
     done
   done;
   check
-    (Printf.sprintf
-       "the two paths agree on all %d partial spellings%s" !spellings
+    (Printf.sprintf "the two paths agree on all %d partial spellings%s"
+       !spellings
        (match !prefix_disagreements with
        | [] -> ""
        | p :: _ -> Printf.sprintf " (first: %s)" p))

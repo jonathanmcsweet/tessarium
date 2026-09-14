@@ -28,7 +28,8 @@ let inflate (compression : Header.compression) data =
   | Header.Zstd -> invalid_arg "pmtiles: zstd directories are not supported"
 
 let read_directory src header ~offset ~length =
-  Directory.deserialize (inflate header.Header.internal_compression (src.read ~offset ~length))
+  Directory.deserialize
+    (inflate header.Header.internal_compression (src.read ~offset ~length))
 
 let open_ src =
   let header = Header.parse (src.read ~offset:0 ~length:Header.size) in
@@ -67,7 +68,9 @@ let locate t tile_id =
       match Directory.find entries tile_id with
       | None -> None
       | Some e when Directory.is_leaf_pointer e ->
-          walk (leaf t ~offset:e.Directory.offset ~length:e.Directory.length) (depth + 1)
+          walk
+            (leaf t ~offset:e.Directory.offset ~length:e.Directory.length)
+            (depth + 1)
       | Some e -> Some (e.Directory.offset, e.Directory.length)
   in
   walk t.root 0

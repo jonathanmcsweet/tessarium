@@ -55,7 +55,8 @@ let resolve target =
 let extension name =
   match String.rindex_opt name '.' with
   | None -> ""
-  | Some i -> String.lowercase_ascii (String.sub name i (String.length name - i))
+  | Some i ->
+      String.lowercase_ascii (String.sub name i (String.length name - i))
 
 (* Only what this app actually serves. An unknown type is deliberately
    octet-stream rather than a guess: a wrong Content-Type on a script is a
@@ -88,14 +89,11 @@ let cache_control segments =
     (* `index-D4ipvZ4X.js` -- a dash then 8+ base64url characters then the
        extension. *)
     let base =
-      match String.rindex_opt name '.' with
-      | None -> name
-      | Some i -> String.sub name 0 i
+      match Text.rcut '.' name with None -> name | Some (stem, _) -> stem
     in
-    match String.rindex_opt base '-' with
+    match Text.rcut '-' base with
     | None -> false
-    | Some i ->
-        let tag = String.sub base (i + 1) (String.length base - i - 1) in
+    | Some (_, tag) ->
         String.length tag >= 8
         && String.for_all
              (function
@@ -103,5 +101,4 @@ let cache_control segments =
                | _ -> false)
              tag
   in
-  if hashed then "public, max-age=31536000, immutable"
-  else "no-cache"
+  if hashed then "public, max-age=31536000, immutable" else "no-cache"

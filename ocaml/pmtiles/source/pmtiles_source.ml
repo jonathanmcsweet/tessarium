@@ -73,7 +73,7 @@ let https_client net =
         let host =
           Uri.host uri
           |> Option.map (fun h ->
-                 Domain_name.of_string_exn h |> Domain_name.host_exn)
+              Domain_name.of_string_exn h |> Domain_name.host_exn)
         in
         Tls_eio.client_of_flow
           (Result.get_ok (Tls.Config.client ~authenticator ()))
@@ -105,8 +105,8 @@ let with_readahead ?(window = 1 lsl 20) (src : Pmtiles.Archive.source) =
     Pmtiles.Archive.read =
       (fun ~offset ~length ->
         let data, start = !cache in
-        if offset >= start && offset + length <= start + String.length data
-        then String.sub data (offset - start) length
+        if offset >= start && offset + length <= start + String.length data then
+          String.sub data (offset - start) length
         else begin
           let got =
             src.Pmtiles.Archive.read ~offset ~length:(max length window)
@@ -137,7 +137,8 @@ let get_body ~sw:_ ~net url =
   let response, body = Cohttp_eio.Client.get ~sw client uri in
   match Http.Response.status response with
   | `OK -> Eio.Flow.read_all body
-  | s -> failwith (Printf.sprintf "HTTP %d fetching %s" (Http.Status.to_int s) url)
+  | s ->
+      failwith (Printf.sprintf "HTTP %d fetching %s" (Http.Status.to_int s) url)
 
 (* ------------------------------------------------- the newest planet build *)
 
@@ -160,7 +161,7 @@ let is_dated_key k =
 let newest_build listing =
   match Yojson.Safe.from_string listing with
   | exception _ -> Error "the build listing is not JSON"
-  | `List entries ->
+  | `List entries -> (
       let newest =
         List.fold_left
           (fun best entry ->
@@ -168,14 +169,12 @@ let newest_build listing =
             | `Assoc fields -> (
                 match List.assoc_opt "key" fields with
                 | Some (`String k) when is_dated_key k -> (
-                    match best with
-                    | Some b when b >= k -> best
-                    | _ -> Some k)
+                    match best with Some b when b >= k -> best | _ -> Some k)
                 | _ -> best)
             | _ -> best)
           None entries
       in
-      (match newest with
+      match newest with
       | Some k -> Ok (build_base ^ k)
       | None -> Error "the build listing names no dated builds")
   | _ -> Error "the build listing is not a JSON array"

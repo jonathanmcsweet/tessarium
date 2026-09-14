@@ -47,6 +47,21 @@ These hold in all languages
 - Use the DRY principle (reducing redundancy by ensuring that every piece of knowledge has a single, authoritative representation in a system) unless the excess abstraction complicates the code by creating unnecessary layers that make it harder to understand, modify, test. 
 - Avoid undefined and null whenever possible
 
+## Chores
+
+Bump the version of every section you changed when committing your final work
+to a branch. Two sections version separately and need no parity:
+`ocaml/lib/version.ml` is the core (`fstar/` and `ocaml/`), `ui/package.json`
+the dashboard.
+
+A package carries both, so it is named after neither. `(version)` in
+`dune-project` is the release: what a .deb, .rpm, flatpak or tarball is
+called, what both binaries report, and what `tools/check-versions.mjs` holds
+the packaging manifests to. Bump it whenever either section moves, at the
+precedence of the larger change.
+
+SemVer reference: <https://semver.org>
+
 ## Hard rules
 
 **Work tracking lives in exactly two files.** All future work in `roadmap.md`;
@@ -155,6 +170,51 @@ grid or algorithm.
   - `fix(create): bind sshd to loopback only`
   - `chore: adopt test/ and lib/ layout`
 - End messages with the `Co-Authored-By:` trailer naming the AI model used.
+
+## No inline foreign-language code — extract to its own file
+
+- NEVER embed another language (Python, etc.) inline in any other file
+
+## Backend code: OCaml
+
+### OCaml style — read like the surrounding code
+
+- **ocamlformat is the formatter.** `ocaml/.ocamlformat` pins the version, and
+  `ocaml/.ocamlformat-ignore` keeps it off `extracted/` and `fstarlib/`, which
+  CI regenerates and diffs. Run `dune build @fmt --auto-promote` before
+  committing. Never hand-format. Only OCaml is formatted: dune's own formatter
+  puts a blank line between a comment and the stanza it documents.
+- **Chain results, don't nest matches.** Put `let ( let* ) = Result.bind` at
+  the top of a module that parses, and use `traverse` when a whole list has to
+  come back or the first error wins. `ledger.ml` shows both.
+- **Pure core, injected edges.** `Route`, `Url_path`, `Http_range`, `Text` and
+  `Basemap_job` take values and return values. They touch no socket, clock or
+  filesystem, which is why `test_server.ml` can run them directly. IO arrives
+  as a parameter instead: `Pmtiles.Archive.source` is a `read` function, so
+  one implementation serves a local archive and a remote one over range
+  requests, and `Basemap_download` is handed `~fs ~net` by Eio.
+- **Prefer stdlib combinators** (`Option.value`/`fold`, `List.filter_map`,
+  `String.starts_with`) and the shared `Text` helpers over spelling out a
+  match.
+- **Every public module gets an `.mli`** — the documentation lives there.
+  `http_range.mli` and `route.mli` are the voice to copy. Skip the generated
+  modules (`Wordlist`, `Embedded_assets`) and everything under `extracted/`.
+- **`ocaml/server/` is layered one way:** `bin/main` parses the command line,
+  `serve` routes, and the decision and IO modules do the work. When something
+  low in that stack needs a value from higher up, it is passed in as an
+  argument.
+
+References:
+
+- Bünzli's `cmdliner`, `fmt`, `logs` — dependencies, so their `.mli`s are
+  readable at `$(opam var lib)`, `/home/dev/.opam/tessarium/lib` on the dev
+  box. <https://erratique.ch/software>
+- Eio — a dependency; its `.mli` docs are the standard for explaining
+  invariants. <https://github.com/ocaml-multicore/eio>
+- `containers` (`CCResult`, `CCList`) — combinator vocabulary worth copying
+  locally without taking the dependency.
+  <https://github.com/c-cube/ocaml-containers>
+- Jane Street style guide — <https://opensource.janestreet.com/standards/>
 
 ## Running things
 

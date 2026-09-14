@@ -21,12 +21,17 @@ module Table = Tessarium_Table
    JavaScript through js_of_ocaml and there is exactly one of it per refusal.
    A refusal that ever needs two values is the point at which this should
    become a proper variant rather than growing an [arg2]. *)
-type refusal = { code : string; arg : string; message : string }
+type refusal = {
+  code : string;
+  arg : string;
+  message : string;
+}
 
 exception Invalid_address of refusal
 exception Bad_mnemonic of refusal
 
 let grid_version = Table.grid_version
+
 (* Left as Zarith. Both exceed 2^31, and this module is also compiled to
    JavaScript, where Z.to_int targets a 32-bit int and raises Z.Overflow at
    load time. *)
@@ -45,8 +50,8 @@ let tweak = grid_version
 let () =
   if String.length tweak <> 16 then
     failwith
-      "tessarium: the grid tweak must be 16 bytes -- redo the transcription \
-       in fstar/low/Tessarium.Low.Blake2s.fst first"
+      "tessarium: the grid tweak must be 16 bytes -- redo the transcription in \
+       fstar/low/Tessarium.Low.Blake2s.fst first"
 
 (* The injected round function, exposed so tests can drive the core directly. *)
 let round_fn = Crypto.round_fn
@@ -101,7 +106,8 @@ let derivation_version = "tessarium-kdf-4"
 let normalize_mnemonic s = String.trim (String.lowercase_ascii s)
 
 let split_words s =
-  String.split_on_char ' ' (String.map (function '\t' | '\n' | '\r' -> ' ' | c -> c) s)
+  String.split_on_char ' '
+    (String.map (function '\t' | '\n' | '\r' -> ' ' | c -> c) s)
   |> List.filter (fun w -> w <> "")
 
 (* 24 words only. A 12-word phrase carries 128 bits of entropy, which Grover
@@ -133,7 +139,9 @@ let validate_mnemonic m =
         (* 24 words = 264 bits = 256 entropy + 8 checksum *)
         let bits =
           List.fold_left
-            (fun acc w -> Z.add (Z.shift_left acc 11) (Z.of_int (Hashtbl.find Wordlist.index w)))
+            (fun acc w ->
+              Z.add (Z.shift_left acc 11)
+                (Z.of_int (Hashtbl.find Wordlist.index w)))
             Z.zero words
         in
         let checksum = Z.to_int (Z.logand bits (Z.of_int 0xff)) in
@@ -175,7 +183,8 @@ let mnemonic_of_entropy entropy =
   String.concat " "
     (List.init required_words (fun i ->
          let shift = (required_words - 1 - i) * 11 in
-         Wordlist.words.(Z.to_int (Z.logand (Z.shift_right bits shift) (Z.of_int 0x7ff)))))
+         Wordlist.words.(Z.to_int
+                           (Z.logand (Z.shift_right bits shift) (Z.of_int 0x7ff)))))
 
 (* The KDF's two inputs, built HERE and only here: native callers and the
    browser worker (through the js_of_ocaml export) both take them from this
@@ -208,8 +217,11 @@ let derive_key ~kdf ~mnemonic =
 (* ------------------------------------------------------------- addresses *)
 
 let address_to_string (w1, w2, w3, n) =
-  Printf.sprintf "%s.%s.%s.%04d" Wordlist.words.(Z.to_int w1)
-    Wordlist.words.(Z.to_int w2) Wordlist.words.(Z.to_int w3) (Z.to_int n)
+  Printf.sprintf "%s.%s.%s.%04d"
+    Wordlist.words.(Z.to_int w1)
+    Wordlist.words.(Z.to_int w2)
+    Wordlist.words.(Z.to_int w3)
+    (Z.to_int n)
 
 (* The abbreviation rule is PROVED, in fstar/Tessarium.Words.fst: nothing
    resolves to a word the typing does not spell the beginning of. That is
@@ -234,8 +246,7 @@ let bytes_of_word w =
 
 (* Built once. [address_of_string] resolves three words per address, and
    rebuilding 2048 byte lists per call would be most of a decode. *)
-let word_bytes =
-  lazy (Array.to_list Wordlist.words |> List.map bytes_of_word)
+let word_bytes = lazy (Array.to_list Wordlist.words |> List.map bytes_of_word)
 
 (* No two words are the same word.
 
@@ -264,13 +275,16 @@ let resolve_word w =
     when i < Array.length Wordlist.words && String.equal Wordlist.words.(i) w ->
       Some i
   | _ -> (
-      match Tessarium_Words.resolve (bytes_of_word w) (Lazy.force word_bytes) with
+      match
+        Tessarium_Words.resolve (bytes_of_word w) (Lazy.force word_bytes)
+      with
       | Some i -> Some (Z.to_int i)
       | None -> None)
 
 let split_address s =
   let norm =
-    String.map (function ',' | '/' | ' ' | '-' | '_' -> '.' | c -> c)
+    String.map
+      (function ',' | '/' | ' ' | '-' | '_' -> '.' | c -> c)
       (String.trim (String.lowercase_ascii s))
   in
   String.split_on_char '.' norm |> List.filter (fun p -> p <> "")
@@ -315,7 +329,10 @@ let split_address s =
    searched, and a place that happens to be two BIP-39 words ("Canyon River")
    is withheld. Failing towards silence costs a search; failing the other way
    spends a secret, and only one of those can be taken back. *)
-type address_shape = Complete | Partial | Not_address
+type address_shape =
+  | Complete
+  | Partial
+  | Not_address
 
 let address_shape s =
   let digits t = t <> "" && String.for_all (fun c -> c >= '0' && c <= '9') t in
@@ -342,19 +359,20 @@ let address_shape s =
      county" does not count, because no BIP-39 word starts with "county", and
      "north can" does not, because seven do. *)
   let becoming_word p =
-    p <> "" && (not (digits p))
+    p <> ""
+    && (not (digits p))
     && (not (Hashtbl.mem Wordlist.index p))
     (* The same proved predicate the resolver uses, rather than a second
        hand-written prefix comparison beside it -- which is what the two were
        before, and only one of them was right. [p] is not a word here, so
        "spells the beginning of" and "is a strict abbreviation of" name the
        same set. *)
-    && (match
-          Tessarium_Words.matching (bytes_of_word p) (Lazy.force word_bytes)
-            Z.zero
-        with
-       | [ _ ] -> true
-       | _ -> false)
+    &&
+    match
+      Tessarium_Words.matching (bytes_of_word p) (Lazy.force word_bytes) Z.zero
+    with
+    | [ _ ] -> true
+    | _ -> false
   in
   let rec count = function
     | [] -> 0
@@ -391,7 +409,8 @@ let address_of_string s =
   match split_address s with
   | [ a; b; c; num ] ->
       let is_digits t =
-        String.length t = 4 && String.for_all (fun ch -> ch >= '0' && ch <= '9') t
+        String.length t = 4
+        && String.for_all (fun ch -> ch >= '0' && ch <= '9') t
       in
       if not (is_digits num) then
         raise
@@ -462,7 +481,8 @@ type core = {
 
 let extracted_core =
   {
-    encode = (fun ~key ~lat ~lon -> Api.encode Crypto.round_fn key tweak lat lon);
+    encode =
+      (fun ~key ~lat ~lon -> Api.encode Crypto.round_fn key tweak lat lon);
     decode = (fun ~key address -> Api.decode Crypto.round_fn key tweak address);
     bounds_of_point = (fun ~lat ~lon -> Api.bounds_of_point lat lon);
   }
@@ -553,8 +573,7 @@ let cells_in_bounds ~core ~lat_lo ~lon_lo ~lat_hi ~lon_hi ~limit =
         let acc, count, row_top, cut =
           cols lon_lo acc count (Z.add lat Z.one)
         in
-        if cut || Z.leq row_top lat then (acc, true)
-        else rows row_top acc count
+        if cut || Z.leq row_top lat then (acc, true) else rows row_top acc count
     in
     let cells, truncated = rows lat_lo [] 0 in
     (List.rev cells, truncated)

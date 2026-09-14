@@ -43,10 +43,14 @@ let segment_meets_box (ax, ay) (bx, by) ~min_x ~min_y ~max_x ~max_y =
   let dx = bx -. ax and dy = by -. ay in
   let t0 = ref 0. and t1 = ref 1. and ok = ref true in
   let clip p q =
-    if p = 0. then begin if q < 0. then ok := false end
+    if p = 0. then
+      begin if q < 0. then ok := false
+      end
     else
       let r = q /. p in
-      if p < 0. then begin if r > !t1 then ok := false else if r > !t0 then t0 := r end
+      if p < 0. then
+        begin if r > !t1 then ok := false else if r > !t0 then t0 := r
+        end
       else if r < !t0 then ok := false
       else if r < !t1 then t1 := r
   in
@@ -56,7 +60,10 @@ let segment_meets_box (ax, ay) (bx, by) ~min_x ~min_y ~max_x ~max_y =
   clip dy (max_y -. ay);
   !ok
 
-type relation = Outside | Inside | Boundary
+type relation =
+  | Outside
+  | Inside
+  | Boundary
 
 (* How a box relates to the polygon: [Inside] means wholly within, so every
    sub-box is too and no descendant needs another test; [Outside] means no
@@ -71,8 +78,9 @@ let classify t ~min_x ~min_y ~max_x ~max_y =
         for i = 0 to n - 1 do
           if
             (not !hit)
-            && segment_meets_box ring.(i) ring.((i + 1) mod n) ~min_x ~min_y
-                 ~max_x ~max_y
+            && segment_meets_box ring.(i)
+                 ring.((i + 1) mod n)
+                 ~min_x ~min_y ~max_x ~max_y
           then hit := true
         done;
         !hit)

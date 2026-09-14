@@ -1804,14 +1804,6 @@ check(
     && JSON.stringify(voices.note) === JSON.stringify(voices.hint),
 );
 
-/* A sheet is closed by its handle. The drawer's pair -- an icon in the panel
-   header that means "close the panel on the right", and a tab floating at
-   that right edge to bring it back -- are describing a layout this width does
-   not have, and both stand down here. */
-/* Inside the sheet, all of it. Nothing of the handle stands above the panel's
-   top edge, so the map meets the sheet directly: a band of the sheet's own
-   colour above the sheet is what read as a separate strip, and no amount of
-   moving the pill down fixes a band that is still there. */
 check(
   `the sheet wears a handle, wholly inside its own top edge (top ${
     Math.round(sheet.grab.top - sheet.panel.top)

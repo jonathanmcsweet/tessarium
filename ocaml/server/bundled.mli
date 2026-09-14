@@ -11,7 +11,6 @@ val default_dir : unit -> string
 
 val seed : fs:_ Eio.Path.t -> from:string -> into:string -> unit
 (** Copy every entry of [from] that [into] does not already have. Never
-    overwrites, never partially publishes, and does nothing at all when
-    [from] is not a directory. Failures are logged, not raised: a map that
-    could not be seeded is a worse first run, not a reason to refuse to
-    start. *)
+    overwrites, never partially publishes, and does nothing at all when [from]
+    is not a directory. Failures are logged, not raised: a map that could not be
+    seeded is a worse first run, not a reason to refuse to start. *)

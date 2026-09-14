@@ -38,8 +38,8 @@ let write dir name content =
    parses. *)
 let query ~fs ~dir ~min_lon ~min_lat ~max_lon ~max_lat ~zoom =
   match
-    Tessarium_server.Basemap_job.validate ~min_lon ~min_lat ~max_lon
-      ~max_lat ~max_zoom:zoom ()
+    Tessarium_server.Basemap_job.validate ~min_lon ~min_lat ~max_lon ~max_lat
+      ~max_zoom:zoom ()
   with
   | Error e -> Error (Tessarium_server.Basemap_download.Unreadable e)
   | Ok req ->
@@ -77,10 +77,14 @@ let () =
      (roughly greater London) to zoom 12. That is what a real archive looks
      like after a world overview plus one country, and it makes "covered"
      mean different things at different zooms. *)
-  let world = Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom:2
-      ~min_lon:(-180.) ~min_lat:(-85.) ~max_lon:180. ~max_lat:85. in
-  let london = Pmtiles.Tile_id.covering ~min_zoom:3 ~max_zoom:12
-      ~min_lon:(-0.5) ~min_lat:51.3 ~max_lon:0.3 ~max_lat:51.7 in
+  let world =
+    Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom:2 ~min_lon:(-180.)
+      ~min_lat:(-85.) ~max_lon:180. ~max_lat:85.
+  in
+  let london =
+    Pmtiles.Tile_id.covering ~min_zoom:3 ~max_zoom:12 ~min_lon:(-0.5)
+      ~min_lat:51.3 ~max_lon:0.3 ~max_lat:51.7
+  in
   write dir "map.pmtiles"
     (archive_of ~max_zoom:12 (List.sort_uniq compare (world @ london)));
 
@@ -97,8 +101,7 @@ let () =
       check "the rectangle is the viewport's own tiles"
         (int_field "w" json * int_field "h" json = String.length present);
       check "the north-west corner is where the answer starts"
-        (int_field "x" json
-         = Pmtiles.Tile_id.tile_x ~z:12 ~lon:(-0.2)
+        (int_field "x" json = Pmtiles.Tile_id.tile_x ~z:12 ~lon:(-0.2)
         && int_field "y" json = Pmtiles.Tile_id.tile_y ~z:12 ~lat:51.55);
       check "the deepest zoom here is the one the box was cut to"
         (int_field "depth" json = 12));
@@ -214,8 +217,9 @@ let () =
   done;
   check
     (Printf.sprintf
-       "a blank middle always reports a depth below the zoom asked about \
-        (%d of %d viewports disagreed)" !broke !swept)
+       "a blank middle always reports a depth below the zoom asked about (%d \
+        of %d viewports disagreed)"
+       !broke !swept)
     (!broke = 0 && !swept = 840);
 
   (* The edges of the world, where the tile grid runs out.
@@ -273,7 +277,8 @@ let () =
        ~max_lat:35.8 ~zoom:12
    with
   | Error e ->
-      check ("an unreadable archive still answers from the other: " ^ why e)
+      check
+        ("an unreadable archive still answers from the other: " ^ why e)
         false
   | Ok json ->
       check "an archive that will not open is skipped, not fatal"
@@ -313,13 +318,18 @@ let () =
      wrong question -- "no basemap found" would contradict the map behind the
      banner. *)
   let held_in dir_name =
-    match Tessarium_server.Basemap_download.ledger_json ~fs ~basemap_dir:dir_name with
+    match
+      Tessarium_server.Basemap_download.ledger_json ~fs ~basemap_dir:dir_name
+    with
     | Ok json -> bool_field "held" json
     | Error _ -> None
   in
   let world_only = Filename.concat root "world-only" in
   Eio.Path.mkdir ~perm:0o755 Eio.Path.(fs / world_only);
-  write Eio.Path.(fs / world_only) "world.pmtiles" (archive_of ~max_zoom:2 world);
+  write
+    Eio.Path.(fs / world_only)
+    "world.pmtiles"
+    (archive_of ~max_zoom:2 world);
   check "a world overview on its own counts as a basemap"
     (held_in world_only = Some true);
   check "an empty directory does not" (held_in empty = Some false);
@@ -339,7 +349,9 @@ let () =
         | _ -> false)
     | _ -> false);
   check "while an empty directory lists nothing"
-    (match Tessarium_server.Basemap_download.ledger_json ~fs ~basemap_dir:empty with
+    (match
+       Tessarium_server.Basemap_download.ledger_json ~fs ~basemap_dir:empty
+     with
     | Ok (`Assoc fields) -> List.assoc_opt "entries" fields = Some (`List [])
     | _ -> false);
   (* --------------------------------------------- how deep the answer is *)
@@ -375,7 +387,9 @@ let () =
      Every fresh install starts here. *)
   let overview_only = Filename.concat root "overview-only" in
   Eio.Path.mkdir ~perm:0o755 Eio.Path.(fs / overview_only);
-  write Eio.Path.(fs / overview_only) "world.pmtiles"
+  write
+    Eio.Path.(fs / overview_only)
+    "world.pmtiles"
     (archive_of ~max_zoom:2 world);
   (match
      query ~fs ~dir:overview_only ~min_lon:(-0.2) ~min_lat:51.45
@@ -426,8 +440,7 @@ let () =
       (List.sort_uniq compare (world @ london))
   in
   write dir "map.pmtiles" (archive_of ~max_zoom:12 world_but_one);
-  check "one missing tile takes the floor up a level"
-    (depth_of dir_name = 1);
+  check "one missing tile takes the floor up a level" (depth_of dir_name = 1);
   write dir "map.pmtiles"
     (archive_of ~max_zoom:12 (List.sort_uniq compare (world @ london)));
 
@@ -438,8 +451,7 @@ let () =
      certified from the directory alone would be full of holes at its own
      declared depth. *)
   let whole = Eio.Path.load Eio.Path.(dir / "map.pmtiles") in
-  write dir "map.pmtiles"
-    (String.sub whole 0 (String.length whole - 1));
+  write dir "map.pmtiles" (String.sub whole 0 (String.length whole - 1));
   check "an archive shorter than its own header says cannot floor anything"
     (depth_of dir_name = -1);
   (match
@@ -456,15 +468,16 @@ let () =
       check "while still reporting the tiles it does hold"
         (int_field "depth" json = 2));
   write dir "map.pmtiles" whole;
-  check "and the floor comes back when the file does"
-    (depth_of dir_name = 2);
+  check "and the floor comes back when the file does" (depth_of dir_name = 2);
 
   (* A city and nothing else still holds the planet's single zoom-0 tile,
      because every download starts at zoom 0. That one tile is the floor, so
      the app draws a world rather than nothing. *)
   let city_only = Filename.concat root "city" in
   Eio.Path.mkdir ~perm:0o755 Eio.Path.(fs / city_only);
-  write Eio.Path.(fs / city_only) "map.pmtiles"
+  write
+    Eio.Path.(fs / city_only)
+    "map.pmtiles"
     (archive_of ~max_zoom:12
        (Pmtiles.Tile_id.covering ~min_zoom:0 ~max_zoom:12 ~min_lon:(-0.5)
           ~min_lat:51.3 ~max_lon:0.3 ~max_lat:51.7));

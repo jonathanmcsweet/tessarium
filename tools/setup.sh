@@ -98,6 +98,19 @@ if command -v opam >/dev/null 2>&1 && opam switch list --short 2>/dev/null | gre
     ok "dependencies"
   fi
 
+  # Not a build dependency either: `ocaml/.ocamlformat` pins the version, and
+  # a different one reformats the whole tree. Read it from there rather than
+  # naming it twice.
+  fmt_want="$(sed -n 's/^version *= *//p' ocaml/.ocamlformat)"
+  say "ocamlformat $fmt_want"
+  if need "ocamlformat $fmt_want" \
+    "[ \"\$(opam exec --switch=$SWITCH -- ocamlformat --version 2>/dev/null)\" = \"$fmt_want\" ]"; then
+    if ! $check_only; then
+      opam install --switch="$SWITCH" "ocamlformat.$fmt_want" -y
+      ok "ocamlformat $fmt_want"
+    fi
+  fi
+
   # Not a build dependency: this is the tool `make test-core` audits the
   # build's dependency declarations with. It cannot come from tessarium.opam,
   # because it exists to check that file.

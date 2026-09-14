@@ -73,7 +73,12 @@ let is_region name =
    inode -- carries a different stamp, so it misses and is read again. What
    the name alone cannot say is when an entry may be forgotten; that is the
    eviction in [names]. *)
-type stamp = { dev : Int64.t; ino : Int64.t; size : int; mtime : float }
+type stamp = {
+  dev : Int64.t;
+  ino : Int64.t;
+  size : int;
+  mtime : float;
+}
 
 (* A file that will not open is remembered too, as a failure against the
    stamp that produced it.
@@ -84,7 +89,9 @@ type stamp = { dev : Int64.t; ino : Int64.t; size : int; mtime : float }
    working. A truncated copy of an imported archive is the case that hurt.
    Held against the stamp, the retry and the log line happen only when the
    file changes. *)
-type remembered = Readable of Pmtiles.Header.t | Unreadable
+type remembered =
+  | Readable of Pmtiles.Header.t
+  | Unreadable
 
 let cache : (string, stamp * remembered) Hashtbl.t = Hashtbl.create 16
 
@@ -172,14 +179,14 @@ let names ~dir =
       let regions =
         List.filter is_region all
         |> List.map (fun name ->
-               let mtime =
-                 match Eio.Path.stat ~follow:true Eio.Path.(dir / name) with
-                 | st -> st.Eio.File.Stat.mtime
-                 | exception Eio.Io _ -> 0.
-               in
-               (name, mtime))
+            let mtime =
+              match Eio.Path.stat ~follow:true Eio.Path.(dir / name) with
+              | st -> st.Eio.File.Stat.mtime
+              | exception Eio.Io _ -> 0.
+            in
+            (name, mtime))
         |> List.sort (fun (n1, m1) (n2, m2) ->
-               match compare m2 m1 with 0 -> compare n1 n2 | c -> c)
+            match compare m2 m1 with 0 -> compare n1 n2 | c -> c)
         |> List.map fst
       in
       let present name = List.mem name all in
@@ -194,7 +201,9 @@ let names ~dir =
 let entries ~dir =
   List.filter_map
     (fun name ->
-      Option.map (fun (header, size) -> { name; header; size }) (header_of ~dir name))
+      Option.map
+        (fun (header, size) -> { name; header; size })
+        (header_of ~dir name))
     (names ~dir)
 
 (* What counts as downloaded. The world overview is nobody's region: it is

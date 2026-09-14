@@ -24,27 +24,26 @@
 type entry = {
   name : string;  (** what the picker called it; display only *)
   regions : Basemap_job.request list;
-      (** canonically sorted, never empty. Depths are as GRANTED, not as
-          asked: a clamped giant records the zoom it actually fetched, so
-          Remove and Update speak of tiles that exist. *)
+      (** canonically sorted, never empty. Depths are as GRANTED, not as asked:
+          a clamped giant records the zoom it actually fetched, so Remove and
+          Update speak of tiles that exist. *)
   completed : int;
-      (** when the download that made or refreshed this entry finished, in
-          epoch seconds. Zero when the tiles predate the ledger and their
-          age is unknown, which the UI draws as "needs updating".
+      (** when the download that made or refreshed this entry finished, in epoch
+          seconds. Zero when the tiles predate the ledger and their age is
+          unknown, which the UI draws as "needs updating".
 
           Every download dates itself, interrupted ones included. What an
-          interrupted region is missing is a question the map's coverage
-          shading already answers, and dating by the last part to write
-          would have called finished downloads unfinished: the parts overlap
-          at their seams, so the last one routinely writes nothing. Tiles
-          already held were not re-fetched, so their age belongs to the
-          entries that fetched them, and a resumed download records the
-          resuming run. *)
+          interrupted region is missing is a question the map's coverage shading
+          already answers, and dating by the last part to write would have
+          called finished downloads unfinished: the parts overlap at their
+          seams, so the last one routinely writes nothing. Tiles already held
+          were not re-fetched, so their age belongs to the entries that fetched
+          them, and a resumed download records the resuming run. *)
   source : string;  (** the resolved archive it was fetched from *)
   bytes : int;
-      (** bytes actually fetched from the source by the download that made
-          this entry -- the number the estimate quoted, not the archive
-          bytes copied while merging *)
+      (** bytes actually fetched from the source by the download that made this
+          entry -- the number the estimate quoted, not the archive bytes copied
+          while merging *)
 }
 
 type t = entry list
@@ -82,8 +81,8 @@ let canonical_text regions =
   List.iter
     (fun (r : Basemap_job.request) ->
       Buffer.add_string b
-        (Printf.sprintf "%.7f,%.7f,%.7f,%.7f,%d" (pos r.min_lon)
-           (pos r.min_lat) (pos r.max_lon) (pos r.max_lat) r.max_zoom);
+        (Printf.sprintf "%.7f,%.7f,%.7f,%.7f,%d" (pos r.min_lon) (pos r.min_lat)
+           (pos r.max_lon) (pos r.max_lat) r.max_zoom);
       (match r.polygon with
       | None -> ()
       | Some rings ->
@@ -253,7 +252,7 @@ let json_of_region (r : Basemap_job.request) : Yojson.Safe.t =
     (* Written only when there is one, so an entry recorded before regions
        carried labels still serialises to the bytes it always did, as does
        one whose picker sent no name. Optional on the way back in too. *)
-    @ (match r.label with None -> [] | Some l -> [ ("label", `String l) ])
+    @ match r.label with None -> [] | Some l -> [ ("label", `String l) ]
   in
   match r.polygon with
   | None -> `Assoc box
@@ -301,36 +300,39 @@ let point = function
       Ok (x, y)
   | _ -> Error "a polygon point must be [lon, lat]"
 
-let all f l =
-  List.fold_left
-    (fun acc v ->
-      let* acc = acc in
-      let* v = f v in
-      Ok (v :: acc))
-    (Ok []) l
-  |> Result.map List.rev
+let number_field name fields =
+  let* v = field name fields in
+  number v
+
+(* Map, first error wins. A fold would rebind the accumulator's result at
+   every element; this walks once and stops at the first Error. *)
+let traverse f l =
+  let rec go acc = function
+    | [] -> Ok (List.rev acc)
+    | x :: rest -> (
+        match f x with Ok v -> go (v :: acc) rest | Error _ as e -> e)
+  in
+  go [] l
 
 let region_of_json = function
   | `Assoc fields ->
-      let* min_lon = Result.bind (field "min_lon" fields) number in
-      let* min_lat = Result.bind (field "min_lat" fields) number in
-      let* max_lon = Result.bind (field "max_lon" fields) number in
-      let* max_lat = Result.bind (field "max_lat" fields) number in
+      let* min_lon = number_field "min_lon" fields in
+      let* min_lat = number_field "min_lat" fields in
+      let* max_lon = number_field "max_lon" fields in
+      let* max_lat = number_field "max_lat" fields in
       let* max_zoom =
-        match field "max_zoom" fields with
-        | Ok (`Int z) -> Ok z
-        | Ok _ -> Error "max_zoom must be an integer"
-        | Error _ as e -> e
+        let* z = field "max_zoom" fields in
+        match z with `Int z -> Ok z | _ -> Error "max_zoom must be an integer"
       in
       let* polygon =
         match List.assoc_opt "polygon" fields with
         | None -> Ok None
         | Some (`List rings) ->
             let* rings =
-              all
+              traverse
                 (function
                   | `List pts ->
-                      let* pts = all point pts in
+                      let* pts = traverse point pts in
                       Ok (Array.of_list pts)
                   | _ -> Error "a polygon ring must be a list of points")
                 rings
@@ -353,34 +355,32 @@ let region_of_json = function
 let entry_of_json = function
   | `Assoc fields ->
       let* name =
-        match field "name" fields with
-        | Ok (`String s) when valid_name s -> Ok s
-        | Ok _ -> Error "entry name is invalid"
-        | Error _ as e -> e
+        let* v = field "name" fields in
+        match v with
+        | `String s when valid_name s -> Ok s
+        | _ -> Error "entry name is invalid"
       in
       let* completed =
-        match field "completed" fields with
-        | Ok (`Int s) when s >= 0 -> Ok s
-        | Ok _ -> Error "completed must be a non-negative integer"
-        | Error _ as e -> e
+        let* v = field "completed" fields in
+        match v with
+        | `Int s when s >= 0 -> Ok s
+        | _ -> Error "completed must be a non-negative integer"
       in
       let* source =
-        match field "source" fields with
-        | Ok (`String s) -> Ok s
-        | Ok _ -> Error "source must be a string"
-        | Error _ as e -> e
+        let* v = field "source" fields in
+        match v with `String s -> Ok s | _ -> Error "source must be a string"
       in
       let* bytes =
-        match field "bytes" fields with
-        | Ok (`Int b) when b >= 0 -> Ok b
-        | Ok _ -> Error "bytes must be a non-negative integer"
-        | Error _ as e -> e
+        let* v = field "bytes" fields in
+        match v with
+        | `Int b when b >= 0 -> Ok b
+        | _ -> Error "bytes must be a non-negative integer"
       in
       let* regions =
-        match field "regions" fields with
-        | Ok (`List (_ :: _ as l)) -> all region_of_json l
-        | Ok _ -> Error "regions must be a non-empty list"
-        | Error _ as e -> e
+        let* v = field "regions" fields in
+        match v with
+        | `List (_ :: _ as l) -> traverse region_of_json l
+        | _ -> Error "regions must be a non-empty list"
       in
       Ok (make ~name ~regions ~completed ~source ~bytes)
   | _ -> Error "an entry must be an object"
@@ -390,9 +390,8 @@ let of_json = function
       match List.assoc_opt "v" fields with
       | Some (`Int v) when v = version -> (
           match List.assoc_opt "entries" fields with
-          | Some (`List l) -> all entry_of_json l
-          | _ -> Error "ledger has no entries list"
-      )
+          | Some (`List l) -> traverse entry_of_json l
+          | _ -> Error "ledger has no entries list")
       | Some (`Int v) ->
           Error
             (Printf.sprintf
@@ -421,7 +420,8 @@ let foreign fields =
   let ends_in_suffix k =
     String.length k > String.length suffix
     && String.equal
-         (String.sub k (String.length k - String.length suffix)
+         (String.sub k
+            (String.length k - String.length suffix)
             (String.length suffix))
          suffix
   in

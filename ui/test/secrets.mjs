@@ -109,5 +109,11 @@ check(
   /setPhrase\(""\)/.test(gate) && /setGenerated\(null\)/.test(gate),
 );
 
+check(
+  "the gate reveals the field only when the toggle is pressed",
+  [...gate.matchAll(/setShown\(/g)].length === 1
+    && /\[shown, setShown\] = useState\(false\)/.test(gate),
+);
+
 console.log(`\nsecrets: ${checks} checks, ${failures} failures`);
 if (failures > 0) process.exit(1);

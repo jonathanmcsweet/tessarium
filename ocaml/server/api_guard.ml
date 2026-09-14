@@ -8,9 +8,19 @@ type t = { body : string }
 
 let body t = t.body
 
-type refusal = From_another_site | Not_json | Too_large | Not_binary
-type disposal = Drained | Connection_must_close
-type outcome = Allowed of t | Refused of refusal * disposal
+type refusal =
+  | From_another_site
+  | Not_json
+  | Too_large
+  | Not_binary
+
+type disposal =
+  | Drained
+  | Connection_must_close
+
+type outcome =
+  | Allowed of t
+  | Refused of refusal * disposal
 
 let max_body = 1 lsl 22
 
@@ -53,10 +63,7 @@ let from_another_site header =
 let content_type_base header =
   Option.map
     (fun v ->
-      let v = String.lowercase_ascii (String.trim v) in
-      match String.index_opt v ';' with
-      | Some i -> String.trim (String.sub v 0 i)
-      | None -> v)
+      String.trim (Text.before ';' (String.lowercase_ascii (String.trim v))))
     (header "content-type")
 
 let is_json header = content_type_base header = Some "application/json"
@@ -96,7 +103,8 @@ let check ~header ~declares_body ~read =
   let refuse r =
     let disposal =
       if not declares_body then Drained
-      else match read () with Some _ -> Drained | None -> Connection_must_close
+      else
+        match read () with Some _ -> Drained | None -> Connection_must_close
     in
     Refused (r, disposal)
   in
