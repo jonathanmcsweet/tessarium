@@ -1,8 +1,5 @@
 # Tessarium
 
-The phrase is masked throughout: generating one does not put 24 words on
-screen, and locking asks before it forgets them.
-
 Generate a BIP-39 24 word seed phrase and get a map with custom location codes private to you and anyone else sharing your seed phrase. 
 
 1. Generate a BIP-39 24 word seed phrase
