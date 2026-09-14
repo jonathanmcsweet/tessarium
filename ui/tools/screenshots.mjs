@@ -17,7 +17,10 @@ const arg = (name, fallback) => {
 };
 
 const base = process.argv[2] ?? "http://127.0.0.1:7380";
-const outDir = arg("out", new URL("../../screenshots/", import.meta.url).pathname);
+const outDir = arg(
+  "out",
+  new URL("../../screenshots/", import.meta.url).pathname,
+);
 const place = arg("place", "atlanta, ga");
 /* Absolute, not a number of clicks: every theme has to frame the same view,
    and the grid squares only draw from z18. */
@@ -34,7 +37,11 @@ const mnemonic = vectors.key_derivation[0].mnemonic;
 
 /* 16:10, the shape of a laptop screen. The tablet shots this replaced were
    1225x942, which is no device. */
-const LAPTOP = { name: "laptop", zoom: 18.5, viewport: { width: 1440, height: 900 } };
+const LAPTOP = {
+  name: "laptop",
+  zoom: 18.5,
+  viewport: { width: 1440, height: 900 },
+};
 /* A real handset: 360 CSS px is what a 1080-wide Android panel reports at a
    device pixel ratio of 3, which is most of them. The zoom is shallower than
    the laptop's because a phone shows a fifth of the ground at the same one,
@@ -82,7 +89,8 @@ const settle = async (page) => {
       if (map.isStyleLoaded() && map.areTilesLoaded()) return done();
       map.once("idle", done);
       setTimeout(done, 30_000);
-    }));
+    })
+  );
   await page.waitForTimeout(1_500);
   return true;
 };
@@ -169,9 +177,10 @@ const goToPlace = async (page, viewport) => {
     .first()
     .click();
   await page.waitForFunction(
-    () => !/^[\u2588\u2591\s.]*$/.test(
-      document.querySelector(".address")?.textContent ?? "",
-    ),
+    () =>
+      !/^[\u2588\u2591\s.]*$/.test(
+        document.querySelector(".address")?.textContent ?? "",
+      ),
     null,
     { timeout: 10_000 },
   );
@@ -220,7 +229,9 @@ const walkthrough = async (browser, viewport) => {
 
   await page.locator(".generate .btn").click();
   await page.waitForFunction(
-    () => (document.querySelector("#phrase")?.value ?? "").split(/\s+/).length === 24,
+    () =>
+      (document.querySelector("#phrase")?.value ?? "").split(/\s+/).length
+        === 24,
     null,
     { timeout: 60_000 },
   );
@@ -257,7 +268,9 @@ try {
 writeFileSync(
   `${outDir}/MANIFEST.txt`,
   `${shots.length} screenshots, ${place}, zoom ${zoom}\n`
-    + shots.map((p) => p.replace(outDir, "").replace(/^\/*/, "")).sort().join("\n")
+    + shots.map((p) => p.replace(outDir, "").replace(/^\/*/, "")).sort().join(
+      "\n",
+    )
     + "\n",
 );
 console.log(`\n${shots.length} screenshots under ${outDir}`);
