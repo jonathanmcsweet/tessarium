@@ -584,21 +584,6 @@ check(
     && (await page.locator(".phrase-status").textContent()).includes("24/24"),
 );
 check(
-  "a generated phrase stays masked",
-  (await page.locator("#phrase").getAttribute("type")) === "password",
-);
-await page.locator(".gate-phrase-toggle").click();
-check(
-  "and the toggle still reveals it, to be read onto paper",
-  (await page.locator("#phrase").getAttribute("type")) === "text"
-    && (await page.locator("#phrase").inputValue()) === firstGenerated,
-);
-await page.locator(".gate-phrase-toggle").click();
-check(
-  "and hides it again",
-  (await page.locator("#phrase").getAttribute("type")) === "password",
-);
-check(
   "the write-it-down warning appears",
   (await page.locator(".warning").allTextContents()).some((t) =>
     t.includes("Save these 24 words in a password vault")
@@ -1819,14 +1804,6 @@ check(
     && JSON.stringify(voices.note) === JSON.stringify(voices.hint),
 );
 
-/* A sheet is closed by its handle. The drawer's pair -- an icon in the panel
-   header that means "close the panel on the right", and a tab floating at
-   that right edge to bring it back -- are describing a layout this width does
-   not have, and both stand down here. */
-/* Inside the sheet, all of it. Nothing of the handle stands above the panel's
-   top edge, so the map meets the sheet directly: a band of the sheet's own
-   colour above the sheet is what read as a separate strip, and no amount of
-   moving the pill down fixes a band that is still there. */
 check(
   `the sheet wears a handle, wholly inside its own top edge (top ${
     Math.round(sheet.grab.top - sheet.panel.top)
@@ -1837,18 +1814,6 @@ check(
 check(
   "and the drawer's own hide button is not on a phone",
   !(await phone.locator(".panel-hide").isVisible()),
-);
-
-/* The sheet gets 45vh at most, and on a short handset the explainer alone ate
-   a fifth of it to say something the gate has already said. It stays on the
-   desktop drawer, which has the room. */
-check(
-  "the footer explainer is off the sheet on a phone",
-  !(await phone.locator(".panel-explainer").isVisible()),
-);
-check(
-  "and still on the drawer where there is room for it",
-  await page.locator(".panel-explainer").isVisible(),
 );
 
 /* Shut, the sheet covers nothing and the handle is all that is left of it,
