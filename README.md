@@ -33,9 +33,6 @@ Generate a BIP-39 24 word seed phrase and get a map with custom location codes p
 
 ## Mobile
 
-The same four screens on a phone, where the panel becomes a sheet across the
-bottom of the map.
-
 <p>
   <img src="screenshots/phone/01-unlock.png" alt="The unlock screen" width="24%">
   <img src="screenshots/phone/02-generated.png" alt="A generated phrase, masked" width="24%">
